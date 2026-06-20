@@ -1,6 +1,7 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/app_providers.dart';
+import '../../../core/errors/music_app_exception.dart';
 import '../../source_import/data/lan_music_source_client.dart';
 import '../data/library_repository.dart';
 import '../domain/track.dart';
@@ -88,8 +89,9 @@ class LibraryController extends AsyncNotifier<LibraryState> {
     try {
       final imported = await _fetchFirstAvailableSource();
       final merged = await _repository.mergeSourceTracks(imported.tracks);
+      final latest = state.value ?? current;
       state = AsyncData(
-        current.copyWith(
+        latest.copyWith(
           tracks: merged,
           isImporting: false,
           lastSourceUri: imported.uri,
@@ -97,8 +99,9 @@ class LibraryController extends AsyncNotifier<LibraryState> {
         ),
       );
     } catch (error) {
+      final latest = state.value ?? current;
       state = AsyncData(
-        current.copyWith(
+        latest.copyWith(
           isImporting: false,
           errorMessage: _friendlyError(error),
         ),
@@ -106,7 +109,7 @@ class LibraryController extends AsyncNotifier<LibraryState> {
     }
   }
 
-  Future<Track> cacheTrack(Track track) async {
+  Future<Track> cacheTrack(Track track, {bool surfaceError = true}) async {
     final current = state.value ?? const LibraryState.empty();
     _setProgress(track.id, 0);
 
@@ -123,26 +126,29 @@ class LibraryController extends AsyncNotifier<LibraryState> {
       final latest = state.value ?? current;
       state = AsyncData(
         latest.copyWith(
-          tracks: _replaceTrack(latest.tracks, cached),
+          tracks: _replaceTrack(latest.tracks, cached, insertIfMissing: false),
           downloadProgress: _withoutProgress(latest.downloadProgress, track.id),
-          clearError: true,
+          clearError: surfaceError,
         ),
       );
       return cached;
     } catch (error) {
       final latest = state.value ?? current;
-      state = AsyncData(
-        latest.copyWith(
-          tracks: _replaceTrack(
-            latest.tracks,
-            track.copyWith(
-              clearLocalPath: true,
-              cacheState: TrackCacheState.failed,
-            ),
+      final failedState = latest.copyWith(
+        tracks: _replaceTrack(
+          latest.tracks,
+          track.copyWith(
+            clearLocalPath: true,
+            cacheState: TrackCacheState.failed,
           ),
-          downloadProgress: _withoutProgress(latest.downloadProgress, track.id),
-          errorMessage: _friendlyError(error),
+          insertIfMissing: false,
         ),
+        downloadProgress: _withoutProgress(latest.downloadProgress, track.id),
+      );
+      state = AsyncData(
+        surfaceError
+            ? failedState.copyWith(errorMessage: _friendlyError(error))
+            : failedState,
       );
       rethrow;
     }
@@ -170,13 +176,17 @@ class LibraryController extends AsyncNotifier<LibraryState> {
       current.copyWith(
         downloadProgress: {
           ...current.downloadProgress,
-          trackId: progress.clamp(0, 1),
+          trackId: progress.clamp(0.0, 1.0).toDouble(),
         },
       ),
     );
   }
 
-  List<Track> _replaceTrack(List<Track> tracks, Track updated) {
+  List<Track> _replaceTrack(
+    List<Track> tracks,
+    Track updated, {
+    bool insertIfMissing = true,
+  }) {
     var found = false;
     final next = <Track>[];
     for (final track in tracks) {
@@ -187,7 +197,7 @@ class LibraryController extends AsyncNotifier<LibraryState> {
         next.add(track);
       }
     }
-    if (!found) {
+    if (!found && insertIfMissing) {
       next.add(updated);
     }
     return next;
@@ -204,6 +214,10 @@ class LibraryController extends AsyncNotifier<LibraryState> {
   }
 
   String _friendlyError(Object error) {
+    if (error is MusicAppException) {
+      return error.message;
+    }
+
     final message = error.toString();
     if (message.contains('Connection refused') ||
         message.contains('SocketException')) {

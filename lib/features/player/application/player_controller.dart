@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:audio_service/audio_service.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -42,13 +44,18 @@ class PlayerController {
       return;
     }
 
-    final cached = await _ref
-        .read(libraryControllerProvider.notifier)
-        .cacheTrack(track);
-    final latest = _ref.read(libraryControllerProvider).value ?? library;
-    final queue = latest.tracks.isEmpty ? [cached] : latest.tracks;
-    final index = queue.indexWhere((item) => item.id == cached.id);
+    final queue = library.tracks.isEmpty ? [track] : library.tracks;
+    final index = queue.indexWhere((item) => item.id == track.id);
     await _audioHandler.loadAndPlay(queue, index < 0 ? 0 : index);
+
+    if (!track.isCached) {
+      unawaited(
+        _ref
+            .read(libraryControllerProvider.notifier)
+            .cacheTrack(track, surfaceError: false)
+            .catchError((_) => track),
+      );
+    }
   }
 
   Future<void> togglePlayPause() async {

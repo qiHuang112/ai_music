@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -115,8 +117,7 @@ class _TrackTile extends ConsumerWidget {
         track: track,
         progress: progress,
         onCachePressed: progress == null
-            ? () =>
-                  ref.read(libraryControllerProvider.notifier).cacheTrack(track)
+            ? () => unawaited(_cacheTrack(context, ref))
             : null,
       ),
       onTap: () async {
@@ -132,6 +133,19 @@ class _TrackTile extends ConsumerWidget {
         }
       },
     );
+  }
+
+  Future<void> _cacheTrack(BuildContext context, WidgetRef ref) async {
+    try {
+      await ref.read(libraryControllerProvider.notifier).cacheTrack(track);
+    } catch (error) {
+      if (!context.mounted) {
+        return;
+      }
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('缓存失败：$error')));
+    }
   }
 }
 
