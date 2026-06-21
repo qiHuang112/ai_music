@@ -290,6 +290,12 @@ class MusicAudioHandler extends BaseAudioHandler
 
   Future<Object?> _handleOhosMediaControlCall(MethodCall call) async {
     switch (call.method) {
+      case 'play':
+        await play();
+        return null;
+      case 'pause':
+        await pause();
+        return null;
       case 'setLoopMode':
         final loopMode = _stringArg(call.arguments, 'loopMode');
         final loopCallback = onOhosLoopModeRequested;

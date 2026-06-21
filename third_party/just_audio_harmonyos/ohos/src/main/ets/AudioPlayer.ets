@@ -205,10 +205,52 @@ export class AudioPlayer implements MethodCallHandler, onChangeMediaAvPlayerStat
     this.player?.updateAVSessionControlState(repeatMode, shuffleMode, isFavorite);
   }
 
+  onAVSessionPlayRequested(): void {
+    this.mediaControlsChannel?.invokeMethod('play', new Map<String, Object>(), {
+      success: (_result: Any): void => {
+        Log.i(TAG, 'AVSession play request handled by Dart');
+      },
+      error: (errorCode: string, errorMessage: string, _errorDetails: Any): void => {
+        Log.e(TAG, `AVSession play request failed: ${errorCode} ${errorMessage}`);
+        this.player?.play();
+      },
+      notImplemented: (): void => {
+        Log.w(TAG, 'AVSession play request not implemented by Dart, fallback to native play');
+        this.player?.play();
+      }
+    });
+  }
+
+  onAVSessionPauseRequested(): void {
+    this.mediaControlsChannel?.invokeMethod('pause', new Map<String, Object>(), {
+      success: (_result: Any): void => {
+        Log.i(TAG, 'AVSession pause request handled by Dart');
+      },
+      error: (errorCode: string, errorMessage: string, _errorDetails: Any): void => {
+        Log.e(TAG, `AVSession pause request failed: ${errorCode} ${errorMessage}`);
+        this.player?.pause();
+      },
+      notImplemented: (): void => {
+        Log.w(TAG, 'AVSession pause request not implemented by Dart, fallback to native pause');
+        this.player?.pause();
+      }
+    });
+  }
+
   onAVSessionLoopModeRequested(loopMode: string): void {
     let args: Map<String, Object> = new Map<String, Object>();
     args.set('loopMode', loopMode);
-    this.mediaControlsChannel?.invokeMethod('setLoopMode', args);
+    this.mediaControlsChannel?.invokeMethod('setLoopMode', args, {
+      success: (_result: Any): void => {
+        Log.i(TAG, `AVSession loop mode ${loopMode} handled by Dart`);
+      },
+      error: (errorCode: string, errorMessage: string, _errorDetails: Any): void => {
+        Log.e(TAG, `AVSession loop mode ${loopMode} failed: ${errorCode} ${errorMessage}`);
+      },
+      notImplemented: (): void => {
+        Log.w(TAG, `AVSession loop mode ${loopMode} not implemented by Dart`);
+      }
+    });
   }
 
   onAVSessionToggleFavoriteRequested(assetId: string): void {

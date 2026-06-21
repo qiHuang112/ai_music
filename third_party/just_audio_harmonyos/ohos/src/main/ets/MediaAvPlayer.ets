@@ -94,6 +94,10 @@ export interface onChangeMediaAvPlayerState {
 
   onErrorCallback(err: BusinessError): void
 
+  onAVSessionPlayRequested(): void
+
+  onAVSessionPauseRequested(): void
+
   onAVSessionLoopModeRequested(loopMode: string): void
 
   onAVSessionToggleFavoriteRequested(assetId: string): void
@@ -205,7 +209,6 @@ export class MediaAvPlayer {
       session.off('playPrevious', this.playPreviousCall);
       session.off('seek', this.avSessionSeekCall);
       session.off('setLoopMode', this.setLoopModeCall);
-      session.off('setTargetLoopMode', this.setLoopModeCall);
       session.off('toggleFavorite', this.toggleFavoriteCall);
     } catch (error) {
       console.error(TAG, `remove ${name} callbacks failed: ${JSON.stringify(error)}`);
@@ -345,7 +348,7 @@ export class MediaAvPlayer {
     this.lastAVSessionPlaybackStateUpdateTime = now;
     this.setPlayState({
       state: state,
-      speed: this.isPlaying ? this.playbackRate : 0,
+      speed: this.playbackRate,
       position: {
         elapsedTime: this.getCurrentTime(),
         updateTime: now
@@ -368,6 +371,20 @@ export class MediaAvPlayer {
       case LoopMode.LIST_LOOP:
         return avSession.LoopMode.LOOP_MODE_LIST;
       case LoopMode.DEFAULT:
+      default:
+        return avSession.LoopMode.LOOP_MODE_SEQUENCE;
+    }
+  }
+
+  private getNextAVSessionLoopMode(): avSession.LoopMode {
+    switch (this.getAVSessionLoopMode()) {
+      case avSession.LoopMode.LOOP_MODE_SEQUENCE:
+        return avSession.LoopMode.LOOP_MODE_LIST;
+      case avSession.LoopMode.LOOP_MODE_LIST:
+        return avSession.LoopMode.LOOP_MODE_SINGLE;
+      case avSession.LoopMode.LOOP_MODE_SINGLE:
+        return avSession.LoopMode.LOOP_MODE_SHUFFLE;
+      case avSession.LoopMode.LOOP_MODE_SHUFFLE:
       default:
         return avSession.LoopMode.LOOP_MODE_SEQUENCE;
     }
@@ -588,22 +605,32 @@ export class MediaAvPlayer {
   }
 
   private playCall: () => void = async () => {
-    console.info(TAG, `on play , do play task`);
+    console.info(TAG, `on play, playerState=${this.avPlayer?.state}, isPlaying=${this.isPlaying}`);
     this.isPlaying = true;
-    if (this.isFirst) {
-      await this.loadAssent(0);
-    } else {
-      if (this.avPlayer?.state == 'paused' || this.avPlayer?.state == 'prepared') {
-        this.playingState();
-      } else {
-        this.play();
-      }
+    this.state = AudioPlayerState.PLAY;
+    this.syncAVSessionPlaybackState(avSession.PlaybackState.PLAYBACK_STATE_PLAY);
+    if (this.mediaAvPlayerStateChangeListener) {
+      this.mediaAvPlayerStateChangeListener.onAVSessionPlayRequested();
+      return;
+    }
+    try {
+      await this.play();
+    } catch (error) {
+      console.error(TAG, `fallback native play failed: ${JSON.stringify(error)}`);
+      this.syncAVSessionPlaybackState(avSession.PlaybackState.PLAYBACK_STATE_ERROR);
     }
   };
   private pauseCall: () => void = () => {
     console.info(TAG, `on pause, playerState=${this.avPlayer?.state}, isPlaying=${this.isPlaying}`);
+    this.isPlaying = false;
+    this.state = AudioPlayerState.PAUSE;
+    this.syncAVSessionPlaybackState(avSession.PlaybackState.PLAYBACK_STATE_PAUSE);
+    if (this.mediaAvPlayerStateChangeListener) {
+      this.mediaAvPlayerStateChangeListener.onAVSessionPauseRequested();
+      return;
+    }
     this.pause().catch((error: BusinessError) => {
-      console.error(TAG, `session pause failed, code is ${error.code}, message is ${error.message}`);
+      console.error(TAG, `fallback native pause failed, code is ${error.code}, message is ${error.message}`);
       this.syncAVSessionPlaybackState(avSession.PlaybackState.PLAYBACK_STATE_ERROR);
     });
   };
@@ -623,9 +650,10 @@ export class MediaAvPlayer {
     });
   };
   private setLoopModeCall: (mode: avSession.LoopMode) => void = (mode: avSession.LoopMode) => {
-    const loopMode = this.avSessionLoopModeToName(mode);
-    console.info(TAG, `on setLoopMode, mode=${loopMode}`);
-    this.applyAVSessionLoopMode(mode);
+    const targetMode = this.getNextAVSessionLoopMode();
+    const loopMode = this.avSessionLoopModeToName(targetMode);
+    console.info(TAG, `on setLoopMode, requested=${this.avSessionLoopModeToName(mode)}, next=${loopMode}`);
+    this.applyAVSessionLoopMode(targetMode);
     this.syncCurrentAVSessionPlaybackState();
     this.mediaAvPlayerStateChangeListener?.onAVSessionLoopModeRequested(loopMode);
   };
@@ -1001,7 +1029,6 @@ export class MediaAvPlayer {
     this.session.on('playPrevious', this.playPreviousCall);
     this.session.on('seek', this.avSessionSeekCall);
     this.session.on('setLoopMode', this.setLoopModeCall);
-    this.session.on('setTargetLoopMode', this.setLoopModeCall);
     this.session.on('toggleFavorite', this.toggleFavoriteCall);
   }
 
@@ -1821,11 +1848,18 @@ export class MediaAvPlayer {
 
   private setPlayState(playbackState: avSession.AVPlaybackState) {
     if (this.session) {
+      console.info(TAG,
+        `SetAVPlaybackState request state=${playbackState.state}, isPlaying=${this.isPlaying}, ` +
+          `playerState=${this.avPlayer?.state}, speed=${playbackState.speed}, ` +
+          `elapsedTime=${playbackState.position?.elapsedTime}, updateTime=${playbackState.position?.updateTime}, ` +
+          `bufferedTime=${playbackState.bufferedTime}, duration=${playbackState.duration}, ` +
+          `activeItemId=${playbackState.activeItemId}, loopMode=${playbackState.loopMode}, ` +
+          `isFavorite=${playbackState.isFavorite}`);
       this.session.setAVPlaybackState(playbackState, (err: BusinessError) => {
         if (err) {
           console.error(TAG, `SetAVPlaybackState BusinessError: code: ${err.code}, message: ${err.message}`);
         } else {
-          console.info(TAG, 'SetAVPlaybackState successfully');
+          console.info(TAG, `SetAVPlaybackState successfully state=${playbackState.state}`);
         }
       });
     }
