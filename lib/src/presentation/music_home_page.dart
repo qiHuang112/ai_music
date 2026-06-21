@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:audio_service/audio_service.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../application/music_controller.dart';
 import '../application/music_ui_message.dart';
@@ -25,7 +26,11 @@ class MusicHomePage extends StatefulWidget {
 }
 
 class _MusicHomePageState extends State<MusicHomePage> {
+  static const _exitBackWindow = Duration(seconds: 2);
+
   final _searchController = TextEditingController();
+  DateTime? _lastEmptyBackAt;
+  MusicUiMessage? _lastStatusSnackMessage;
 
   MusicController get controller => widget.controller;
 
@@ -47,73 +52,156 @@ class _MusicHomePageState extends State<MusicHomePage> {
       animation: controller,
       builder: (context, _) {
         final strings = AppStringsScope.of(context);
-        return Scaffold(
-          appBar: AppBar(
-            title: Text(strings.appTitle),
-            actions: [
-              IconButton(
-                tooltip: strings.downloads,
-                onPressed: _openDownloads,
-                icon: const Icon(Icons.download),
-              ),
-              IconButton(
-                tooltip: strings.playlists,
-                onPressed: _openLibrary,
-                icon: const Icon(Icons.queue_music),
-              ),
-              IconButton(
-                tooltip: strings.settings,
-                onPressed: _openSettings,
-                icon: const Icon(Icons.settings),
-              ),
-            ],
-          ),
-          body: SafeArea(
-            child: Column(
-              children: [
-                _SearchHeader(
-                  controller: _searchController,
-                  isSearching: controller.isSearching,
-                  onSearch: () => controller.search(_searchController.text),
-                  onSubmitted: controller.search,
+        _maybeShowStatusSnack(strings);
+        return PopScope(
+          canPop: false,
+          onPopInvokedWithResult: (didPop, _) {
+            if (!didPop) {
+              _handleRootBack(strings);
+            }
+          },
+          child: Scaffold(
+            appBar: AppBar(
+              title: Text(strings.appTitle),
+              actions: [
+                IconButton(
+                  tooltip: strings.downloads,
+                  onPressed: _openDownloads,
+                  icon: const Icon(Icons.download),
                 ),
-                if (_shouldShowSearchPanel)
-                  Expanded(
-                    child: _OnlineSearchPanel(
-                      candidates: controller.candidates,
-                      isSearching: controller.isSearching,
-                      isCandidateBusy: controller.isCandidateDownloading,
-                      isCandidateCached: controller.isCandidateCached,
-                      error:
-                          _localizedMessage(strings, controller.errorMessage) ??
-                          controller.errorDetail,
-                      status: _localizedMessage(
-                        strings,
-                        controller.statusMessage,
-                      ),
-                      onRetry: () => controller.search(_searchController.text),
-                      onSelect: controller.downloadCandidate,
-                      onPlay: controller.playCandidate,
-                      onOpenDownloads: _openDownloads,
-                    ),
-                  )
-                else
-                  Expanded(child: _SearchBody(controller: controller)),
+                IconButton(
+                  tooltip: strings.playlists,
+                  onPressed: _openLibrary,
+                  icon: const Icon(Icons.queue_music),
+                ),
+                IconButton(
+                  tooltip: strings.settings,
+                  onPressed: _openSettings,
+                  icon: const Icon(Icons.settings),
+                ),
               ],
             ),
+            body: SafeArea(
+              child: Column(
+                children: [
+                  _SearchHeader(
+                    controller: _searchController,
+                    isSearching: controller.isSearching,
+                    onChanged: _handleSearchChanged,
+                    onSearch: () => controller.search(_searchController.text),
+                    onSubmitted: controller.search,
+                  ),
+                  if (_shouldShowSearchPanel)
+                    Expanded(
+                      child: _OnlineSearchPanel(
+                        candidates: controller.candidates,
+                        isSearching: controller.isSearching,
+                        isCandidateBusy: controller.isCandidateDownloading,
+                        isCandidateCached: controller.isCandidateCached,
+                        error:
+                            _localizedMessage(
+                              strings,
+                              controller.errorMessage,
+                            ) ??
+                            controller.errorDetail,
+                        onRetry: () =>
+                            controller.search(_searchController.text),
+                        onSelect: controller.downloadCandidate,
+                        onPlay: controller.playCandidate,
+                      ),
+                    )
+                  else
+                    Expanded(child: _SearchBody(controller: controller)),
+                ],
+              ),
+            ),
+            bottomNavigationBar: _MiniPlayer(controller: controller),
           ),
-          bottomNavigationBar: _MiniPlayer(controller: controller),
         );
       },
     );
   }
 
   bool get _shouldShowSearchPanel {
-    return controller.isSearching ||
-        controller.candidates.isNotEmpty ||
-        controller.errorMessage != null ||
-        controller.errorDetail != null ||
-        controller.statusMessage != null;
+    return _searchController.text.trim().isNotEmpty &&
+        (controller.isSearching ||
+            controller.candidates.isNotEmpty ||
+            controller.errorMessage != null ||
+            controller.errorDetail != null);
+  }
+
+  void _handleSearchChanged(String value) {
+    _lastEmptyBackAt = null;
+    if (controller.hasSearchState) {
+      controller.clearSearch();
+    }
+    setState(() {});
+  }
+
+  void _handleRootBack(AppStrings strings) {
+    if (_searchController.text.trim().isNotEmpty || controller.hasSearchState) {
+      _clearSearchInputAndState();
+      return;
+    }
+    final now = DateTime.now();
+    if (_lastEmptyBackAt == null ||
+        now.difference(_lastEmptyBackAt!) > _exitBackWindow) {
+      _lastEmptyBackAt = now;
+      final messenger = ScaffoldMessenger.of(context);
+      messenger.hideCurrentSnackBar();
+      messenger.showSnackBar(
+        SnackBar(
+          content: Text(strings.pressBackAgainToExit),
+          behavior: SnackBarBehavior.floating,
+          duration: _exitBackWindow,
+        ),
+      );
+      return;
+    }
+    SystemNavigator.pop();
+  }
+
+  void _clearSearchInputAndState() {
+    _lastEmptyBackAt = null;
+    _searchController.clear();
+    controller.clearSearch();
+    setState(() {});
+  }
+
+  void _maybeShowStatusSnack(AppStrings strings) {
+    final message = controller.statusMessage;
+    if (message == null) {
+      _lastStatusSnackMessage = null;
+      return;
+    }
+    if (!_shouldShowFloatingStatus(message) ||
+        identical(_lastStatusSnackMessage, message)) {
+      return;
+    }
+    _lastStatusSnackMessage = message;
+    final text = _localizedMessage(strings, message);
+    if (text == null) {
+      return;
+    }
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || !identical(_lastStatusSnackMessage, message)) {
+        return;
+      }
+      final messenger = ScaffoldMessenger.of(context);
+      messenger.hideCurrentSnackBar();
+      messenger.showSnackBar(
+        SnackBar(
+          content: Text(text),
+          behavior: SnackBarBehavior.floating,
+          action: _statusOpensDownloads(message)
+              ? SnackBarAction(
+                  label: strings.downloadManager,
+                  onPressed: () => unawaited(_openDownloads()),
+                )
+              : null,
+        ),
+      );
+    });
   }
 
   Future<void> _openSettings() async {
@@ -141,16 +229,39 @@ class _MusicHomePageState extends State<MusicHomePage> {
   }
 }
 
+bool _shouldShowFloatingStatus(MusicUiMessage message) {
+  return switch (message.code) {
+    MusicUiMessageCode.alreadyInCache ||
+    MusicUiMessageCode.downloadedToCache ||
+    MusicUiMessageCode.downloadAlreadyRunning ||
+    MusicUiMessageCode.downloadCanceled ||
+    MusicUiMessageCode.playingCachedFile => true,
+    _ => false,
+  };
+}
+
+bool _statusOpensDownloads(MusicUiMessage message) {
+  return switch (message.code) {
+    MusicUiMessageCode.alreadyInCache ||
+    MusicUiMessageCode.downloadedToCache ||
+    MusicUiMessageCode.downloadAlreadyRunning ||
+    MusicUiMessageCode.downloadCanceled => true,
+    _ => false,
+  };
+}
+
 class _SearchHeader extends StatelessWidget {
   const _SearchHeader({
     required this.controller,
     required this.isSearching,
+    required this.onChanged,
     required this.onSearch,
     required this.onSubmitted,
   });
 
   final TextEditingController controller;
   final bool isSearching;
+  final ValueChanged<String> onChanged;
   final VoidCallback onSearch;
   final ValueChanged<String> onSubmitted;
 
@@ -168,6 +279,7 @@ class _SearchHeader extends StatelessWidget {
               child: TextField(
                 controller: controller,
                 textInputAction: TextInputAction.search,
+                onChanged: onChanged,
                 onSubmitted: onSubmitted,
                 decoration: InputDecoration(
                   hintText: strings.searchHint,
@@ -202,11 +314,9 @@ class _OnlineSearchPanel extends StatelessWidget {
     required this.isCandidateBusy,
     required this.isCandidateCached,
     required this.error,
-    required this.status,
     required this.onRetry,
     required this.onSelect,
     required this.onPlay,
-    required this.onOpenDownloads,
   });
 
   final List<MusicSearchCandidate> candidates;
@@ -214,11 +324,9 @@ class _OnlineSearchPanel extends StatelessWidget {
   final bool Function(MusicSearchCandidate candidate) isCandidateBusy;
   final bool Function(MusicSearchCandidate candidate) isCandidateCached;
   final String? error;
-  final String? status;
   final VoidCallback onRetry;
   final ValueChanged<MusicSearchCandidate> onSelect;
   final ValueChanged<MusicSearchCandidate> onPlay;
-  final VoidCallback onOpenDownloads;
 
   @override
   Widget build(BuildContext context) {
@@ -249,20 +357,6 @@ class _OnlineSearchPanel extends StatelessWidget {
                   tooltip: strings.retrySearch,
                   onPressed: onRetry,
                   icon: const Icon(Icons.refresh),
-                ),
-              ),
-            if (status != null && error == null)
-              InkWell(
-                onTap: onOpenDownloads,
-                child: ListTile(
-                  dense: true,
-                  leading: const Icon(Icons.downloading),
-                  title: Text(
-                    status!,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                  trailing: const Icon(Icons.chevron_right),
                 ),
               ),
             if (candidates.isNotEmpty)

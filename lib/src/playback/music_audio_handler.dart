@@ -48,6 +48,7 @@ class MusicAudioHandler extends BaseAudioHandler
   Future<void> loadQueue(
     List<PlayableAudio> items, {
     int initialIndex = 0,
+    Duration initialPosition = Duration.zero,
     bool playWhenReady = true,
   }) async {
     _items = List<PlayableAudio>.unmodifiable(items);
@@ -66,7 +67,7 @@ class MusicAudioHandler extends BaseAudioHandler
           AudioSource.uri(item.uri, tag: item.mediaItem),
       ],
       initialIndex: safeIndex,
-      initialPosition: Duration.zero,
+      initialPosition: initialPosition,
     );
     _publishCurrentItem(safeIndex);
     if (playWhenReady) {

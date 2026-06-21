@@ -73,6 +73,7 @@ class MusicController extends ChangeNotifier {
   List<CachedTrack> _cachedRecords = const [];
   PlaylistLibrary _playlistLibrary = const PlaylistLibrary.empty();
   int _metadataRequest = 0;
+  int _searchRequest = 0;
   String? _metadataTrackId;
   bool _legacyRepairRunning = false;
 
@@ -108,6 +109,13 @@ class MusicController extends ChangeNotifier {
 
   List<DownloadTask> get recentDownloadTasks {
     return downloadQueue.recentTasks;
+  }
+
+  bool get hasSearchState {
+    return isSearching ||
+        candidates.isNotEmpty ||
+        errorMessage != null ||
+        errorDetail != null;
   }
 
   Track? get currentTrack {
@@ -164,9 +172,11 @@ class MusicController extends ChangeNotifier {
 
   Future<void> search(String query) async {
     final trimmed = query.trim();
-    if (trimmed.isEmpty || isSearching) {
+    if (trimmed.isEmpty) {
+      clearSearch();
       return;
     }
+    final request = ++_searchRequest;
     isSearching = true;
     errorDetail = null;
     errorMessage = null;
@@ -175,6 +185,9 @@ class MusicController extends ChangeNotifier {
     notifyListeners();
     try {
       final result = await _resolver.search(trimmed, source);
+      if (request != _searchRequest) {
+        return;
+      }
       candidates = result;
       if (result.isEmpty) {
         errorMessage = const MusicUiMessage(
@@ -182,12 +195,27 @@ class MusicController extends ChangeNotifier {
         );
       }
     } catch (exception) {
+      if (request != _searchRequest) {
+        return;
+      }
       errorDetail = friendlyError(exception);
       errorMessage = null;
     } finally {
-      isSearching = false;
-      notifyListeners();
+      if (request == _searchRequest) {
+        isSearching = false;
+        notifyListeners();
+      }
     }
+  }
+
+  void clearSearch() {
+    _searchRequest += 1;
+    isSearching = false;
+    candidates = const [];
+    errorDetail = null;
+    errorMessage = null;
+    statusMessage = null;
+    notifyListeners();
   }
 
   Future<void> downloadCandidate(MusicSearchCandidate candidate) async {
@@ -259,13 +287,15 @@ class MusicController extends ChangeNotifier {
     int? index,
     List<Track>? queueTracks,
   }) async {
-    await playbackUseCase.playTrack(
+    final loaded = await playbackUseCase.playTrack(
       track,
       index: index,
       fallbackQueue: cachedTracks,
       queueTracks: queueTracks,
     );
-    await setPlaybackMode(playbackMode);
+    if (loaded) {
+      await setPlaybackMode(playbackMode);
+    }
   }
 
   Future<void> togglePlayPause() => playbackUseCase.togglePlayPause();

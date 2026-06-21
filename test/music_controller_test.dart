@@ -105,10 +105,165 @@ void main() {
 
       await controller.setPlaybackMode(PlaybackMode.shuffle);
 
-      expect(handler.restoredMediaId, item.id);
-      expect(handler.restoredPosition, const Duration(seconds: 42));
+      expect(handler.restoredMediaId, isNull);
+      expect(handler.restoredPosition, isNull);
       expect(handler.shuffleMode, AudioServiceShuffleMode.all);
       expect(handler.repeatMode, AudioServiceRepeatMode.all);
+    } finally {
+      controller.dispose();
+      await handler.dispose();
+    }
+  });
+
+  test(
+    'repeating current track does not reload queue and resumes if paused',
+    () async {
+      final handler = _SpyAudioHandler();
+      final cached = _cachedTrack(id: 'song-1', name: '第一首');
+      final controller = MusicController(
+        audioHandler: handler,
+        resolver: _FakeMusicResolver(),
+        cacheStore: _FakeCacheStore(cached: [cached]),
+        playlistStore: _FakePlaylistStore(),
+        settingsStore: _FakeSettingsStore(),
+        metadataRepository: _StaticMetadataRepository(),
+      );
+
+      try {
+        await controller.initialize();
+        final track = trackFromCached(cached);
+        await controller.playTrack(track);
+
+        handler
+          ..loadedIds = const []
+          ..playCalls = 0;
+        handler.playbackState.add(PlaybackState(playing: true));
+
+        await controller.playTrack(track);
+
+        expect(handler.loadedIds, isEmpty);
+        expect(handler.playCalls, 0);
+
+        handler.playbackState.add(PlaybackState(playing: false));
+        await controller.playTrack(track);
+
+        expect(handler.loadedIds, isEmpty);
+        expect(handler.playCalls, 1);
+      } finally {
+        controller.dispose();
+        await handler.dispose();
+      }
+    },
+  );
+
+  test(
+    'same track in a different visible queue rebuilds queue at current position',
+    () async {
+      final handler = _SpyAudioHandler();
+      final first = _cachedTrack(id: 'song-1', name: '第一首');
+      final second = _cachedTrack(id: 'song-2', name: '第二首');
+      final controller = MusicController(
+        audioHandler: handler,
+        resolver: _FakeMusicResolver(),
+        cacheStore: _FakeCacheStore(cached: [first, second]),
+        playlistStore: _FakePlaylistStore(),
+        settingsStore: _FakeSettingsStore(),
+        metadataRepository: _StaticMetadataRepository(),
+      );
+
+      try {
+        await controller.initialize();
+        final firstTrack = trackFromCached(first);
+        final secondTrack = trackFromCached(second);
+        await controller.playTrack(
+          firstTrack,
+          index: 0,
+          queueTracks: [firstTrack, secondTrack],
+        );
+
+        handler
+          ..loadedIds = const []
+          ..loadedInitialPosition = null
+          ..currentPositionOverride = const Duration(seconds: 38);
+        handler.playbackState.add(PlaybackState(playing: true));
+
+        await controller.playTrack(
+          firstTrack,
+          index: 0,
+          queueTracks: [firstTrack],
+        );
+
+        expect(handler.loadedIds, [first.cacheId]);
+        expect(handler.loadedInitialPosition, const Duration(seconds: 38));
+      } finally {
+        controller.dispose();
+        await handler.dispose();
+      }
+    },
+  );
+
+  test('clearSearch ignores delayed stale search results', () async {
+    final handler = _SpyAudioHandler();
+    final resolver = _CompletingSearchResolver();
+    final controller = MusicController(
+      audioHandler: handler,
+      resolver: resolver,
+      cacheStore: _FakeCacheStore(cached: const []),
+      playlistStore: _FakePlaylistStore(),
+      settingsStore: _FakeSettingsStore(),
+      metadataRepository: _StaticMetadataRepository(),
+    );
+
+    try {
+      await controller.initialize();
+      final search = controller.search('周杰伦');
+      await Future<void>.delayed(Duration.zero);
+
+      expect(controller.isSearching, isTrue);
+
+      controller.clearSearch();
+      resolver.complete([_candidate(id: 'song-1', name: '稻香')]);
+      await search;
+
+      expect(controller.isSearching, isFalse);
+      expect(controller.candidates, isEmpty);
+      expect(controller.errorDetail, isNull);
+      expect(controller.statusMessage, isNull);
+    } finally {
+      controller.dispose();
+      await handler.dispose();
+    }
+  });
+
+  test('new search supersedes an in-flight search', () async {
+    final handler = _SpyAudioHandler();
+    final resolver = _SequencedSearchResolver();
+    final controller = MusicController(
+      audioHandler: handler,
+      resolver: resolver,
+      cacheStore: _FakeCacheStore(cached: const []),
+      playlistStore: _FakePlaylistStore(),
+      settingsStore: _FakeSettingsStore(),
+      metadataRepository: _StaticMetadataRepository(),
+    );
+
+    try {
+      await controller.initialize();
+      final firstSearch = controller.search('A');
+      await Future<void>.delayed(Duration.zero);
+      final secondSearch = controller.search('B');
+      await Future<void>.delayed(Duration.zero);
+
+      resolver.complete(0, [_candidate(id: 'song-a', name: '旧结果')]);
+      await firstSearch;
+      expect(controller.candidates, isEmpty);
+      expect(controller.isSearching, isTrue);
+
+      resolver.complete(1, [_candidate(id: 'song-b', name: '新结果')]);
+      await secondSearch;
+
+      expect(controller.candidates.single.name, '新结果');
+      expect(controller.isSearching, isFalse);
     } finally {
       controller.dispose();
       await handler.dispose();
@@ -368,6 +523,7 @@ void main() {
         controller.statusMessage?.code,
         MusicUiMessageCode.playingCachedFile,
       );
+      expect(controller.hasSearchState, isFalse);
     } finally {
       controller.dispose();
       await handler.dispose();
@@ -380,8 +536,10 @@ class _SpyAudioHandler extends MusicAudioHandler {
   AudioServiceShuffleMode? shuffleMode;
   AudioServiceRepeatMode? repeatMode;
   Duration currentPositionOverride = Duration.zero;
+  Duration? loadedInitialPosition;
   String? restoredMediaId;
   Duration? restoredPosition;
+  int playCalls = 0;
 
   @override
   Duration get currentPosition => currentPositionOverride;
@@ -390,13 +548,21 @@ class _SpyAudioHandler extends MusicAudioHandler {
   Future<void> loadQueue(
     List<PlayableAudio> items, {
     int initialIndex = 0,
+    Duration initialPosition = Duration.zero,
     bool playWhenReady = true,
   }) async {
     loadedIds = [for (final item in items) item.mediaItem.id];
+    loadedInitialPosition = initialPosition;
     queue.add(items.map((item) => item.mediaItem).toList(growable: false));
     if (items.isNotEmpty) {
       mediaItem.add(items[initialIndex].mediaItem);
     }
+  }
+
+  @override
+  Future<void> play() async {
+    playCalls += 1;
+    playbackState.add(playbackState.value.copyWith(playing: true));
   }
 
   @override
@@ -567,6 +733,40 @@ class _FailingMusicResolver extends _FakeMusicResolver {
   @override
   Future<ResolvedMusic> resolve(MusicSearchCandidate candidate) async {
     throw StateError('resolve failed');
+  }
+}
+
+class _CompletingSearchResolver extends _FakeMusicResolver {
+  final _searchCompleter = Completer<List<MusicSearchCandidate>>();
+
+  @override
+  Future<List<MusicSearchCandidate>> search(
+    String query,
+    MusicDataSource source,
+  ) {
+    return _searchCompleter.future;
+  }
+
+  void complete(List<MusicSearchCandidate> candidates) {
+    _searchCompleter.complete(candidates);
+  }
+}
+
+class _SequencedSearchResolver extends _FakeMusicResolver {
+  final _searchCompleters = <Completer<List<MusicSearchCandidate>>>[];
+
+  @override
+  Future<List<MusicSearchCandidate>> search(
+    String query,
+    MusicDataSource source,
+  ) {
+    final completer = Completer<List<MusicSearchCandidate>>();
+    _searchCompleters.add(completer);
+    return completer.future;
+  }
+
+  void complete(int index, List<MusicSearchCandidate> candidates) {
+    _searchCompleters[index].complete(candidates);
   }
 }
 

@@ -35,6 +35,8 @@ class AppStrings {
   String get searchEmptyBody => isZh
       ? '输入歌手或歌曲名，下载后会保存在本机缓存里。'
       : 'Enter an artist or song name. Downloaded tracks stay in local cache.';
+  String get pressBackAgainToExit =>
+      isZh ? '再按一次返回桌面' : 'Press back again to exit';
   String get searchOnline => isZh ? '在线搜索' : 'Search online';
   String get listSearchHint => isZh ? '搜索当前列表' : 'Search this list';
   String get noMatchingTracks => isZh ? '没有匹配的歌曲' : 'No matching songs';

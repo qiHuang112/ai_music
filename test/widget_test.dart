@@ -67,6 +67,26 @@ void main() {
     );
   });
 
+  testWidgets('clearing search input hides online candidates', (tester) async {
+    final resolver = _FakeMusicResolver(
+      candidates: [_candidate(name: '稻香', artist: '周杰伦')],
+    );
+    await tester.pumpWidget(_app(resolver: resolver));
+    await tester.pumpAndSettle();
+
+    await tester.enterText(find.byType(TextField), '周杰伦');
+    await tester.tap(find.byTooltip('在线搜索'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('稻香'), findsOneWidget);
+
+    await tester.enterText(find.byType(TextField), '');
+    await tester.pumpAndSettle();
+
+    expect(find.text('稻香'), findsNothing);
+    expect(find.text('搜索音乐'), findsOneWidget);
+  });
+
   testWidgets('downloaded search result exposes play action', (tester) async {
     final resolver = _FakeMusicResolver(
       candidates: [_candidate(name: '稻香', artist: '周杰伦')],
@@ -86,6 +106,29 @@ void main() {
 
     expect(find.byTooltip('播放'), findsOneWidget);
     expect(find.byTooltip('重新下载'), findsOneWidget);
+  });
+
+  testWidgets('download status snack does not move search results', (
+    tester,
+  ) async {
+    final resolver = _FakeMusicResolver(
+      candidates: [_candidate(name: '稻香', artist: '周杰伦')],
+    );
+    await tester.pumpWidget(_app(resolver: resolver));
+    await tester.pumpAndSettle();
+
+    await tester.enterText(find.byType(TextField), '周杰伦');
+    await tester.tap(find.byTooltip('在线搜索'));
+    await tester.pumpAndSettle();
+
+    final before = tester.getTopLeft(find.text('稻香')).dy;
+
+    await tester.tap(find.byIcon(Icons.download_for_offline));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 300));
+
+    expect(find.text('已下载到缓存'), findsOneWidget);
+    expect(tester.getTopLeft(find.text('稻香')).dy, before);
   });
 
   testWidgets('completed downloads leave active section and enter cache', (
@@ -222,6 +265,34 @@ void main() {
     expect(find.text('FLAC'), findsNothing);
     expect(find.textContaining('only enabled'), findsOneWidget);
     expect(settings.savedSource, isNull);
+  });
+
+  testWidgets('home back clears search then asks before exiting', (
+    tester,
+  ) async {
+    final resolver = _FakeMusicResolver(
+      candidates: [_candidate(name: '稻香', artist: '周杰伦')],
+    );
+    await tester.pumpWidget(_app(resolver: resolver));
+    await tester.pumpAndSettle();
+
+    await tester.enterText(find.byType(TextField), '周杰伦');
+    await tester.tap(find.byTooltip('在线搜索'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('稻香'), findsOneWidget);
+
+    await tester.binding.handlePopRoute();
+    await tester.pumpAndSettle();
+
+    final searchField = tester.widget<TextField>(find.byType(TextField));
+    expect(searchField.controller?.text, isEmpty);
+    expect(find.text('稻香'), findsNothing);
+
+    await tester.binding.handlePopRoute();
+    await tester.pump();
+
+    expect(find.text('再按一次返回桌面'), findsOneWidget);
   });
 
   testWidgets('download entry opens manager and cached tracks can be deleted', (

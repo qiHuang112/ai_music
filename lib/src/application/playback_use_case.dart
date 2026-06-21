@@ -5,11 +5,13 @@ import '../playback/music_audio_handler.dart';
 import 'music_mappers.dart';
 
 class PlaybackUseCase {
-  const PlaybackUseCase({required this.audioHandler});
+  PlaybackUseCase({required this.audioHandler});
 
   final MusicAudioHandler audioHandler;
+  String? _lastRequestedTrackId;
+  String? _lastQueueSignature;
 
-  Future<void> playTrack(
+  Future<bool> playTrack(
     Track track, {
     int? index,
     required List<Track> fallbackQueue,
@@ -18,15 +20,37 @@ class PlaybackUseCase {
     final queue = (queueTracks ?? fallbackQueue).isEmpty
         ? <Track>[track]
         : queueTracks ?? fallbackQueue;
+    final queueSignature = _queueSignature(queue);
+    final currentTrackId = audioHandler.mediaItem.value?.id;
+    final sameTrack =
+        currentTrackId == track.id ||
+        (currentTrackId == null && _lastRequestedTrackId == track.id);
+    final sameQueue = _lastQueueSignature == queueSignature;
+    if (sameTrack && sameQueue) {
+      if (!audioHandler.playbackState.value.playing) {
+        await audioHandler.play();
+      }
+      return false;
+    }
     final queueIndex = index ?? queue.indexWhere((item) => item.id == track.id);
     final safeIndex = queueIndex == -1 ? 0 : queueIndex;
-    await audioHandler.loadQueue([
-      for (final item in queue)
-        PlayableAudio(
-          mediaItem: mediaItemFromTrack(item),
-          uri: _uriForTrack(item),
-        ),
-    ], initialIndex: safeIndex);
+    final initialPosition = sameTrack
+        ? audioHandler.currentPosition
+        : Duration.zero;
+    await audioHandler.loadQueue(
+      [
+        for (final item in queue)
+          PlayableAudio(
+            mediaItem: mediaItemFromTrack(item),
+            uri: _uriForTrack(item),
+          ),
+      ],
+      initialIndex: safeIndex,
+      initialPosition: initialPosition,
+    );
+    _lastRequestedTrackId = track.id;
+    _lastQueueSignature = queueSignature;
+    return true;
   }
 
   Future<void> togglePlayPause() async {
@@ -44,7 +68,11 @@ class PlaybackUseCase {
 
   Future<void> previous() => audioHandler.skipToPrevious();
 
-  Future<void> stop() => audioHandler.stop();
+  Future<void> stop() async {
+    _lastRequestedTrackId = null;
+    _lastQueueSignature = null;
+    await audioHandler.stop();
+  }
 
   Future<void> applyPlaybackMode(PlaybackMode mode) async {
     final currentItemId = audioHandler.mediaItem.value?.id;
@@ -67,13 +95,20 @@ class PlaybackUseCase {
         await audioHandler.setShuffleMode(AudioServiceShuffleMode.all);
         break;
     }
-    if (currentItemId != null) {
+    final nextItemId = audioHandler.mediaItem.value?.id;
+    if (currentItemId != null &&
+        nextItemId != null &&
+        nextItemId != currentItemId) {
       await audioHandler.restoreCurrentItemPosition(
         currentItemId,
         currentPosition,
       );
     }
   }
+}
+
+String _queueSignature(List<Track> queue) {
+  return queue.map((track) => track.id).join('\u001f');
 }
 
 Uri _uriForTrack(Track track) {

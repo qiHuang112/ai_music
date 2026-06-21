@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
@@ -76,6 +77,7 @@ class MusicSettingsStore {
   static const _fileName = 'settings.json';
   final Future<Directory> Function() _rootProvider;
   final JsonFileStore _jsonStore = const JsonFileStore();
+  Future<void> _writeTail = Future.value();
 
   Future<MusicAppSettings> loadSettings() async {
     try {
@@ -104,11 +106,13 @@ class MusicSettingsStore {
   }
 
   Future<void> saveSettings(MusicAppSettings settings) async {
-    final file = await _settingsFile();
-    await _jsonStore.write(
-      file,
-      settings.copyWith(source: _singleSupportedSource(null)).toJson(),
-    );
+    return _withWriteLock(() async {
+      final file = await _settingsFile();
+      await _jsonStore.write(
+        file,
+        settings.copyWith(source: _singleSupportedSource(null)).toJson(),
+      );
+    });
   }
 
   Future<MusicDataSource> loadSource() async {
@@ -123,6 +127,19 @@ class MusicSettingsStore {
   Future<File> _settingsFile() async {
     final support = await _rootProvider();
     return File('${support.path}${Platform.pathSeparator}$_fileName');
+  }
+
+  Future<void> _withWriteLock(Future<void> Function() action) {
+    final previous = _writeTail;
+    final completer = Completer<void>();
+    _writeTail = previous.then((_) => completer.future);
+    return previous.then((_) async {
+      try {
+        await action();
+      } finally {
+        completer.complete();
+      }
+    });
   }
 }
 

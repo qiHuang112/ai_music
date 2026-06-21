@@ -47,4 +47,37 @@ void main() {
       await root.delete(recursive: true);
     }
   });
+
+  test('settings store serializes concurrent writes so latest wins', () async {
+    final root = await Directory.systemTemp.createTemp(
+      'ai_music_settings_race_',
+    );
+    final store = MusicSettingsStore(rootProvider: () async => root);
+
+    try {
+      await Future.wait([
+        store.saveSettings(
+          const MusicAppSettings(
+            source: MusicDataSource.buguyy,
+            language: AppLanguage.en,
+            theme: AppThemePreference.dark,
+          ),
+        ),
+        store.saveSettings(
+          const MusicAppSettings(
+            source: MusicDataSource.buguyy,
+            language: AppLanguage.en,
+            theme: AppThemePreference.light,
+          ),
+        ),
+      ]);
+
+      final restored = await store.loadSettings();
+      expect(restored.source, MusicDataSource.buguyy);
+      expect(restored.language, AppLanguage.en);
+      expect(restored.theme, AppThemePreference.light);
+    } finally {
+      await root.delete(recursive: true);
+    }
+  });
 }

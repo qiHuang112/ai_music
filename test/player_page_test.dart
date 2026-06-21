@@ -107,6 +107,7 @@ class _SpyAudioHandler extends MusicAudioHandler {
   Future<void> loadQueue(
     List<PlayableAudio> items, {
     int initialIndex = 0,
+    Duration initialPosition = Duration.zero,
     bool playWhenReady = true,
   }) async {
     queue.add(items.map((item) => item.mediaItem).toList(growable: false));
