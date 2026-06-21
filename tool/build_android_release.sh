@@ -3,7 +3,7 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 FLUTTER_BIN="${FLUTTER_BIN:-$ROOT_DIR/../tools/flutter/bin/flutter}"
-ANDROID_HOME="${ANDROID_HOME:-}"
+ANDROID_HOME="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-}}"
 MAX_APK_SIZE_MB="${MAX_APK_SIZE_MB:-60}"
 PACKAGE_NAME="com.qi.ai.music"
 ABI="arm64-v8a"
@@ -23,7 +23,14 @@ if [[ -z "$ANDROID_HOME" ]]; then
 fi
 
 if [[ -z "$ANDROID_HOME" || ! -d "$ANDROID_HOME" ]]; then
-  echo "Android SDK not found. Set ANDROID_HOME or android/local.properties sdk.dir." >&2
+  echo "Android SDK not found. Set ANDROID_HOME, ANDROID_SDK_ROOT, or android/local.properties sdk.dir." >&2
+  exit 69
+fi
+
+NDK_VERSION="$(awk -F\" '/ndkVersion[[:space:]]*=/{ print $2; exit }' "$ROOT_DIR/android/app/build.gradle.kts")"
+if [[ -n "$NDK_VERSION" && ! -d "$ANDROID_HOME/ndk/$NDK_VERSION" ]]; then
+  echo "Android NDK $NDK_VERSION not found under $ANDROID_HOME/ndk." >&2
+  echo "Install it with sdkmanager \"ndk;$NDK_VERSION\" before building release APKs." >&2
   exit 69
 fi
 
@@ -69,13 +76,15 @@ export PUB_HOSTED_URL="${PUB_HOSTED_URL:-https://pub.flutter-io.cn}"
 rm -f \
   "$ROOT_DIR/build/app/outputs/flutter-apk/app-release.apk" \
   "$ROOT_DIR/build/app/outputs/flutter-apk/app-release.apk.sha1" \
+  "$ROOT_DIR/build/app/outputs/flutter-apk/app-$ABI-release.apk" \
+  "$ROOT_DIR/build/app/outputs/flutter-apk/app-$ABI-release.apk.sha1" \
   "$ROOT_DIR/build/release/"*android-arm64*.apk \
   "$ROOT_DIR/build/release/"*android-arm64*.apk.sha256
 
 "$FLUTTER_BIN" pub get
-"$FLUTTER_BIN" build apk --release --target-platform "$TARGET_PLATFORM" "$@"
+"$FLUTTER_BIN" build apk --release --target-platform "$TARGET_PLATFORM" --split-per-abi "$@"
 
-source_apk="$ROOT_DIR/build/app/outputs/flutter-apk/app-release.apk"
+source_apk="$ROOT_DIR/build/app/outputs/flutter-apk/app-$ABI-release.apk"
 if [[ ! -f "$source_apk" ]]; then
   echo "Expected APK was not created: $source_apk" >&2
   exit 1
@@ -105,9 +114,18 @@ if ! printf '%s\n' "$zip_entries" | grep -q "^lib/$ABI/libflutter.so$"; then
   exit 1
 fi
 
-if printf '%s\n' "$zip_entries" | grep -Eq '^lib/(x86_64|armeabi-v7a)/lib(flutter|app)\.so$'; then
-  echo "APK contains non-arm64 Flutter runtime libraries; do not publish it." >&2
-  printf '%s\n' "$zip_entries" | grep -E '^lib/.*/lib(flutter|app)\.so$' >&2
+foreign_libs="$(
+  printf '%s\n' "$zip_entries" |
+    awk -v abi="$ABI" 'index($0, "lib/") == 1 && $0 ~ /\.so$/ {
+      split($0, parts, "/")
+      if (parts[2] != abi) {
+        print
+      }
+    }'
+)"
+if [[ -n "$foreign_libs" ]]; then
+  echo "APK contains native libraries outside lib/$ABI; do not publish it as android-arm64." >&2
+  printf '%s\n' "$foreign_libs" >&2
   exit 1
 fi
 
