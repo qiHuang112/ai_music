@@ -25,6 +25,7 @@ import { common, wantAgent } from '@kit.AbilityKit';
 import { BusinessError } from '@kit.BasicServicesKit';
 import { backgroundTaskManager } from '@kit.BackgroundTasksKit';
 import { AVCastPickerState, avSession } from '@kit.AVSessionKit';
+import { image } from '@kit.ImageKit';
 import MediaSource from './MediaSource';
 import { fileIo } from '@kit.CoreFileKit';
 import { Log, MethodResult } from '@ohos/flutter_ohos';
@@ -153,6 +154,8 @@ export class MediaAvPlayer {
   private lastBufferedPosition: number = 0
   private lastAVSessionPlaybackStateUpdateTime: number = 0
   private isAudioBackgroundRunning: boolean = false
+  private avSessionCover?: image.PixelMap
+  private favoriteAssetIds: Set<string> = new Set()
 
   constructor() {
     const generation = ++this.initGeneration;
@@ -192,6 +195,8 @@ export class MediaAvPlayer {
       session.off('playNext', this.playNextCall);
       session.off('playPrevious', this.playPreviousCall);
       session.off('seek', this.avSessionSeekCall);
+      session.off('setLoopMode', this.setLoopModeCall);
+      session.off('toggleFavorite', this.toggleFavoriteCall);
     } catch (error) {
       console.error(TAG, `remove ${name} callbacks failed: ${JSON.stringify(error)}`);
     }
@@ -337,11 +342,81 @@ export class MediaAvPlayer {
       },
       bufferedTime: bufferedTime ?? this.lastBufferedPosition,
       activeItemId: this.musicIndex,
-      duration: this.getDuration()
+      duration: this.getDuration(),
+      loopMode: this.getAVSessionLoopMode(),
+      isFavorite: this.favoriteAssetIds.has(`${this.musicIndex}`)
     });
   }
 
+  private getAVSessionLoopMode(): avSession.LoopMode {
+    if (this.isRandom) {
+      return avSession.LoopMode.LOOP_MODE_SHUFFLE;
+    }
+    switch (this.playMode) {
+      case LoopMode.SINGLE_CYCLE:
+        return avSession.LoopMode.LOOP_MODE_SINGLE;
+      case LoopMode.LIST_LOOP:
+        return avSession.LoopMode.LOOP_MODE_LIST;
+      case LoopMode.DEFAULT:
+      default:
+        return avSession.LoopMode.LOOP_MODE_SEQUENCE;
+    }
+  }
+
+  private getCachedFileNameParts(): string[] {
+    const uri = this.songItem?.getUri();
+    if (!uri || uri.trim().length == 0) {
+      return [];
+    }
+    let cleanUri = uri.split('?')[0].split('#')[0];
+    const dartFilePrefix = 'file:///';
+    if (cleanUri.startsWith(dartFilePrefix)) {
+      cleanUri = cleanUri.slice(dartFilePrefix.length);
+    }
+    const segments = cleanUri.split('/');
+    let fileName = segments[segments.length - 1];
+    if (!fileName || fileName.trim().length == 0) {
+      return [];
+    }
+    const dotIndex = fileName.lastIndexOf('.');
+    if (dotIndex > 0) {
+      fileName = fileName.substring(0, dotIndex);
+    }
+    const rawParts = fileName.split('-');
+    let parts: string[] = [];
+    for (let i = 0; i < rawParts.length; i++) {
+      const part = rawParts[i].trim();
+      if (part.length > 0) {
+        parts.push(part);
+      }
+    }
+    return parts;
+  }
+
+  private getCachedFileTitle(): string {
+    const parts = this.getCachedFileNameParts();
+    if (parts.length >= 3 && /^[a-fA-F0-9]{10}$/.test(parts[parts.length - 1])) {
+      return parts.slice(1, parts.length - 1).join('-');
+    }
+    if (parts.length >= 2) {
+      return parts.slice(1).join('-');
+    }
+    return '';
+  }
+
+  private getCachedFileArtist(): string {
+    const parts = this.getCachedFileNameParts();
+    if (parts.length >= 2) {
+      return parts[0];
+    }
+    return '';
+  }
+
   private getAVSessionTitle(): string {
+    const cachedTitle = this.getCachedFileTitle();
+    if (cachedTitle.length > 0) {
+      return cachedTitle;
+    }
     const title = this.avMetadata?.title;
     if (title && title.trim().length > 0) {
       return title;
@@ -363,6 +438,10 @@ export class MediaAvPlayer {
   }
 
   private getAVSessionArtist(): string {
+    const cachedArtist = this.getCachedFileArtist();
+    if (cachedArtist.length > 0) {
+      return cachedArtist;
+    }
     const artist = this.avMetadata?.artist;
     if (artist && artist.trim().length > 0) {
       return artist;
@@ -378,6 +457,25 @@ export class MediaAvPlayer {
       console.info(TAG, 'SetAVSession cast extras successfully');
     } catch (error) {
       console.error(TAG, `SetAVSession cast extras failed: ${JSON.stringify(error)}`);
+    }
+  }
+
+  private async getAVSessionCover(): Promise<image.PixelMap | undefined> {
+    if (this.avSessionCover) {
+      return this.avSessionCover;
+    }
+    try {
+      const context = this.context;
+      if (!context) {
+        return undefined;
+      }
+      const data = context.resourceManager.getMediaContentSync($r('app.media.icon').id);
+      const imageSource = image.createImageSource(data.buffer.slice(0));
+      this.avSessionCover = await imageSource.createPixelMap();
+      return this.avSessionCover;
+    } catch (error) {
+      console.error(TAG, `create AVSession cover failed: ${JSON.stringify(error)}`);
+      return undefined;
     }
   }
 
@@ -452,10 +550,16 @@ export class MediaAvPlayer {
 
   private playCall: () => void = async () => {
     console.info(TAG, `on play , do play task`);
+    this.isPlaying = true;
+    this.startAudioBackgroundTask();
     if (this.isFirst) {
       await this.loadAssent(0);
     } else {
-      this.play();
+      if (this.avPlayer?.state == 'paused' || this.avPlayer?.state == 'prepared') {
+        this.playingState();
+      } else {
+        this.play();
+      }
     }
   };
   private pauseCall: () => void = () => {
@@ -476,6 +580,38 @@ export class MediaAvPlayer {
       console.error(TAG, `session seek failed, code is ${error.code}, message is ${error.message}`);
       this.syncAVSessionPlaybackState(avSession.PlaybackState.PLAYBACK_STATE_ERROR);
     });
+  };
+  private setLoopModeCall: (mode: avSession.LoopMode) => void = (mode: avSession.LoopMode) => {
+    console.info(TAG, `on setLoopMode, mode is ${mode}`);
+    switch (mode) {
+      case avSession.LoopMode.LOOP_MODE_SINGLE:
+        this.isRandom = false;
+        this.playMode = LoopMode.SINGLE_CYCLE;
+        break;
+      case avSession.LoopMode.LOOP_MODE_LIST:
+        this.isRandom = false;
+        this.playMode = LoopMode.LIST_LOOP;
+        break;
+      case avSession.LoopMode.LOOP_MODE_SHUFFLE:
+        this.isRandom = true;
+        this.playMode = LoopMode.LIST_LOOP;
+        break;
+      case avSession.LoopMode.LOOP_MODE_SEQUENCE:
+      default:
+        this.isRandom = false;
+        this.playMode = LoopMode.DEFAULT;
+        break;
+    }
+    this.syncCurrentAVSessionPlaybackState();
+  };
+  private toggleFavoriteCall: (assetId: string) => void = (assetId: string) => {
+    const id = assetId && assetId.length > 0 ? assetId : `${this.musicIndex}`;
+    if (this.favoriteAssetIds.has(id)) {
+      this.favoriteAssetIds.delete(id);
+    } else {
+      this.favoriteAssetIds.add(id);
+    }
+    this.syncCurrentAVSessionPlaybackState();
   };
   /**
    * 异常监听
@@ -841,6 +977,8 @@ export class MediaAvPlayer {
     this.session.on('playNext', this.playNextCall);
     this.session.on('playPrevious', this.playPreviousCall);
     this.session.on('seek', this.avSessionSeekCall);
+    this.session.on('setLoopMode', this.setLoopModeCall);
+    this.session.on('toggleFavorite', this.toggleFavoriteCall);
   }
 
   /**
@@ -920,6 +1058,7 @@ export class MediaAvPlayer {
   async setAVMetadata() {
     let id = this.musicIndex;
     try {
+      const cover = await this.getAVSessionCover();
       let metadata: avSession.AVMetadata = {
         assetId: `${id}`,
         title: this.getAVSessionTitle(),
@@ -927,6 +1066,9 @@ export class MediaAvPlayer {
         filter: CAST_PROTOCOL_FILTER,
         duration: this.getDuration()
       };
+      if (cover) {
+        metadata.mediaImage = cover;
+      }
       if (this.session) {
         this.session.setAVMetadata(metadata).then(() => {
           console.info(TAG, 'SetAVMetadata successfully');
@@ -953,10 +1095,12 @@ export class MediaAvPlayer {
 
   public setLoopMode(loopMode: number) {
     this.playMode = loopMode;
+    this.syncCurrentAVSessionPlaybackState();
   }
 
   public setShuffleMode(isShuffle: boolean) {
     this.isRandom = isShuffle;
+    this.syncCurrentAVSessionPlaybackState();
   }
 
   public setVolume(volume: number) {
