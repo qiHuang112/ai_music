@@ -11,10 +11,6 @@
     {
       "name": "EntryAbility_label",
       "value": "AI Music"
-    },
-    {
-      "name": "reason_background",
-      "value": "用于音乐播放时保持播放中心控制和后台音频任务。"
     }
   ]
 }

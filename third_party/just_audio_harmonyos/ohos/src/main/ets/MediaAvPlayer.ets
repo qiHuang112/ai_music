@@ -23,7 +23,6 @@
 import { media } from '@kit.MediaKit';
 import { common, wantAgent } from '@kit.AbilityKit';
 import { BusinessError } from '@kit.BasicServicesKit';
-import { backgroundTaskManager } from '@kit.BackgroundTasksKit';
 import { AVCastPickerState, avSession } from '@kit.AVSessionKit';
 import { image } from '@kit.ImageKit';
 import MediaSource from './MediaSource';
@@ -153,9 +152,9 @@ export class MediaAvPlayer {
   private nextStateCall: ((state: string) => Promise<void>) | null = null
   private lastBufferedPosition: number = 0
   private lastAVSessionPlaybackStateUpdateTime: number = 0
-  private isAudioBackgroundRunning: boolean = false
   private avSessionCover?: image.PixelMap
-  private favoriteAssetIds: Set<string> = new Set()
+  private avSessionCoverUri: string = ''
+  private defaultAVSessionCover?: image.PixelMap
 
   constructor() {
     const generation = ++this.initGeneration;
@@ -195,8 +194,6 @@ export class MediaAvPlayer {
       session.off('playNext', this.playNextCall);
       session.off('playPrevious', this.playPreviousCall);
       session.off('seek', this.avSessionSeekCall);
-      session.off('setLoopMode', this.setLoopModeCall);
-      session.off('toggleFavorite', this.toggleFavoriteCall);
     } catch (error) {
       console.error(TAG, `remove ${name} callbacks failed: ${JSON.stringify(error)}`);
     }
@@ -343,8 +340,7 @@ export class MediaAvPlayer {
       bufferedTime: bufferedTime ?? this.lastBufferedPosition,
       activeItemId: this.musicIndex,
       duration: this.getDuration(),
-      loopMode: this.getAVSessionLoopMode(),
-      isFavorite: this.favoriteAssetIds.has(`${this.musicIndex}`)
+      loopMode: this.getAVSessionLoopMode()
     });
   }
 
@@ -363,8 +359,8 @@ export class MediaAvPlayer {
     }
   }
 
-  private getCachedFileNameParts(): string[] {
-    const uri = this.songItem?.getUri();
+  private getCachedFileNameParts(songItem: MediaSource | null = this.songItem): string[] {
+    const uri = songItem?.getUri();
     if (!uri || uri.trim().length == 0) {
       return [];
     }
@@ -393,8 +389,8 @@ export class MediaAvPlayer {
     return parts;
   }
 
-  private getCachedFileTitle(): string {
-    const parts = this.getCachedFileNameParts();
+  private getCachedFileTitle(songItem: MediaSource | null = this.songItem): string {
+    const parts = this.getCachedFileNameParts(songItem);
     if (parts.length >= 3 && /^[a-fA-F0-9]{10}$/.test(parts[parts.length - 1])) {
       return parts.slice(1, parts.length - 1).join('-');
     }
@@ -404,28 +400,29 @@ export class MediaAvPlayer {
     return '';
   }
 
-  private getCachedFileArtist(): string {
-    const parts = this.getCachedFileNameParts();
+  private getCachedFileArtist(songItem: MediaSource | null = this.songItem): string {
+    const parts = this.getCachedFileNameParts(songItem);
     if (parts.length >= 2) {
       return parts[0];
     }
     return '';
   }
 
-  private getAVSessionTitle(): string {
-    const cachedTitle = this.getCachedFileTitle();
+  private getAVSessionTitle(songItem: MediaSource | null = this.songItem,
+    metadata: media.AVMetadata | undefined = this.avMetadata): string {
+    const cachedTitle = this.getCachedFileTitle(songItem);
     if (cachedTitle.length > 0) {
       return cachedTitle;
     }
-    const title = this.avMetadata?.title;
+    const title = metadata?.title;
     if (title && title.trim().length > 0) {
       return title;
     }
-    const id = this.songItem?.getId();
+    const id = songItem?.getId();
     if (id && id.trim().length > 0) {
       return id;
     }
-    const uri = this.songItem?.getUri();
+    const uri = songItem?.getUri();
     if (uri && uri.trim().length > 0) {
       const cleanUri = uri.split('?')[0];
       const segments = cleanUri.split('/');
@@ -437,12 +434,13 @@ export class MediaAvPlayer {
     return 'AI Music';
   }
 
-  private getAVSessionArtist(): string {
-    const cachedArtist = this.getCachedFileArtist();
+  private getAVSessionArtist(songItem: MediaSource | null = this.songItem,
+    metadata: media.AVMetadata | undefined = this.avMetadata): string {
+    const cachedArtist = this.getCachedFileArtist(songItem);
     if (cachedArtist.length > 0) {
       return cachedArtist;
     }
-    const artist = this.avMetadata?.artist;
+    const artist = metadata?.artist;
     if (artist && artist.trim().length > 0) {
       return artist;
     }
@@ -460,9 +458,9 @@ export class MediaAvPlayer {
     }
   }
 
-  private async getAVSessionCover(): Promise<image.PixelMap | undefined> {
-    if (this.avSessionCover) {
-      return this.avSessionCover;
+  private async getDefaultAVSessionCover(): Promise<image.PixelMap | undefined> {
+    if (this.defaultAVSessionCover) {
+      return this.defaultAVSessionCover;
     }
     try {
       const context = this.context;
@@ -471,58 +469,71 @@ export class MediaAvPlayer {
       }
       const data = context.resourceManager.getMediaContentSync($r('app.media.icon').id);
       const imageSource = image.createImageSource(data.buffer.slice(0));
-      this.avSessionCover = await imageSource.createPixelMap();
-      return this.avSessionCover;
+      this.defaultAVSessionCover = await imageSource.createPixelMap();
+      return this.defaultAVSessionCover;
     } catch (error) {
-      console.error(TAG, `create AVSession cover failed: ${JSON.stringify(error)}`);
+      console.error(TAG, `create default AVSession cover failed: ${JSON.stringify(error)}`);
       return undefined;
     }
   }
 
-  private startAudioBackgroundTask(): void {
-    const context = this.context;
-    if (!context || this.isAudioBackgroundRunning) {
-      return;
+  private async getAVSessionCover(songItem: MediaSource | null,
+    generation: number): Promise<image.PixelMap | undefined> {
+    const uri = songItem?.getUri() ?? '';
+    if (uri.length > 0 && this.avSessionCover && this.avSessionCoverUri == uri) {
+      return this.avSessionCover;
     }
-    const wantAgentInfo: wantAgent.WantAgentInfo = {
-      wants: [
-        {
-          bundleName: context.abilityInfo.bundleName,
-          abilityName: context.abilityInfo.name
-        }
-      ],
-      operationType: wantAgent.OperationType.START_ABILITY,
-      requestCode: 0,
-      wantAgentFlags: [wantAgent.WantAgentFlags.UPDATE_PRESENT_FLAG]
-    };
-
-    wantAgent.getWantAgent(wantAgentInfo).then((agent) => {
-      backgroundTaskManager.startBackgroundRunning(
-        context,
-        backgroundTaskManager.BackgroundMode.AUDIO_PLAYBACK,
-        agent
-      ).then(() => {
-        this.isAudioBackgroundRunning = true;
-        console.info(TAG, 'startBackgroundRunning succeeded');
-      }).catch((err: BusinessError) => {
-        console.error(TAG, `startBackgroundRunning failed, code: ${err.code}, message: ${err.message}`);
-      });
-    }).catch((err: BusinessError) => {
-      console.error(TAG, `getWantAgent failed, code: ${err.code}, message: ${err.message}`);
-    });
+    try {
+      const cover = await this.fetchAlbumCoverForSong(songItem);
+      if (cover && !this.isStaleGeneration(generation) && songItem === this.songItem) {
+        this.avSessionCover = cover;
+        this.avSessionCoverUri = uri;
+        return cover;
+      }
+    } catch (error) {
+      console.info(TAG, `fetch AVSession album cover failed, use default cover if available: ${JSON.stringify(error)}`);
+    }
+    return this.getDefaultAVSessionCover();
   }
 
-  private stopAudioBackgroundTask(): void {
-    const context = this.context;
-    if (!context || !this.isAudioBackgroundRunning) {
-      return;
+  private async fetchAlbumCoverForSong(songItem: MediaSource | null): Promise<image.PixelMap | undefined> {
+    const sourceUri = songItem?.getUri();
+    if (!sourceUri || sourceUri.length == 0) {
+      return undefined;
     }
-    backgroundTaskManager.stopBackgroundRunning(context).then(() => {
-      this.isAudioBackgroundRunning = false;
-      console.info(TAG, 'stopBackgroundRunning succeeded');
-    }).catch((err: BusinessError) => {
-      console.error(TAG, `stopBackgroundRunning failed, code: ${err.code}, message: ${err.message}`);
-    });
+    const extractor = await media.createAVMetadataExtractor();
+    let openedFd: number | null = null;
+    try {
+      if (sourceUri.startsWith('http')) {
+        let headers: Record<string, string> = { "User-Agent": "User-Agent-Value" };
+        if (songItem?.getHeader()) {
+          headers = songItem?.getHeader() as Record<string, string>;
+        }
+        extractor.setUrlSource(sourceUri, headers);
+      } else if (sourceUri.startsWith('file')) {
+        let localPath = sourceUri;
+        const dartFilePrefix = 'file:///';
+        if (localPath.startsWith(dartFilePrefix)) {
+          localPath = localPath.slice(dartFilePrefix.length);
+        }
+        const file = fileIo.openSync(localPath);
+        openedFd = file.fd;
+        const fileSize = fileIo.statSync(localPath).size;
+        extractor.fdSrc = { fd: openedFd, offset: 0, length: fileSize };
+      } else {
+        return undefined;
+      }
+      return await extractor.fetchAlbumCover();
+    } finally {
+      await this.releaseMetadataExtractorInstance(extractor, 'album cover metadata extractor');
+      if (openedFd !== null) {
+        try {
+          fileIo.closeSync(openedFd);
+        } catch (error) {
+          console.error(TAG, `close album cover fd failed: ${JSON.stringify(error)}`);
+        }
+      }
+    }
   }
 
   private async refreshAVSessionMetadata(): Promise<void> {
@@ -551,7 +562,6 @@ export class MediaAvPlayer {
   private playCall: () => void = async () => {
     console.info(TAG, `on play , do play task`);
     this.isPlaying = true;
-    this.startAudioBackgroundTask();
     if (this.isFirst) {
       await this.loadAssent(0);
     } else {
@@ -580,38 +590,6 @@ export class MediaAvPlayer {
       console.error(TAG, `session seek failed, code is ${error.code}, message is ${error.message}`);
       this.syncAVSessionPlaybackState(avSession.PlaybackState.PLAYBACK_STATE_ERROR);
     });
-  };
-  private setLoopModeCall: (mode: avSession.LoopMode) => void = (mode: avSession.LoopMode) => {
-    console.info(TAG, `on setLoopMode, mode is ${mode}`);
-    switch (mode) {
-      case avSession.LoopMode.LOOP_MODE_SINGLE:
-        this.isRandom = false;
-        this.playMode = LoopMode.SINGLE_CYCLE;
-        break;
-      case avSession.LoopMode.LOOP_MODE_LIST:
-        this.isRandom = false;
-        this.playMode = LoopMode.LIST_LOOP;
-        break;
-      case avSession.LoopMode.LOOP_MODE_SHUFFLE:
-        this.isRandom = true;
-        this.playMode = LoopMode.LIST_LOOP;
-        break;
-      case avSession.LoopMode.LOOP_MODE_SEQUENCE:
-      default:
-        this.isRandom = false;
-        this.playMode = LoopMode.DEFAULT;
-        break;
-    }
-    this.syncCurrentAVSessionPlaybackState();
-  };
-  private toggleFavoriteCall: (assetId: string) => void = (assetId: string) => {
-    const id = assetId && assetId.length > 0 ? assetId : `${this.musicIndex}`;
-    if (this.favoriteAssetIds.has(id)) {
-      this.favoriteAssetIds.delete(id);
-    } else {
-      this.favoriteAssetIds.add(id);
-    }
-    this.syncCurrentAVSessionPlaybackState();
   };
   /**
    * 异常监听
@@ -977,8 +955,6 @@ export class MediaAvPlayer {
     this.session.on('playNext', this.playNextCall);
     this.session.on('playPrevious', this.playPreviousCall);
     this.session.on('seek', this.avSessionSeekCall);
-    this.session.on('setLoopMode', this.setLoopModeCall);
-    this.session.on('toggleFavorite', this.toggleFavoriteCall);
   }
 
   /**
@@ -1056,15 +1032,23 @@ export class MediaAvPlayer {
   }
 
   async setAVMetadata() {
-    let id = this.musicIndex;
+    const id = this.musicIndex;
+    const generation = this.lifecycleGeneration;
+    const songItem = this.songItem;
+    const avMetadata = this.avMetadata;
+    const duration = this.getDuration();
     try {
-      const cover = await this.getAVSessionCover();
+      const cover = await this.getAVSessionCover(songItem, generation);
+      if (this.isStaleGeneration(generation) || id != this.musicIndex || songItem !== this.songItem) {
+        console.info(TAG, 'Skip stale AVSession metadata update');
+        return;
+      }
       let metadata: avSession.AVMetadata = {
         assetId: `${id}`,
-        title: this.getAVSessionTitle(),
-        artist: this.getAVSessionArtist(),
+        title: this.getAVSessionTitle(songItem, avMetadata),
+        artist: this.getAVSessionArtist(songItem, avMetadata),
         filter: CAST_PROTOCOL_FILTER,
-        duration: this.getDuration()
+        duration: duration
       };
       if (cover) {
         metadata.mediaImage = cover;
@@ -1207,7 +1191,6 @@ export class MediaAvPlayer {
    */
   public async play(result?: MethodResult) {
     this.isPlaying = true;
-    this.startAudioBackgroundTask();
     if (!this.isPrepared) {
       this.syncAVSessionPlaybackState(avSession.PlaybackState.PLAYBACK_STATE_PREPARE);
       this.start(0);
@@ -1299,6 +1282,8 @@ export class MediaAvPlayer {
     this.syncAVSessionPlaybackState(avSession.PlaybackState.PLAYBACK_STATE_PREPARE, true, 0);
     this.songItem = this.songList[musicIndex];
     this.avMetadata = undefined;
+    this.avSessionCover = undefined;
+    this.avSessionCoverUri = '';
     this.isClipping = this.songItem.type == "clipping";
     this.updateMusicIndex(musicIndex);
     if (this.avPlayerNext && this.preMusicIndex == musicIndex && !this.isFirst) {
@@ -1382,7 +1367,6 @@ export class MediaAvPlayer {
     this.initGeneration++;
     this.invalidateNextPreload();
     this.syncAVSessionPlaybackState(avSession.PlaybackState.PLAYBACK_STATE_RELEASED);
-    this.stopAudioBackgroundTask();
     await this.waitForNextPreload();
     this.offAVPlayerCallback();
     this.offAVPlayerNextCallback();
@@ -1645,7 +1629,6 @@ export class MediaAvPlayer {
     this.avPlayer?.stop();
     this.state = AudioPlayerState.STOP;
     this.syncAVSessionPlaybackState(avSession.PlaybackState.PLAYBACK_STATE_STOP);
-    this.stopAudioBackgroundTask();
   }
 
   private start(seekMs?: number) {

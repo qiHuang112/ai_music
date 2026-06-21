@@ -40,10 +40,11 @@ HarmonyOS 不允许应用在 `/storage/Users/currentUser` 下创建 `.ai_music` 
 
 HarmonyOS 不走 Android 的 `audio_service` 后台通知链路，系统播控中心由 vendored 插件里的 `AVSession` 直接驱动：
 
-- `MediaAvPlayer` 创建并激活 `AVSession`，注册 play/pause/上一首/下一首/seek 系统命令。
+- `MediaAvPlayer` 创建并激活 `AVSession`，注册 play/pause/上一首/下一首/seek 系统命令；本次不申请 `KEEP_BACKGROUND_RUNNING`，也不配置 `backgroundModes`。
 - 创建 `AVSession` 后调用 `setExtras({'requireAbilityList': ['url-cast']})` 声明投播能力，并在 metadata 中设置 `ProtocolType.TYPE_DLNA | ProtocolType.TYPE_CAST_PLUS_STREAM`。
-- `AVPlayer` 进入 initialized/prepared/playing/paused/completed/stopped/error/buffering 时，同步 `AVPlaybackState`、当前位置、缓冲位置、播放速度和当前曲目 id。
-- 曲目切换和 metadata 读取完成后，同步 title/artist/duration；没有可靠封面 URI 时不发布 `mediaImage`。
+- `AVPlayer` 进入 initialized/prepared/playing/paused/completed/stopped/error/buffering 时，同步 `AVPlaybackState`、当前位置、缓冲位置、播放速度、当前曲目 id 和 App 已设置的循环/随机模式。
+- 曲目切换和 metadata 读取完成后，同步 title/artist/duration，并优先用 `AVMetadataExtractor.fetchAlbumCover()` 抽取当前音频文件内嵌封面；音频没有内嵌封面或解析失败时才降级到默认图。
+- 当前 vendored `just_audio_harmonyos` 只从 Dart 播放源解码 `id/uri/type/header`，没有接收 `AudioSource.tag` 中的 `MediaItem.artUri` 或 AI Music 收藏状态。因此系统播控暂不注册 `setLoopMode`、`toggleFavorite` 这类需要回写公共 Dart 状态的命令，避免原生临时状态和 App 状态不一致。
 - dispose、engine restart/detach 时必须注销命令回调并 deactivate/destroy session，避免系统播控中心残留旧状态。
 
 ## 预加载与资源所有权
