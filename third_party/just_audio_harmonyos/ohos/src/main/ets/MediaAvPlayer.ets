@@ -135,9 +135,15 @@ export class MediaAvPlayer {
   private nextDataSrcFd: number | null = null
   private isDisposed: boolean = false
   private lifecycleGeneration: number = 0
+  private initGeneration: number = 0
+  private nextPreloadInFlight: boolean = false
+  private nextPreloadGeneration: number = -1
 
   constructor() {
-    this.initAudioPlayer();
+    const generation = ++this.initGeneration;
+    this.initAudioPlayer(generation).catch((error: BusinessError) => {
+      console.error(TAG, `init audio player failed, code is ${error.code}, message is ${error.message}`);
+    });
   }
 
   setMediaAvPlayerStateChange(listener: onChangeMediaAvPlayerState) {
@@ -161,30 +167,34 @@ export class MediaAvPlayer {
     }
   }
 
-  private async disposeSession(): Promise<void> {
-    const session = this.session;
+  private async releaseSession(session: avSession.AVSession | undefined, name: string): Promise<void> {
     if (!session) {
       return;
     }
-    this.session = undefined;
     try {
       session.off('play', this.playCall);
       session.off('pause', this.pauseCall);
       session.off('playNext', this.playNextCall);
       session.off('playPrevious', this.playPreviousCall);
     } catch (error) {
-      console.error(TAG, `remove av session callbacks failed: ${JSON.stringify(error)}`);
+      console.error(TAG, `remove ${name} callbacks failed: ${JSON.stringify(error)}`);
     }
     try {
       await session.deactivate();
     } catch (error) {
-      console.error(TAG, `deactivate av session failed: ${JSON.stringify(error)}`);
+      console.error(TAG, `deactivate ${name} failed: ${JSON.stringify(error)}`);
     }
     try {
       await session.destroy();
     } catch (error) {
-      console.error(TAG, `destroy av session failed: ${JSON.stringify(error)}`);
+      console.error(TAG, `destroy ${name} failed: ${JSON.stringify(error)}`);
     }
+  }
+
+  private async disposeSession(): Promise<void> {
+    const session = this.session;
+    this.session = undefined;
+    await this.releaseSession(session, 'av session');
   }
 
   private notifyLoadError(errorCode: string, errorMessage: string): void {
@@ -204,6 +214,31 @@ export class MediaAvPlayer {
 
   private isStaleGeneration(generation: number): boolean {
     return this.isDisposed || generation != this.lifecycleGeneration;
+  }
+
+  private isStaleInitGeneration(generation: number): boolean {
+    return this.isDisposed || generation != this.initGeneration;
+  }
+
+  private beginNextPreload(generation: number): boolean {
+    if (this.avPlayerNext != null || this.nextPreloadInFlight) {
+      return false;
+    }
+    this.nextPreloadInFlight = true;
+    this.nextPreloadGeneration = generation;
+    return true;
+  }
+
+  private finishNextPreload(generation: number): void {
+    if (this.nextPreloadGeneration == generation) {
+      this.nextPreloadInFlight = false;
+      this.nextPreloadGeneration = -1;
+    }
+  }
+
+  private invalidateNextPreload(): void {
+    this.nextPreloadInFlight = false;
+    this.nextPreloadGeneration = -1;
   }
 
   /**
@@ -324,7 +359,7 @@ export class MediaAvPlayer {
       case 'idle':
         console.info(TAG, 'AVPlayer state idle called.');
         this.state = AudioPlayerState.IDLE;
-        if (this.avPlayerNext == null) {
+        if (this.avPlayerNext == null && !this.nextPreloadInFlight) {
           this.offAVPlayerNextCallback();
           this.preMusicIndex = this.musicIndex + 1;
           let nextSong: MediaSource = this.songList[this.preMusicIndex];
@@ -347,13 +382,19 @@ export class MediaAvPlayer {
           }
           if (nextSong) {
             const preloadGeneration = this.lifecycleGeneration;
+            if (!this.beginNextPreload(preloadGeneration)) {
+              break;
+            }
             media.createAVPlayer().then(async (value: media.AVPlayer) => {
               const nextPlayer = value;
-              if (this.isStaleGeneration(preloadGeneration)) {
+              if (this.isStaleGeneration(preloadGeneration) ||
+                this.nextPreloadGeneration != preloadGeneration || this.avPlayerNext != null) {
                 await this.releaseAvPlayer(nextPlayer, 'stale avPlayerNext');
+                this.finishNextPreload(preloadGeneration);
                 return;
               }
               this.avPlayerNext = nextPlayer;
+              this.finishNextPreload(preloadGeneration);
               this.setAVPlayerNextCallback();
               let nextUrl = nextSong.getUri();
               if (nextUrl && nextPlayer.state == "idle") {
@@ -381,6 +422,7 @@ export class MediaAvPlayer {
                 await this.releaseAvPlayer(nextPlayer, 'replaced avPlayerNext');
               }
             }).catch((error: BusinessError) => {
+              this.finishNextPreload(preloadGeneration);
               console.error(TAG, `create next AVPlayer failed, code is ${error.code}, message is ${error.message}`);
             });
           }
@@ -703,21 +745,40 @@ export class MediaAvPlayer {
   /**
    * 初始化音频播放器
    * */
-  async initAudioPlayer() {
+  async initAudioPlayer(generation: number) {
     if (!this.avPlayer) {
-      this.avPlayer = await media.createAVPlayer();
+      const avPlayer = await media.createAVPlayer();
+      if (this.isStaleInitGeneration(generation)) {
+        await this.releaseAvPlayer(avPlayer, 'stale init avPlayer');
+        return;
+      }
+      this.avPlayer = avPlayer;
     }
-    this.avMetadataExtractor = await media.createAVMetadataExtractor();
-    this.setAVPlayerCallback();
-    this.createSession();
-  }
-
-  async createSession() {
-    if (!this.context || this.session) {
+    const avMetadataExtractor = await media.createAVMetadataExtractor();
+    if (this.isStaleInitGeneration(generation)) {
+      await this.releaseMetadataExtractorInstance(avMetadataExtractor, 'stale init metadata extractor');
       return;
     }
-    this.session = await avSession.createAVSession(this.context, 'SESSION_NAME', 'audio');
-    await this.session.activate();
+    this.avMetadataExtractor = avMetadataExtractor;
+    this.setAVPlayerCallback();
+    await this.createSession(generation);
+  }
+
+  async createSession(generation: number = this.initGeneration) {
+    if (!this.context || this.session || this.isStaleInitGeneration(generation)) {
+      return;
+    }
+    const session = await avSession.createAVSession(this.context, 'SESSION_NAME', 'audio');
+    if (this.isStaleInitGeneration(generation) || this.session) {
+      await this.releaseSession(session, 'stale av session');
+      return;
+    }
+    this.session = session;
+    await session.activate();
+    if (this.isStaleInitGeneration(generation)) {
+      await this.disposeSession();
+      return;
+    }
     this.setAVMetadata();
     let wantAgentInfo: wantAgent.WantAgentInfo = {
       wants: [
@@ -730,11 +791,11 @@ export class MediaAvPlayer {
       wantAgentFlags: [wantAgent.WantAgentFlags.UPDATE_PRESENT_FLAG]
     }
     wantAgent.getWantAgent(wantAgentInfo).then((agent) => {
-      if (this.session) {
-        this.session.setLaunchAbility(agent);
+      if (this.session === session && !this.isStaleInitGeneration(generation)) {
+        session.setLaunchAbility(agent);
       }
     })
-    this.mediaAvPlayerStateChangeListener?.setAudioSessionId(parseInt(this.session.sessionId))
+    this.mediaAvPlayerStateChangeListener?.setAudioSessionId(parseInt(session.sessionId))
     this.setListenerForMesFromController();
   }
 
@@ -815,6 +876,7 @@ export class MediaAvPlayer {
       return;
     }
     const generation = ++this.lifecycleGeneration;
+    this.invalidateNextPreload();
     if (this.seekModule == SeekMode.SEEK) {
       this.seekModule = SeekMode.UNKNOWN;
     }
@@ -879,15 +941,20 @@ export class MediaAvPlayer {
     }
   }
 
-  private async releaseMetadataExtractor(): Promise<void> {
-    if (!this.avMetadataExtractor) {
+  private async releaseMetadataExtractorInstance(avMetadataExtractor: media.AVMetadataExtractor | null,
+    name: string): Promise<void> {
+    if (!avMetadataExtractor) {
       return;
     }
     try {
-      await this.avMetadataExtractor.release();
+      await avMetadataExtractor.release();
     } catch (error) {
-      console.error(TAG, `metadata extractor release failed: ${JSON.stringify(error)}`);
+      console.error(TAG, `${name} release failed: ${JSON.stringify(error)}`);
     }
+  }
+
+  private async releaseMetadataExtractor(): Promise<void> {
+    await this.releaseMetadataExtractorInstance(this.avMetadataExtractor, 'metadata extractor');
   }
 
   async dispose(): Promise<void> {
@@ -896,6 +963,8 @@ export class MediaAvPlayer {
     }
     this.isDisposed = true;
     this.lifecycleGeneration++;
+    this.initGeneration++;
+    this.invalidateNextPreload();
     this.offAVPlayerCallback();
     this.offAVPlayerNextCallback();
     await this.disposeSession();
@@ -1122,6 +1191,7 @@ export class MediaAvPlayer {
       return;
     }
     this.lifecycleGeneration++;
+    this.invalidateNextPreload();
     this.initialPos = seekPostion ?? -1;
     if (this.initialPos != -1) {
       this.initialIndex = currentIndex
