@@ -23,6 +23,7 @@
 import { media } from '@kit.MediaKit';
 import { common, wantAgent } from '@kit.AbilityKit';
 import { BusinessError } from '@kit.BasicServicesKit';
+import { backgroundTaskManager } from '@kit.BackgroundTasksKit';
 import { AVCastPickerState, avSession } from '@kit.AVSessionKit';
 import MediaSource from './MediaSource';
 import { fileIo } from '@kit.CoreFileKit';
@@ -151,6 +152,7 @@ export class MediaAvPlayer {
   private nextStateCall: ((state: string) => Promise<void>) | null = null
   private lastBufferedPosition: number = 0
   private lastAVSessionPlaybackStateUpdateTime: number = 0
+  private isAudioBackgroundRunning: boolean = false
 
   constructor() {
     const generation = ++this.initGeneration;
@@ -377,6 +379,52 @@ export class MediaAvPlayer {
     } catch (error) {
       console.error(TAG, `SetAVSession cast extras failed: ${JSON.stringify(error)}`);
     }
+  }
+
+  private startAudioBackgroundTask(): void {
+    const context = this.context;
+    if (!context || this.isAudioBackgroundRunning) {
+      return;
+    }
+    const wantAgentInfo: wantAgent.WantAgentInfo = {
+      wants: [
+        {
+          bundleName: context.abilityInfo.bundleName,
+          abilityName: context.abilityInfo.name
+        }
+      ],
+      operationType: wantAgent.OperationType.START_ABILITY,
+      requestCode: 0,
+      wantAgentFlags: [wantAgent.WantAgentFlags.UPDATE_PRESENT_FLAG]
+    };
+
+    wantAgent.getWantAgent(wantAgentInfo).then((agent) => {
+      backgroundTaskManager.startBackgroundRunning(
+        context,
+        backgroundTaskManager.BackgroundMode.AUDIO_PLAYBACK,
+        agent
+      ).then(() => {
+        this.isAudioBackgroundRunning = true;
+        console.info(TAG, 'startBackgroundRunning succeeded');
+      }).catch((err: BusinessError) => {
+        console.error(TAG, `startBackgroundRunning failed, code: ${err.code}, message: ${err.message}`);
+      });
+    }).catch((err: BusinessError) => {
+      console.error(TAG, `getWantAgent failed, code: ${err.code}, message: ${err.message}`);
+    });
+  }
+
+  private stopAudioBackgroundTask(): void {
+    const context = this.context;
+    if (!context || !this.isAudioBackgroundRunning) {
+      return;
+    }
+    backgroundTaskManager.stopBackgroundRunning(context).then(() => {
+      this.isAudioBackgroundRunning = false;
+      console.info(TAG, 'stopBackgroundRunning succeeded');
+    }).catch((err: BusinessError) => {
+      console.error(TAG, `stopBackgroundRunning failed, code: ${err.code}, message: ${err.message}`);
+    });
   }
 
   private async refreshAVSessionMetadata(): Promise<void> {
@@ -976,12 +1024,13 @@ export class MediaAvPlayer {
     if (!this.context || this.session || this.isStaleInitGeneration(generation)) {
       return;
     }
-    const session = await avSession.createAVSession(this.context, 'SESSION_NAME', 'audio');
+    const session = await avSession.createAVSession(this.context, 'AI Music', 'audio');
     if (this.isStaleInitGeneration(generation) || this.session) {
       await this.releaseSession(session, 'stale av session');
       return;
     }
     this.session = session;
+    this.setListenerForMesFromController();
     await session.activate();
     if (this.isStaleInitGeneration(generation)) {
       await this.disposeSession();
@@ -995,7 +1044,7 @@ export class MediaAvPlayer {
           abilityName: this.context.abilityInfo.name
         }
       ],
-      actionType: wantAgent.OperationType.START_ABILITIES,
+      actionType: wantAgent.OperationType.START_ABILITY,
       requestCode: 0,
       wantAgentFlags: [wantAgent.WantAgentFlags.UPDATE_PRESENT_FLAG]
     }
@@ -1006,7 +1055,6 @@ export class MediaAvPlayer {
     })
     await this.setAVSessionCastExtras(session);
     this.mediaAvPlayerStateChangeListener?.setAudioSessionId(parseInt(session.sessionId))
-    this.setListenerForMesFromController();
     this.syncCurrentAVSessionPlaybackState();
   }
 
@@ -1015,6 +1063,7 @@ export class MediaAvPlayer {
    */
   public async play(result?: MethodResult) {
     this.isPlaying = true;
+    this.startAudioBackgroundTask();
     if (!this.isPrepared) {
       this.syncAVSessionPlaybackState(avSession.PlaybackState.PLAYBACK_STATE_PREPARE);
       this.start(0);
@@ -1189,6 +1238,7 @@ export class MediaAvPlayer {
     this.initGeneration++;
     this.invalidateNextPreload();
     this.syncAVSessionPlaybackState(avSession.PlaybackState.PLAYBACK_STATE_RELEASED);
+    this.stopAudioBackgroundTask();
     await this.waitForNextPreload();
     this.offAVPlayerCallback();
     this.offAVPlayerNextCallback();
@@ -1451,6 +1501,7 @@ export class MediaAvPlayer {
     this.avPlayer?.stop();
     this.state = AudioPlayerState.STOP;
     this.syncAVSessionPlaybackState(avSession.PlaybackState.PLAYBACK_STATE_STOP);
+    this.stopAudioBackgroundTask();
   }
 
   private start(seekMs?: number) {

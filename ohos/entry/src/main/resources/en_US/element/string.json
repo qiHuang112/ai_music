@@ -11,6 +11,10 @@
     {
       "name": "EntryAbility_label",
       "value": "AI Music"
+    },
+    {
+      "name": "reason_background",
+      "value": "Keep music playback controls and the background audio task available while playing."
     }
   ]
 }
