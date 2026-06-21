@@ -489,6 +489,10 @@ export class MediaAvPlayer {
           this.mediaAvPlayerStateChangeListener?.onPlaybackStateChanged(PlaybackState.STATE_BUFFERING);
           break;
         }
+        if (this.isPreBuffering) {
+          this.isPreBuffering = false;
+          this.playMusicIndex = this.musicIndex;
+        }
         if (this.playMusicIndex == this.musicIndex) {
           this.playingState();
         } else {
@@ -950,6 +954,7 @@ export class MediaAvPlayer {
       this.currentDataSrcFd = this.nextDataSrcFd;
       this.nextDataSrcFd = null;
       this.setAVPlayerCallback();
+      this.playMusicIndex = musicIndex;
       if (promotedPlayer.state == 'prepared') {
         this.playingState();
       } else {
