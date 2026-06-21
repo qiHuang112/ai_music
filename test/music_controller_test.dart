@@ -304,6 +304,226 @@ void main() {
     }
   });
 
+  test(
+    'batch adding tracks appends in selection order and skips duplicates',
+    () async {
+      final handler = _SpyAudioHandler();
+      final first = _cachedTrack(id: 'song-1', name: '第一首');
+      final second = _cachedTrack(id: 'song-2', name: '第二首');
+      final controller = MusicController(
+        audioHandler: handler,
+        resolver: _FakeMusicResolver(),
+        cacheStore: _FakeCacheStore(cached: [first, second]),
+        playlistStore: _MemoryPlaylistStore(),
+        settingsStore: _FakeSettingsStore(),
+        metadataRepository: _StaticMetadataRepository(),
+      );
+
+      try {
+        await controller.initialize();
+        final playlist = await controller.createPlaylist('Road');
+        await controller.addTrackToPlaylist(playlist!, trackFromCached(first));
+        await controller.addTracksToPlaylist(
+          controller.customPlaylists.single,
+          [trackFromCached(second), trackFromCached(first)],
+        );
+
+        expect(controller.customPlaylists.single.trackIds, [
+          first.cacheId,
+          second.cacheId,
+        ]);
+      } finally {
+        controller.dispose();
+        await handler.dispose();
+      }
+    },
+  );
+
+  test(
+    'batch deleting cached tracks removes metadata and playlist references',
+    () async {
+      final handler = _SpyAudioHandler();
+      final first = _cachedTrack(id: 'song-1', name: '第一首');
+      final second = _cachedTrack(id: 'song-2', name: '第二首');
+      final cacheStore = _FakeCacheStore(cached: [first, second]);
+      final playlistStore = _MemoryPlaylistStore()
+        ..library = PlaylistLibrary(
+          favoriteEntries: [
+            PlaylistTrackEntry(trackId: first.cacheId, addedAt: DateTime(2026)),
+            PlaylistTrackEntry(
+              trackId: second.cacheId,
+              addedAt: DateTime(2026),
+            ),
+          ],
+          playlists: [
+            MusicPlaylist(
+              id: 'road',
+              name: 'Road',
+              entries: [
+                PlaylistTrackEntry(
+                  trackId: first.cacheId,
+                  addedAt: DateTime(2026),
+                ),
+                PlaylistTrackEntry(
+                  trackId: second.cacheId,
+                  addedAt: DateTime(2026),
+                ),
+              ],
+              createdAt: DateTime(2026),
+              updatedAt: DateTime(2026),
+            ),
+          ],
+        );
+      final metadata = _StaticMetadataRepository();
+      final controller = MusicController(
+        audioHandler: handler,
+        resolver: _FakeMusicResolver(),
+        cacheStore: cacheStore,
+        playlistStore: playlistStore,
+        settingsStore: _FakeSettingsStore(),
+        metadataRepository: metadata,
+      );
+
+      try {
+        await controller.initialize();
+        await controller.deleteCachedTracks([
+          trackFromCached(first),
+          trackFromCached(second),
+        ]);
+
+        expect(cacheStore.cached, isEmpty);
+        expect(
+          metadata.deletedIds,
+          unorderedEquals([first.cacheId, second.cacheId]),
+        );
+        expect(controller.favoriteTracks, isEmpty);
+        expect(controller.customPlaylists.single.trackIds, isEmpty);
+      } finally {
+        controller.dispose();
+        await handler.dispose();
+      }
+    },
+  );
+
+  test(
+    'deleting a queued non-current cached track rebuilds queue around current track',
+    () async {
+      final handler = _SpyAudioHandler();
+      final first = _cachedTrack(id: 'song-1', name: '第一首');
+      final second = _cachedTrack(id: 'song-2', name: '第二首');
+      final controller = MusicController(
+        audioHandler: handler,
+        resolver: _FakeMusicResolver(),
+        cacheStore: _FakeCacheStore(cached: [first, second]),
+        playlistStore: _MemoryPlaylistStore(),
+        settingsStore: _FakeSettingsStore(),
+        metadataRepository: _StaticMetadataRepository(),
+      );
+
+      try {
+        await controller.initialize();
+        final firstTrack = trackFromCached(first);
+        final secondTrack = trackFromCached(second);
+        await controller.playTrack(
+          firstTrack,
+          index: 0,
+          queueTracks: [firstTrack, secondTrack],
+        );
+        handler
+          ..loadedIds = const []
+          ..loadedInitialPosition = null
+          ..currentPositionOverride = const Duration(seconds: 21);
+        handler.playbackState.add(PlaybackState(playing: true));
+
+        await controller.deleteCachedTrack(secondTrack);
+
+        expect(handler.loadedIds, [first.cacheId]);
+        expect(handler.loadedInitialPosition, const Duration(seconds: 21));
+        expect(handler.mediaItem.value?.id, first.cacheId);
+      } finally {
+        controller.dispose();
+        await handler.dispose();
+      }
+    },
+  );
+
+  test(
+    'reordering favorites and playlists preserves added time metadata',
+    () async {
+      final handler = _SpyAudioHandler();
+      final first = _cachedTrack(id: 'song-1', name: '第一首');
+      final second = _cachedTrack(id: 'song-2', name: '第二首');
+      final firstAddedAt = DateTime(2026, 1, 1);
+      final secondAddedAt = DateTime(2026, 1, 2);
+      final playlistStore = _MemoryPlaylistStore()
+        ..library = PlaylistLibrary(
+          favoriteEntries: [
+            PlaylistTrackEntry(trackId: first.cacheId, addedAt: firstAddedAt),
+            PlaylistTrackEntry(trackId: second.cacheId, addedAt: secondAddedAt),
+          ],
+          playlists: [
+            MusicPlaylist(
+              id: 'road',
+              name: 'Road',
+              entries: [
+                PlaylistTrackEntry(
+                  trackId: first.cacheId,
+                  addedAt: firstAddedAt,
+                ),
+                PlaylistTrackEntry(
+                  trackId: second.cacheId,
+                  addedAt: secondAddedAt,
+                ),
+              ],
+              createdAt: DateTime(2026),
+              updatedAt: DateTime(2026),
+            ),
+          ],
+        );
+      final controller = MusicController(
+        audioHandler: handler,
+        resolver: _FakeMusicResolver(),
+        cacheStore: _FakeCacheStore(cached: [first, second]),
+        playlistStore: playlistStore,
+        settingsStore: _FakeSettingsStore(),
+        metadataRepository: _StaticMetadataRepository(),
+      );
+
+      try {
+        await controller.initialize();
+        final reversedTracks = [
+          trackFromCached(second),
+          trackFromCached(first),
+        ];
+        await controller.reorderFavoriteTracks(reversedTracks);
+        await controller.reorderPlaylistTracks(
+          controller.customPlaylists.single,
+          reversedTracks,
+        );
+
+        expect(playlistStore.library.favoriteTrackIds, [
+          second.cacheId,
+          first.cacheId,
+        ]);
+        expect(
+          playlistStore.library.favoriteEntries.first.addedAt,
+          secondAddedAt,
+        );
+        expect(playlistStore.library.playlists.single.trackIds, [
+          second.cacheId,
+          first.cacheId,
+        ]);
+        expect(
+          playlistStore.library.playlists.single.entries.first.addedAt,
+          secondAddedAt,
+        );
+      } finally {
+        controller.dispose();
+        await handler.dispose();
+      }
+    },
+  );
+
   test('clearing media item invalidates pending metadata load', () async {
     final handler = _SpyAudioHandler();
     final cached = _cachedTrack(id: 'song-1', name: '第一首');
@@ -594,11 +814,17 @@ class _StaticMetadataRepository extends TrackMetadataRepository {
 
   final TrackMetadata metadata;
   final loadIds = <String>[];
+  final deletedIds = <String>[];
 
   @override
   Future<TrackMetadata> load(CachedTrack track) async {
     loadIds.add(track.cacheId);
     return metadata;
+  }
+
+  @override
+  Future<void> delete(String cacheId) async {
+    deletedIds.add(cacheId);
   }
 }
 
@@ -629,6 +855,11 @@ class _FakeCacheStore extends CachedTrackStore {
 
   @override
   Future<void> cleanupTemporaryFiles() async {}
+
+  @override
+  Future<void> deleteCached(String cacheId) async {
+    cached.removeWhere((track) => track.cacheId == cacheId);
+  }
 }
 
 class _FakePlaylistStore extends PlaylistStore {
@@ -654,6 +885,7 @@ class _MemoryPlaylistStore extends PlaylistStore {
   @override
   Future<PlaylistLibrary> load({Set<String>? validTrackIds}) async {
     await Future<void>.delayed(const Duration(milliseconds: 1));
+    library = _sanitize(library, validTrackIds);
     return library;
   }
 
@@ -663,7 +895,29 @@ class _MemoryPlaylistStore extends PlaylistStore {
     Set<String>? validTrackIds,
   }) async {
     await Future<void>.delayed(const Duration(milliseconds: 1));
-    this.library = library;
+    this.library = _sanitize(library, validTrackIds);
+  }
+
+  PlaylistLibrary _sanitize(PlaylistLibrary library, Set<String>? validIds) {
+    List<PlaylistTrackEntry> filter(List<PlaylistTrackEntry> entries) {
+      final unique = <PlaylistTrackEntry>[];
+      final seen = <String>{};
+      for (final entry in entries) {
+        if (seen.add(entry.trackId) &&
+            (validIds == null || validIds.contains(entry.trackId))) {
+          unique.add(entry);
+        }
+      }
+      return unique;
+    }
+
+    return PlaylistLibrary(
+      favoriteEntries: filter(library.favoriteEntries),
+      playlists: [
+        for (final playlist in library.playlists)
+          playlist.copyWith(entries: filter(playlist.entries)),
+      ],
+    );
   }
 }
 

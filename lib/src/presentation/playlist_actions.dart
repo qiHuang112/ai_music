@@ -9,7 +9,9 @@ Future<MusicPlaylist?> showCreatePlaylistDialog(
   BuildContext context,
   MusicController controller, {
   Track? initialTrack,
+  List<Track> initialTracks = const [],
 }) async {
+  final tracks = _initialTracks(initialTrack, initialTracks);
   final name = await _playlistNameDialog(
     context,
     title: AppStringsScope.of(context).newPlaylist,
@@ -19,8 +21,8 @@ Future<MusicPlaylist?> showCreatePlaylistDialog(
     return null;
   }
   final playlist = await controller.createPlaylist(name);
-  if (playlist != null && initialTrack != null) {
-    await controller.addTrackToPlaylist(playlist, initialTrack);
+  if (playlist != null && tracks.isNotEmpty) {
+    await controller.addTracksToPlaylist(playlist, tracks);
   }
   return playlist;
 }
@@ -30,6 +32,18 @@ Future<void> showAddToPlaylistSheet(
   MusicController controller,
   Track track,
 ) {
+  return showAddTracksToPlaylistSheet(context, controller, [track]);
+}
+
+Future<void> showAddTracksToPlaylistSheet(
+  BuildContext context,
+  MusicController controller,
+  List<Track> tracks,
+) {
+  final selectedTracks = _uniqueTracks(tracks);
+  if (selectedTracks.isEmpty) {
+    return Future<void>.value();
+  }
   final parentContext = context;
   return showModalBottomSheet<void>(
     context: context,
@@ -53,7 +67,7 @@ Future<void> showAddToPlaylistSheet(
                 await showCreatePlaylistDialog(
                   parentContext,
                   controller,
-                  initialTrack: track,
+                  initialTracks: selectedTracks,
                 );
               },
             ),
@@ -65,20 +79,27 @@ Future<void> showAddToPlaylistSheet(
             else
               for (final playlist in playlists)
                 ListTile(
+                  enabled: !_allTracksInPlaylist(
+                    controller,
+                    playlist,
+                    selectedTracks,
+                  ),
                   leading: Icon(
-                    controller.isInPlaylist(playlist, track)
+                    _allTracksInPlaylist(controller, playlist, selectedTracks)
                         ? Icons.check
                         : Icons.queue_music,
                   ),
                   title: Text(playlist.name),
                   subtitle: Text(
-                    controller.isInPlaylist(playlist, track)
+                    _allTracksInPlaylist(controller, playlist, selectedTracks)
                         ? strings.alreadyAdded
                         : strings.addToThisPlaylist,
                   ),
-                  enabled: !controller.isInPlaylist(playlist, track),
                   onTap: () async {
-                    await controller.addTrackToPlaylist(playlist, track);
+                    await controller.addTracksToPlaylist(
+                      playlist,
+                      selectedTracks,
+                    );
                     if (sheetContext.mounted) {
                       Navigator.of(sheetContext).pop();
                     }
@@ -90,6 +111,26 @@ Future<void> showAddToPlaylistSheet(
       );
     },
   );
+}
+
+List<Track> _initialTracks(Track? initialTrack, List<Track> initialTracks) {
+  return _uniqueTracks([?initialTrack, ...initialTracks]);
+}
+
+List<Track> _uniqueTracks(List<Track> tracks) {
+  final seen = <String>{};
+  return [
+    for (final track in tracks)
+      if (seen.add(track.id)) track,
+  ];
+}
+
+bool _allTracksInPlaylist(
+  MusicController controller,
+  MusicPlaylist playlist,
+  List<Track> tracks,
+) {
+  return tracks.every((track) => controller.isInPlaylist(playlist, track));
 }
 
 Future<String?> playlistNameDialog(

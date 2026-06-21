@@ -75,7 +75,6 @@ class _DownloadManagerPageState extends State<DownloadManagerPage> {
                 else
                   for (final task in recentTasks.reversed)
                     _DownloadTaskTile(controller: controller, task: task),
-                _RepairLegacyTile(controller: controller),
                 const SizedBox(height: 18),
                 ListSearchField(
                   controller: _searchController,
@@ -147,29 +146,6 @@ class _SectionHeader extends StatelessWidget {
           ?trailing,
         ],
       ),
-    );
-  }
-}
-
-class _RepairLegacyTile extends StatelessWidget {
-  const _RepairLegacyTile({required this.controller});
-
-  final MusicController controller;
-
-  @override
-  Widget build(BuildContext context) {
-    final strings = AppStringsScope.of(context);
-    return ListTile(
-      leading: controller.isRepairingLegacyCache
-          ? const SizedBox.square(
-              dimension: 24,
-              child: CircularProgressIndicator(strokeWidth: 2),
-            )
-          : const Icon(Icons.auto_fix_high),
-      title: Text(strings.repairLegacy),
-      onTap: controller.isRepairingLegacyCache
-          ? null
-          : controller.repairLegacyCache,
     );
   }
 }

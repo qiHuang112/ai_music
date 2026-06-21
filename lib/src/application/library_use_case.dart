@@ -58,6 +58,20 @@ class LibraryUseCase {
     return loadCache();
   }
 
+  Future<LibrarySnapshot> deleteCachedTracks(
+    List<Track> tracks, {
+    required LibrarySnapshot current,
+  }) async {
+    final ids = {for (final track in tracks) track.id};
+    for (final id in ids) {
+      await cacheStore.deleteCached(id);
+    }
+    for (final id in ids) {
+      await metadataRepository.delete(id);
+    }
+    return loadCache();
+  }
+
   Future<LibrarySnapshot> toggleFavorite(
     Track track, {
     required LibrarySnapshot current,
@@ -156,21 +170,35 @@ class LibraryUseCase {
     Track track, {
     required LibrarySnapshot current,
   }) {
+    return addTracksToPlaylist(playlist, [track], current: current);
+  }
+
+  Future<LibrarySnapshot> addTracksToPlaylist(
+    MusicPlaylist playlist,
+    List<Track> tracks, {
+    required LibrarySnapshot current,
+  }) {
     return _enqueuePlaylistMutation(() async {
       final base = _currentSnapshot(current);
       return _updatePlaylist(
         playlist.id,
         current: base,
         update: (item) {
-          if (item.trackIds.contains(track.id)) {
+          final existing = item.trackIds.toSet();
+          final additions = <PlaylistTrackEntry>[];
+          final now = DateTime.now();
+          for (final track in tracks) {
+            if (existing.add(track.id)) {
+              additions.add(
+                PlaylistTrackEntry(trackId: track.id, addedAt: now),
+              );
+            }
+          }
+          if (additions.isEmpty) {
             return item;
           }
-          final now = DateTime.now();
           return item.copyWith(
-            entries: [
-              ...item.entries,
-              PlaylistTrackEntry(trackId: track.id, addedAt: now),
-            ],
+            entries: [...item.entries, ...additions],
             updatedAt: now,
           );
         },
@@ -183,16 +211,78 @@ class LibraryUseCase {
     Track track, {
     required LibrarySnapshot current,
   }) {
+    return removeTracksFromPlaylist(playlist, [track], current: current);
+  }
+
+  Future<LibrarySnapshot> removeTracksFromPlaylist(
+    MusicPlaylist playlist,
+    List<Track> tracks, {
+    required LibrarySnapshot current,
+  }) {
     return _enqueuePlaylistMutation(() async {
       final base = _currentSnapshot(current);
+      final ids = {for (final track in tracks) track.id};
       return _updatePlaylist(
         playlist.id,
         current: base,
         update: (item) => item.copyWith(
           entries: [
             for (final entry in item.entries)
-              if (entry.trackId != track.id) entry,
+              if (!ids.contains(entry.trackId)) entry,
           ],
+          updatedAt: DateTime.now(),
+        ),
+      );
+    });
+  }
+
+  Future<LibrarySnapshot> removeTracksFromFavorites(
+    List<Track> tracks, {
+    required LibrarySnapshot current,
+  }) {
+    return _enqueuePlaylistMutation(() async {
+      final base = _currentSnapshot(current);
+      final ids = {for (final track in tracks) track.id};
+      return _savePlaylistLibrary(
+        base.playlistLibrary.copyWith(
+          favoriteEntries: [
+            for (final entry in base.playlistLibrary.favoriteEntries)
+              if (!ids.contains(entry.trackId)) entry,
+          ],
+        ),
+        current: base,
+      );
+    });
+  }
+
+  Future<LibrarySnapshot> reorderFavoriteTracks(
+    List<Track> tracks, {
+    required LibrarySnapshot current,
+  }) {
+    return _enqueuePlaylistMutation(() async {
+      final base = _currentSnapshot(current);
+      final currentEntries = base.playlistLibrary.favoriteEntries;
+      return _savePlaylistLibrary(
+        base.playlistLibrary.copyWith(
+          favoriteEntries: _reorderedEntries(currentEntries, tracks),
+        ),
+        current: base,
+      );
+    });
+  }
+
+  Future<LibrarySnapshot> reorderPlaylistTracks(
+    MusicPlaylist playlist,
+    List<Track> tracks, {
+    required LibrarySnapshot current,
+  }) {
+    return _enqueuePlaylistMutation(() async {
+      final base = _currentSnapshot(current);
+      return _updatePlaylist(
+        playlist.id,
+        current: base,
+        update: (item) => item.copyWith(
+          entries: _reorderedEntries(item.entries, tracks),
           updatedAt: DateTime.now(),
         ),
       );
@@ -262,6 +352,27 @@ class LibraryUseCase {
     _playlistMutationTail = run.then<void>((_) {}, onError: (_) {});
     return run;
   }
+}
+
+List<PlaylistTrackEntry> _reorderedEntries(
+  List<PlaylistTrackEntry> currentEntries,
+  List<Track> orderedTracks,
+) {
+  final byId = {for (final entry in currentEntries) entry.trackId: entry};
+  final orderedIds = <String>{};
+  final reordered = <PlaylistTrackEntry>[];
+  for (final track in orderedTracks) {
+    final entry = byId[track.id];
+    if (entry != null && orderedIds.add(track.id)) {
+      reordered.add(entry);
+    }
+  }
+  for (final entry in currentEntries) {
+    if (orderedIds.add(entry.trackId)) {
+      reordered.add(entry);
+    }
+  }
+  return reordered;
 }
 
 class MusicPlaylistResult {

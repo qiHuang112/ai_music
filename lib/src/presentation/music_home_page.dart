@@ -662,7 +662,7 @@ class _CustomPlaylistTile extends StatelessWidget {
 
 enum _LibraryListKind { local, favorite, custom }
 
-enum _LibrarySortMode { time, initial }
+enum _LibrarySortMode { time, initial, custom }
 
 class _LibraryListSpec {
   const _LibraryListSpec({
@@ -724,6 +724,7 @@ class _ResolvedLibraryList {
   bool get isFavorite => selection.kind == _LibraryListKind.favorite;
   bool get canManage => selection.kind == _LibraryListKind.custom;
   bool get canRemove => !isLocal;
+  bool get canCustomSort => isFavorite || canManage;
 
   _ResolvedLibraryList copyWith({List<Track>? tracks}) {
     return _ResolvedLibraryList(
@@ -788,6 +789,7 @@ class _PlaylistDetailPage extends StatefulWidget {
 class _PlaylistDetailPageState extends State<_PlaylistDetailPage> {
   _LibrarySortMode _sortMode = _LibrarySortMode.time;
   final _searchController = TextEditingController();
+  final List<String> _selectedTrackIds = <String>[];
   String _query = '';
 
   MusicController get controller => widget.controller;
@@ -805,42 +807,51 @@ class _PlaylistDetailPageState extends State<_PlaylistDetailPage> {
       builder: (context, _) {
         final strings = AppStringsScope.of(context);
         final controller = widget.controller;
+        final hasActiveFilter = _query.trim().isNotEmpty;
         final rawList = _resolveLibraryList(
           controller,
           widget.selection,
           strings,
         );
+        final sortedTracks = _sortLibraryTracks(controller, rawList, _sortMode);
         final list = rawList.copyWith(
-          tracks: filterTracksByQuery(
-            _sortLibraryTracks(controller, rawList, _sortMode),
-            _query,
-          ),
+          tracks: filterTracksByQuery(sortedTracks, _query),
         );
+        final selectedTracks = _selectedTracks(sortedTracks);
+        final selecting = _selectedTrackIds.isNotEmpty;
+        final canReorder =
+            list.canCustomSort &&
+            _sortMode == _LibrarySortMode.custom &&
+            !hasActiveFilter &&
+            !selecting;
         return Scaffold(
-          appBar: AppBar(
-            title: Text(list.title),
-            actions: [
-              _LibrarySortButton(
-                mode: _sortMode,
-                timeLabel: list.isLocal
-                    ? strings.sortByDownloadTime
-                    : strings.sortByAddedTime,
-                onChanged: (mode) => setState(() => _sortMode = mode),
-              ),
-              if (list.canManage && list.playlist != null) ...[
-                IconButton(
-                  tooltip: strings.renamePlaylist,
-                  onPressed: () => _rename(context, list.playlist!),
-                  icon: const Icon(Icons.edit),
+          appBar: selecting
+              ? _selectionAppBar(context, list, selectedTracks)
+              : AppBar(
+                  title: Text(list.title),
+                  actions: [
+                    _LibrarySortButton(
+                      mode: _sortMode,
+                      timeLabel: list.isLocal
+                          ? strings.sortByDownloadTime
+                          : strings.sortByAddedTime,
+                      showCustomOrder: list.canCustomSort,
+                      onChanged: (mode) => setState(() => _sortMode = mode),
+                    ),
+                    if (list.canManage && list.playlist != null) ...[
+                      IconButton(
+                        tooltip: strings.renamePlaylist,
+                        onPressed: () => _rename(context, list.playlist!),
+                        icon: const Icon(Icons.edit),
+                      ),
+                      IconButton(
+                        tooltip: strings.deletePlaylist,
+                        onPressed: () => _delete(context, list.playlist!),
+                        icon: const Icon(Icons.delete_outline),
+                      ),
+                    ],
+                  ],
                 ),
-                IconButton(
-                  tooltip: strings.deletePlaylist,
-                  onPressed: () => _delete(context, list.playlist!),
-                  icon: const Icon(Icons.delete_outline),
-                ),
-              ],
-            ],
-          ),
           body: SafeArea(
             child: Column(
               children: [
@@ -854,7 +865,14 @@ class _PlaylistDetailPageState extends State<_PlaylistDetailPage> {
                       : _TrackList(
                           controller: controller,
                           list: list,
-                          hasActiveFilter: _query.trim().isNotEmpty,
+                          hasActiveFilter: hasActiveFilter,
+                          isSelecting: selecting,
+                          selectedTrackIds: _selectedTrackIds.toSet(),
+                          canReorder: canReorder,
+                          onStartSelection: _startSelection,
+                          onToggleSelection: _toggleSelection,
+                          onReorder: (oldIndex, newIndex) =>
+                              _reorderTracks(list, oldIndex, newIndex),
                         ),
                 ),
               ],
@@ -864,6 +882,154 @@ class _PlaylistDetailPageState extends State<_PlaylistDetailPage> {
         );
       },
     );
+  }
+
+  PreferredSizeWidget _selectionAppBar(
+    BuildContext context,
+    _ResolvedLibraryList list,
+    List<Track> selectedTracks,
+  ) {
+    final strings = AppStringsScope.of(context);
+    final hasSelection = selectedTracks.isNotEmpty;
+    return AppBar(
+      leading: IconButton(
+        tooltip: strings.cancel,
+        onPressed: _clearSelection,
+        icon: const Icon(Icons.close),
+      ),
+      title: Text(strings.selectedSongCount(selectedTracks.length)),
+      actions: [
+        IconButton(
+          tooltip: strings.selectAllVisible,
+          onPressed: list.tracks.isEmpty
+              ? null
+              : () => _selectAllVisible(list.tracks),
+          icon: const Icon(Icons.select_all),
+        ),
+        IconButton(
+          tooltip: strings.addToPlaylist,
+          onPressed: hasSelection
+              ? () => _addSelectedToPlaylist(context, selectedTracks)
+              : null,
+          icon: const Icon(Icons.playlist_add),
+        ),
+        if (list.isLocal)
+          IconButton(
+            tooltip: strings.deleteLocalMusic,
+            onPressed: hasSelection
+                ? () => _deleteSelectedLocalTracks(context, selectedTracks)
+                : null,
+            icon: const Icon(Icons.delete_outline),
+          )
+        else if (list.canRemove)
+          IconButton(
+            tooltip: strings.removeSelected,
+            onPressed: hasSelection
+                ? () => _removeSelectedFromCurrent(list, selectedTracks)
+                : null,
+            icon: const Icon(Icons.remove_circle_outline),
+          ),
+      ],
+    );
+  }
+
+  List<Track> _selectedTracks(List<Track> tracks) {
+    final byId = {for (final track in tracks) track.id: track};
+    return [
+      for (final id in _selectedTrackIds)
+        if (byId[id] != null) byId[id]!,
+    ];
+  }
+
+  void _startSelection(Track track) {
+    setState(() {
+      if (!_selectedTrackIds.contains(track.id)) {
+        _selectedTrackIds.add(track.id);
+      }
+    });
+  }
+
+  void _toggleSelection(Track track) {
+    setState(() {
+      if (_selectedTrackIds.contains(track.id)) {
+        _selectedTrackIds.remove(track.id);
+      } else {
+        _selectedTrackIds.add(track.id);
+      }
+    });
+  }
+
+  void _selectAllVisible(List<Track> tracks) {
+    setState(() {
+      for (final track in tracks) {
+        if (!_selectedTrackIds.contains(track.id)) {
+          _selectedTrackIds.add(track.id);
+        }
+      }
+    });
+  }
+
+  void _clearSelection() {
+    setState(_selectedTrackIds.clear);
+  }
+
+  Future<void> _addSelectedToPlaylist(
+    BuildContext context,
+    List<Track> tracks,
+  ) async {
+    await showAddTracksToPlaylistSheet(context, controller, tracks);
+    if (mounted) {
+      _clearSelection();
+    }
+  }
+
+  Future<void> _deleteSelectedLocalTracks(
+    BuildContext context,
+    List<Track> tracks,
+  ) async {
+    final confirmed = await _confirmDeleteLocalTracks(context, tracks);
+    if (confirmed != true) {
+      return;
+    }
+    await controller.deleteCachedTracks(tracks);
+    if (mounted) {
+      _clearSelection();
+    }
+  }
+
+  Future<void> _removeSelectedFromCurrent(
+    _ResolvedLibraryList list,
+    List<Track> tracks,
+  ) async {
+    if (list.isFavorite) {
+      await controller.removeTracksFromFavorites(tracks);
+    } else if (list.playlist != null) {
+      await controller.removeTracksFromPlaylist(list.playlist!, tracks);
+    }
+    if (mounted) {
+      _clearSelection();
+    }
+  }
+
+  Future<void> _reorderTracks(
+    _ResolvedLibraryList list,
+    int oldIndex,
+    int newIndex,
+  ) async {
+    final tracks = [...list.tracks];
+    if (oldIndex < 0 || oldIndex >= tracks.length) {
+      return;
+    }
+    final reorderedTracks = reorderTracksForReorderableListView(
+      tracks,
+      oldIndex,
+      newIndex,
+    );
+    if (list.isFavorite) {
+      await controller.reorderFavoriteTracks(reorderedTracks);
+    } else if (list.playlist != null) {
+      await controller.reorderPlaylistTracks(list.playlist!, reorderedTracks);
+    }
   }
 
   Future<void> _rename(BuildContext context, MusicPlaylist playlist) async {
@@ -909,15 +1075,33 @@ class _PlaylistDetailPageState extends State<_PlaylistDetailPage> {
   }
 }
 
+List<Track> reorderTracksForReorderableListView(
+  List<Track> tracks,
+  int oldIndex,
+  int newIndex,
+) {
+  final reordered = [...tracks];
+  if (oldIndex < 0 || oldIndex >= reordered.length) {
+    return reordered;
+  }
+  final track = reordered.removeAt(oldIndex);
+  // onReorderItem already provides the post-removal target index.
+  final targetIndex = newIndex.clamp(0, reordered.length).toInt();
+  reordered.insert(targetIndex, track);
+  return reordered;
+}
+
 class _LibrarySortButton extends StatelessWidget {
   const _LibrarySortButton({
     required this.mode,
     required this.timeLabel,
+    required this.showCustomOrder,
     required this.onChanged,
   });
 
   final _LibrarySortMode mode;
   final String timeLabel;
+  final bool showCustomOrder;
   final ValueChanged<_LibrarySortMode> onChanged;
 
   @override
@@ -933,6 +1117,11 @@ class _LibrarySortButton extends StatelessWidget {
           value: _LibrarySortMode.initial,
           child: Text(strings.sortByInitial),
         ),
+        if (showCustomOrder)
+          PopupMenuItem(
+            value: _LibrarySortMode.custom,
+            child: Text(strings.customOrder),
+          ),
       ],
       icon: const Icon(Icons.sort),
     );
@@ -946,6 +1135,8 @@ List<Track> _sortLibraryTracks(
 ) {
   final sorted = [...list.tracks];
   switch (mode) {
+    case _LibrarySortMode.custom:
+      break;
     case _LibrarySortMode.initial:
       sorted.sort(_compareTracksByInitial);
       break;
@@ -1002,11 +1193,23 @@ class _TrackList extends StatelessWidget {
     required this.controller,
     required this.list,
     required this.hasActiveFilter,
+    required this.isSelecting,
+    required this.selectedTrackIds,
+    required this.canReorder,
+    required this.onStartSelection,
+    required this.onToggleSelection,
+    required this.onReorder,
   });
 
   final MusicController controller;
   final _ResolvedLibraryList list;
   final bool hasActiveFilter;
+  final bool isSelecting;
+  final Set<String> selectedTrackIds;
+  final bool canReorder;
+  final ValueChanged<Track> onStartSelection;
+  final ValueChanged<Track> onToggleSelection;
+  final void Function(int oldIndex, int newIndex) onReorder;
 
   @override
   Widget build(BuildContext context) {
@@ -1025,56 +1228,144 @@ class _TrackList extends StatelessWidget {
             : strings.noSongsInPlaylist,
       );
     }
+    if (canReorder) {
+      return ReorderableListView.builder(
+        buildDefaultDragHandles: false,
+        padding: const EdgeInsets.fromLTRB(12, 8, 12, 96),
+        itemCount: tracks.length,
+        onReorderItem: onReorder,
+        itemBuilder: (context, index) {
+          final track = tracks[index];
+          return _TrackTile(
+            key: ValueKey('track-${track.id}'),
+            controller: controller,
+            list: list,
+            track: track,
+            tracks: tracks,
+            index: index,
+            isSelecting: isSelecting,
+            selected: selectedTrackIds.contains(track.id),
+            onStartSelection: onStartSelection,
+            onToggleSelection: onToggleSelection,
+            dragHandle: ReorderableDragStartListener(
+              index: index,
+              child: Tooltip(
+                message: strings.dragToReorder,
+                child: const Padding(
+                  padding: EdgeInsets.all(12),
+                  child: Icon(Icons.drag_handle),
+                ),
+              ),
+            ),
+          );
+        },
+      );
+    }
     return ListView.separated(
       padding: const EdgeInsets.fromLTRB(12, 8, 12, 96),
       itemCount: tracks.length,
       separatorBuilder: (_, _) => const Divider(height: 1),
       itemBuilder: (context, index) {
         final track = tracks[index];
-        return StreamBuilder<MediaItem?>(
-          stream: controller.mediaItemStream,
-          builder: (context, snapshot) {
-            final active = snapshot.data?.id == track.id;
-            return ListTile(
-              contentPadding: const EdgeInsets.symmetric(
-                horizontal: 8,
-                vertical: 6,
-              ),
-              leading: IconButton.filledTonal(
-                tooltip: active ? strings.playing : strings.play,
-                onPressed: () => controller.playTrack(
+        return _TrackTile(
+          controller: controller,
+          list: list,
+          track: track,
+          tracks: tracks,
+          index: index,
+          isSelecting: isSelecting,
+          selected: selectedTrackIds.contains(track.id),
+          onStartSelection: onStartSelection,
+          onToggleSelection: onToggleSelection,
+        );
+      },
+    );
+  }
+}
+
+class _TrackTile extends StatelessWidget {
+  const _TrackTile({
+    super.key,
+    required this.controller,
+    required this.list,
+    required this.track,
+    required this.tracks,
+    required this.index,
+    required this.isSelecting,
+    required this.selected,
+    required this.onStartSelection,
+    required this.onToggleSelection,
+    this.dragHandle,
+  });
+
+  final MusicController controller;
+  final _ResolvedLibraryList list;
+  final Track track;
+  final List<Track> tracks;
+  final int index;
+  final bool isSelecting;
+  final bool selected;
+  final ValueChanged<Track> onStartSelection;
+  final ValueChanged<Track> onToggleSelection;
+  final Widget? dragHandle;
+
+  @override
+  Widget build(BuildContext context) {
+    final strings = AppStringsScope.of(context);
+    return StreamBuilder<MediaItem?>(
+      stream: controller.mediaItemStream,
+      builder: (context, snapshot) {
+        final active = snapshot.data?.id == track.id;
+        return ListTile(
+          selected: selected,
+          contentPadding: const EdgeInsets.symmetric(
+            horizontal: 8,
+            vertical: 6,
+          ),
+          leading: isSelecting
+              ? Checkbox(
+                  value: selected,
+                  onChanged: (_) => onToggleSelection(track),
+                )
+              : IconButton.filledTonal(
+                  tooltip: active ? strings.playing : strings.play,
+                  onPressed: () => controller.playTrack(
+                    track,
+                    index: index,
+                    queueTracks: tracks,
+                  ),
+                  icon: Icon(active ? Icons.equalizer : Icons.play_arrow),
+                ),
+          title: Text(
+            track.title,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(
+              fontWeight: active ? FontWeight.w700 : FontWeight.w500,
+              color: active ? Theme.of(context).colorScheme.primary : null,
+            ),
+          ),
+          subtitle: Text(
+            _trackSubtitle(track),
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+          ),
+          trailing: isSelecting
+              ? null
+              : _TrackActions(
+                  controller: controller,
+                  list: list,
+                  track: track,
+                  dragHandle: dragHandle,
+                ),
+          onTap: isSelecting
+              ? () => onToggleSelection(track)
+              : () => controller.playTrack(
                   track,
                   index: index,
                   queueTracks: tracks,
                 ),
-                icon: Icon(active ? Icons.equalizer : Icons.play_arrow),
-              ),
-              title: Text(
-                track.title,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: TextStyle(
-                  fontWeight: active ? FontWeight.w700 : FontWeight.w500,
-                  color: active ? Theme.of(context).colorScheme.primary : null,
-                ),
-              ),
-              subtitle: Text(
-                _trackSubtitle(track),
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-              ),
-              trailing: _TrackActions(
-                controller: controller,
-                list: list,
-                track: track,
-              ),
-              onTap: () => controller.playTrack(
-                track,
-                index: index,
-                queueTracks: tracks,
-              ),
-            );
-          },
+          onLongPress: () => onStartSelection(track),
         );
       },
     );
@@ -1086,11 +1377,13 @@ class _TrackActions extends StatelessWidget {
     required this.controller,
     required this.list,
     required this.track,
+    this.dragHandle,
   });
 
   final MusicController controller;
   final _ResolvedLibraryList list;
   final Track track;
+  final Widget? dragHandle;
 
   @override
   Widget build(BuildContext context) {
@@ -1106,15 +1399,21 @@ class _TrackActions extends StatelessWidget {
           onPressed: () => controller.toggleFavorite(track),
           icon: Icon(favorite ? Icons.favorite : Icons.favorite_border),
         ),
+        IconButton(
+          tooltip: strings.addToPlaylist,
+          onPressed: () => showAddToPlaylistSheet(context, controller, track),
+          icon: const Icon(Icons.playlist_add),
+        ),
         PopupMenuButton<_TrackAction>(
           tooltip: strings.more,
           onSelected: (action) => _handle(context, action),
           itemBuilder: (context) {
             return [
-              PopupMenuItem(
-                value: _TrackAction.addToPlaylist,
-                child: Text(strings.addToPlaylist),
-              ),
+              if (list.isLocal)
+                PopupMenuItem(
+                  value: _TrackAction.deleteLocal,
+                  child: Text(strings.deleteLocalMusic),
+                ),
               if (list.canRemove)
                 PopupMenuItem(
                   value: _TrackAction.removeFromCurrent,
@@ -1127,14 +1426,18 @@ class _TrackActions extends StatelessWidget {
             ];
           },
         ),
+        ?dragHandle,
       ],
     );
   }
 
   Future<void> _handle(BuildContext context, _TrackAction action) async {
     switch (action) {
-      case _TrackAction.addToPlaylist:
-        await showAddToPlaylistSheet(context, controller, track);
+      case _TrackAction.deleteLocal:
+        final confirmed = await _confirmDeleteLocalTracks(context, [track]);
+        if (confirmed == true) {
+          await controller.deleteCachedTrack(track);
+        }
       case _TrackAction.removeFromCurrent:
         if (list.isFavorite) {
           await controller.toggleFavorite(track);
@@ -1148,7 +1451,33 @@ class _TrackActions extends StatelessWidget {
   }
 }
 
-enum _TrackAction { addToPlaylist, removeFromCurrent }
+enum _TrackAction { deleteLocal, removeFromCurrent }
+
+Future<bool?> _confirmDeleteLocalTracks(
+  BuildContext context,
+  List<Track> tracks,
+) {
+  final strings = AppStringsScope.of(context);
+  return showDialog<bool>(
+    context: context,
+    builder: (context) {
+      return AlertDialog(
+        title: Text(strings.deleteLocalMusicTitle(tracks.length)),
+        content: Text(strings.deleteLocalMusicBody(tracks.length)),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: Text(strings.cancel),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            child: Text(strings.delete),
+          ),
+        ],
+      );
+    },
+  );
+}
 
 class _MiniPlayer extends StatelessWidget {
   const _MiniPlayer({required this.controller});

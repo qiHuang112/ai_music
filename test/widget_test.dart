@@ -6,6 +6,7 @@ import 'package:ai_music/src/data/music_cache.dart';
 import 'package:ai_music/src/data/music_playlists.dart';
 import 'package:ai_music/src/data/music_resolver.dart';
 import 'package:ai_music/src/data/music_settings.dart';
+import 'package:ai_music/src/domain/music_models.dart';
 import 'package:ai_music/src/presentation/app_localizations.dart';
 import 'package:ai_music/src/presentation/music_home_page.dart';
 import 'package:ai_music/src/playback/music_audio_handler.dart';
@@ -13,6 +14,26 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
+  test('reorder helper follows onReorderItem target index semantics', () {
+    final alpha = Track(id: 'alpha', title: 'Alpha', artist: 'A', album: '');
+    final beta = Track(id: 'beta', title: 'Beta', artist: 'B', album: '');
+    final gamma = Track(id: 'gamma', title: 'Gamma', artist: 'G', album: '');
+
+    final movedToMiddle = reorderTracksForReorderableListView(
+      [alpha, beta, gamma],
+      0,
+      1,
+    );
+    final movedToEnd = reorderTracksForReorderableListView(
+      [alpha, beta, gamma],
+      0,
+      2,
+    );
+
+    expect(movedToMiddle.map((track) => track.id), ['beta', 'alpha', 'gamma']);
+    expect(movedToEnd.map((track) => track.id), ['beta', 'gamma', 'alpha']);
+  });
+
   testWidgets('renders Android-first search and cache shell', (tester) async {
     await tester.pumpWidget(_app());
     await tester.pumpAndSettle();
@@ -316,6 +337,7 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('下载管理'), findsOneWidget);
+    expect(find.text('修复老资源'), findsNothing);
     expect(find.text('稻香'), findsOneWidget);
 
     await tester.tap(find.byTooltip('删除'));
@@ -365,6 +387,140 @@ void main() {
     expect(find.textContaining('周杰伦'), findsOneWidget);
   });
 
+  testWidgets('local library track can be deleted from more actions', (
+    tester,
+  ) async {
+    final cache = _FakeCacheStore(
+      cached: [
+        CachedTrack(
+          cacheId: cacheIdForResolved(_resolvedMusic()),
+          music: _resolvedMusic(),
+          filePath: '/tmp/song-1.mp3',
+          sizeBytes: 4,
+          fromCache: true,
+        ),
+      ],
+    );
+    await tester.pumpWidget(_app(cacheStore: cache));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byTooltip('播放列表'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.textContaining('本地'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byTooltip('更多'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('删除本地音乐'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('删除本地音乐？'), findsOneWidget);
+
+    await tester.tap(find.text('删除'));
+    await tester.pump(const Duration(milliseconds: 100));
+    await tester.pumpAndSettle();
+
+    expect(cache.cached, isEmpty);
+    expect(find.text('稻香'), findsNothing);
+  });
+
+  testWidgets('long press selection can batch add local tracks to playlist', (
+    tester,
+  ) async {
+    final alpha = CachedTrack(
+      cacheId: cacheIdForResolved(_resolvedMusic(id: 'alpha', name: 'Alpha')),
+      music: _resolvedMusic(id: 'alpha', name: 'Alpha'),
+      filePath: '/tmp/alpha.mp3',
+      sizeBytes: 4,
+      fromCache: true,
+    );
+    final beta = CachedTrack(
+      cacheId: cacheIdForResolved(_resolvedMusic(id: 'beta', name: 'Beta')),
+      music: _resolvedMusic(id: 'beta', name: 'Beta'),
+      filePath: '/tmp/beta.mp3',
+      sizeBytes: 4,
+      fromCache: true,
+    );
+    final playlistStore = _FakePlaylistStore()
+      ..library = PlaylistLibrary(
+        playlists: [
+          MusicPlaylist(
+            id: 'road',
+            name: 'Road',
+            entries: const [],
+            createdAt: DateTime(2026),
+            updatedAt: DateTime(2026),
+          ),
+        ],
+      );
+    await tester.pumpWidget(
+      _app(
+        cacheStore: _FakeCacheStore(cached: [alpha, beta]),
+        playlistStore: playlistStore,
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byTooltip('播放列表'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.textContaining('本地'));
+    await tester.pumpAndSettle();
+    await tester.longPress(find.text('Beta'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Alpha'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('已选择 2 首'), findsOneWidget);
+
+    await tester.tap(find.byTooltip('添加到歌单'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Road'));
+    await tester.pumpAndSettle();
+
+    expect(playlistStore.library.playlists.single.trackIds, [
+      beta.cacheId,
+      alpha.cacheId,
+    ]);
+  });
+
+  testWidgets('long press selection can batch delete local tracks', (
+    tester,
+  ) async {
+    final alpha = CachedTrack(
+      cacheId: cacheIdForResolved(_resolvedMusic(id: 'alpha', name: 'Alpha')),
+      music: _resolvedMusic(id: 'alpha', name: 'Alpha'),
+      filePath: '/tmp/alpha.mp3',
+      sizeBytes: 4,
+      fromCache: true,
+    );
+    final beta = CachedTrack(
+      cacheId: cacheIdForResolved(_resolvedMusic(id: 'beta', name: 'Beta')),
+      music: _resolvedMusic(id: 'beta', name: 'Beta'),
+      filePath: '/tmp/beta.mp3',
+      sizeBytes: 4,
+      fromCache: true,
+    );
+    final cache = _FakeCacheStore(cached: [alpha, beta]);
+    await tester.pumpWidget(_app(cacheStore: cache));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byTooltip('播放列表'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.textContaining('本地'));
+    await tester.pumpAndSettle();
+    await tester.longPress(find.text('Beta'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byTooltip('全选当前列表'));
+    await tester.pumpAndSettle();
+    expect(find.text('已选择 2 首'), findsOneWidget);
+    await tester.tap(find.byTooltip('删除本地音乐'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('删除'));
+    await tester.pump(const Duration(milliseconds: 100));
+    await tester.pumpAndSettle();
+
+    expect(cache.cached, isEmpty);
+  });
+
   testWidgets('cached track can be favorited into favorite detail', (
     tester,
   ) async {
@@ -399,6 +555,53 @@ void main() {
     expect(find.text('稻香'), findsOneWidget);
   });
 
+  testWidgets('favorite detail selection can batch remove tracks', (
+    tester,
+  ) async {
+    final alpha = CachedTrack(
+      cacheId: cacheIdForResolved(_resolvedMusic(id: 'alpha', name: 'Alpha')),
+      music: _resolvedMusic(id: 'alpha', name: 'Alpha'),
+      filePath: '/tmp/alpha.mp3',
+      sizeBytes: 4,
+      fromCache: true,
+    );
+    final beta = CachedTrack(
+      cacheId: cacheIdForResolved(_resolvedMusic(id: 'beta', name: 'Beta')),
+      music: _resolvedMusic(id: 'beta', name: 'Beta'),
+      filePath: '/tmp/beta.mp3',
+      sizeBytes: 4,
+      fromCache: true,
+    );
+    final playlistStore = _FakePlaylistStore()
+      ..library = PlaylistLibrary(
+        favoriteEntries: [
+          PlaylistTrackEntry(trackId: alpha.cacheId, addedAt: DateTime(2026)),
+          PlaylistTrackEntry(trackId: beta.cacheId, addedAt: DateTime(2026)),
+        ],
+        playlists: const [],
+      );
+    await tester.pumpWidget(
+      _app(
+        cacheStore: _FakeCacheStore(cached: [alpha, beta]),
+        playlistStore: playlistStore,
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byTooltip('播放列表'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.textContaining('收藏'));
+    await tester.pumpAndSettle();
+    await tester.longPress(find.text('Beta'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Alpha'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byTooltip('移除所选'));
+    await tester.pumpAndSettle();
+
+    expect(playlistStore.library.favoriteTrackIds, isEmpty);
+  });
+
   testWidgets('new playlist from add sheet uses live parent context', (
     tester,
   ) async {
@@ -423,9 +626,7 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.textContaining('本地'));
     await tester.pumpAndSettle();
-    await tester.tap(find.byTooltip('更多'));
-    await tester.pumpAndSettle();
-    await tester.tap(find.text('添加到歌单'));
+    await tester.tap(find.byTooltip('添加到歌单'));
     await tester.pumpAndSettle();
     await tester.tap(find.text('新建歌单'));
     await tester.pumpAndSettle();
@@ -544,6 +745,90 @@ void main() {
     );
   });
 
+  testWidgets('custom playlist order shows persisted playlist order', (
+    tester,
+  ) async {
+    final alphaMusic = _resolvedMusic(id: 'alpha', name: 'Alpha', artist: 'A');
+    final betaMusic = _resolvedMusic(id: 'beta', name: 'Beta', artist: 'B');
+    final alpha = CachedTrack(
+      cacheId: cacheIdForResolved(alphaMusic),
+      music: alphaMusic,
+      filePath: '/tmp/alpha.mp3',
+      sizeBytes: 4,
+      fromCache: true,
+    );
+    final beta = CachedTrack(
+      cacheId: cacheIdForResolved(betaMusic),
+      music: betaMusic,
+      filePath: '/tmp/beta.mp3',
+      sizeBytes: 4,
+      fromCache: true,
+    );
+    final playlistStore = _FakePlaylistStore()
+      ..library = PlaylistLibrary(
+        playlists: [
+          MusicPlaylist(
+            id: 'road',
+            name: 'Road',
+            entries: [
+              PlaylistTrackEntry(
+                trackId: alpha.cacheId,
+                addedAt: DateTime(2026, 1, 1),
+              ),
+              PlaylistTrackEntry(
+                trackId: beta.cacheId,
+                addedAt: DateTime(2026, 1, 2),
+              ),
+            ],
+            createdAt: DateTime(2026),
+            updatedAt: DateTime(2026, 1, 2),
+          ),
+        ],
+      );
+
+    await tester.pumpWidget(
+      _app(
+        cacheStore: _FakeCacheStore(cached: [alpha, beta]),
+        playlistStore: playlistStore,
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byTooltip('播放列表'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Road'));
+    await tester.pumpAndSettle();
+
+    expect(
+      tester.getTopLeft(find.text('Beta')).dy,
+      lessThan(tester.getTopLeft(find.text('Alpha')).dy),
+    );
+
+    await tester.tap(find.byTooltip('排序'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('自定义顺序').last);
+    await tester.pumpAndSettle();
+
+    expect(
+      tester.getTopLeft(find.text('Alpha')).dy,
+      lessThan(tester.getTopLeft(find.text('Beta')).dy),
+    );
+
+    await tester.pageBack();
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Road'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byTooltip('排序'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('自定义顺序').last);
+    await tester.pumpAndSettle();
+
+    expect(
+      tester.getTopLeft(find.text('Alpha')).dy,
+      lessThan(tester.getTopLeft(find.text('Beta')).dy),
+    );
+  });
+
   testWidgets('favorite and custom playlist details filter visible tracks', (
     tester,
   ) async {
@@ -630,6 +915,7 @@ Widget _app({
   _FakeCacheStore? cacheStore,
   _FakePlaylistStore? playlistStore,
   _FakeSettingsStore? settings,
+  TrackMetadataRepository? metadataRepository,
 }) {
   final controller = MusicController(
     audioHandler: MusicAudioHandler(),
@@ -637,11 +923,7 @@ Widget _app({
     cacheStore: cacheStore ?? _FakeCacheStore(),
     playlistStore: playlistStore ?? _FakePlaylistStore(),
     settingsStore: settings ?? _FakeSettingsStore(),
-    metadataRepository: TrackMetadataRepository(
-      cacheStore: MetadataCacheStore(
-        rootProvider: () => Directory.systemTemp.createTemp('ai_music_meta_'),
-      ),
-    ),
+    metadataRepository: metadataRepository ?? _FakeMetadataRepository(),
   );
   return AnimatedBuilder(
     animation: controller,
@@ -660,6 +942,20 @@ Widget _app({
       );
     },
   );
+}
+
+class _FakeMetadataRepository extends TrackMetadataRepository {
+  final deletedIds = <String>[];
+
+  @override
+  Future<TrackMetadata> load(CachedTrack track) async {
+    return const TrackMetadata();
+  }
+
+  @override
+  Future<void> delete(String cacheId) async {
+    deletedIds.add(cacheId);
+  }
 }
 
 class _FakePlaylistStore extends PlaylistStore {

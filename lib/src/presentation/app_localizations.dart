@@ -74,6 +74,8 @@ class AppStrings {
   String get sortByInitial => isZh ? '首字母' : 'A-Z';
   String get sortByDownloadTime => isZh ? '下载时间' : 'Download time';
   String get sortByAddedTime => isZh ? '加入时间' : 'Added time';
+  String get customOrder => isZh ? '自定义顺序' : 'Custom order';
+  String get dragToReorder => isZh ? '拖拽排序' : 'Drag to reorder';
   String get lyrics => isZh ? '歌词' : 'Lyrics';
   String get noLyrics => isZh ? '暂无歌词' : 'No lyrics yet';
   String get nowPlaying => isZh ? '正在播放' : 'Now playing';
@@ -110,6 +112,21 @@ class AppStrings {
   String get alreadyAdded => isZh ? '已添加' : 'Already added';
   String get addToThisPlaylist => isZh ? '添加到这个歌单' : 'Add to this playlist';
   String get addToPlaylist => isZh ? '添加到歌单' : 'Add to playlist';
+  String selectedSongCount(int count) =>
+      isZh ? '已选择 $count 首' : '$count selected';
+  String get selectAllVisible => isZh ? '全选当前列表' : 'Select visible';
+  String get deleteLocalMusic => isZh ? '删除本地音乐' : 'Delete local music';
+  String deleteLocalMusicTitle(int count) => isZh
+      ? (count == 1 ? '删除本地音乐？' : '删除 $count 首本地音乐？')
+      : (count == 1 ? 'Delete local music?' : 'Delete $count local songs?');
+  String deleteLocalMusicBody(int count) => isZh
+      ? (count == 1
+            ? '会删除这首歌的本机缓存音频、歌词和元数据，并从收藏和歌单中移除。'
+            : '会删除这 $count 首歌的本机缓存音频、歌词和元数据，并从收藏和歌单中移除。')
+      : (count == 1
+            ? 'This deletes the cached audio, lyrics, and metadata on this device, and removes the song from favorites and playlists.'
+            : 'This deletes cached audio, lyrics, and metadata for these $count songs on this device, and removes them from favorites and playlists.');
+  String get removeSelected => isZh ? '移除所选' : 'Remove selected';
   String get addToFavorites => isZh ? '添加到收藏' : 'Add to favorites';
   String get removeFromFavorites => isZh ? '从收藏移除' : 'Remove from favorites';
   String get removeFromThisPlaylist =>

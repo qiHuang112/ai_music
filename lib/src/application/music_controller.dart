@@ -319,12 +319,24 @@ class MusicController extends ChangeNotifier {
   Future<void> stop() => playbackUseCase.stop();
 
   Future<void> deleteCachedTrack(Track track) async {
-    final wasCurrent = audioHandler.mediaItem.value?.id == track.id;
-    if (wasCurrent) {
-      await stop();
-    }
+    await _handleDeletedTracksPlaybackImpact({track.id});
     _applyLibrarySnapshot(
       await libraryUseCase.deleteCachedTrack(track, current: _librarySnapshot),
+    );
+    notifyListeners();
+  }
+
+  Future<void> deleteCachedTracks(List<Track> tracks) async {
+    final ids = {for (final track in tracks) track.id};
+    if (ids.isEmpty) {
+      return;
+    }
+    await _handleDeletedTracksPlaybackImpact(ids);
+    _applyLibrarySnapshot(
+      await libraryUseCase.deleteCachedTracks(
+        tracks,
+        current: _librarySnapshot,
+      ),
     );
     notifyListeners();
   }
@@ -340,7 +352,7 @@ class MusicController extends ChangeNotifier {
       final repairer =
           _legacyRepairerOverride ??
           LegacyCacheRepairer(resolver: _resolver, cacheStore: _cacheStore);
-      final count = await repairer.repair(_cachedRecords);
+      final count = await repairer.repair(List<CachedTrack>.of(_cachedRecords));
       if (count > 0) {
         await loadCache(repairLegacy: false);
       }
@@ -447,6 +459,20 @@ class MusicController extends ChangeNotifier {
     notifyListeners();
   }
 
+  Future<void> addTracksToPlaylist(
+    MusicPlaylist playlist,
+    List<Track> tracks,
+  ) async {
+    _applyLibrarySnapshot(
+      await libraryUseCase.addTracksToPlaylist(
+        playlist,
+        tracks,
+        current: _librarySnapshot,
+      ),
+    );
+    notifyListeners();
+  }
+
   Future<void> removeTrackFromPlaylist(
     MusicPlaylist playlist,
     Track track,
@@ -455,6 +481,54 @@ class MusicController extends ChangeNotifier {
       await libraryUseCase.removeTrackFromPlaylist(
         playlist,
         track,
+        current: _librarySnapshot,
+      ),
+    );
+    notifyListeners();
+  }
+
+  Future<void> removeTracksFromPlaylist(
+    MusicPlaylist playlist,
+    List<Track> tracks,
+  ) async {
+    _applyLibrarySnapshot(
+      await libraryUseCase.removeTracksFromPlaylist(
+        playlist,
+        tracks,
+        current: _librarySnapshot,
+      ),
+    );
+    notifyListeners();
+  }
+
+  Future<void> removeTracksFromFavorites(List<Track> tracks) async {
+    _applyLibrarySnapshot(
+      await libraryUseCase.removeTracksFromFavorites(
+        tracks,
+        current: _librarySnapshot,
+      ),
+    );
+    notifyListeners();
+  }
+
+  Future<void> reorderFavoriteTracks(List<Track> tracks) async {
+    _applyLibrarySnapshot(
+      await libraryUseCase.reorderFavoriteTracks(
+        tracks,
+        current: _librarySnapshot,
+      ),
+    );
+    notifyListeners();
+  }
+
+  Future<void> reorderPlaylistTracks(
+    MusicPlaylist playlist,
+    List<Track> tracks,
+  ) async {
+    _applyLibrarySnapshot(
+      await libraryUseCase.reorderPlaylistTracks(
+        playlist,
+        tracks,
         current: _librarySnapshot,
       ),
     );
@@ -500,6 +574,50 @@ class MusicController extends ChangeNotifier {
       }
     }
     return null;
+  }
+
+  Future<void> _handleDeletedTracksPlaybackImpact(
+    Set<String> deletedIds,
+  ) async {
+    final currentItem = audioHandler.mediaItem.value;
+    final currentId = currentItem?.id;
+    if (currentId != null && deletedIds.contains(currentId)) {
+      await stop();
+      return;
+    }
+    final queuedIds = [for (final item in audioHandler.queue.value) item.id];
+    if (!queuedIds.any(deletedIds.contains)) {
+      return;
+    }
+    if (currentId == null) {
+      await stop();
+      return;
+    }
+    final byId = {for (final track in cachedTracks) track.id: track};
+    final remainingQueue = [
+      for (final id in queuedIds)
+        if (!deletedIds.contains(id) && byId[id] != null) byId[id]!,
+    ];
+    final currentIndex = remainingQueue.indexWhere(
+      (track) => track.id == currentId,
+    );
+    if (currentIndex == -1) {
+      await stop();
+      return;
+    }
+    final wasPlaying = audioHandler.playbackState.value.playing;
+    final loaded = await playbackUseCase.playTrack(
+      remainingQueue[currentIndex],
+      index: currentIndex,
+      fallbackQueue: remainingQueue,
+      queueTracks: remainingQueue,
+    );
+    if (loaded) {
+      await playbackUseCase.applyPlaybackMode(playbackMode);
+    }
+    if (!wasPlaying) {
+      await audioHandler.pause();
+    }
   }
 
   void _handleMediaItemChanged(MediaItem? item) {
