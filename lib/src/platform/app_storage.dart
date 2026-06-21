@@ -2,7 +2,10 @@ import 'dart:io';
 
 import 'package:path_provider/path_provider.dart';
 
+import 'platform_detection.dart';
+
 const _supportDirOverride = String.fromEnvironment('AI_MUSIC_SUPPORT_DIR');
+const _ohosSupportDir = '/data/storage/el2/base/haps/entry/files/ai_music';
 
 Future<Directory> getAiMusicSupportDirectory() async {
   final override = _supportDirOverride.trim();
@@ -23,6 +26,12 @@ Future<Directory> getAiMusicSupportSubdirectory(String name) async {
 }
 
 String _fallbackSupportPath() {
+  if (isOpenHarmonyPlatform) {
+    // HarmonyOS denies apps access to /storage/Users/currentUser. When
+    // path_provider is unavailable, stay inside the app EL2 sandbox.
+    return _ohosSupportDir;
+  }
+
   final home = Platform.environment['HOME']?.trim().isNotEmpty == true
       ? Platform.environment['HOME']!.trim()
       : Platform.environment['USERPROFILE']?.trim();

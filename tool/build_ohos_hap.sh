@@ -61,7 +61,10 @@ fi
 
 build_args=(
   --release
+  # HarmonyOS currently runs AI Music with a foreground-only Dart handler.
+  # The native just_audio_harmonyos plugin owns the AVPlayer/AVSession layer.
   --dart-define=AI_MUSIC_DISABLE_AUDIO_SERVICE=true
+  --dart-define=AI_MUSIC_SUPPORT_DIR=/data/storage/el2/base/haps/entry/files/ai_music
 )
 
 if [[ "${OHOS_CODESIGN:-false}" != "true" && " $* " != *" --no-codesign "* ]]; then

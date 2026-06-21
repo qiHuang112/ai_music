@@ -131,15 +131,19 @@ export class MediaAvPlayer {
   };
   private seekIsFirst: number = -1
   private playMusicIndex: number = 0
+  // dataSrc fd 跟随 current/next 播放器迁移；切歌、reset、dispose 时必须关闭对应 fd。
   private currentDataSrcFd: number | null = null
   private nextDataSrcFd: number | null = null
   private isDisposed: boolean = false
+  // generation 用来让旧的异步初始化、预加载和 loadUri 回调自动失效。
   private lifecycleGeneration: number = 0
   private initGeneration: number = 0
   private nextPreloadInFlight: boolean = false
   private nextPreloadGeneration: number = -1
   private nextPreloadTask: Promise<void> | null = null
+  // pending 表示下一首还在 loadUri；avPlayerNext 才表示可以被升格为 current。
   private pendingAvPlayerNext: media.AVPlayer | null = null
+  // next 回调按具体 AVPlayer 绑定，避免延迟事件误操作新的 next player。
   private nextStateCallPlayer: media.AVPlayer | null = null
   private nextStateCall: ((state: string) => Promise<void>) | null = null
 
@@ -225,6 +229,7 @@ export class MediaAvPlayer {
   }
 
   private beginNextPreload(generation: number): boolean {
+    // 同一时间只允许一个 next player 处于 pending 或已预加载状态。
     if (this.avPlayerNext != null || this.pendingAvPlayerNext != null || this.nextPreloadInFlight) {
       return false;
     }
@@ -241,6 +246,7 @@ export class MediaAvPlayer {
   }
 
   private invalidateNextPreload(): void {
+    // 不立刻清 inFlight；等待旧任务自然结束并释放自己持有的 AVPlayer/fd。
     this.nextPreloadGeneration = -1;
   }
 
@@ -445,6 +451,7 @@ export class MediaAvPlayer {
                   await this.releasePendingNextPlayer(nextPlayer, 'stale avPlayerNext');
                   return;
                 }
+                // loadUri 成功后才发布为 avPlayerNext，避免半初始化播放器被切歌逻辑接管。
                 this.pendingAvPlayerNext = null;
                 this.avPlayerNext = nextPlayer;
               } catch (error) {
@@ -610,6 +617,7 @@ export class MediaAvPlayer {
     } else {
       this.offAVPlayerNextCallback(avPlayer);
     }
+    // AVPlayer 的 stateChange 回调没有事件源参数，因此用闭包固定当前 next player。
     const stateCall = async (state: string): Promise<void> => {
       await this.handlePreStateCall(avPlayer, state);
     };
@@ -948,6 +956,7 @@ export class MediaAvPlayer {
       this.offAVPlayerCallback();
       await this.avPlayer?.release();
       this.closeDataSrcFd(false);
+      // 升格前必须摘掉 next 回调，再挂 current 回调，避免同一 AVPlayer 进入两套状态机。
       this.offAVPlayerNextCallback(promotedPlayer);
       this.avPlayerNext = null;
       this.avPlayer = promotedPlayer;

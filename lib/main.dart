@@ -21,6 +21,9 @@ Future<void> main() async {
 }
 
 Future<MusicAudioHandler> _createAudioHandler() async {
+  // HarmonyOS does not ship the audio_service platform service used by Android.
+  // Keep playback in the foreground handler and let just_audio_harmonyos own the
+  // native media session instead.
   if (_disableAudioService || isOpenHarmonyPlatform) {
     return MusicAudioHandler();
   }
