@@ -41,6 +41,7 @@ const TAG = "AudioPlayer";
 export class AudioPlayer implements MethodCallHandler, onChangeMediaAvPlayerState {
   private pendingPlaybackEvent: Map<String, Object> | null = null;
   private methodChannel: MethodChannel | null = null;
+  private mediaControlsChannel: MethodChannel | null = null;
   private eventChannel: BetterEventChannel | null = null;
   private dataEventChannel: BetterEventChannel | null = null;
   private bufferedPosition: number = 0;
@@ -62,9 +63,10 @@ export class AudioPlayer implements MethodCallHandler, onChangeMediaAvPlayerStat
   private updateTime: number = 0;
   private intervalID: number = 0;
 
-  public constructor(messenger: BinaryMessenger, id: string) {
+  public constructor(messenger: BinaryMessenger, id: string, mediaControlsChannel: MethodChannel | null = null) {
     this.player = new MediaAvPlayer();
     this.player.setMediaAvPlayerStateChange(this);
+    this.mediaControlsChannel = mediaControlsChannel;
     this.methodChannel = new MethodChannel(messenger, "com.ryanheise.just_audio.methods." + id);
     this.methodChannel.setMethodCallHandler(this);
     this.eventChannel = new BetterEventChannel(messenger, "com.ryanheise.just_audio.events." + id);
@@ -191,6 +193,28 @@ export class AudioPlayer implements MethodCallHandler, onChangeMediaAvPlayerStat
       this.playResult.success(new Map<String, Object>());
       this.playResult = null;
     }
+  }
+
+  public updateAVSessionMediaItem(id: string | null, title: string | null, artist: string | null,
+    artUri: string | null, duration: number | null): void {
+    this.player?.updateAVSessionMediaItem(id, title, artist, artUri, duration);
+  }
+
+  public updateAVSessionControlState(repeatMode: string | null, shuffleMode: string | null,
+    isFavorite: boolean | null): void {
+    this.player?.updateAVSessionControlState(repeatMode, shuffleMode, isFavorite);
+  }
+
+  onAVSessionLoopModeRequested(loopMode: string): void {
+    let args: Map<String, Object> = new Map<String, Object>();
+    args.set('loopMode', loopMode);
+    this.mediaControlsChannel?.invokeMethod('setLoopMode', args);
+  }
+
+  onAVSessionToggleFavoriteRequested(assetId: string): void {
+    let args: Map<String, Object> = new Map<String, Object>();
+    args.set('assetId', assetId);
+    this.mediaControlsChannel?.invokeMethod('toggleFavorite', args);
   }
 
   private setVolume(volume: number) {

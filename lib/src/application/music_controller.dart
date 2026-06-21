@@ -54,6 +54,9 @@ class MusicController extends ChangeNotifier {
     );
     playbackUseCase = PlaybackUseCase(audioHandler: audioHandler);
     metadataUseCase = MetadataUseCase(repository: _metadataRepository);
+    audioHandler.onOhosLoopModeRequested = _handleOhosLoopModeRequested;
+    audioHandler.onOhosToggleFavoriteRequested =
+        _handleOhosToggleFavoriteRequested;
     _mediaItemSubscription = audioHandler.mediaItem.listen(
       _handleMediaItemChanged,
     );
@@ -367,6 +370,7 @@ class MusicController extends ChangeNotifier {
     playbackMode = mode;
     notifyListeners();
     await playbackUseCase.applyPlaybackMode(mode);
+    await _syncOhosControlState();
   }
 
   Future<void> cyclePlaybackMode() {
@@ -418,6 +422,7 @@ class MusicController extends ChangeNotifier {
       await libraryUseCase.toggleFavorite(track, current: _librarySnapshot),
     );
     notifyListeners();
+    await _syncOhosControlState();
   }
 
   Future<MusicPlaylist?> createPlaylist(String name) async {
@@ -628,6 +633,7 @@ class MusicController extends ChangeNotifier {
       metadataError = null;
       isLoadingMetadata = false;
       notifyListeners();
+      unawaited(_syncOhosControlState());
       return;
     }
     if (_metadataTrackId == item.id) {
@@ -643,9 +649,11 @@ class MusicController extends ChangeNotifier {
       metadataError = null;
       isLoadingMetadata = false;
       notifyListeners();
+      unawaited(_syncOhosControlState());
       return;
     }
     unawaited(_loadMetadataForTrack(track));
+    unawaited(_syncOhosControlState());
   }
 
   Future<void> _loadMetadataForTrack(Track track) async {
@@ -680,6 +688,7 @@ class MusicController extends ChangeNotifier {
         await audioHandler.updateCurrentMediaItem(
           active!.copyWith(artUri: metadata.artworkUri),
         );
+        await _syncOhosControlState();
       }
     } catch (exception) {
       if (_isActiveMetadataRequest(request, track)) {
@@ -698,8 +707,39 @@ class MusicController extends ChangeNotifier {
         audioHandler.mediaItem.value?.id == track.id;
   }
 
+  Future<void> _handleOhosLoopModeRequested(String loopMode) {
+    final mode = switch (loopMode) {
+      'single' => PlaybackMode.repeatOne,
+      'list' => PlaybackMode.loopAll,
+      'shuffle' => PlaybackMode.shuffle,
+      'sequence' => PlaybackMode.sequential,
+      _ => playbackMode,
+    };
+    return setPlaybackMode(mode);
+  }
+
+  Future<void> _handleOhosToggleFavoriteRequested(String mediaId) async {
+    final track = currentTrack;
+    if (track == null) {
+      return;
+    }
+    if (mediaId.isNotEmpty && mediaId != track.id) {
+      return;
+    }
+    await toggleFavorite(track);
+  }
+
+  Future<void> _syncOhosControlState() async {
+    final track = currentTrack;
+    await audioHandler.syncOhosControlState(
+      isFavorite: track != null && isFavorite(track),
+    );
+  }
+
   @override
   void dispose() {
+    audioHandler.onOhosLoopModeRequested = null;
+    audioHandler.onOhosToggleFavoriteRequested = null;
     unawaited(_mediaItemSubscription.cancel());
     super.dispose();
   }

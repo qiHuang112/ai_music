@@ -20,18 +20,21 @@
  * SOFTWARE.
  * */
 
-import { BinaryMessenger, MethodCall, MethodCallHandler, MethodResult } from '@ohos/flutter_ohos';
+import { BinaryMessenger, MethodCall, MethodCallHandler, MethodChannel, MethodResult } from '@ohos/flutter_ohos';
 import { AudioPlayer } from './AudioPlayer'
 
 export class MainMethodCallHandler implements MethodCallHandler {
   private applicationContext: Context;
   private messenger: BinaryMessenger;
+  private mediaControlsChannel: MethodChannel;
   private players: Map<string, AudioPlayer> = new Map<string, AudioPlayer>();
 
   constructor(applicationContext: Context,
-    messenger: BinaryMessenger) {
+    messenger: BinaryMessenger,
+    mediaControlsChannel: MethodChannel) {
     this.applicationContext = applicationContext;
     this.messenger = messenger;
+    this.mediaControlsChannel = mediaControlsChannel;
   }
 
   async onMethodCall(call: MethodCall, result: MethodResult) {
@@ -43,7 +46,7 @@ export class MainMethodCallHandler implements MethodCallHandler {
           break;
         }
         if (this.applicationContext && this.messenger) {
-          this.players.set(id, new AudioPlayer(this.messenger, id));
+          this.players.set(id, new AudioPlayer(this.messenger, id, this.mediaControlsChannel));
         }
         result.success(null);
         break;
@@ -58,6 +61,27 @@ export class MainMethodCallHandler implements MethodCallHandler {
         break;
       case 'disposeAllPlayers':
         await this.dispose();
+        result.success(new Map<String, Object>());
+        break;
+      case 'updateMediaItem':
+        this.players.forEach(player => {
+          player.updateAVSessionMediaItem(call.argument('id') as string | null,
+            call.argument('title') as string | null, call.argument('artist') as string | null,
+            call.argument('artUri') as string | null, call.argument('duration') as number | null);
+        });
+        result.success(new Map<String, Object>());
+        break;
+      case 'clearMediaItem':
+        this.players.forEach(player => {
+          player.updateAVSessionMediaItem(null, null, null, null, null);
+        });
+        result.success(new Map<String, Object>());
+        break;
+      case 'updateControlState':
+        this.players.forEach(player => {
+          player.updateAVSessionControlState(call.argument('repeatMode') as string | null,
+            call.argument('shuffleMode') as string | null, call.argument('isFavorite') as boolean | null);
+        });
         result.success(new Map<String, Object>());
         break;
       default:

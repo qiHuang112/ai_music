@@ -93,6 +93,10 @@ export interface onChangeMediaAvPlayerState {
   setAudioSessionId(audioSessionId: number): void
 
   onErrorCallback(err: BusinessError): void
+
+  onAVSessionLoopModeRequested(loopMode: string): void
+
+  onAVSessionToggleFavoriteRequested(assetId: string): void
 }
 
 export class MediaAvPlayer {
@@ -152,9 +156,15 @@ export class MediaAvPlayer {
   private nextStateCall: ((state: string) => Promise<void>) | null = null
   private lastBufferedPosition: number = 0
   private lastAVSessionPlaybackStateUpdateTime: number = 0
-  private avSessionCover?: image.PixelMap
+  private avSessionCover?: image.PixelMap | string
   private avSessionCoverUri: string = ''
   private defaultAVSessionCover?: image.PixelMap
+  private externalMediaId: string = ''
+  private externalMediaTitle: string = ''
+  private externalMediaArtist: string = ''
+  private externalMediaArtUri: string = ''
+  private externalMediaDuration: number = 0
+  private externalIsFavorite: boolean = false
 
   constructor() {
     const generation = ++this.initGeneration;
@@ -194,6 +204,9 @@ export class MediaAvPlayer {
       session.off('playNext', this.playNextCall);
       session.off('playPrevious', this.playPreviousCall);
       session.off('seek', this.avSessionSeekCall);
+      session.off('setLoopMode', this.setLoopModeCall);
+      session.off('setTargetLoopMode', this.setLoopModeCall);
+      session.off('toggleFavorite', this.toggleFavoriteCall);
     } catch (error) {
       console.error(TAG, `remove ${name} callbacks failed: ${JSON.stringify(error)}`);
     }
@@ -340,7 +353,8 @@ export class MediaAvPlayer {
       bufferedTime: bufferedTime ?? this.lastBufferedPosition,
       activeItemId: this.musicIndex,
       duration: this.getDuration(),
-      loopMode: this.getAVSessionLoopMode()
+      loopMode: this.getAVSessionLoopMode(),
+      isFavorite: this.externalIsFavorite
     });
   }
 
@@ -410,6 +424,9 @@ export class MediaAvPlayer {
 
   private getAVSessionTitle(songItem: MediaSource | null = this.songItem,
     metadata: media.AVMetadata | undefined = this.avMetadata): string {
+    if (this.externalMediaTitle.length > 0) {
+      return this.externalMediaTitle;
+    }
     const cachedTitle = this.getCachedFileTitle(songItem);
     if (cachedTitle.length > 0) {
       return cachedTitle;
@@ -436,6 +453,9 @@ export class MediaAvPlayer {
 
   private getAVSessionArtist(songItem: MediaSource | null = this.songItem,
     metadata: media.AVMetadata | undefined = this.avMetadata): string {
+    if (this.externalMediaArtist.length > 0) {
+      return this.externalMediaArtist;
+    }
     const cachedArtist = this.getCachedFileArtist(songItem);
     if (cachedArtist.length > 0) {
       return cachedArtist;
@@ -478,7 +498,15 @@ export class MediaAvPlayer {
   }
 
   private async getAVSessionCover(songItem: MediaSource | null,
-    generation: number): Promise<image.PixelMap | undefined> {
+    generation: number): Promise<image.PixelMap | string | undefined> {
+    if (this.externalMediaArtUri.length > 0) {
+      if (this.avSessionCover && this.avSessionCoverUri == this.externalMediaArtUri) {
+        return this.avSessionCover;
+      }
+      this.avSessionCover = this.externalMediaArtUri;
+      this.avSessionCoverUri = this.externalMediaArtUri;
+      return this.externalMediaArtUri;
+    }
     const uri = songItem?.getUri() ?? '';
     if (uri.length > 0 && this.avSessionCover && this.avSessionCoverUri == uri) {
       return this.avSessionCover;
@@ -573,8 +601,11 @@ export class MediaAvPlayer {
     }
   };
   private pauseCall: () => void = () => {
-    console.info(TAG, `on pause , do pause task`);
-    this.pause();
+    console.info(TAG, `on pause, playerState=${this.avPlayer?.state}, isPlaying=${this.isPlaying}`);
+    this.pause().catch((error: BusinessError) => {
+      console.error(TAG, `session pause failed, code is ${error.code}, message is ${error.message}`);
+      this.syncAVSessionPlaybackState(avSession.PlaybackState.PLAYBACK_STATE_ERROR);
+    });
   };
   private playNextCall: () => void = () => {
     console.info(TAG, `on playNext , do playNext task`);
@@ -590,6 +621,20 @@ export class MediaAvPlayer {
       console.error(TAG, `session seek failed, code is ${error.code}, message is ${error.message}`);
       this.syncAVSessionPlaybackState(avSession.PlaybackState.PLAYBACK_STATE_ERROR);
     });
+  };
+  private setLoopModeCall: (mode: avSession.LoopMode) => void = (mode: avSession.LoopMode) => {
+    const loopMode = this.avSessionLoopModeToName(mode);
+    console.info(TAG, `on setLoopMode, mode=${loopMode}`);
+    this.applyAVSessionLoopMode(mode);
+    this.syncCurrentAVSessionPlaybackState();
+    this.mediaAvPlayerStateChangeListener?.onAVSessionLoopModeRequested(loopMode);
+  };
+  private toggleFavoriteCall: (assetId: string) => void = (assetId: string) => {
+    const effectiveAssetId = assetId && assetId.length > 0 ? assetId : this.externalMediaId;
+    console.info(TAG, `on toggleFavorite, assetId=${effectiveAssetId}`);
+    this.externalIsFavorite = !this.externalIsFavorite;
+    this.syncCurrentAVSessionPlaybackState();
+    this.mediaAvPlayerStateChangeListener?.onAVSessionToggleFavoriteRequested(effectiveAssetId);
   };
   /**
    * 异常监听
@@ -955,6 +1000,9 @@ export class MediaAvPlayer {
     this.session.on('playNext', this.playNextCall);
     this.session.on('playPrevious', this.playPreviousCall);
     this.session.on('seek', this.avSessionSeekCall);
+    this.session.on('setLoopMode', this.setLoopModeCall);
+    this.session.on('setTargetLoopMode', this.setLoopModeCall);
+    this.session.on('toggleFavorite', this.toggleFavoriteCall);
   }
 
   /**
@@ -1043,12 +1091,13 @@ export class MediaAvPlayer {
         console.info(TAG, 'Skip stale AVSession metadata update');
         return;
       }
+      const assetId = this.externalMediaId.length > 0 ? this.externalMediaId : `${id}`;
       let metadata: avSession.AVMetadata = {
-        assetId: `${id}`,
+        assetId: assetId,
         title: this.getAVSessionTitle(songItem, avMetadata),
         artist: this.getAVSessionArtist(songItem, avMetadata),
         filter: CAST_PROTOCOL_FILTER,
-        duration: duration
+        duration: this.externalMediaDuration > 0 ? this.externalMediaDuration : duration
       };
       if (cover) {
         metadata.mediaImage = cover;
@@ -1085,6 +1134,95 @@ export class MediaAvPlayer {
   public setShuffleMode(isShuffle: boolean) {
     this.isRandom = isShuffle;
     this.syncCurrentAVSessionPlaybackState();
+  }
+
+  public updateAVSessionControlState(repeatMode: string | null, shuffleMode: string | null,
+    isFavorite: boolean | null): void {
+    if (repeatMode != null || shuffleMode != null) {
+      const shuffleEnabled = shuffleMode == 'all' || shuffleMode == 'group';
+      this.isRandom = shuffleEnabled;
+      if (shuffleEnabled) {
+        this.playMode = LoopMode.LIST_LOOP;
+      } else if (repeatMode == 'one') {
+        this.playMode = LoopMode.SINGLE_CYCLE;
+      } else if (repeatMode == 'all' || repeatMode == 'group') {
+        this.playMode = LoopMode.LIST_LOOP;
+      } else if (repeatMode == 'none') {
+        this.playMode = LoopMode.DEFAULT;
+      }
+    }
+    if (isFavorite != null) {
+      this.externalIsFavorite = isFavorite;
+    }
+    this.syncCurrentAVSessionPlaybackState();
+  }
+
+  public updateAVSessionMediaItem(id: string | null, title: string | null, artist: string | null,
+    artUri: string | null, duration: number | null): void {
+    this.clearExternalAVSessionMediaItem();
+    this.externalMediaId = this.normalizeExternalMediaText(id);
+    this.externalMediaTitle = this.normalizeExternalMediaText(title);
+    this.externalMediaArtist = this.normalizeExternalMediaText(artist);
+    this.externalMediaArtUri = this.normalizeExternalMediaText(artUri);
+    this.externalMediaDuration = duration ?? 0;
+    if (this.externalMediaId.length == 0) {
+      this.externalIsFavorite = false;
+    }
+    this.setAVMetadata();
+  }
+
+  private clearExternalAVSessionMediaItem(): void {
+    this.externalMediaId = '';
+    this.externalMediaTitle = '';
+    this.externalMediaArtist = '';
+    this.externalMediaArtUri = '';
+    this.externalMediaDuration = 0;
+    this.avSessionCover = undefined;
+    this.avSessionCoverUri = '';
+  }
+
+  private normalizeExternalMediaText(value: string | null): string {
+    if (!value) {
+      return '';
+    }
+    const text = `${value}`.trim();
+    return text == 'null' ? '' : text;
+  }
+
+  private avSessionLoopModeToName(mode: avSession.LoopMode): string {
+    switch (mode) {
+      case avSession.LoopMode.LOOP_MODE_SINGLE:
+        return 'single';
+      case avSession.LoopMode.LOOP_MODE_LIST:
+        return 'list';
+      case avSession.LoopMode.LOOP_MODE_SHUFFLE:
+        return 'shuffle';
+      case avSession.LoopMode.LOOP_MODE_SEQUENCE:
+      default:
+        return 'sequence';
+    }
+  }
+
+  private applyAVSessionLoopMode(mode: avSession.LoopMode): void {
+    switch (mode) {
+      case avSession.LoopMode.LOOP_MODE_SINGLE:
+        this.isRandom = false;
+        this.playMode = LoopMode.SINGLE_CYCLE;
+        break;
+      case avSession.LoopMode.LOOP_MODE_LIST:
+        this.isRandom = false;
+        this.playMode = LoopMode.LIST_LOOP;
+        break;
+      case avSession.LoopMode.LOOP_MODE_SHUFFLE:
+        this.isRandom = true;
+        this.playMode = LoopMode.LIST_LOOP;
+        break;
+      case avSession.LoopMode.LOOP_MODE_SEQUENCE:
+      default:
+        this.isRandom = false;
+        this.playMode = LoopMode.DEFAULT;
+        break;
+    }
   }
 
   public setVolume(volume: number) {
@@ -1210,18 +1348,32 @@ export class MediaAvPlayer {
   /**
    * Pause music.
    */
-  public pause(result?: MethodResult) {
-    if (this.isPlaying && this.avPlayer) {
+  public async pause(result?: MethodResult): Promise<void> {
+    this.isPlaying = false;
+    this.state = AudioPlayerState.PAUSE;
+    this.syncAVSessionPlaybackState(avSession.PlaybackState.PLAYBACK_STATE_PAUSE);
+    if (!this.avPlayer) {
+      result?.success(new Map<String, Object>());
+      return;
+    }
+    const playerState = this.avPlayer.state;
+    if (playerState == 'idle' || playerState == 'released' || playerState == 'stopped' || playerState == 'paused') {
+      this.updateIsPlay(false);
+      result?.success(new Map<String, Object>());
+      return;
+    }
+    try {
+      await this.avPlayer.pause();
       this.isPlaying = false;
-      this.avPlayer.pause().then(() => {
-        this.state = AudioPlayerState.PAUSE;
-        this.updateIsPlay(false);
-        result?.success(new Map<String, Object>());
-      }).catch((e: BusinessError) => {
-        result?.error(e.code.toString(), e.message, e.data)
-        console.error(TAG, "pause::error" + e.message);
-        this.syncAVSessionPlaybackState(avSession.PlaybackState.PLAYBACK_STATE_ERROR);
-      });
+      this.state = AudioPlayerState.PAUSE;
+      this.updateIsPlay(false);
+      this.syncAVSessionPlaybackState(avSession.PlaybackState.PLAYBACK_STATE_PAUSE);
+      result?.success(new Map<String, Object>());
+    } catch (e) {
+      const error = e as BusinessError;
+      result?.error(error.code.toString(), error.message, error.data)
+      console.error(TAG, `pause::error state=${playerState}, message=${error.message}`);
+      this.syncAVSessionPlaybackState(avSession.PlaybackState.PLAYBACK_STATE_ERROR);
     }
   }
 

@@ -27,6 +27,7 @@ import { MainMethodCallHandler } from './MainMethodCallHandler'
 /** JustAudioOhosPlugin **/
 export default class JustAudioOhosPlugin implements FlutterPlugin {
   private channel: MethodChannel | null = null;
+  private mediaControlsChannel: MethodChannel | null = null;
   private methodCallHandler: MainMethodCallHandler | null = null;
 
   private async disposePlayers(): Promise<void> {
@@ -39,6 +40,10 @@ export default class JustAudioOhosPlugin implements FlutterPlugin {
     if (this.channel != null) {
       this.channel.setMethodCallHandler(null);
       this.channel = null;
+    }
+    if (this.mediaControlsChannel != null) {
+      this.mediaControlsChannel.setMethodCallHandler(null);
+      this.mediaControlsChannel = null;
     }
     await methodCallHandler?.dispose();
   }
@@ -57,9 +62,11 @@ export default class JustAudioOhosPlugin implements FlutterPlugin {
       AppStorage.setOrCreate('context', applicationContext)
     }
     let messenger = binding.getBinaryMessenger();
-    this.methodCallHandler = new MainMethodCallHandler(applicationContext, messenger);
+    this.mediaControlsChannel = new MethodChannel(messenger, "com.qi.ai_music.ohos_media_controls");
+    this.methodCallHandler = new MainMethodCallHandler(applicationContext, messenger, this.mediaControlsChannel);
     this.channel = new MethodChannel(messenger, "com.ryanheise.just_audio.methods");
     this.channel.setMethodCallHandler(this.methodCallHandler)
+    this.mediaControlsChannel.setMethodCallHandler(this.methodCallHandler)
     let engine: FlutterEngine = binding.getFlutterEngine();
     engine.addEngineLifecycleListener({
       onPreEngineRestart: () => {
