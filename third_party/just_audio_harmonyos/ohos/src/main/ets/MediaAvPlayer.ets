@@ -21,7 +21,7 @@
  * */
 
 import { media } from '@kit.MediaKit';
-import { common, wantAgent } from '@kit.AbilityKit';
+import { common, wantAgent, WantAgent } from '@kit.AbilityKit';
 import { BusinessError } from '@kit.BasicServicesKit';
 import { AVCastPickerState, avSession } from '@kit.AVSessionKit';
 import MediaSource from './MediaSource';
@@ -102,6 +102,8 @@ export class MediaAvPlayer {
   public songList: MediaSource[] = [];
   public state: AudioPlayerState = AudioPlayerState.IDLE;
   private session?: avSession.AVSession;
+  private sessionActive: boolean = false
+  private sessionInitTask: Promise<void> | null = null
   private initialPos: number = -1;
   private initialIndex: number = -1;
   private volume: number = -1;
@@ -185,11 +187,7 @@ export class MediaAvPlayer {
       return;
     }
     try {
-      session.off('play', this.playCall);
-      session.off('pause', this.pauseCall);
-      session.off('playNext', this.playNextCall);
-      session.off('playPrevious', this.playPreviousCall);
-      session.off('seek', this.avSessionSeekCall);
+      this.removeListenerForMesFromController(session);
     } catch (error) {
       console.error(TAG, `remove ${name} callbacks failed: ${JSON.stringify(error)}`);
     }
@@ -208,6 +206,7 @@ export class MediaAvPlayer {
   private async disposeSession(): Promise<void> {
     const session = this.session;
     this.session = undefined;
+    this.sessionActive = false;
     await this.releaseSession(session, 'av session');
   }
 
@@ -316,17 +315,25 @@ export class MediaAvPlayer {
     this.syncAVSessionPlaybackState(this.avSessionStateForCurrentState(), force);
   }
 
+  private getAVSessionLoopMode(): avSession.LoopMode {
+    if (this.isRandom) {
+      return avSession.LoopMode.LOOP_MODE_SHUFFLE;
+    }
+    switch (this.playMode) {
+      case LoopMode.SINGLE_CYCLE:
+        return avSession.LoopMode.LOOP_MODE_SINGLE;
+      case LoopMode.LIST_LOOP:
+        return avSession.LoopMode.LOOP_MODE_LIST;
+      case LoopMode.DEFAULT:
+      default:
+        return avSession.LoopMode.LOOP_MODE_SEQUENCE;
+    }
+  }
+
   private syncAVSessionPlaybackState(state: avSession.PlaybackState, force: boolean = true,
     bufferedTime?: number): void {
-    if (!this.session) {
-      return;
-    }
     const now = new Date().getTime();
-    if (!force && now - this.lastAVSessionPlaybackStateUpdateTime < 1000) {
-      return;
-    }
-    this.lastAVSessionPlaybackStateUpdateTime = now;
-    this.setPlayState({
+    const playbackState: avSession.AVPlaybackState = {
       state: state,
       speed: this.isPlaying ? this.playbackRate : 0,
       position: {
@@ -335,11 +342,129 @@ export class MediaAvPlayer {
       },
       bufferedTime: bufferedTime ?? this.lastBufferedPosition,
       activeItemId: this.musicIndex,
-      duration: this.getDuration()
-    });
+      duration: this.getDuration(),
+      loopMode: this.getAVSessionLoopMode(),
+      isFavorite: false
+    };
+    if (!this.session) {
+      if (this.shouldExposeAVSessionForState(state)) {
+        this.ensureAVSessionReady().then(() => {
+          void this.setPlayState(playbackState);
+        }).catch((error: BusinessError) => {
+          console.error(TAG, `ensure AVSession for playback state failed, code: ${error.code}, message: ${error.message}`);
+        });
+      }
+      return;
+    }
+    if (!force && now - this.lastAVSessionPlaybackStateUpdateTime < 1000) {
+      return;
+    }
+    this.lastAVSessionPlaybackStateUpdateTime = now;
+    if (!this.sessionActive && this.shouldExposeAVSessionForState(state)) {
+      const session = this.session;
+      this.activateAVSession(session, 'playback state').then(() => {
+        void this.setPlayState(playbackState);
+      }).catch((error: BusinessError) => {
+        console.error(TAG, `activate AVSession for playback state failed, code: ${error.code}, message: ${error.message}`);
+      });
+      return;
+    }
+    void this.setPlayState(playbackState);
+  }
+
+  private shouldExposeAVSessionForState(state: avSession.PlaybackState): boolean {
+    return state === avSession.PlaybackState.PLAYBACK_STATE_PREPARE ||
+      state === avSession.PlaybackState.PLAYBACK_STATE_PLAY ||
+      state === avSession.PlaybackState.PLAYBACK_STATE_PAUSE ||
+      state === avSession.PlaybackState.PLAYBACK_STATE_STOP ||
+      state === avSession.PlaybackState.PLAYBACK_STATE_COMPLETED;
+  }
+
+  private async activateAVSession(session: avSession.AVSession, reason: string): Promise<void> {
+    if (this.sessionActive || this.session !== session || this.isDisposed) {
+      return;
+    }
+    await session.activate();
+    if (this.session === session && !this.isDisposed) {
+      this.sessionActive = true;
+      console.info(TAG, `Activate AVSession successfully: ${reason}`);
+    }
+  }
+
+  private async ensureAVSessionReady(): Promise<void> {
+    if (this.isDisposed) {
+      return;
+    }
+    if (this.sessionInitTask) {
+      await this.sessionInitTask;
+    }
+    if (!this.session && !this.sessionInitTask) {
+      const generation = this.initGeneration;
+      this.sessionInitTask = this.createSession(generation).finally(() => {
+        this.sessionInitTask = null;
+      });
+      await this.sessionInitTask;
+    }
+    const session = this.session;
+    if (session && !this.sessionActive) {
+      await this.activateAVSession(session, 'ensure ready');
+    }
+  }
+
+  private getCachedFileNameParts(): string[] {
+    const uri = this.songItem?.getUri();
+    if (!uri || uri.trim().length == 0) {
+      return [];
+    }
+    let cleanUri = uri.split('?')[0].split('#')[0];
+    const dartFilePrefix = 'file:///';
+    if (cleanUri.startsWith(dartFilePrefix)) {
+      cleanUri = cleanUri.slice(dartFilePrefix.length);
+    }
+    const segments = cleanUri.split('/');
+    let fileName = segments[segments.length - 1];
+    if (!fileName || fileName.trim().length == 0) {
+      return [];
+    }
+    const dotIndex = fileName.lastIndexOf('.');
+    if (dotIndex > 0) {
+      fileName = fileName.substring(0, dotIndex);
+    }
+    const rawParts = fileName.split('-');
+    let parts: string[] = [];
+    for (let i = 0; i < rawParts.length; i++) {
+      const part = rawParts[i].trim();
+      if (part.length > 0) {
+        parts.push(part);
+      }
+    }
+    return parts;
+  }
+
+  private getCachedFileTitle(): string {
+    const parts = this.getCachedFileNameParts();
+    if (parts.length >= 3 && /^[a-fA-F0-9]{10}$/.test(parts[parts.length - 1])) {
+      return parts.slice(1, parts.length - 1).join('-');
+    }
+    if (parts.length >= 2) {
+      return parts.slice(1).join('-');
+    }
+    return '';
+  }
+
+  private getCachedFileArtist(): string {
+    const parts = this.getCachedFileNameParts();
+    if (parts.length >= 2) {
+      return parts[0];
+    }
+    return '';
   }
 
   private getAVSessionTitle(): string {
+    const cachedTitle = this.getCachedFileTitle();
+    if (cachedTitle.length > 0) {
+      return cachedTitle;
+    }
     const title = this.avMetadata?.title;
     if (title && title.trim().length > 0) {
       return title;
@@ -361,6 +486,10 @@ export class MediaAvPlayer {
   }
 
   private getAVSessionArtist(): string {
+    const cachedArtist = this.getCachedFileArtist();
+    if (cachedArtist.length > 0) {
+      return cachedArtist;
+    }
     const artist = this.avMetadata?.artist;
     if (artist && artist.trim().length > 0) {
       return artist;
@@ -379,6 +508,31 @@ export class MediaAvPlayer {
     }
   }
 
+  private getLaunchWantAgentInfo(requestCode: number = 0): wantAgent.WantAgentInfo | null {
+    if (!this.context) {
+      return null;
+    }
+    return {
+      wants: [
+        {
+          bundleName: this.context.abilityInfo.bundleName,
+          abilityName: this.context.abilityInfo.name
+        }
+      ],
+      actionType: wantAgent.OperationType.START_ABILITY,
+      requestCode: requestCode,
+      actionFlags: [wantAgent.WantAgentFlags.UPDATE_PRESENT_FLAG]
+    };
+  }
+
+  private async createLaunchWantAgent(requestCode: number = 0): Promise<WantAgent | null> {
+    const wantAgentInfo = this.getLaunchWantAgentInfo(requestCode);
+    if (!wantAgentInfo) {
+      return null;
+    }
+    return await wantAgent.getWantAgent(wantAgentInfo);
+  }
+
   private async refreshAVSessionMetadata(): Promise<void> {
     try {
       if (this.avMetadataExtractor) {
@@ -387,7 +541,8 @@ export class MediaAvPlayer {
     } catch (error) {
       console.error(TAG, `fetch AV metadata failed: ${JSON.stringify(error)}`);
     }
-    this.setAVMetadata();
+    await this.setAVMetadata();
+    await this.setAVSessionQueue();
   }
 
   /**
@@ -414,6 +569,10 @@ export class MediaAvPlayer {
     console.info(TAG, `on pause , do pause task`);
     this.pause();
   };
+  private stopCall: () => void = () => {
+    console.info(TAG, `on stop , do stop task`);
+    this.stop();
+  };
   private playNextCall: () => void = () => {
     console.info(TAG, `on playNext , do playNext task`);
     this.playNextAuto();
@@ -428,6 +587,29 @@ export class MediaAvPlayer {
       console.error(TAG, `session seek failed, code is ${error.code}, message is ${error.message}`);
       this.syncAVSessionPlaybackState(avSession.PlaybackState.PLAYBACK_STATE_ERROR);
     });
+  };
+  private setLoopModeCall: (mode: avSession.LoopMode) => void = (mode: avSession.LoopMode) => {
+    console.info(TAG, `on setLoopMode, mode is ${mode}`);
+    switch (mode) {
+      case avSession.LoopMode.LOOP_MODE_SINGLE:
+        this.isRandom = false;
+        this.playMode = LoopMode.SINGLE_CYCLE;
+        break;
+      case avSession.LoopMode.LOOP_MODE_LIST:
+        this.isRandom = false;
+        this.playMode = LoopMode.LIST_LOOP;
+        break;
+      case avSession.LoopMode.LOOP_MODE_SHUFFLE:
+        this.isRandom = true;
+        this.playMode = LoopMode.LIST_LOOP;
+        break;
+      case avSession.LoopMode.LOOP_MODE_SEQUENCE:
+      default:
+        this.isRandom = false;
+        this.playMode = LoopMode.DEFAULT;
+        break;
+    }
+    this.syncCurrentAVSessionPlaybackState();
   };
   /**
    * 异常监听
@@ -788,11 +970,24 @@ export class MediaAvPlayer {
     if (!this.session) {
       return;
     }
+    this.removeListenerForMesFromController(this.session);
     this.session.on('play', this.playCall);
     this.session.on('pause', this.pauseCall);
+    this.session.on('stop', this.stopCall);
     this.session.on('playNext', this.playNextCall);
     this.session.on('playPrevious', this.playPreviousCall);
     this.session.on('seek', this.avSessionSeekCall);
+    this.session.on('setLoopMode', this.setLoopModeCall);
+  }
+
+  private removeListenerForMesFromController(session: avSession.AVSession): void {
+    session.off('play', this.playCall);
+    session.off('pause', this.pauseCall);
+    session.off('stop', this.stopCall);
+    session.off('playNext', this.playNextCall);
+    session.off('playPrevious', this.playPreviousCall);
+    session.off('seek', this.avSessionSeekCall);
+    session.off('setLoopMode', this.setLoopModeCall);
   }
 
   /**
@@ -864,31 +1059,75 @@ export class MediaAvPlayer {
       this.musicIndex = musicIndex;
     }
     if (this.session !== undefined) {
-      this.setAVMetadata();
+      void this.setAVMetadata();
       this.syncCurrentAVSessionPlaybackState();
     }
   }
 
-  async setAVMetadata() {
+  async setAVMetadata(): Promise<void> {
     let id = this.musicIndex;
     try {
       let metadata: avSession.AVMetadata = {
         assetId: `${id}`,
         title: this.getAVSessionTitle(),
         artist: this.getAVSessionArtist(),
+        subtitle: this.getAVSessionArtist(),
+        previousAssetId: this.musicIndex > 0 ? `${this.musicIndex - 1}` : '',
+        nextAssetId: this.musicIndex < this.songList.length - 1 ? `${this.musicIndex + 1}` : '',
         filter: CAST_PROTOCOL_FILTER,
         duration: this.getDuration()
       };
       if (this.session) {
-        this.session.setAVMetadata(metadata).then(() => {
-          console.info(TAG, 'SetAVMetadata successfully');
-        }).catch((err: BusinessError) => {
-          console.error(TAG, `SetAVMetadata BusinessError: code: ${err.code}, message: ${err.message}`);
-        });
+        await this.session.setAVMetadata(metadata);
+        console.info(TAG, 'SetAVMetadata successfully');
       }
     } catch (error) {
       console.error(TAG,
         `SetAVMetadata try: code: ${(error as BusinessError).code},message: ${(error as BusinessError).message}`);
+    }
+  }
+
+  private getAVMediaDescription(index: number): avSession.AVMediaDescription {
+    const currentSongItem = this.songItem;
+    const currentMetadata = this.avMetadata;
+    this.songItem = this.songList[index];
+    if (index != this.musicIndex) {
+      this.avMetadata = undefined;
+    }
+    const description: avSession.AVMediaDescription = {
+      assetId: `${index}`,
+      title: this.getAVSessionTitle(),
+      subtitle: this.getAVSessionArtist(),
+      artist: this.getAVSessionArtist(),
+      mediaType: 'audio',
+      mediaUri: this.songItem?.getUri(),
+      duration: index == this.musicIndex ? this.getDuration() : 0,
+      appName: 'AI Music'
+    };
+    this.songItem = currentSongItem;
+    this.avMetadata = currentMetadata;
+    return description;
+  }
+
+  private async setAVSessionQueue(): Promise<void> {
+    const session = this.session;
+    if (!session || this.songList.length == 0) {
+      return;
+    }
+    try {
+      const items: Array<avSession.AVQueueItem> = [];
+      for (let i = 0; i < this.songList.length; i++) {
+        items.push({
+          itemId: i,
+          description: this.getAVMediaDescription(i)
+        });
+      }
+      await session.setAVQueueItems(items);
+      await session.setAVQueueTitle('AI Music');
+      console.info(TAG, `SetAVSession queue successfully, count=${items.length}`);
+    } catch (error) {
+      console.error(TAG,
+        `SetAVSession queue failed: code: ${(error as BusinessError).code}, message: ${(error as BusinessError).message}`);
     }
   }
 
@@ -905,10 +1144,12 @@ export class MediaAvPlayer {
 
   public setLoopMode(loopMode: number) {
     this.playMode = loopMode;
+    this.syncCurrentAVSessionPlaybackState();
   }
 
   public setShuffleMode(isShuffle: boolean) {
     this.isRandom = isShuffle;
+    this.syncCurrentAVSessionPlaybackState();
   }
 
   public setVolume(volume: number) {
@@ -969,44 +1210,38 @@ export class MediaAvPlayer {
     }
     this.avMetadataExtractor = avMetadataExtractor;
     this.setAVPlayerCallback();
-    await this.createSession(generation);
   }
 
   async createSession(generation: number = this.initGeneration) {
     if (!this.context || this.session || this.isStaleInitGeneration(generation)) {
       return;
     }
-    const session = await avSession.createAVSession(this.context, 'SESSION_NAME', 'audio');
+    const session = await avSession.createAVSession(this.context, 'AI Music', 'audio');
     if (this.isStaleInitGeneration(generation) || this.session) {
       await this.releaseSession(session, 'stale av session');
       return;
     }
     this.session = session;
-    await session.activate();
+    this.sessionActive = false;
+    this.setListenerForMesFromController();
+    await this.setAVMetadata();
+    await this.setAVSessionQueue();
+    try {
+      const agent = await this.createLaunchWantAgent();
+      if (agent && this.session === session && !this.isStaleInitGeneration(generation)) {
+        await session.setLaunchAbility(agent);
+        console.info(TAG, 'SetAVSession launch ability successfully');
+      }
+    } catch (error) {
+      console.error(TAG, `create AVSession launch WantAgent failed, code: ${error.code}, message: ${error.message}`);
+    }
+    await this.setAVSessionCastExtras(session);
+    this.mediaAvPlayerStateChangeListener?.setAudioSessionId(parseInt(session.sessionId))
+    await this.activateAVSession(session, 'create session');
     if (this.isStaleInitGeneration(generation)) {
       await this.disposeSession();
       return;
     }
-    this.setAVMetadata();
-    let wantAgentInfo: wantAgent.WantAgentInfo = {
-      wants: [
-        {
-          bundleName: this.context.abilityInfo.bundleName,
-          abilityName: this.context.abilityInfo.name
-        }
-      ],
-      actionType: wantAgent.OperationType.START_ABILITIES,
-      requestCode: 0,
-      wantAgentFlags: [wantAgent.WantAgentFlags.UPDATE_PRESENT_FLAG]
-    }
-    wantAgent.getWantAgent(wantAgentInfo).then((agent) => {
-      if (this.session === session && !this.isStaleInitGeneration(generation)) {
-        session.setLaunchAbility(agent);
-      }
-    })
-    await this.setAVSessionCastExtras(session);
-    this.mediaAvPlayerStateChangeListener?.setAudioSessionId(parseInt(session.sessionId))
-    this.setListenerForMesFromController();
     this.syncCurrentAVSessionPlaybackState();
   }
 
@@ -1100,14 +1335,14 @@ export class MediaAvPlayer {
       this.syncAVSessionPlaybackState(avSession.PlaybackState.PLAYBACK_STATE_ERROR);
       return;
     }
-    this.lastBufferedPosition = 0;
-    this.mediaAvPlayerStateChangeListener?.onPlaybackStateChanged(PlaybackState.STATE_BUFFERING);
-    this.mediaAvPlayerStateChangeListener?.onUpdateBufferedPosition(0);
-    this.syncAVSessionPlaybackState(avSession.PlaybackState.PLAYBACK_STATE_PREPARE, true, 0);
     this.songItem = this.songList[musicIndex];
     this.avMetadata = undefined;
     this.isClipping = this.songItem.type == "clipping";
     this.updateMusicIndex(musicIndex);
+    this.lastBufferedPosition = 0;
+    this.mediaAvPlayerStateChangeListener?.onPlaybackStateChanged(PlaybackState.STATE_BUFFERING);
+    this.mediaAvPlayerStateChangeListener?.onUpdateBufferedPosition(0);
+    this.syncAVSessionPlaybackState(avSession.PlaybackState.PLAYBACK_STATE_PREPARE, true, 0);
     if (this.avPlayerNext && this.preMusicIndex == musicIndex && !this.isFirst) {
       const promotedPlayer = this.avPlayerNext;
       this.offAVPlayerCallback();
@@ -1489,15 +1724,16 @@ export class MediaAvPlayer {
     return 0;
   }
 
-  private setPlayState(playbackState: avSession.AVPlaybackState) {
-    if (this.session) {
-      this.session.setAVPlaybackState(playbackState, (err: BusinessError) => {
-        if (err) {
-          console.error(TAG, `SetAVPlaybackState BusinessError: code: ${err.code}, message: ${err.message}`);
-        } else {
-          console.info(TAG, 'SetAVPlaybackState successfully');
-        }
-      });
+  private async setPlayState(playbackState: avSession.AVPlaybackState): Promise<void> {
+    if (!this.session) {
+      return;
+    }
+    try {
+      await this.session.setAVPlaybackState(playbackState);
+      console.info(TAG, `SetAVPlaybackState successfully: state=${playbackState.state}`);
+    } catch (error) {
+      console.error(TAG,
+        `SetAVPlaybackState BusinessError: code: ${(error as BusinessError).code}, message: ${(error as BusinessError).message}`);
     }
   }
 }

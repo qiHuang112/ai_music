@@ -53,7 +53,9 @@ export default class JustAudioOhosPlugin implements FlutterPlugin {
 
   onAttachedToEngine(binding: FlutterPluginBinding): void {
     let applicationContext = binding.getApplicationContext();
-    AppStorage.setOrCreate('context', applicationContext)
+    if (AppStorage.get('context') == undefined) {
+      AppStorage.setOrCreate('context', applicationContext)
+    }
     let messenger = binding.getBinaryMessenger();
     this.methodCallHandler = new MainMethodCallHandler(applicationContext, messenger);
     this.channel = new MethodChannel(messenger, "com.ryanheise.just_audio.methods");
