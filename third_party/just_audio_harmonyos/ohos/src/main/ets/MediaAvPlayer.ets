@@ -138,6 +138,8 @@ export class MediaAvPlayer {
   private initGeneration: number = 0
   private nextPreloadInFlight: boolean = false
   private nextPreloadGeneration: number = -1
+  private nextPreloadTask: Promise<void> | null = null
+  private pendingAvPlayerNext: media.AVPlayer | null = null
 
   constructor() {
     const generation = ++this.initGeneration;
@@ -221,7 +223,7 @@ export class MediaAvPlayer {
   }
 
   private beginNextPreload(generation: number): boolean {
-    if (this.avPlayerNext != null || this.nextPreloadInFlight) {
+    if (this.avPlayerNext != null || this.pendingAvPlayerNext != null || this.nextPreloadInFlight) {
       return false;
     }
     this.nextPreloadInFlight = true;
@@ -230,15 +232,38 @@ export class MediaAvPlayer {
   }
 
   private finishNextPreload(generation: number): void {
-    if (this.nextPreloadGeneration == generation) {
+    if (this.nextPreloadGeneration == generation || this.nextPreloadGeneration == -1) {
       this.nextPreloadInFlight = false;
       this.nextPreloadGeneration = -1;
     }
   }
 
   private invalidateNextPreload(): void {
-    this.nextPreloadInFlight = false;
     this.nextPreloadGeneration = -1;
+  }
+
+  private async waitForNextPreload(): Promise<void> {
+    const task = this.nextPreloadTask;
+    if (!task) {
+      return;
+    }
+    try {
+      await task;
+    } catch (error) {
+      console.error(TAG, `wait next preload failed: ${JSON.stringify(error)}`);
+    }
+  }
+
+  private async releasePendingNextPlayer(avPlayer: media.AVPlayer | null, name: string): Promise<void> {
+    if (!avPlayer) {
+      return;
+    }
+    if (this.pendingAvPlayerNext === avPlayer) {
+      this.offAVPlayerNextCallback(avPlayer);
+      this.pendingAvPlayerNext = null;
+      this.closeDataSrcFd(true);
+    }
+    await this.releaseAvPlayer(avPlayer, name);
   }
 
   /**
@@ -359,7 +384,7 @@ export class MediaAvPlayer {
       case 'idle':
         console.info(TAG, 'AVPlayer state idle called.');
         this.state = AudioPlayerState.IDLE;
-        if (this.avPlayerNext == null && !this.nextPreloadInFlight) {
+        if (this.avPlayerNext == null && this.pendingAvPlayerNext == null && !this.nextPreloadInFlight) {
           this.offAVPlayerNextCallback();
           this.preMusicIndex = this.musicIndex + 1;
           let nextSong: MediaSource = this.songList[this.preMusicIndex];
@@ -385,46 +410,48 @@ export class MediaAvPlayer {
             if (!this.beginNextPreload(preloadGeneration)) {
               break;
             }
-            media.createAVPlayer().then(async (value: media.AVPlayer) => {
+            const preloadTask = media.createAVPlayer().then(async (value: media.AVPlayer) => {
               const nextPlayer = value;
-              if (this.isStaleGeneration(preloadGeneration) ||
-                this.nextPreloadGeneration != preloadGeneration || this.avPlayerNext != null) {
-                await this.releaseAvPlayer(nextPlayer, 'stale avPlayerNext');
-                this.finishNextPreload(preloadGeneration);
-                return;
-              }
-              this.avPlayerNext = nextPlayer;
-              this.finishNextPreload(preloadGeneration);
-              this.setAVPlayerNextCallback();
-              let nextUrl = nextSong.getUri();
-              if (nextUrl && nextPlayer.state == "idle") {
-                const loaded = await this.loadUri(nextPlayer, nextUrl, false, preloadGeneration);
-                if (!loaded || this.isStaleGeneration(preloadGeneration)) {
-                  if (this.avPlayerNext === nextPlayer) {
-                    this.offAVPlayerNextCallback();
-                    this.avPlayerNext = null;
-                    this.closeDataSrcFd(true);
-                  }
+              try {
+                if (this.isStaleGeneration(preloadGeneration) ||
+                  this.nextPreloadGeneration != preloadGeneration || this.avPlayerNext != null ||
+                  this.pendingAvPlayerNext != null) {
                   await this.releaseAvPlayer(nextPlayer, 'stale avPlayerNext');
                   return;
                 }
-              }
-              if (this.isStaleGeneration(preloadGeneration)) {
-                if (this.avPlayerNext === nextPlayer) {
-                  this.offAVPlayerNextCallback();
-                  this.avPlayerNext = null;
-                  this.closeDataSrcFd(true);
+                this.pendingAvPlayerNext = nextPlayer;
+                this.setAVPlayerNextCallback(nextPlayer);
+                let nextUrl = nextSong.getUri();
+                if (!nextUrl) {
+                  await this.releasePendingNextPlayer(nextPlayer, 'empty uri avPlayerNext');
+                  return;
                 }
-                await this.releaseAvPlayer(nextPlayer, 'stale avPlayerNext');
-                return;
-              }
-              if (this.avPlayerNext !== nextPlayer) {
-                await this.releaseAvPlayer(nextPlayer, 'replaced avPlayerNext');
+                if (nextPlayer.state == "idle") {
+                  const loaded = await this.loadUri(nextPlayer, nextUrl, false, preloadGeneration);
+                  if (!loaded) {
+                    await this.releasePendingNextPlayer(nextPlayer, 'failed avPlayerNext');
+                    return;
+                  }
+                }
+                if (this.isStaleGeneration(preloadGeneration) ||
+                  this.nextPreloadGeneration != preloadGeneration || this.avPlayerNext != null ||
+                  this.pendingAvPlayerNext !== nextPlayer) {
+                  await this.releasePendingNextPlayer(nextPlayer, 'stale avPlayerNext');
+                  return;
+                }
+                this.pendingAvPlayerNext = null;
+                this.avPlayerNext = nextPlayer;
+              } catch (error) {
+                await this.releasePendingNextPlayer(nextPlayer, 'failed avPlayerNext');
+                console.error(TAG, `preload next AVPlayer failed: ${JSON.stringify(error)}`);
+              } finally {
+                this.finishNextPreload(preloadGeneration);
               }
             }).catch((error: BusinessError) => {
               this.finishNextPreload(preloadGeneration);
               console.error(TAG, `create next AVPlayer failed, code is ${error.code}, message is ${error.message}`);
             });
+            this.nextPreloadTask = preloadTask;
           }
         }
         break;
@@ -519,7 +546,8 @@ export class MediaAvPlayer {
         break;
       case 'initialized':
         console.info(TAG, 'avPlayerNext state initialized called.');
-        this.avPlayerNext?.prepare().then(() => {
+        const nextPlayer = this.pendingAvPlayerNext ?? this.avPlayerNext;
+        nextPlayer?.prepare().then(() => {
           console.info(TAG, 'avPlayerNext AVPlayer prepare succeeded.');
         }, (err: BusinessError) => {
           console.error(TAG, `avPlayerNext Invoke prepare failed, code is ${err.code}, message is ${err.message}`);
@@ -547,7 +575,6 @@ export class MediaAvPlayer {
         break;
       case 'released':
         console.info(TAG, 'avPlayerNext state released called.');
-        this.avPlayerNext = null;
         break;
       default:
         console.info(TAG, 'avPlayerNext state unknown called.');
@@ -568,15 +595,15 @@ export class MediaAvPlayer {
     }
   }
 
-  setAVPlayerNextCallback() {
-    this.avPlayerNext?.on('stateChange', this.preStateCall);
-    this.avPlayerNext?.on('bufferingUpdate', this.bufferingUpdateNext);
+  setAVPlayerNextCallback(avPlayer: media.AVPlayer | null = this.avPlayerNext) {
+    avPlayer?.on('stateChange', this.preStateCall);
+    avPlayer?.on('bufferingUpdate', this.bufferingUpdateNext);
   }
 
 
-  offAVPlayerNextCallback() {
-    this.avPlayerNext?.off('stateChange', this.preStateCall);
-    this.avPlayerNext?.off('bufferingUpdate', this.bufferingUpdateNext);
+  offAVPlayerNextCallback(avPlayer: media.AVPlayer | null = this.avPlayerNext) {
+    avPlayer?.off('stateChange', this.preStateCall);
+    avPlayer?.off('bufferingUpdate', this.bufferingUpdateNext);
   }
 
 
@@ -965,11 +992,13 @@ export class MediaAvPlayer {
     this.lifecycleGeneration++;
     this.initGeneration++;
     this.invalidateNextPreload();
+    await this.waitForNextPreload();
     this.offAVPlayerCallback();
     this.offAVPlayerNextCallback();
     await this.disposeSession();
     await this.releaseAvPlayer(this.avPlayer, 'avPlayer');
     await this.releaseAvPlayer(this.avPlayerNext, 'avPlayerNext');
+    await this.releasePendingNextPlayer(this.pendingAvPlayerNext, 'pending avPlayerNext');
     await this.releaseMetadataExtractor();
     this.closeDataSrcFd(false);
     this.closeDataSrcFd(true);
@@ -1047,7 +1076,7 @@ export class MediaAvPlayer {
     if (this.isStaleGeneration(generation)) {
       return false;
     }
-    const isNextPlayer = avPlayer === this.avPlayerNext;
+    const isNextPlayer = avPlayer === this.avPlayerNext || avPlayer === this.pendingAvPlayerNext;
     if (uri?.startsWith('http')) {
       try {
         this.closeDataSrcFd(isNextPlayer);
