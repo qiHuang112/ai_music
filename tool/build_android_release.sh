@@ -4,6 +4,7 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 FLUTTER_BIN="${FLUTTER_BIN:-$ROOT_DIR/../tools/flutter/bin/flutter}"
 ANDROID_HOME="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-}}"
+ANDROID_NDK_HOME="${ANDROID_NDK_HOME:-}"
 MAX_APK_SIZE_MB="${MAX_APK_SIZE_MB:-60}"
 PACKAGE_NAME="com.qi.ai.music"
 ABI="arm64-v8a"
@@ -27,11 +28,41 @@ if [[ -z "$ANDROID_HOME" || ! -d "$ANDROID_HOME" ]]; then
   exit 69
 fi
 
+ndk_revision() {
+  local ndk_dir="$1"
+  local source_properties="$ndk_dir/source.properties"
+  if [[ -f "$source_properties" ]]; then
+    awk -F= '$1 == "Pkg.Revision" {
+      gsub(/^[[:space:]]+|[[:space:]]+$/, "", $2)
+      print $2
+      exit
+    }' "$source_properties"
+  fi
+}
+
+ndk_matches_version() {
+  local ndk_dir="$1"
+  local expected_version="$2"
+  [[ -d "$ndk_dir" ]] || return 1
+  [[ "$(basename "$ndk_dir")" == "$expected_version" ]] && return 0
+  [[ "$(ndk_revision "$ndk_dir")" == "$expected_version" ]]
+}
+
 NDK_VERSION="$(awk -F\" '/ndkVersion[[:space:]]*=/{ print $2; exit }' "$ROOT_DIR/android/app/build.gradle.kts")"
-if [[ -n "$NDK_VERSION" && ! -d "$ANDROID_HOME/ndk/$NDK_VERSION" ]]; then
-  echo "Android NDK $NDK_VERSION not found under $ANDROID_HOME/ndk." >&2
-  echo "Install it with sdkmanager \"ndk;$NDK_VERSION\" before building release APKs." >&2
-  exit 69
+if [[ -n "$NDK_VERSION" && "${AI_MUSIC_SKIP_NDK_PREFLIGHT:-}" != "1" ]]; then
+  ndk_found=false
+  for ndk_candidate in "$ANDROID_HOME/ndk/$NDK_VERSION" "$ANDROID_NDK_HOME"; do
+    if [[ -n "$ndk_candidate" ]] && ndk_matches_version "$ndk_candidate" "$NDK_VERSION"; then
+      ndk_found=true
+      break
+    fi
+  done
+  if [[ "$ndk_found" != true ]]; then
+    echo "Android NDK $NDK_VERSION not found." >&2
+    echo "Checked $ANDROID_HOME/ndk/$NDK_VERSION and ANDROID_NDK_HOME." >&2
+    echo "Install it with sdkmanager \"ndk;$NDK_VERSION\", set ANDROID_NDK_HOME to that NDK, or set AI_MUSIC_SKIP_NDK_PREFLIGHT=1 to let Gradle resolve it." >&2
+    exit 69
+  fi
 fi
 
 find_build_tool() {
