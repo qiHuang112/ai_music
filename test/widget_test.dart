@@ -734,16 +734,8 @@ void main() {
     await tester.tap(find.text('Road'));
     await tester.pumpAndSettle();
 
-    expect(
-      tester.getTopLeft(find.text('Beta')).dy,
-      lessThan(tester.getTopLeft(find.text('Alpha')).dy),
-    );
-
-    await tester.tap(find.byTooltip('排序'));
-    await tester.pumpAndSettle();
-    await tester.tap(find.text('首字母').last);
-    await tester.pumpAndSettle();
-
+    expect(find.byTooltip('排序'), findsNothing);
+    expect(find.text('调整顺序'), findsOneWidget);
     expect(
       tester.getTopLeft(find.text('Alpha')).dy,
       lessThan(tester.getTopLeft(find.text('Beta')).dy),
@@ -805,27 +797,15 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(
-      tester.getTopLeft(find.text('Beta')).dy,
-      lessThan(tester.getTopLeft(find.text('Alpha')).dy),
-    );
-
-    await tester.tap(find.byTooltip('排序'));
-    await tester.pumpAndSettle();
-    await tester.tap(find.text('自定义顺序').last);
-    await tester.pumpAndSettle();
-
-    expect(
       tester.getTopLeft(find.text('Alpha')).dy,
       lessThan(tester.getTopLeft(find.text('Beta')).dy),
     );
+    expect(find.byTooltip('排序'), findsNothing);
+    expect(find.text('调整顺序'), findsOneWidget);
 
     await tester.pageBack();
     await tester.pumpAndSettle();
     await tester.tap(find.text('Road'));
-    await tester.pumpAndSettle();
-    await tester.tap(find.byTooltip('排序'));
-    await tester.pumpAndSettle();
-    await tester.tap(find.text('自定义顺序').last);
     await tester.pumpAndSettle();
 
     expect(
@@ -887,12 +867,9 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.text('Road'));
     await tester.pumpAndSettle();
-    await tester.tap(find.byTooltip('排序'));
-    await tester.pumpAndSettle();
-    await tester.tap(find.text('自定义顺序').last);
-    await tester.pumpAndSettle();
 
     expect(find.text('调整顺序'), findsOneWidget);
+    expect(find.byTooltip('排序'), findsNothing);
     expect(find.byTooltip('拖拽排序'), findsNothing);
     expect(find.byTooltip('添加到歌单'), findsWidgets);
 
@@ -968,10 +945,6 @@ void main() {
 
     expect(find.text('Mini Alpha'), findsOneWidget);
 
-    await tester.tap(find.byTooltip('排序'));
-    await tester.pumpAndSettle();
-    await tester.tap(find.text('自定义顺序').last);
-    await tester.pumpAndSettle();
     await tester.tap(find.text('调整顺序'));
     await tester.pumpAndSettle();
 
@@ -1030,10 +1003,6 @@ void main() {
     await tester.tap(find.byTooltip('播放列表'));
     await tester.pumpAndSettle();
     await tester.tap(find.text('Road'));
-    await tester.pumpAndSettle();
-    await tester.tap(find.byTooltip('排序'));
-    await tester.pumpAndSettle();
-    await tester.tap(find.text('自定义顺序').last);
     await tester.pumpAndSettle();
     await tester.tap(find.text('调整顺序'));
     await tester.pumpAndSettle();
@@ -1114,10 +1083,6 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.text('Road'));
     await tester.pumpAndSettle();
-    await tester.tap(find.byTooltip('排序'));
-    await tester.pumpAndSettle();
-    await tester.tap(find.text('自定义顺序').last);
-    await tester.pumpAndSettle();
     await tester.enterText(find.byType(TextField), 'Alpha');
     await tester.pumpAndSettle();
 
@@ -1180,10 +1145,6 @@ void main() {
     await tester.tap(find.byTooltip('播放列表'));
     await tester.pumpAndSettle();
     await tester.tap(find.text('Road'));
-    await tester.pumpAndSettle();
-    await tester.tap(find.byTooltip('排序'));
-    await tester.pumpAndSettle();
-    await tester.tap(find.text('自定义顺序').last);
     await tester.pumpAndSettle();
     await tester.tap(find.text('调整顺序'));
     await tester.pumpAndSettle();

@@ -816,7 +816,14 @@ class _PlaylistDetailPageState extends State<_PlaylistDetailPage> {
           widget.selection,
           strings,
         );
-        final sortedTracks = _sortLibraryTracks(controller, rawList, _sortMode);
+        final effectiveSortMode = rawList.canManage
+            ? _LibrarySortMode.custom
+            : _sortMode;
+        final sortedTracks = _sortLibraryTracks(
+          controller,
+          rawList,
+          effectiveSortMode,
+        );
         final visibleTracks = _isReorderEditing
             ? _tracksForDraftOrder(sortedTracks)
             : sortedTracks;
@@ -826,7 +833,9 @@ class _PlaylistDetailPageState extends State<_PlaylistDetailPage> {
         final selectedTracks = _selectedTracks(sortedTracks);
         final selecting = _selectedTrackIds.isNotEmpty;
         final canAdjustOrder =
-            rawList.canCustomSort && _sortMode == _LibrarySortMode.custom;
+            rawList.canManage ||
+            (rawList.isFavorite &&
+                effectiveSortMode == _LibrarySortMode.custom);
         final canReorder = _isReorderEditing && !hasActiveFilter && !selecting;
         return PopScope(
           canPop: !_isReorderEditing,
@@ -851,14 +860,15 @@ class _PlaylistDetailPageState extends State<_PlaylistDetailPage> {
                           icon: const Icon(Icons.drag_indicator),
                           label: Text(strings.adjustOrder),
                         ),
-                      _LibrarySortButton(
-                        mode: _sortMode,
-                        timeLabel: list.isLocal
-                            ? strings.sortByDownloadTime
-                            : strings.sortByAddedTime,
-                        showCustomOrder: list.canCustomSort,
-                        onChanged: (mode) => _changeSortMode(mode),
-                      ),
+                      if (!list.canManage)
+                        _LibrarySortButton(
+                          mode: _sortMode,
+                          timeLabel: list.isLocal
+                              ? strings.sortByDownloadTime
+                              : strings.sortByAddedTime,
+                          showCustomOrder: list.isFavorite,
+                          onChanged: (mode) => _changeSortMode(mode),
+                        ),
                       if (list.canManage && list.playlist != null) ...[
                         IconButton(
                           tooltip: strings.renamePlaylist,
