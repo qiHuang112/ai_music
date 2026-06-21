@@ -26,7 +26,7 @@
 - 最低系统版本：iOS 13。
 - 后台音频：`UIBackgroundModes` 包含 `audio`。
 - 本地网络弹窗：`NSLocalNetworkUsageDescription` 说明音乐源访问用途。
-- ATS：开启 `NSAllowsArbitraryLoads` 和 `NSAllowsLocalNetworking`，因为部分音乐源和本地源使用 HTTP。
+- ATS：当前为了开发、本地源和部分 HTTP 音乐源兼容，开启了 `NSAllowsArbitraryLoads` 和 `NSAllowsLocalNetworking`。这不是外部分发的长期安全目标；未来如果走 TestFlight/App Store，应收敛为 `NSAllowsLocalNetworking` 加必要域名例外。
 - 当前分发方式：Personal Team 的 development 签名。App Store、TestFlight、Ad Hoc 需要对应 Apple Developer 账号能力。
 
 ## 构建与安装
@@ -38,10 +38,10 @@ cd /Users/huangqi/AIHome/ai_music
 /Users/huangqi/AIHome/tools/flutter/bin/flutter pub get
 ```
 
-为已注册设备构建 development IPA：
+为已注册设备构建 development IPA。脚本默认就是这个导出方式：
 
 ```bash
-IOS_EXPORT_METHOD=development ./tool/build_ios_ipa.sh
+./tool/build_ios_ipa.sh
 ```
 
 输出目录：
@@ -62,6 +62,8 @@ build/ios/ipa/
 `AI Music.ipa` 是当前开发账号和已注册设备使用的签名包，不是通用安装包。
 
 朋友如果不在这个 profile 里，需要使用可重签 IPA，并通过 AltStore、SideStore 或 Sideloadly 用朋友自己的 Apple ID 重签安装。iOS 不能像 Android APK 一样在 Files 里点开任意 IPA 直接安装。
+
+如果后续提交 CocoaPods 接入改动，需要把 project/workspace 改动和 `ios/Podfile.lock` 一起提交；`Pods/` 目录继续忽略。
 
 ## 常见问题
 

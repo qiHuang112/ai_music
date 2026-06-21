@@ -33,11 +33,13 @@ open ios/Runner.xcworkspace
 
 In Xcode, select `Runner` > `Signing & Capabilities`, choose a Team, and keep the bundle id as `com.qi.ai.music`.
 
-Build an installable IPA without using the App Store:
+Build a development IPA for the current Personal Team or registered development devices:
 
 ```bash
-IOS_EXPORT_METHOD=ad-hoc tool/build_ios_ipa.sh
+tool/build_ios_ipa.sh
 ```
+
+That is equivalent to `IOS_EXPORT_METHOD=development tool/build_ios_ipa.sh`.
 
 The script writes the IPA to:
 
@@ -48,10 +50,10 @@ build/ios/ipa/
 Useful variants:
 
 ```bash
-# Development-signed IPA for registered development devices.
+# Explicit development-signed IPA for registered development devices.
 IOS_EXPORT_METHOD=development tool/build_ios_ipa.sh
 
-# Manual provisioning profile by name or UUID.
+# Ad hoc IPA for a paid Apple Developer account with registered devices.
 IOS_EXPORT_METHOD=ad-hoc \
 IOS_TEAM_ID=YOURTEAMID \
 IOS_PROVISIONING_PROFILE="AI Music Ad Hoc" \
@@ -63,4 +65,4 @@ IOS_EXPORT_OPTIONS_PLIST=ios/ExportOptions.plist tool/build_ios_ipa.sh
 
 Install the resulting IPA with Apple Configurator, Finder device management, MDM, or any other trusted IPA installation route supported by the signing method you used.
 
-For local development with a Personal Team, use `IOS_EXPORT_METHOD=development`. That IPA is only for registered devices trusted by the signing profile. For friends who need to install without your signing profile, provide a resignable IPA and have them use AltStore, SideStore, or Sideloadly with their own Apple ID.
+For local development with a Personal Team, keep the default `development` export method. That IPA is only for registered devices trusted by the signing profile; it is not a universal package. For friends who need to install without your signing profile, provide a resignable IPA and have them use AltStore, SideStore, or Sideloadly with their own Apple ID.

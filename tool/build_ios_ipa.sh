@@ -5,12 +5,14 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 FLUTTER_BIN="${FLUTTER_BIN:-$ROOT_DIR/../tools/flutter/bin/flutter}"
 
 # iOS signing is selected at export time so the Flutter/Dart app code can stay
-# shared across Android and iOS. Common values:
-#   development: local devices registered to the selected development team.
+# shared across Android and iOS. This project defaults to development because
+# the current local install flow uses a Personal Team.
+# Common values:
+#   development: Personal Team or local devices registered to a development team.
 #   ad-hoc:      registered devices on a paid Apple Developer account.
 #   app-store:   App Store or TestFlight submission.
 #   enterprise:  enterprise distribution where that account type is available.
-EXPORT_METHOD="${IOS_EXPORT_METHOD:-ad-hoc}"
+EXPORT_METHOD="${IOS_EXPORT_METHOD:-development}"
 EXPORT_OPTIONS_PLIST="${IOS_EXPORT_OPTIONS_PLIST:-}"
 BUNDLE_ID="${IOS_BUNDLE_ID:-com.qi.ai.music}"
 

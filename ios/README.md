@@ -28,7 +28,7 @@ Those are shared Flutter concerns and should be changed in `lib/src/` by the cro
 - Minimum deployment target: iOS 13.
 - Background audio: `UIBackgroundModes` includes `audio`.
 - Local network prompt: `NSLocalNetworkUsageDescription` explains music-source access.
-- ATS: `NSAllowsArbitraryLoads` and `NSAllowsLocalNetworking` are enabled because some music endpoints and local sources are plain HTTP.
+- ATS: `NSAllowsArbitraryLoads` and `NSAllowsLocalNetworking` are currently enabled for development, local sources, and plain-HTTP music endpoint compatibility. This is not the long-term security target for external distribution; before TestFlight/App Store, narrow it to `NSAllowsLocalNetworking` plus required domain exceptions.
 - Distribution today is development signing with a Personal Team. App Store, TestFlight, and ad-hoc distribution require the appropriate Apple Developer account setup.
 
 ## Build And Install
@@ -40,10 +40,10 @@ cd /Users/huangqi/AIHome/ai_music
 /Users/huangqi/AIHome/tools/flutter/bin/flutter pub get
 ```
 
-Build a development IPA for registered devices:
+Build a development IPA for registered devices. This is the default export method:
 
 ```bash
-IOS_EXPORT_METHOD=development ./tool/build_ios_ipa.sh
+./tool/build_ios_ipa.sh
 ```
 
 The output is written to:
@@ -64,6 +64,8 @@ For a real device, first make sure:
 `AI Music.ipa` is signed for the current development account and registered devices. Do not treat it as a universal install package.
 
 For friends without access to this signing profile, use a resignable IPA and have them install it through AltStore, SideStore, or Sideloadly with their own Apple ID. iOS cannot install a random IPA by tapping it in Files.
+
+If CocoaPods integration changes are committed later, include the project/workspace changes and `ios/Podfile.lock` together. Keep `Pods/` ignored.
 
 ## Troubleshooting
 
