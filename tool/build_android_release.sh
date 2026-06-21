@@ -32,7 +32,7 @@ ndk_revision() {
   local ndk_dir="$1"
   local source_properties="$ndk_dir/source.properties"
   if [[ -f "$source_properties" ]]; then
-    awk -F= '$1 == "Pkg.Revision" {
+    awk -F= '/^[[:space:]]*Pkg\.Revision[[:space:]]*=/ {
       gsub(/^[[:space:]]+|[[:space:]]+$/, "", $2)
       print $2
       exit
