@@ -9,11 +9,14 @@ environment:
 dependencies:
   audio_service: ^0.18.18
   audio_session: ^0.2.3
+  audio_session_harmonyos: ^0.0.1
   crypto: ^3.0.7
   cupertino_icons: ^1.0.8
   flutter:
     sdk: flutter
   just_audio: ^0.10.5
+  just_audio_harmonyos:
+    path: third_party/just_audio_harmonyos
   path_provider: 2.1.5
   rxdart: ^0.28.0
 

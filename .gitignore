@@ -33,12 +33,19 @@ migrate_working_dir/
 /build/
 /coverage/
 /android/build/
+**/build/
+**/.hvigor/
+**/node_modules/
+**/oh_modules/
+**/oh-package-lock.json5
+**/package-lock.json
 
-# Local platform experiments kept out of this repository snapshot.
-/ohos/
-/third_party/
-/tool/build_ohos_hap.sh
-/lib/src/platform/platform_detection.dart
+# Local machine configuration and signing material.
+**/local.properties
+*.p12
+*.p7b
+*.cer
+*.csr
 
 # Symbolication related
 app.*.symbols
