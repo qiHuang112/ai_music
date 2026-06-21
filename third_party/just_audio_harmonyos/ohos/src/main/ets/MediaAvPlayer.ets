@@ -133,6 +133,8 @@ export class MediaAvPlayer {
   private playMusicIndex: number = 0
   private currentDataSrcFd: number | null = null
   private nextDataSrcFd: number | null = null
+  private isDisposed: boolean = false
+  private lifecycleGeneration: number = 0
 
   constructor() {
     this.initAudioPlayer();
@@ -198,6 +200,10 @@ export class MediaAvPlayer {
       this.notifyLoadError(errorCode, errorMessage);
     }
     return false;
+  }
+
+  private isStaleGeneration(generation: number): boolean {
+    return this.isDisposed || generation != this.lifecycleGeneration;
   }
 
   /**
@@ -311,6 +317,9 @@ export class MediaAvPlayer {
    *订阅录制状态机AVRecorderState切换的事件，当 AVRecorderState状态机发生变化时，会通过订阅的回调方法通知用户。用户只能订阅一个状态机切换事件的回调方法，当用户重复订阅时，以最后一次订阅的回调接口为准
    * */
   private stateCall: (state: string) => Promise<void> = async (state: string) => {
+    if (this.isDisposed) {
+      return;
+    }
     switch (state) {
       case 'idle':
         console.info(TAG, 'AVPlayer state idle called.');
@@ -337,19 +346,42 @@ export class MediaAvPlayer {
             }
           }
           if (nextSong) {
+            const preloadGeneration = this.lifecycleGeneration;
             media.createAVPlayer().then(async (value: media.AVPlayer) => {
-              this.avPlayerNext = value;
+              const nextPlayer = value;
+              if (this.isStaleGeneration(preloadGeneration)) {
+                await this.releaseAvPlayer(nextPlayer, 'stale avPlayerNext');
+                return;
+              }
+              this.avPlayerNext = nextPlayer;
               this.setAVPlayerNextCallback();
               let nextUrl = nextSong.getUri();
-              if (nextUrl && this.avPlayerNext.state == "idle") {
-                const loaded = await this.loadUri(this.avPlayerNext, nextUrl, false);
-                if (!loaded) {
-                  this.offAVPlayerNextCallback();
-                  await this.avPlayerNext?.release();
-                  this.closeDataSrcFd(true);
-                  this.avPlayerNext = null;
+              if (nextUrl && nextPlayer.state == "idle") {
+                const loaded = await this.loadUri(nextPlayer, nextUrl, false, preloadGeneration);
+                if (!loaded || this.isStaleGeneration(preloadGeneration)) {
+                  if (this.avPlayerNext === nextPlayer) {
+                    this.offAVPlayerNextCallback();
+                    this.avPlayerNext = null;
+                    this.closeDataSrcFd(true);
+                  }
+                  await this.releaseAvPlayer(nextPlayer, 'stale avPlayerNext');
+                  return;
                 }
               }
+              if (this.isStaleGeneration(preloadGeneration)) {
+                if (this.avPlayerNext === nextPlayer) {
+                  this.offAVPlayerNextCallback();
+                  this.avPlayerNext = null;
+                  this.closeDataSrcFd(true);
+                }
+                await this.releaseAvPlayer(nextPlayer, 'stale avPlayerNext');
+                return;
+              }
+              if (this.avPlayerNext !== nextPlayer) {
+                await this.releaseAvPlayer(nextPlayer, 'replaced avPlayerNext');
+              }
+            }).catch((error: BusinessError) => {
+              console.error(TAG, `create next AVPlayer failed, code is ${error.code}, message is ${error.message}`);
             });
           }
         }
@@ -388,7 +420,7 @@ export class MediaAvPlayer {
           this.songItem = this.songList[this.musicIndex];
           let url = this.songItem?.getUri();
           if (url && this.avPlayer?.state == "idle") {
-            const loaded = await this.loadUri(this.avPlayer, url);
+            const loaded = await this.loadUri(this.avPlayer, url, true, this.lifecycleGeneration);
             if (!loaded) {
               break;
             }
@@ -436,6 +468,9 @@ export class MediaAvPlayer {
    *订阅录制状态机AVRecorderState切换的事件，当 AVRecorderState状态机发生变化时，会通过订阅的回调方法通知用户。用户只能订阅一个状态机切换事件的回调方法，当用户重复订阅时，以最后一次订阅的回调接口为准
    * */
   private preStateCall: (state: string) => Promise<void> = async (state: string) => {
+    if (this.isDisposed) {
+      return;
+    }
     switch (state) {
       case 'idle':
         console.info(TAG, 'avPlayerNext state idle called.');
@@ -776,6 +811,10 @@ export class MediaAvPlayer {
    * @param musicIndex
    */
   async loadAssent(musicIndex: number) {
+    if (this.isDisposed) {
+      return;
+    }
+    const generation = ++this.lifecycleGeneration;
     if (this.seekModule == SeekMode.SEEK) {
       this.seekModule = SeekMode.UNKNOWN;
     }
@@ -820,7 +859,7 @@ export class MediaAvPlayer {
         }
         let url = this.songItem?.getUri();
         if (url && this.avPlayer.state == "idle") {
-          const loaded = await this.loadUri(this.avPlayer, url);
+          const loaded = await this.loadUri(this.avPlayer, url, true, generation);
           if (!loaded) {
             return;
           }
@@ -852,6 +891,11 @@ export class MediaAvPlayer {
   }
 
   async dispose(): Promise<void> {
+    if (this.isDisposed) {
+      return;
+    }
+    this.isDisposed = true;
+    this.lifecycleGeneration++;
     this.offAVPlayerCallback();
     this.offAVPlayerNextCallback();
     await this.disposeSession();
@@ -929,7 +973,11 @@ export class MediaAvPlayer {
     }
   }
 
-  private async loadUri(avPlayer: media.AVPlayer, uri: string, reportError: boolean = true): Promise<boolean> {
+  private async loadUri(avPlayer: media.AVPlayer, uri: string, reportError: boolean = true,
+    generation: number = this.lifecycleGeneration): Promise<boolean> {
+    if (this.isStaleGeneration(generation)) {
+      return false;
+    }
     const isNextPlayer = avPlayer === this.avPlayerNext;
     if (uri?.startsWith('http')) {
       try {
@@ -1000,10 +1048,13 @@ export class MediaAvPlayer {
     } else {
       if (this.context) {
         this.closeDataSrcFd(isNextPlayer);
-        let fileDescriptor = await getContext(this).resourceManager.getRawFd(avPlayer.url)
+        let fileDescriptor = await getContext(this).resourceManager.getRawFd(uri)
           .catch((error: BusinessError) => {
             console.error(`resourceManager error code ${error.code} message ${error.message}`);
           });
+        if (this.isStaleGeneration(generation)) {
+          return false;
+        }
         if (fileDescriptor) {
           let avFileDescriptor: media.AVFileDescriptor =
             { fd: fileDescriptor.fd, offset: fileDescriptor.offset, length: fileDescriptor.length };
@@ -1067,6 +1118,10 @@ export class MediaAvPlayer {
   }
 
   public async load(mediaSource: MediaSource, currentIndex: number, seekPostion: number = 0) {
+    if (this.isDisposed) {
+      return;
+    }
+    this.lifecycleGeneration++;
     this.initialPos = seekPostion ?? -1;
     if (this.initialPos != -1) {
       this.initialIndex = currentIndex
