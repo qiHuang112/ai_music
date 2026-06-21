@@ -46,7 +46,12 @@ export default class JustAudioOhosPlugin implements FlutterPlugin {
         this.methodCallHandler?.dispose();
       },
       onEngineWillDestroy: () => {
-
+        this.methodCallHandler?.dispose();
+        this.methodCallHandler = null;
+        if (this.channel != null) {
+          this.channel.setMethodCallHandler(null);
+          this.channel = null;
+        }
       }
     } as EngineLifecycleListener);
   }
@@ -56,6 +61,7 @@ export default class JustAudioOhosPlugin implements FlutterPlugin {
     this.methodCallHandler = null;
     if (this.channel != null) {
       this.channel.setMethodCallHandler(null)
+      this.channel = null;
     }
   }
 }

@@ -4,9 +4,14 @@ import 'package:flutter/services.dart';
 
 import 'src/application/music_controller.dart';
 import 'src/data/music_settings.dart';
+import 'src/platform/platform_detection.dart';
 import 'src/presentation/app_localizations.dart';
 import 'src/playback/music_audio_handler.dart';
 import 'src/presentation/music_home_page.dart';
+
+const _disableAudioService = bool.fromEnvironment(
+  'AI_MUSIC_DISABLE_AUDIO_SERVICE',
+);
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -16,6 +21,10 @@ Future<void> main() async {
 }
 
 Future<MusicAudioHandler> _createAudioHandler() async {
+  if (_disableAudioService || isOpenHarmonyPlatform) {
+    return MusicAudioHandler();
+  }
+
   try {
     return await AudioService.init<MusicAudioHandler>(
       builder: MusicAudioHandler.new,

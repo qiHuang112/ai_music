@@ -37,7 +37,8 @@ migrate_working_dir/
 **/.hvigor/
 **/node_modules/
 **/oh_modules/
-**/oh-package-lock.json5
+/ohos/entry/oh-package-lock.json5
+/third_party/**/oh-package-lock.json5
 **/package-lock.json
 
 # Local machine configuration and signing material.

@@ -131,6 +131,8 @@ export class MediaAvPlayer {
   };
   private seekIsFirst: number = -1
   private playMusicIndex: number = 0
+  private currentDataSrcFd: number | null = null
+  private nextDataSrcFd: number | null = null
 
   constructor() {
     this.initAudioPlayer();
@@ -138,6 +140,49 @@ export class MediaAvPlayer {
 
   setMediaAvPlayerStateChange(listener: onChangeMediaAvPlayerState) {
     this.mediaAvPlayerStateChangeListener = listener
+  }
+
+  private closeDataSrcFd(forNext: boolean = false): void {
+    const fd = forNext ? this.nextDataSrcFd : this.currentDataSrcFd;
+    if (fd === null) {
+      return;
+    }
+    try {
+      fileIo.closeSync(fd);
+    } catch (error) {
+      console.error(TAG, `close data src fd failed: ${JSON.stringify(error)}`);
+    }
+    if (forNext) {
+      this.nextDataSrcFd = null;
+    } else {
+      this.currentDataSrcFd = null;
+    }
+  }
+
+  private disposeSession(): void {
+    const session = this.session;
+    if (!session) {
+      return;
+    }
+    this.session = undefined;
+    try {
+      session.off('play', this.playCall);
+      session.off('pause', this.pauseCall);
+      session.off('playNext', this.playNextCall);
+      session.off('playPrevious', this.playPreviousCall);
+    } catch (error) {
+      console.error(TAG, `remove av session callbacks failed: ${JSON.stringify(error)}`);
+    }
+    session.deactivate()
+      .catch((error: BusinessError) => {
+        console.error(TAG, `deactivate av session failed: ${JSON.stringify(error)}`);
+      })
+      .then(() => {
+        return session.destroy();
+      })
+      .catch((error: BusinessError) => {
+        console.error(TAG, `destroy av session failed: ${JSON.stringify(error)}`);
+      });
   }
 
   /**
@@ -609,11 +654,11 @@ export class MediaAvPlayer {
   }
 
   async createSession() {
-    if (!this.context) {
+    if (!this.context || this.session) {
       return;
     }
     this.session = await avSession.createAVSession(this.context, 'SESSION_NAME', 'audio');
-    this.session.activate();
+    await this.session.activate();
     this.setAVMetadata();
     let wantAgentInfo: wantAgent.WantAgentInfo = {
       wants: [
@@ -722,8 +767,11 @@ export class MediaAvPlayer {
     this.updateMusicIndex(musicIndex);
     if (this.avPlayerNext && this.preMusicIndex == musicIndex && !this.isFirst) {
       this.offAVPlayerCallback();
-      this.avPlayer?.release();
+      await this.avPlayer?.release();
+      this.closeDataSrcFd(false);
       this.avPlayer = this.avPlayerNext;
+      this.currentDataSrcFd = this.nextDataSrcFd;
+      this.nextDataSrcFd = null;
       this.setAVPlayerCallback();
       if (this.avPlayerNext.state == 'prepared') {
         this.playingState();
@@ -733,11 +781,17 @@ export class MediaAvPlayer {
       this.avPlayerNext = null;
     } else {
       if (this.avPlayer) {
+        if (this.avPlayerNext) {
+          this.offAVPlayerNextCallback();
+          await this.avPlayerNext.release();
+          this.closeDataSrcFd(true);
+        }
         this.avPlayerNext = null;
         if (this.isFirst) {
           this.isFirst = false;
         } else {
           await this.avPlayer.reset();
+          this.closeDataSrcFd(false);
           this.playMusicIndex = musicIndex;
         }
         let url = this.songItem?.getUri();
@@ -749,9 +803,14 @@ export class MediaAvPlayer {
   }
 
   dispose() {
+    this.disposeSession();
+    this.offAVPlayerCallback();
+    this.offAVPlayerNextCallback();
     this.avPlayer?.release();
     this.avPlayerNext?.release();
     this.avMetadataExtractor?.release();
+    this.closeDataSrcFd(false);
+    this.closeDataSrcFd(true);
     this.avMetadataExtractor = null;
     this.avPlayerNext = null;
     this.avPlayer = null;
@@ -809,8 +868,9 @@ export class MediaAvPlayer {
     }
     let realTime = ms <= 0 ? 0 : ms;
     if (index || index == 0 && this.musicIndex != index) {
-      this.avPlayer?.reset();
-      this.loadAssent(index);
+      await this.avPlayer?.reset();
+      this.closeDataSrcFd(false);
+      await this.loadAssent(index);
     } else {
       if ((this.state == AudioPlayerState.PREPARED || this.state == AudioPlayerState.PLAY ||
         this.state == AudioPlayerState.COMPLETED || this.state == AudioPlayerState.PAUSE) && this.avPlayer) {
@@ -821,7 +881,9 @@ export class MediaAvPlayer {
   }
 
   private async loadUri(avPlayer: media.AVPlayer, uri: string) {
+    const isNextPlayer = avPlayer === this.avPlayerNext;
     if (uri?.startsWith('http')) {
+      this.closeDataSrcFd(isNextPlayer);
       let headers: Record<string, string> = { "User-Agent": "User-Agent-Value" };
       if (this.songItem?.getHeader()) {
         headers = this.songItem?.getHeader() as Record<string, string>
@@ -834,30 +896,51 @@ export class MediaAvPlayer {
         if (uri.startsWith(dartFilePrefix)) {
           uri = uri.slice(dartFilePrefix.length);
         }
-        let fd: number = fileIo.openSync(uri).fd;
-        let fileSize: number = fileIo.statSync(uri).size;
-        let src: media.AVDataSrcDescriptor = {
-          fileSize: fileSize,
-          callback: (buf: ArrayBuffer, length: number, pos: number | undefined) => {
-            let num = 0;
-            if (buf == undefined || length == undefined || pos == undefined) {
+        this.closeDataSrcFd(isNextPlayer);
+        let openedFd: number | null = null;
+        try {
+          const dataSrcFd: number = fileIo.openSync(uri).fd;
+          openedFd = dataSrcFd;
+          let fileSize: number = fileIo.statSync(uri).size;
+          let src: media.AVDataSrcDescriptor = {
+            fileSize: fileSize,
+            callback: (buf: ArrayBuffer, length: number, pos: number | undefined) => {
+              let num = 0;
+              if (buf == undefined || length == undefined || pos == undefined) {
+                return -1;
+              }
+              num = fileIo.readSync(dataSrcFd, buf, { offset: pos, length: length });
+              if (num > 0 && (fileSize >= pos)) {
+                return num;
+              }
               return -1;
             }
-            num = fileIo.readSync(fd, buf, { offset: pos, length: length });
-            if (num > 0 && (fileSize >= pos)) {
-              return num;
-            }
-            return -1;
           }
-        }
-        src.fileSize = fileSize;
-        avPlayer.dataSrc = src;
-        if (this.avMetadataExtractor) {
-          this.avMetadataExtractor.dataSrc = src;
+          src.fileSize = fileSize;
+          avPlayer.dataSrc = src;
+          if (isNextPlayer) {
+            this.nextDataSrcFd = dataSrcFd;
+          } else {
+            this.currentDataSrcFd = dataSrcFd;
+          }
+          openedFd = null;
+          if (this.avMetadataExtractor) {
+            this.avMetadataExtractor.dataSrc = src;
+          }
+        } catch (error) {
+          if (openedFd !== null) {
+            try {
+              fileIo.closeSync(openedFd);
+            } catch (closeError) {
+              console.error(TAG, `close failed data src fd failed: ${JSON.stringify(closeError)}`);
+            }
+          }
+          console.error(TAG, `load file data src failed: ${JSON.stringify(error)}`);
         }
       }
     } else {
       if (this.context) {
+        this.closeDataSrcFd(isNextPlayer);
         let fileDescriptor = await getContext(this).resourceManager.getRawFd(avPlayer.url)
           .catch((error: BusinessError) => {
             console.error(`resourceManager error code ${error.code} message ${error.message}`);
