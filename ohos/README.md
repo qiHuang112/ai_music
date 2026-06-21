@@ -41,6 +41,7 @@ HarmonyOS 不允许应用在 `/storage/Users/currentUser` 下创建 `.ai_music` 
 HarmonyOS 不走 Android 的 `audio_service` 后台通知链路，系统播控中心由 vendored 插件里的 `AVSession` 直接驱动：
 
 - `MediaAvPlayer` 创建并激活 `AVSession`，注册 play/pause/上一首/下一首/seek 系统命令。
+- 创建 `AVSession` 后调用 `setExtras({'requireAbilityList': ['url-cast']})` 声明投播能力，并在 metadata 中设置 `ProtocolType.TYPE_DLNA | ProtocolType.TYPE_CAST_PLUS_STREAM`。
 - `AVPlayer` 进入 initialized/prepared/playing/paused/completed/stopped/error/buffering 时，同步 `AVPlaybackState`、当前位置、缓冲位置、播放速度和当前曲目 id。
 - 曲目切换和 metadata 读取完成后，同步 title/artist/duration；没有可靠封面 URI 时不发布 `mediaImage`。
 - dispose、engine restart/detach 时必须注销命令回调并 deactivate/destroy session，避免系统播控中心残留旧状态。

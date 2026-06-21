@@ -32,6 +32,8 @@ const TAG = 'MediaAvPlayer';
 const OPERATE_ERROR: number = 801;
 const AVPLAYER_STATE_ERROR: number = 5400102;
 const AVPLAYER_IO_ERROR: number = 5400103;
+const CAST_REQUIRED_ABILITIES: Array<string> = ['url-cast'];
+const CAST_PROTOCOL_FILTER: number = avSession.ProtocolType.TYPE_DLNA | avSession.ProtocolType.TYPE_CAST_PLUS_STREAM;
 
 export enum AudioPlayerState {
   IDLE,
@@ -364,6 +366,17 @@ export class MediaAvPlayer {
       return artist;
     }
     return 'AI Music';
+  }
+
+  private async setAVSessionCastExtras(session: avSession.AVSession): Promise<void> {
+    try {
+      await session.setExtras({
+        'requireAbilityList': CAST_REQUIRED_ABILITIES
+      });
+      console.info(TAG, 'SetAVSession cast extras successfully');
+    } catch (error) {
+      console.error(TAG, `SetAVSession cast extras failed: ${JSON.stringify(error)}`);
+    }
   }
 
   private async refreshAVSessionMetadata(): Promise<void> {
@@ -863,6 +876,7 @@ export class MediaAvPlayer {
         assetId: `${id}`,
         title: this.getAVSessionTitle(),
         artist: this.getAVSessionArtist(),
+        filter: CAST_PROTOCOL_FILTER,
         duration: this.getDuration()
       };
       if (this.session) {
@@ -981,6 +995,7 @@ export class MediaAvPlayer {
           abilityName: this.context.abilityInfo.name
         }
       ],
+      actionType: wantAgent.OperationType.START_ABILITIES,
       requestCode: 0,
       wantAgentFlags: [wantAgent.WantAgentFlags.UPDATE_PRESENT_FLAG]
     }
@@ -989,6 +1004,7 @@ export class MediaAvPlayer {
         session.setLaunchAbility(agent);
       }
     })
+    await this.setAVSessionCastExtras(session);
     this.mediaAvPlayerStateChangeListener?.setAudioSessionId(parseInt(session.sessionId))
     this.setListenerForMesFromController();
     this.syncCurrentAVSessionPlaybackState();
