@@ -37,6 +37,7 @@ android {
     namespace = "com.qi.ai.music"
     compileSdk = 36
     buildToolsVersion = "35.0.0"
+    ndkVersion = "27.0.11718014"
 
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
@@ -72,6 +73,12 @@ android {
             if (releaseSigningConfigured) {
                 signingConfig = signingConfigs.getByName("release")
             }
+        }
+    }
+
+    packaging {
+        jniLibs {
+            useLegacyPackaging = true
         }
     }
 }
