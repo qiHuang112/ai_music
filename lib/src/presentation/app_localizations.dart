@@ -76,6 +76,18 @@ class AppStrings {
   String get sortByAddedTime => isZh ? '加入时间' : 'Added time';
   String get customOrder => isZh ? '自定义顺序' : 'Custom order';
   String get dragToReorder => isZh ? '拖拽排序' : 'Drag to reorder';
+  String get adjustOrder => isZh ? '调整顺序' : 'Adjust order';
+  String get saveOrder => isZh ? '保存' : 'Save';
+  String get finishOrderEdit => isZh ? '完成' : 'Done';
+  String get discardOrderChangesTitle =>
+      isZh ? '放弃本次排序调整？' : 'Discard order changes?';
+  String get discardOrderChangesBody =>
+      isZh ? '未保存的顺序调整会丢失。' : 'Unsaved order changes will be lost.';
+  String get keepEditing => isZh ? '继续编辑' : 'Keep editing';
+  String get discardChanges => isZh ? '放弃' : 'Discard';
+  String get saveAndExit => isZh ? '保存并退出' : 'Save and exit';
+  String get clearSearchToAdjustOrder =>
+      isZh ? '清除搜索后可调整顺序' : 'Clear search to adjust order';
   String get lyrics => isZh ? '歌词' : 'Lyrics';
   String get noLyrics => isZh ? '暂无歌词' : 'No lyrics yet';
   String get nowPlaying => isZh ? '正在播放' : 'Now playing';

@@ -10,11 +10,12 @@ import 'package:ai_music/src/domain/music_models.dart';
 import 'package:ai_music/src/presentation/app_localizations.dart';
 import 'package:ai_music/src/presentation/music_home_page.dart';
 import 'package:ai_music/src/playback/music_audio_handler.dart';
+import 'package:audio_service/audio_service.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
-  test('reorder helper follows onReorderItem target index semantics', () {
+  test('reorder helper follows post-removal target index semantics', () {
     final alpha = Track(id: 'alpha', title: 'Alpha', artist: 'A', album: '');
     final beta = Track(id: 'beta', title: 'Beta', artist: 'B', album: '');
     final gamma = Track(id: 'gamma', title: 'Gamma', artist: 'G', album: '');
@@ -32,6 +33,10 @@ void main() {
 
     expect(movedToMiddle.map((track) => track.id), ['beta', 'alpha', 'gamma']);
     expect(movedToEnd.map((track) => track.id), ['beta', 'gamma', 'alpha']);
+    expect(reorderTargetIndexFromRawReorder(0, 1), 0);
+    expect(reorderTargetIndexFromRawReorder(0, 2), 1);
+    expect(reorderTargetIndexFromRawReorder(0, 3), 2);
+    expect(reorderTargetIndexFromRawReorder(2, 0), 0);
   });
 
   testWidgets('renders Android-first search and cache shell', (tester) async {
@@ -267,7 +272,7 @@ void main() {
     expect(settings.settings.language, AppLanguage.en);
     expect(find.text('Language'), findsOneWidget);
 
-    await tester.pageBack();
+    await tester.binding.handlePopRoute();
     await tester.pumpAndSettle();
     await tester.tap(find.text('Theme'));
     await tester.pumpAndSettle();
@@ -276,7 +281,7 @@ void main() {
 
     expect(settings.settings.theme, AppThemePreference.light);
 
-    await tester.pageBack();
+    await tester.binding.handlePopRoute();
     await tester.pumpAndSettle();
     settings.savedSource = null;
     await tester.tap(find.text('Music Source'));
@@ -829,6 +834,377 @@ void main() {
     );
   });
 
+  testWidgets('custom order requires explicit edit mode before dragging', (
+    tester,
+  ) async {
+    final alphaMusic = _resolvedMusic(id: 'alpha', name: 'Alpha', artist: 'A');
+    final betaMusic = _resolvedMusic(id: 'beta', name: 'Beta', artist: 'B');
+    final alpha = CachedTrack(
+      cacheId: cacheIdForResolved(alphaMusic),
+      music: alphaMusic,
+      filePath: '/tmp/alpha.mp3',
+      sizeBytes: 4,
+      fromCache: true,
+    );
+    final beta = CachedTrack(
+      cacheId: cacheIdForResolved(betaMusic),
+      music: betaMusic,
+      filePath: '/tmp/beta.mp3',
+      sizeBytes: 4,
+      fromCache: true,
+    );
+    final playlistStore = _FakePlaylistStore()
+      ..library = PlaylistLibrary(
+        playlists: [
+          MusicPlaylist(
+            id: 'road',
+            name: 'Road',
+            entries: [
+              PlaylistTrackEntry(
+                trackId: alpha.cacheId,
+                addedAt: DateTime(2026, 1, 1),
+              ),
+              PlaylistTrackEntry(
+                trackId: beta.cacheId,
+                addedAt: DateTime(2026, 1, 2),
+              ),
+            ],
+            createdAt: DateTime(2026),
+            updatedAt: DateTime(2026, 1, 2),
+          ),
+        ],
+      );
+
+    await tester.pumpWidget(
+      _app(
+        cacheStore: _FakeCacheStore(cached: [alpha, beta]),
+        playlistStore: playlistStore,
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byTooltip('播放列表'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Road'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byTooltip('排序'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('自定义顺序').last);
+    await tester.pumpAndSettle();
+
+    expect(find.text('调整顺序'), findsOneWidget);
+    expect(find.byTooltip('拖拽排序'), findsNothing);
+    expect(find.byTooltip('添加到歌单'), findsWidgets);
+
+    await tester.tap(find.text('调整顺序'));
+    await tester.pumpAndSettle();
+
+    expect(find.byTooltip('拖拽排序'), findsNWidgets(2));
+    expect(find.byTooltip('添加到歌单'), findsNothing);
+  });
+
+  testWidgets('order edit mode hides mini player navigation', (tester) async {
+    final alphaMusic = _resolvedMusic(id: 'alpha', name: 'Alpha', artist: 'A');
+    final betaMusic = _resolvedMusic(id: 'beta', name: 'Beta', artist: 'B');
+    final alpha = CachedTrack(
+      cacheId: cacheIdForResolved(alphaMusic),
+      music: alphaMusic,
+      filePath: '/tmp/alpha.mp3',
+      sizeBytes: 4,
+      fromCache: true,
+    );
+    final beta = CachedTrack(
+      cacheId: cacheIdForResolved(betaMusic),
+      music: betaMusic,
+      filePath: '/tmp/beta.mp3',
+      sizeBytes: 4,
+      fromCache: true,
+    );
+    final handler = _WidgetAudioHandler();
+    final playlistStore = _FakePlaylistStore()
+      ..library = PlaylistLibrary(
+        playlists: [
+          MusicPlaylist(
+            id: 'road',
+            name: 'Road',
+            entries: [
+              PlaylistTrackEntry(
+                trackId: alpha.cacheId,
+                addedAt: DateTime(2026, 1, 1),
+              ),
+              PlaylistTrackEntry(
+                trackId: beta.cacheId,
+                addedAt: DateTime(2026, 1, 2),
+              ),
+            ],
+            createdAt: DateTime(2026),
+            updatedAt: DateTime(2026, 1, 2),
+          ),
+        ],
+      );
+
+    await tester.pumpWidget(
+      _app(
+        cacheStore: _FakeCacheStore(cached: [alpha, beta]),
+        playlistStore: playlistStore,
+        audioHandler: handler,
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byTooltip('播放列表'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Road'));
+    await tester.pumpAndSettle();
+    handler.emit(
+      MediaItem(
+        id: alpha.cacheId,
+        title: 'Mini Alpha',
+        artist: 'A',
+        duration: const Duration(minutes: 3),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('Mini Alpha'), findsOneWidget);
+
+    await tester.tap(find.byTooltip('排序'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('自定义顺序').last);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('调整顺序'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Mini Alpha'), findsNothing);
+  });
+
+  testWidgets('custom order draft saves only when edit mode completes', (
+    tester,
+  ) async {
+    final alphaMusic = _resolvedMusic(id: 'alpha', name: 'Alpha', artist: 'A');
+    final betaMusic = _resolvedMusic(id: 'beta', name: 'Beta', artist: 'B');
+    final alpha = CachedTrack(
+      cacheId: cacheIdForResolved(alphaMusic),
+      music: alphaMusic,
+      filePath: '/tmp/alpha.mp3',
+      sizeBytes: 4,
+      fromCache: true,
+    );
+    final beta = CachedTrack(
+      cacheId: cacheIdForResolved(betaMusic),
+      music: betaMusic,
+      filePath: '/tmp/beta.mp3',
+      sizeBytes: 4,
+      fromCache: true,
+    );
+    final playlistStore = _FakePlaylistStore()
+      ..library = PlaylistLibrary(
+        playlists: [
+          MusicPlaylist(
+            id: 'road',
+            name: 'Road',
+            entries: [
+              PlaylistTrackEntry(
+                trackId: alpha.cacheId,
+                addedAt: DateTime(2026, 1, 1),
+              ),
+              PlaylistTrackEntry(
+                trackId: beta.cacheId,
+                addedAt: DateTime(2026, 1, 2),
+              ),
+            ],
+            createdAt: DateTime(2026),
+            updatedAt: DateTime(2026, 1, 2),
+          ),
+        ],
+      );
+
+    await tester.pumpWidget(
+      _app(
+        cacheStore: _FakeCacheStore(cached: [alpha, beta]),
+        playlistStore: playlistStore,
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byTooltip('播放列表'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Road'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byTooltip('排序'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('自定义顺序').last);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('调整顺序'));
+    await tester.pumpAndSettle();
+
+    final writesBeforeDrag = playlistStore.writeCount;
+    await tester.drag(find.byTooltip('拖拽排序').first, const Offset(0, 220));
+    await tester.pumpAndSettle();
+
+    expect(
+      tester.getTopLeft(find.text('Beta')).dy,
+      lessThan(tester.getTopLeft(find.text('Alpha')).dy),
+    );
+    expect(playlistStore.writeCount, writesBeforeDrag);
+    expect(playlistStore.library.playlists.single.trackIds, [
+      alpha.cacheId,
+      beta.cacheId,
+    ]);
+
+    await tester.tap(find.text('完成'));
+    await tester.pumpAndSettle();
+
+    expect(playlistStore.library.playlists.single.trackIds, [
+      beta.cacheId,
+      alpha.cacheId,
+    ]);
+  });
+
+  testWidgets('custom order edit is blocked while search is active', (
+    tester,
+  ) async {
+    final alphaMusic = _resolvedMusic(id: 'alpha', name: 'Alpha', artist: 'A');
+    final betaMusic = _resolvedMusic(id: 'beta', name: 'Beta', artist: 'B');
+    final alpha = CachedTrack(
+      cacheId: cacheIdForResolved(alphaMusic),
+      music: alphaMusic,
+      filePath: '/tmp/alpha.mp3',
+      sizeBytes: 4,
+      fromCache: true,
+    );
+    final beta = CachedTrack(
+      cacheId: cacheIdForResolved(betaMusic),
+      music: betaMusic,
+      filePath: '/tmp/beta.mp3',
+      sizeBytes: 4,
+      fromCache: true,
+    );
+    final playlistStore = _FakePlaylistStore()
+      ..library = PlaylistLibrary(
+        playlists: [
+          MusicPlaylist(
+            id: 'road',
+            name: 'Road',
+            entries: [
+              PlaylistTrackEntry(
+                trackId: alpha.cacheId,
+                addedAt: DateTime(2026, 1, 1),
+              ),
+              PlaylistTrackEntry(
+                trackId: beta.cacheId,
+                addedAt: DateTime(2026, 1, 2),
+              ),
+            ],
+            createdAt: DateTime(2026),
+            updatedAt: DateTime(2026, 1, 2),
+          ),
+        ],
+      );
+
+    await tester.pumpWidget(
+      _app(
+        cacheStore: _FakeCacheStore(cached: [alpha, beta]),
+        playlistStore: playlistStore,
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byTooltip('播放列表'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Road'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byTooltip('排序'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('自定义顺序').last);
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byType(TextField), 'Alpha');
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('调整顺序'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('清除搜索后可调整顺序'), findsOneWidget);
+    expect(find.byTooltip('拖拽排序'), findsNothing);
+  });
+
+  testWidgets('back from dirty order edit asks before discarding', (
+    tester,
+  ) async {
+    final alphaMusic = _resolvedMusic(id: 'alpha', name: 'Alpha', artist: 'A');
+    final betaMusic = _resolvedMusic(id: 'beta', name: 'Beta', artist: 'B');
+    final alpha = CachedTrack(
+      cacheId: cacheIdForResolved(alphaMusic),
+      music: alphaMusic,
+      filePath: '/tmp/alpha.mp3',
+      sizeBytes: 4,
+      fromCache: true,
+    );
+    final beta = CachedTrack(
+      cacheId: cacheIdForResolved(betaMusic),
+      music: betaMusic,
+      filePath: '/tmp/beta.mp3',
+      sizeBytes: 4,
+      fromCache: true,
+    );
+    final playlistStore = _FakePlaylistStore()
+      ..library = PlaylistLibrary(
+        playlists: [
+          MusicPlaylist(
+            id: 'road',
+            name: 'Road',
+            entries: [
+              PlaylistTrackEntry(
+                trackId: alpha.cacheId,
+                addedAt: DateTime(2026, 1, 1),
+              ),
+              PlaylistTrackEntry(
+                trackId: beta.cacheId,
+                addedAt: DateTime(2026, 1, 2),
+              ),
+            ],
+            createdAt: DateTime(2026),
+            updatedAt: DateTime(2026, 1, 2),
+          ),
+        ],
+      );
+
+    await tester.pumpWidget(
+      _app(
+        cacheStore: _FakeCacheStore(cached: [alpha, beta]),
+        playlistStore: playlistStore,
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byTooltip('播放列表'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Road'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byTooltip('排序'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('自定义顺序').last);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('调整顺序'));
+    await tester.pumpAndSettle();
+    await tester.drag(find.byTooltip('拖拽排序').first, const Offset(0, 220));
+    await tester.pumpAndSettle();
+
+    await tester.binding.handlePopRoute();
+    await tester.pumpAndSettle();
+
+    expect(find.text('放弃本次排序调整？'), findsOneWidget);
+
+    await tester.tap(find.text('放弃'));
+    await tester.pumpAndSettle();
+
+    expect(find.byTooltip('拖拽排序'), findsNothing);
+    expect(playlistStore.library.playlists.single.trackIds, [
+      alpha.cacheId,
+      beta.cacheId,
+    ]);
+  });
+
   testWidgets('favorite and custom playlist details filter visible tracks', (
     tester,
   ) async {
@@ -916,9 +1292,10 @@ Widget _app({
   _FakePlaylistStore? playlistStore,
   _FakeSettingsStore? settings,
   TrackMetadataRepository? metadataRepository,
+  MusicAudioHandler? audioHandler,
 }) {
   final controller = MusicController(
-    audioHandler: MusicAudioHandler(),
+    audioHandler: audioHandler ?? MusicAudioHandler(),
     resolver: resolver ?? _FakeMusicResolver(),
     cacheStore: cacheStore ?? _FakeCacheStore(),
     playlistStore: playlistStore ?? _FakePlaylistStore(),
@@ -958,10 +1335,17 @@ class _FakeMetadataRepository extends TrackMetadataRepository {
   }
 }
 
+class _WidgetAudioHandler extends MusicAudioHandler {
+  void emit(MediaItem? item) {
+    mediaItem.add(item);
+  }
+}
+
 class _FakePlaylistStore extends PlaylistStore {
   _FakePlaylistStore() : super(rootProvider: _unusedRootProvider);
 
   PlaylistLibrary library = const PlaylistLibrary.empty();
+  int writeCount = 0;
 
   @override
   Future<PlaylistLibrary> load({Set<String>? validTrackIds}) async {
@@ -973,6 +1357,7 @@ class _FakePlaylistStore extends PlaylistStore {
     PlaylistLibrary library, {
     Set<String>? validTrackIds,
   }) async {
+    writeCount += 1;
     this.library = _sanitize(library, validTrackIds);
   }
 

@@ -790,7 +790,10 @@ class _PlaylistDetailPageState extends State<_PlaylistDetailPage> {
   _LibrarySortMode _sortMode = _LibrarySortMode.time;
   final _searchController = TextEditingController();
   final List<String> _selectedTrackIds = <String>[];
+  final List<String> _reorderDraftTrackIds = <String>[];
   String _query = '';
+  bool _isReorderEditing = false;
+  bool _reorderDraftDirty = false;
 
   MusicController get controller => widget.controller;
 
@@ -814,71 +817,94 @@ class _PlaylistDetailPageState extends State<_PlaylistDetailPage> {
           strings,
         );
         final sortedTracks = _sortLibraryTracks(controller, rawList, _sortMode);
+        final visibleTracks = _isReorderEditing
+            ? _tracksForDraftOrder(sortedTracks)
+            : sortedTracks;
         final list = rawList.copyWith(
-          tracks: filterTracksByQuery(sortedTracks, _query),
+          tracks: filterTracksByQuery(visibleTracks, _query),
         );
         final selectedTracks = _selectedTracks(sortedTracks);
         final selecting = _selectedTrackIds.isNotEmpty;
-        final canReorder =
-            list.canCustomSort &&
-            _sortMode == _LibrarySortMode.custom &&
-            !hasActiveFilter &&
-            !selecting;
-        return Scaffold(
-          appBar: selecting
-              ? _selectionAppBar(context, list, selectedTracks)
-              : AppBar(
-                  title: Text(list.title),
-                  actions: [
-                    _LibrarySortButton(
-                      mode: _sortMode,
-                      timeLabel: list.isLocal
-                          ? strings.sortByDownloadTime
-                          : strings.sortByAddedTime,
-                      showCustomOrder: list.canCustomSort,
-                      onChanged: (mode) => setState(() => _sortMode = mode),
-                    ),
-                    if (list.canManage && list.playlist != null) ...[
-                      IconButton(
-                        tooltip: strings.renamePlaylist,
-                        onPressed: () => _rename(context, list.playlist!),
-                        icon: const Icon(Icons.edit),
-                      ),
-                      IconButton(
-                        tooltip: strings.deletePlaylist,
-                        onPressed: () => _delete(context, list.playlist!),
-                        icon: const Icon(Icons.delete_outline),
-                      ),
-                    ],
-                  ],
-                ),
-          body: SafeArea(
-            child: Column(
-              children: [
-                ListSearchField(
-                  controller: _searchController,
-                  onChanged: (value) => setState(() => _query = value),
-                ),
-                Expanded(
-                  child: controller.isLoadingCache
-                      ? const Center(child: CircularProgressIndicator())
-                      : _TrackList(
-                          controller: controller,
-                          list: list,
-                          hasActiveFilter: hasActiveFilter,
-                          isSelecting: selecting,
-                          selectedTrackIds: _selectedTrackIds.toSet(),
-                          canReorder: canReorder,
-                          onStartSelection: _startSelection,
-                          onToggleSelection: _toggleSelection,
-                          onReorder: (oldIndex, newIndex) =>
-                              _reorderTracks(list, oldIndex, newIndex),
+        final canAdjustOrder =
+            rawList.canCustomSort && _sortMode == _LibrarySortMode.custom;
+        final canReorder = _isReorderEditing && !hasActiveFilter && !selecting;
+        return PopScope(
+          canPop: !_isReorderEditing,
+          onPopInvokedWithResult: (didPop, _) {
+            if (!didPop && _isReorderEditing) {
+              unawaited(_requestExitReorderEditing(list));
+            }
+          },
+          child: Scaffold(
+            appBar: _isReorderEditing
+                ? _reorderEditAppBar(context, list)
+                : selecting
+                ? _selectionAppBar(context, list, selectedTracks)
+                : AppBar(
+                    title: Text(list.title),
+                    actions: [
+                      if (canAdjustOrder)
+                        TextButton.icon(
+                          onPressed: hasActiveFilter
+                              ? () => _showClearSearchToAdjustOrder(context)
+                              : () => _startReorderEditing(sortedTracks),
+                          icon: const Icon(Icons.drag_indicator),
+                          label: Text(strings.adjustOrder),
                         ),
-                ),
-              ],
+                      _LibrarySortButton(
+                        mode: _sortMode,
+                        timeLabel: list.isLocal
+                            ? strings.sortByDownloadTime
+                            : strings.sortByAddedTime,
+                        showCustomOrder: list.canCustomSort,
+                        onChanged: (mode) => _changeSortMode(mode),
+                      ),
+                      if (list.canManage && list.playlist != null) ...[
+                        IconButton(
+                          tooltip: strings.renamePlaylist,
+                          onPressed: () => _rename(context, list.playlist!),
+                          icon: const Icon(Icons.edit),
+                        ),
+                        IconButton(
+                          tooltip: strings.deletePlaylist,
+                          onPressed: () => _delete(context, list.playlist!),
+                          icon: const Icon(Icons.delete_outline),
+                        ),
+                      ],
+                    ],
+                  ),
+            body: SafeArea(
+              child: Column(
+                children: [
+                  if (!_isReorderEditing)
+                    ListSearchField(
+                      controller: _searchController,
+                      onChanged: (value) => setState(() => _query = value),
+                    ),
+                  Expanded(
+                    child: controller.isLoadingCache
+                        ? const Center(child: CircularProgressIndicator())
+                        : _TrackList(
+                            controller: controller,
+                            list: list,
+                            hasActiveFilter: hasActiveFilter,
+                            isSelecting: selecting,
+                            isReorderEditing: _isReorderEditing,
+                            selectedTrackIds: _selectedTrackIds.toSet(),
+                            canReorder: canReorder,
+                            onStartSelection: _startSelection,
+                            onToggleSelection: _toggleSelection,
+                            onReorder: (oldIndex, newIndex) =>
+                                _reorderDraft(oldIndex, newIndex),
+                          ),
+                  ),
+                ],
+              ),
             ),
+            bottomNavigationBar: _isReorderEditing
+                ? null
+                : _MiniPlayer(controller: controller),
           ),
-          bottomNavigationBar: _MiniPlayer(controller: controller),
         );
       },
     );
@@ -933,6 +959,28 @@ class _PlaylistDetailPageState extends State<_PlaylistDetailPage> {
     );
   }
 
+  PreferredSizeWidget _reorderEditAppBar(
+    BuildContext context,
+    _ResolvedLibraryList list,
+  ) {
+    final strings = AppStringsScope.of(context);
+    return AppBar(
+      leading: IconButton(
+        tooltip: strings.cancel,
+        onPressed: () => _requestExitReorderEditing(list),
+        icon: const Icon(Icons.close),
+      ),
+      title: Text(strings.adjustOrder),
+      actions: [
+        TextButton.icon(
+          onPressed: () => _saveReorderDraft(list, exitAfterSave: true),
+          icon: const Icon(Icons.check),
+          label: Text(strings.finishOrderEdit),
+        ),
+      ],
+    );
+  }
+
   List<Track> _selectedTracks(List<Track> tracks) {
     final byId = {for (final track in tracks) track.id: track};
     return [
@@ -973,6 +1021,114 @@ class _PlaylistDetailPageState extends State<_PlaylistDetailPage> {
     setState(_selectedTrackIds.clear);
   }
 
+  void _changeSortMode(_LibrarySortMode mode) {
+    setState(() {
+      _sortMode = mode;
+      _selectedTrackIds.clear();
+    });
+  }
+
+  void _startReorderEditing(List<Track> tracks) {
+    setState(() {
+      _isReorderEditing = true;
+      _reorderDraftDirty = false;
+      _selectedTrackIds.clear();
+      _reorderDraftTrackIds
+        ..clear()
+        ..addAll(tracks.map((track) => track.id));
+    });
+  }
+
+  List<Track> _tracksForDraftOrder(List<Track> fallbackTracks) {
+    if (_reorderDraftTrackIds.isEmpty) {
+      return fallbackTracks;
+    }
+    final byId = {for (final track in fallbackTracks) track.id: track};
+    final ordered = <Track>[];
+    for (final id in _reorderDraftTrackIds) {
+      final track = byId.remove(id);
+      if (track != null) {
+        ordered.add(track);
+      }
+    }
+    ordered.addAll(byId.values);
+    return ordered;
+  }
+
+  void _reorderDraft(int oldIndex, int newIndex) {
+    setState(() {
+      final reorderedIds = reorderIdsForReorderableListView(
+        _reorderDraftTrackIds,
+        oldIndex,
+        newIndex,
+      );
+      _reorderDraftTrackIds
+        ..clear()
+        ..addAll(reorderedIds);
+      _reorderDraftDirty = true;
+    });
+  }
+
+  Future<void> _requestExitReorderEditing(_ResolvedLibraryList list) async {
+    if (!_reorderDraftDirty) {
+      _discardReorderDraft();
+      return;
+    }
+    final action = await _confirmDiscardReorderChanges(context);
+    if (!mounted ||
+        action == null ||
+        action == _ReorderExitAction.keepEditing) {
+      return;
+    }
+    switch (action) {
+      case _ReorderExitAction.keepEditing:
+        return;
+      case _ReorderExitAction.discard:
+        _discardReorderDraft();
+      case _ReorderExitAction.save:
+        await _saveReorderDraft(list, exitAfterSave: true);
+    }
+  }
+
+  void _discardReorderDraft() {
+    setState(() {
+      _isReorderEditing = false;
+      _reorderDraftDirty = false;
+      _reorderDraftTrackIds.clear();
+    });
+  }
+
+  Future<void> _saveReorderDraft(
+    _ResolvedLibraryList list, {
+    required bool exitAfterSave,
+  }) async {
+    final tracks = _tracksForDraftOrder(list.tracks);
+    if (list.isFavorite) {
+      await controller.reorderFavoriteTracks(tracks);
+    } else if (list.playlist != null) {
+      await controller.reorderPlaylistTracks(list.playlist!, tracks);
+    }
+    if (!mounted) {
+      return;
+    }
+    if (exitAfterSave) {
+      setState(() {
+        _isReorderEditing = false;
+        _reorderDraftDirty = false;
+        _reorderDraftTrackIds.clear();
+      });
+    } else {
+      setState(() => _reorderDraftDirty = false);
+    }
+  }
+
+  void _showClearSearchToAdjustOrder(BuildContext context) {
+    final strings = AppStringsScope.of(context);
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(SnackBar(content: Text(strings.clearSearchToAdjustOrder)));
+  }
+
   Future<void> _addSelectedToPlaylist(
     BuildContext context,
     List<Track> tracks,
@@ -1008,27 +1164,6 @@ class _PlaylistDetailPageState extends State<_PlaylistDetailPage> {
     }
     if (mounted) {
       _clearSelection();
-    }
-  }
-
-  Future<void> _reorderTracks(
-    _ResolvedLibraryList list,
-    int oldIndex,
-    int newIndex,
-  ) async {
-    final tracks = [...list.tracks];
-    if (oldIndex < 0 || oldIndex >= tracks.length) {
-      return;
-    }
-    final reorderedTracks = reorderTracksForReorderableListView(
-      tracks,
-      oldIndex,
-      newIndex,
-    );
-    if (list.isFavorite) {
-      await controller.reorderFavoriteTracks(reorderedTracks);
-    } else if (list.playlist != null) {
-      await controller.reorderPlaylistTracks(list.playlist!, reorderedTracks);
     }
   }
 
@@ -1080,15 +1215,35 @@ List<Track> reorderTracksForReorderableListView(
   int oldIndex,
   int newIndex,
 ) {
-  final reordered = [...tracks];
+  final reorderedIds = reorderIdsForReorderableListView(
+    tracks.map((track) => track.id).toList(),
+    oldIndex,
+    newIndex,
+  );
+  final byId = {for (final track in tracks) track.id: track};
+  return [
+    for (final id in reorderedIds)
+      if (byId[id] != null) byId[id]!,
+  ];
+}
+
+List<String> reorderIdsForReorderableListView(
+  List<String> ids,
+  int oldIndex,
+  int newIndex,
+) {
+  final reordered = [...ids];
   if (oldIndex < 0 || oldIndex >= reordered.length) {
     return reordered;
   }
-  final track = reordered.removeAt(oldIndex);
-  // onReorderItem already provides the post-removal target index.
+  final id = reordered.removeAt(oldIndex);
   final targetIndex = newIndex.clamp(0, reordered.length).toInt();
-  reordered.insert(targetIndex, track);
+  reordered.insert(targetIndex, id);
   return reordered;
+}
+
+int reorderTargetIndexFromRawReorder(int oldIndex, int newIndex) {
+  return oldIndex < newIndex ? newIndex - 1 : newIndex;
 }
 
 class _LibrarySortButton extends StatelessWidget {
@@ -1194,6 +1349,7 @@ class _TrackList extends StatelessWidget {
     required this.list,
     required this.hasActiveFilter,
     required this.isSelecting,
+    required this.isReorderEditing,
     required this.selectedTrackIds,
     required this.canReorder,
     required this.onStartSelection,
@@ -1205,6 +1361,7 @@ class _TrackList extends StatelessWidget {
   final _ResolvedLibraryList list;
   final bool hasActiveFilter;
   final bool isSelecting;
+  final bool isReorderEditing;
   final Set<String> selectedTrackIds;
   final bool canReorder;
   final ValueChanged<Track> onStartSelection;
@@ -1233,7 +1390,12 @@ class _TrackList extends StatelessWidget {
         buildDefaultDragHandles: false,
         padding: const EdgeInsets.fromLTRB(12, 8, 12, 96),
         itemCount: tracks.length,
-        onReorderItem: onReorder,
+        // flutter_ohos does not support onReorderItem yet.
+        // ignore: deprecated_member_use
+        onReorder: (oldIndex, newIndex) => onReorder(
+          oldIndex,
+          reorderTargetIndexFromRawReorder(oldIndex, newIndex),
+        ),
         itemBuilder: (context, index) {
           final track = tracks[index];
           return _TrackTile(
@@ -1244,6 +1406,7 @@ class _TrackList extends StatelessWidget {
             tracks: tracks,
             index: index,
             isSelecting: isSelecting,
+            isReorderEditing: isReorderEditing,
             selected: selectedTrackIds.contains(track.id),
             onStartSelection: onStartSelection,
             onToggleSelection: onToggleSelection,
@@ -1274,6 +1437,7 @@ class _TrackList extends StatelessWidget {
           tracks: tracks,
           index: index,
           isSelecting: isSelecting,
+          isReorderEditing: isReorderEditing,
           selected: selectedTrackIds.contains(track.id),
           onStartSelection: onStartSelection,
           onToggleSelection: onToggleSelection,
@@ -1292,6 +1456,7 @@ class _TrackTile extends StatelessWidget {
     required this.tracks,
     required this.index,
     required this.isSelecting,
+    required this.isReorderEditing,
     required this.selected,
     required this.onStartSelection,
     required this.onToggleSelection,
@@ -1304,6 +1469,7 @@ class _TrackTile extends StatelessWidget {
   final List<Track> tracks;
   final int index;
   final bool isSelecting;
+  final bool isReorderEditing;
   final bool selected;
   final ValueChanged<Track> onStartSelection;
   final ValueChanged<Track> onToggleSelection;
@@ -1322,7 +1488,9 @@ class _TrackTile extends StatelessWidget {
             horizontal: 8,
             vertical: 6,
           ),
-          leading: isSelecting
+          leading: isReorderEditing
+              ? dragHandle
+              : isSelecting
               ? Checkbox(
                   value: selected,
                   onChanged: (_) => onToggleSelection(track),
@@ -1350,7 +1518,7 @@ class _TrackTile extends StatelessWidget {
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
           ),
-          trailing: isSelecting
+          trailing: isSelecting || isReorderEditing
               ? null
               : _TrackActions(
                   controller: controller,
@@ -1358,14 +1526,16 @@ class _TrackTile extends StatelessWidget {
                   track: track,
                   dragHandle: dragHandle,
                 ),
-          onTap: isSelecting
+          onTap: isReorderEditing
+              ? null
+              : isSelecting
               ? () => onToggleSelection(track)
               : () => controller.playTrack(
                   track,
                   index: index,
                   queueTracks: tracks,
                 ),
-          onLongPress: () => onStartSelection(track),
+          onLongPress: isReorderEditing ? null : () => onStartSelection(track),
         );
       },
     );
@@ -1452,6 +1622,39 @@ class _TrackActions extends StatelessWidget {
 }
 
 enum _TrackAction { deleteLocal, removeFromCurrent }
+
+enum _ReorderExitAction { keepEditing, discard, save }
+
+Future<_ReorderExitAction?> _confirmDiscardReorderChanges(
+  BuildContext context,
+) {
+  final strings = AppStringsScope.of(context);
+  return showDialog<_ReorderExitAction>(
+    context: context,
+    builder: (context) {
+      return AlertDialog(
+        title: Text(strings.discardOrderChangesTitle),
+        content: Text(strings.discardOrderChangesBody),
+        actions: [
+          TextButton(
+            onPressed: () =>
+                Navigator.of(context).pop(_ReorderExitAction.keepEditing),
+            child: Text(strings.keepEditing),
+          ),
+          TextButton(
+            onPressed: () =>
+                Navigator.of(context).pop(_ReorderExitAction.discard),
+            child: Text(strings.discardChanges),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(context).pop(_ReorderExitAction.save),
+            child: Text(strings.saveAndExit),
+          ),
+        ],
+      );
+    },
+  );
+}
 
 Future<bool?> _confirmDeleteLocalTracks(
   BuildContext context,
