@@ -3,10 +3,23 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 FLUTTER_BIN="${FLUTTER_BIN:-$ROOT_DIR/../tools/flutter/bin/flutter}"
+
+# iOS signing is selected at export time so the Flutter/Dart app code can stay
+# shared across Android and iOS. Common values:
+#   development: local devices registered to the selected development team.
+#   ad-hoc:      registered devices on a paid Apple Developer account.
+#   app-store:   App Store or TestFlight submission.
+#   enterprise:  enterprise distribution where that account type is available.
 EXPORT_METHOD="${IOS_EXPORT_METHOD:-ad-hoc}"
 EXPORT_OPTIONS_PLIST="${IOS_EXPORT_OPTIONS_PLIST:-}"
 BUNDLE_ID="${IOS_BUNDLE_ID:-com.qi.ai.music}"
+
+# IOS_TEAM_ID pins automatic signing to one Apple team. Leave it empty when
+# Xcode's Runner target already has the intended Team selected.
 TEAM_ID="${IOS_TEAM_ID:-}"
+
+# IOS_PROVISIONING_PROFILE switches export to manual signing and should be the
+# profile name or UUID for IOS_BUNDLE_ID.
 PROVISIONING_PROFILE="${IOS_PROVISIONING_PROFILE:-}"
 
 case "$EXPORT_METHOD" in
