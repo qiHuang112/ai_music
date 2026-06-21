@@ -1,13 +1,42 @@
+import java.io.FileInputStream
+import java.util.Properties
+
 plugins {
     id("com.android.application")
-    // The Flutter Gradle Plugin must be applied after the Android and Kotlin Gradle plugins.
+    id("org.jetbrains.kotlin.android")
     id("dev.flutter.flutter-gradle-plugin")
 }
 
+val releaseKeystoreProperties = Properties()
+val releaseKeystoreFile = rootProject.file("key.properties")
+if (releaseKeystoreFile.exists()) {
+    releaseKeystoreProperties.load(FileInputStream(releaseKeystoreFile))
+}
+
+fun releaseSigningValue(name: String): String? {
+    val fileValue = releaseKeystoreProperties.getProperty(name)?.trim()
+    if (!fileValue.isNullOrEmpty()) {
+        return fileValue
+    }
+    return providers.environmentVariable("AI_MUSIC_${name.uppercase()}").orNull?.trim()
+        ?.takeIf { it.isNotEmpty() }
+}
+
+val releaseStoreFile = releaseSigningValue("storeFile")
+val releaseKeyAlias = releaseSigningValue("keyAlias")
+val releaseKeyPassword = releaseSigningValue("keyPassword")
+val releaseStorePassword = releaseSigningValue("storePassword")
+val releaseSigningConfigured = listOf(
+    releaseStoreFile,
+    releaseKeyAlias,
+    releaseKeyPassword,
+    releaseStorePassword,
+).all { !it.isNullOrEmpty() }
+
 android {
     namespace = "com.qi.ai.music"
-    compileSdk = flutter.compileSdkVersion
-    ndkVersion = flutter.ndkVersion
+    compileSdk = 36
+    buildToolsVersion = "35.0.0"
 
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
@@ -15,21 +44,49 @@ android {
     }
 
     defaultConfig {
-        // TODO: Specify your own unique Application ID (https://developer.android.com/studio/build/application-id.html).
         applicationId = "com.qi.ai.music"
-        // You can update the following values to match your application needs.
-        // For more information, see: https://flutter.dev/to/review-gradle-config.
         minSdk = flutter.minSdkVersion
-        targetSdk = flutter.targetSdkVersion
+        targetSdk = 35
         versionCode = flutter.versionCode
         versionName = flutter.versionName
     }
 
+    signingConfigs {
+        if (releaseSigningConfigured) {
+            create("release") {
+                val storeFilePath = releaseStoreFile!!
+                storeFile = if (file(storeFilePath).isAbsolute) {
+                    file(storeFilePath)
+                } else {
+                    rootProject.file(storeFilePath)
+                }
+                keyAlias = releaseKeyAlias
+                keyPassword = releaseKeyPassword
+                storePassword = releaseStorePassword
+            }
+        }
+    }
+
     buildTypes {
         release {
-            // TODO: Add your own signing config for the release build.
-            // Signing with the debug keys for now, so `flutter run --release` works.
-            signingConfig = signingConfigs.getByName("debug")
+            if (releaseSigningConfigured) {
+                signingConfig = signingConfigs.getByName("release")
+            }
+        }
+    }
+}
+
+tasks.configureEach {
+    if (name.contains("Release")) {
+        doFirst {
+            if (!releaseSigningConfigured) {
+                throw GradleException(
+                    "Release signing is not configured. Create android/key.properties " +
+                        "from key.properties.example or set AI_MUSIC_STOREFILE, " +
+                        "AI_MUSIC_KEYALIAS, AI_MUSIC_KEYPASSWORD, and " +
+                        "AI_MUSIC_STOREPASSWORD."
+                )
+            }
         }
     }
 }

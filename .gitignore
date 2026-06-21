@@ -32,6 +32,13 @@ migrate_working_dir/
 .pub/
 /build/
 /coverage/
+/android/build/
+
+# Local platform experiments kept out of this repository snapshot.
+/ohos/
+/third_party/
+/tool/build_ohos_hap.sh
+/lib/src/platform/platform_detection.dart
 
 # Symbolication related
 app.*.symbols
@@ -43,3 +50,8 @@ app.*.map.json
 /android/app/debug
 /android/app/profile
 /android/app/release
+
+# Android release signing
+/android/key.properties
+/android/*.jks
+/android/*.keystore

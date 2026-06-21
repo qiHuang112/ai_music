@@ -1,0 +1,770 @@
+import 'dart:io';
+
+import 'package:ai_music/src/application/music_controller.dart';
+import 'package:ai_music/src/data/lyrics_artwork.dart';
+import 'package:ai_music/src/data/music_cache.dart';
+import 'package:ai_music/src/data/music_playlists.dart';
+import 'package:ai_music/src/data/music_resolver.dart';
+import 'package:ai_music/src/data/music_settings.dart';
+import 'package:ai_music/src/presentation/app_localizations.dart';
+import 'package:ai_music/src/presentation/music_home_page.dart';
+import 'package:ai_music/src/playback/music_audio_handler.dart';
+import 'package:flutter/material.dart';
+import 'package:flutter_test/flutter_test.dart';
+
+void main() {
+  testWidgets('renders Android-first search and cache shell', (tester) async {
+    await tester.pumpWidget(_app());
+    await tester.pumpAndSettle();
+
+    expect(find.text('搜音乐'), findsOneWidget);
+    expect(find.text('歌手或歌曲'), findsOneWidget);
+    expect(find.text('搜索音乐'), findsOneWidget);
+    expect(find.byTooltip('下载'), findsOneWidget);
+    expect(find.byTooltip('播放列表'), findsOneWidget);
+    expect(find.text('No cached music yet'), findsNothing);
+  });
+
+  testWidgets('empty search does not call resolver', (tester) async {
+    final resolver = _FakeMusicResolver();
+    await tester.pumpWidget(_app(resolver: resolver));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byTooltip('在线搜索'));
+    await tester.pump();
+
+    expect(resolver.searchCount, 0);
+  });
+
+  testWidgets('search displays online candidates', (tester) async {
+    final resolver = _FakeMusicResolver(
+      candidates: [
+        for (var i = 0; i < 12; i += 1)
+          _candidate(id: 'song-$i', name: '稻香 $i', artist: '周杰伦'),
+      ],
+    );
+    await tester.pumpWidget(_app(resolver: resolver));
+    await tester.pumpAndSettle();
+
+    await tester.enterText(find.byType(TextField), '周杰伦');
+    await tester.tap(find.byTooltip('在线搜索'));
+    await tester.pumpAndSettle();
+
+    expect(resolver.lastQuery, '周杰伦');
+    expect(resolver.lastSource, MusicDataSource.buguyy);
+    expect(find.text('稻香 0'), findsOneWidget);
+    expect(find.textContaining('BuguYY'), findsNothing);
+    expect(find.textContaining('MP3'), findsWidgets);
+    expect(
+      tester.getSize(find.byType(ListView).first).height,
+      greaterThan(300),
+    );
+    expect(
+      find.text(
+        'Tap a result to download it into Playlists and start playback.',
+      ),
+      findsNothing,
+    );
+  });
+
+  testWidgets('downloaded search result exposes play action', (tester) async {
+    final resolver = _FakeMusicResolver(
+      candidates: [_candidate(name: '稻香', artist: '周杰伦')],
+    );
+    await tester.pumpWidget(_app(resolver: resolver));
+    await tester.pumpAndSettle();
+
+    await tester.enterText(find.byType(TextField), '周杰伦');
+    await tester.tap(find.byTooltip('在线搜索'));
+    await tester.pumpAndSettle();
+
+    expect(find.byTooltip('播放'), findsNothing);
+    expect(find.byIcon(Icons.download_for_offline), findsOneWidget);
+
+    await tester.tap(find.byIcon(Icons.download_for_offline));
+    await tester.pumpAndSettle();
+
+    expect(find.byTooltip('播放'), findsOneWidget);
+    expect(find.byTooltip('重新下载'), findsOneWidget);
+  });
+
+  testWidgets('completed downloads leave active section and enter cache', (
+    tester,
+  ) async {
+    final resolver = _FakeMusicResolver(
+      candidates: [_candidate(name: '稻香', artist: '周杰伦')],
+    );
+    await tester.pumpWidget(_app(resolver: resolver));
+    await tester.pumpAndSettle();
+
+    await tester.enterText(find.byType(TextField), '周杰伦');
+    await tester.tap(find.byTooltip('在线搜索'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byIcon(Icons.download_for_offline));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byTooltip('下载'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('没有正在下载的任务'), findsOneWidget);
+    expect(find.text('稻香'), findsAtLeastNWidgets(2));
+    expect(find.textContaining('已完成'), findsOneWidget);
+  });
+
+  testWidgets('download manager can sort cached tracks', (tester) async {
+    final older = CachedTrack(
+      cacheId: cacheIdForResolved(_resolvedMusic(id: 'alpha', name: 'Alpha')),
+      music: _resolvedMusic(id: 'alpha', name: 'Alpha'),
+      filePath: '/tmp/alpha.mp3',
+      sizeBytes: 4,
+      fromCache: true,
+      cachedAt: DateTime(2026, 1, 1),
+    );
+    final newer = CachedTrack(
+      cacheId: cacheIdForResolved(_resolvedMusic(id: 'beta', name: 'Beta')),
+      music: _resolvedMusic(id: 'beta', name: 'Beta'),
+      filePath: '/tmp/beta.mp3',
+      sizeBytes: 4,
+      fromCache: true,
+      cachedAt: DateTime(2026, 1, 2),
+    );
+    await tester.pumpWidget(
+      _app(cacheStore: _FakeCacheStore(cached: [older, newer])),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byTooltip('下载'));
+    await tester.pumpAndSettle();
+
+    expect(
+      tester.getTopLeft(find.text('Beta')).dy,
+      lessThan(tester.getTopLeft(find.text('Alpha')).dy),
+    );
+
+    await tester.tap(find.text('下载时间'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('首字母').last);
+    await tester.pumpAndSettle();
+
+    expect(
+      tester.getTopLeft(find.text('Alpha')).dy,
+      lessThan(tester.getTopLeft(find.text('Beta')).dy),
+    );
+  });
+
+  testWidgets('download manager filters cached tracks by search text', (
+    tester,
+  ) async {
+    final alpha = CachedTrack(
+      cacheId: cacheIdForResolved(_resolvedMusic(id: 'alpha', name: 'Alpha')),
+      music: _resolvedMusic(id: 'alpha', name: 'Alpha'),
+      filePath: '/tmp/alpha.mp3',
+      sizeBytes: 4,
+      fromCache: true,
+      cachedAt: DateTime(2026, 1, 1),
+    );
+    final beta = CachedTrack(
+      cacheId: cacheIdForResolved(_resolvedMusic(id: 'beta', name: 'Beta')),
+      music: _resolvedMusic(id: 'beta', name: 'Beta'),
+      filePath: '/tmp/beta.mp3',
+      sizeBytes: 4,
+      fromCache: true,
+      cachedAt: DateTime(2026, 1, 2),
+    );
+    await tester.pumpWidget(
+      _app(cacheStore: _FakeCacheStore(cached: [alpha, beta])),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byTooltip('下载'));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byType(TextField).last, 'alp');
+    await tester.pumpAndSettle();
+
+    expect(find.text('Alpha'), findsOneWidget);
+    expect(find.text('Beta'), findsNothing);
+  });
+
+  testWidgets('settings pages persist language theme and single source', (
+    tester,
+  ) async {
+    final settings = _FakeSettingsStore();
+    await tester.pumpWidget(_app(settings: settings));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byTooltip('设置'));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('语言'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('英文'));
+    await tester.pumpAndSettle();
+
+    expect(settings.settings.language, AppLanguage.en);
+    expect(find.text('Language'), findsOneWidget);
+
+    await tester.pageBack();
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Theme'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Light'));
+    await tester.pumpAndSettle();
+
+    expect(settings.settings.theme, AppThemePreference.light);
+
+    await tester.pageBack();
+    await tester.pumpAndSettle();
+    settings.savedSource = null;
+    await tester.tap(find.text('Music Source'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('BuguYY'), findsOneWidget);
+    expect(find.text('FLAC'), findsNothing);
+    expect(find.textContaining('only enabled'), findsOneWidget);
+    expect(settings.savedSource, isNull);
+  });
+
+  testWidgets('download entry opens manager and cached tracks can be deleted', (
+    tester,
+  ) async {
+    final cache = _FakeCacheStore(
+      cached: [
+        CachedTrack(
+          cacheId: cacheIdForResolved(_resolvedMusic()),
+          music: _resolvedMusic(),
+          filePath: '/tmp/song-1.mp3',
+          sizeBytes: 4,
+          fromCache: true,
+        ),
+      ],
+    );
+    await tester.pumpWidget(_app(cacheStore: cache));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byTooltip('下载'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('下载管理'), findsOneWidget);
+    expect(find.text('稻香'), findsOneWidget);
+
+    await tester.tap(find.byTooltip('删除'));
+    await tester.pump(const Duration(milliseconds: 100));
+    await tester.pumpAndSettle();
+
+    expect(cache.cached, isEmpty);
+  });
+
+  testWidgets('cache library opens local detail for cached tracks', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      _app(
+        cacheStore: _FakeCacheStore(
+          cached: [
+            CachedTrack(
+              cacheId: cacheIdForResolved(_resolvedMusic()),
+              music: _resolvedMusic(),
+              filePath: '/tmp/song-1.mp3',
+              sizeBytes: 4,
+              fromCache: true,
+            ),
+          ],
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('稻香'), findsNothing);
+
+    await tester.tap(find.byTooltip('播放列表'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('我的缓存列表'), findsOneWidget);
+    expect(find.textContaining('收藏'), findsOneWidget);
+    expect(find.textContaining('本地'), findsOneWidget);
+    expect(find.text('还没有自建歌单'), findsOneWidget);
+    expect(find.text('全部缓存'), findsNothing);
+    expect(find.byType(TabBar), findsNothing);
+    expect(find.text('稻香'), findsNothing);
+
+    await tester.tap(find.textContaining('本地'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('稻香'), findsOneWidget);
+    expect(find.textContaining('周杰伦'), findsOneWidget);
+  });
+
+  testWidgets('cached track can be favorited into favorite detail', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      _app(
+        cacheStore: _FakeCacheStore(
+          cached: [
+            CachedTrack(
+              cacheId: cacheIdForResolved(_resolvedMusic()),
+              music: _resolvedMusic(),
+              filePath: '/tmp/song-1.mp3',
+              sizeBytes: 4,
+              fromCache: true,
+            ),
+          ],
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byTooltip('播放列表'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.textContaining('本地'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byTooltip('添加到收藏'));
+    await tester.pumpAndSettle();
+    await tester.pageBack();
+    await tester.pumpAndSettle();
+    await tester.tap(find.textContaining('收藏'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('稻香'), findsOneWidget);
+  });
+
+  testWidgets('new playlist from add sheet uses live parent context', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      _app(
+        cacheStore: _FakeCacheStore(
+          cached: [
+            CachedTrack(
+              cacheId: cacheIdForResolved(_resolvedMusic()),
+              music: _resolvedMusic(),
+              filePath: '/tmp/song-1.mp3',
+              sizeBytes: 4,
+              fromCache: true,
+            ),
+          ],
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byTooltip('播放列表'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.textContaining('本地'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byTooltip('更多'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('添加到歌单'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('新建歌单'));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byType(TextField).last, '车上');
+    await tester.tap(find.text('创建'));
+    await tester.pumpAndSettle();
+
+    expect(tester.takeException(), isNull);
+
+    await tester.pageBack();
+    await tester.pumpAndSettle();
+
+    expect(find.text('车上'), findsOneWidget);
+
+    await tester.tap(find.text('车上'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('稻香'), findsOneWidget);
+  });
+
+  testWidgets('library details sort by entry time and initial', (tester) async {
+    final alphaMusic = _resolvedMusic(id: 'alpha', name: 'Alpha', artist: 'A');
+    final betaMusic = _resolvedMusic(id: 'beta', name: 'Beta', artist: 'B');
+    final alpha = CachedTrack(
+      cacheId: cacheIdForResolved(alphaMusic),
+      music: alphaMusic,
+      filePath: '/tmp/alpha.mp3',
+      sizeBytes: 4,
+      fromCache: true,
+    );
+    final beta = CachedTrack(
+      cacheId: cacheIdForResolved(betaMusic),
+      music: betaMusic,
+      filePath: '/tmp/beta.mp3',
+      sizeBytes: 4,
+      fromCache: true,
+    );
+    final playlistStore = _FakePlaylistStore()
+      ..library = PlaylistLibrary(
+        favoriteEntries: [
+          PlaylistTrackEntry(
+            trackId: alpha.cacheId,
+            addedAt: DateTime(2026, 1, 1),
+          ),
+          PlaylistTrackEntry(
+            trackId: beta.cacheId,
+            addedAt: DateTime(2026, 1, 2),
+          ),
+        ],
+        playlists: [
+          MusicPlaylist(
+            id: 'road',
+            name: 'Road',
+            entries: [
+              PlaylistTrackEntry(
+                trackId: alpha.cacheId,
+                addedAt: DateTime(2026, 1, 1),
+              ),
+              PlaylistTrackEntry(
+                trackId: beta.cacheId,
+                addedAt: DateTime(2026, 1, 2),
+              ),
+            ],
+            createdAt: DateTime(2026),
+            updatedAt: DateTime(2026, 1, 2),
+          ),
+        ],
+      );
+
+    await tester.pumpWidget(
+      _app(
+        cacheStore: _FakeCacheStore(cached: [alpha, beta]),
+        playlistStore: playlistStore,
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byTooltip('播放列表'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.textContaining('收藏'));
+    await tester.pumpAndSettle();
+
+    expect(
+      tester.getTopLeft(find.text('Beta')).dy,
+      lessThan(tester.getTopLeft(find.text('Alpha')).dy),
+    );
+
+    await tester.tap(find.byTooltip('排序'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('首字母').last);
+    await tester.pumpAndSettle();
+
+    expect(
+      tester.getTopLeft(find.text('Alpha')).dy,
+      lessThan(tester.getTopLeft(find.text('Beta')).dy),
+    );
+
+    await tester.pageBack();
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Road'));
+    await tester.pumpAndSettle();
+
+    expect(
+      tester.getTopLeft(find.text('Beta')).dy,
+      lessThan(tester.getTopLeft(find.text('Alpha')).dy),
+    );
+
+    await tester.tap(find.byTooltip('排序'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('首字母').last);
+    await tester.pumpAndSettle();
+
+    expect(
+      tester.getTopLeft(find.text('Alpha')).dy,
+      lessThan(tester.getTopLeft(find.text('Beta')).dy),
+    );
+  });
+
+  testWidgets('favorite and custom playlist details filter visible tracks', (
+    tester,
+  ) async {
+    final alphaMusic = _resolvedMusic(id: 'alpha', name: 'Alpha', artist: 'A');
+    final betaMusic = _resolvedMusic(id: 'beta', name: 'Beta', artist: 'B');
+    final alpha = CachedTrack(
+      cacheId: cacheIdForResolved(alphaMusic),
+      music: alphaMusic,
+      filePath: '/tmp/alpha.mp3',
+      sizeBytes: 4,
+      fromCache: true,
+    );
+    final beta = CachedTrack(
+      cacheId: cacheIdForResolved(betaMusic),
+      music: betaMusic,
+      filePath: '/tmp/beta.mp3',
+      sizeBytes: 4,
+      fromCache: true,
+    );
+    final playlistStore = _FakePlaylistStore()
+      ..library = PlaylistLibrary(
+        favoriteEntries: [
+          PlaylistTrackEntry(
+            trackId: alpha.cacheId,
+            addedAt: DateTime(2026, 1, 1),
+          ),
+          PlaylistTrackEntry(
+            trackId: beta.cacheId,
+            addedAt: DateTime(2026, 1, 2),
+          ),
+        ],
+        playlists: [
+          MusicPlaylist(
+            id: 'road',
+            name: 'Road',
+            entries: [
+              PlaylistTrackEntry(
+                trackId: alpha.cacheId,
+                addedAt: DateTime(2026, 1, 1),
+              ),
+              PlaylistTrackEntry(
+                trackId: beta.cacheId,
+                addedAt: DateTime(2026, 1, 2),
+              ),
+            ],
+            createdAt: DateTime(2026),
+            updatedAt: DateTime(2026, 1, 2),
+          ),
+        ],
+      );
+
+    await tester.pumpWidget(
+      _app(
+        cacheStore: _FakeCacheStore(cached: [alpha, beta]),
+        playlistStore: playlistStore,
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byTooltip('播放列表'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.textContaining('收藏'));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byType(TextField).last, 'alp');
+    await tester.pumpAndSettle();
+
+    expect(find.text('Alpha'), findsOneWidget);
+    expect(find.text('Beta'), findsNothing);
+
+    await tester.pageBack();
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Road'));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byType(TextField).last, 'beta');
+    await tester.pumpAndSettle();
+
+    expect(find.text('Alpha'), findsNothing);
+    expect(find.text('Beta'), findsOneWidget);
+  });
+}
+
+Widget _app({
+  _FakeMusicResolver? resolver,
+  _FakeCacheStore? cacheStore,
+  _FakePlaylistStore? playlistStore,
+  _FakeSettingsStore? settings,
+}) {
+  final controller = MusicController(
+    audioHandler: MusicAudioHandler(),
+    resolver: resolver ?? _FakeMusicResolver(),
+    cacheStore: cacheStore ?? _FakeCacheStore(),
+    playlistStore: playlistStore ?? _FakePlaylistStore(),
+    settingsStore: settings ?? _FakeSettingsStore(),
+    metadataRepository: TrackMetadataRepository(
+      cacheStore: MetadataCacheStore(
+        rootProvider: () => Directory.systemTemp.createTemp('ai_music_meta_'),
+      ),
+    ),
+  );
+  return AnimatedBuilder(
+    animation: controller,
+    builder: (context, _) {
+      return MaterialApp(
+        theme: ThemeData.light(useMaterial3: true),
+        darkTheme: ThemeData.dark(useMaterial3: true),
+        themeMode: controller.themePreference == AppThemePreference.light
+            ? ThemeMode.light
+            : ThemeMode.dark,
+        builder: (context, child) => AppStringsScope(
+          language: controller.language,
+          child: child ?? const SizedBox.shrink(),
+        ),
+        home: MusicHomePage(controller: controller),
+      );
+    },
+  );
+}
+
+class _FakePlaylistStore extends PlaylistStore {
+  _FakePlaylistStore() : super(rootProvider: _unusedRootProvider);
+
+  PlaylistLibrary library = const PlaylistLibrary.empty();
+
+  @override
+  Future<PlaylistLibrary> load({Set<String>? validTrackIds}) async {
+    return _sanitize(library, validTrackIds);
+  }
+
+  @override
+  Future<void> write(
+    PlaylistLibrary library, {
+    Set<String>? validTrackIds,
+  }) async {
+    this.library = _sanitize(library, validTrackIds);
+  }
+
+  PlaylistLibrary _sanitize(PlaylistLibrary library, Set<String>? validIds) {
+    List<PlaylistTrackEntry> filter(List<PlaylistTrackEntry> entries) {
+      final unique = <PlaylistTrackEntry>[];
+      final seen = <String>{};
+      for (final entry in entries) {
+        if (seen.add(entry.trackId) &&
+            (validIds == null || validIds.contains(entry.trackId))) {
+          unique.add(entry);
+        }
+      }
+      return unique;
+    }
+
+    return PlaylistLibrary(
+      favoriteEntries: filter(library.favoriteEntries),
+      playlists: [
+        for (final playlist in library.playlists)
+          playlist.copyWith(entries: filter(playlist.entries)),
+      ],
+    );
+  }
+}
+
+class _FakeMusicResolver implements MusicResolver {
+  _FakeMusicResolver({this.candidates = const []});
+
+  final List<MusicSearchCandidate> candidates;
+  int searchCount = 0;
+  String? lastQuery;
+  MusicDataSource? lastSource;
+
+  @override
+  Future<List<MusicSearchCandidate>> search(
+    String query,
+    MusicDataSource source,
+  ) async {
+    searchCount += 1;
+    lastQuery = query;
+    lastSource = source;
+    return candidates;
+  }
+
+  @override
+  Future<ResolvedMusic> resolve(MusicSearchCandidate candidate) async {
+    return _resolvedMusic();
+  }
+}
+
+class _FakeSettingsStore implements MusicSettingsStore {
+  MusicAppSettings settings = const MusicAppSettings();
+  MusicDataSource? savedSource;
+
+  @override
+  Future<MusicAppSettings> loadSettings() async {
+    return settings;
+  }
+
+  @override
+  Future<void> saveSettings(MusicAppSettings settings) async {
+    savedSource = settings.source;
+    this.settings = settings;
+  }
+
+  @override
+  Future<MusicDataSource> loadSource() async {
+    return settings.source;
+  }
+
+  @override
+  Future<void> saveSource(MusicDataSource source) async {
+    savedSource = source;
+    settings = settings.copyWith(source: MusicDataSource.buguyy);
+  }
+}
+
+class _FakeCacheStore extends CachedTrackStore {
+  _FakeCacheStore({List<CachedTrack> cached = const []}) : cached = [...cached];
+
+  final List<CachedTrack> cached;
+
+  @override
+  Future<CachedTrack> downloadOrReuse(
+    ResolvedMusic result, {
+    void Function(CachedDownloadProgress progress)? onProgress,
+    DownloadCancelToken? cancelToken,
+  }) async {
+    cancelToken?.throwIfCanceled();
+    final track = CachedTrack(
+      cacheId: cacheIdForResolved(result),
+      music: result,
+      filePath: '/tmp/${result.id}.mp3',
+      sizeBytes: 4,
+      fromCache: false,
+    );
+    cached
+      ..removeWhere((item) => item.cacheId == track.cacheId)
+      ..add(track);
+    return track;
+  }
+
+  @override
+  Future<List<CachedTrack>> listCached() async {
+    return List<CachedTrack>.unmodifiable(cached);
+  }
+
+  @override
+  Future<void> cleanupTemporaryFiles() async {}
+
+  @override
+  Future<void> deleteCached(String cacheId) async {
+    cached.removeWhere((track) => track.cacheId == cacheId);
+  }
+}
+
+Future<Directory> _unusedRootProvider() async {
+  return Directory.systemTemp.createTemp('ai_music_unused_');
+}
+
+MusicSearchCandidate _candidate({
+  String id = 'song-1',
+  required String name,
+  required String artist,
+}) {
+  return MusicSearchCandidate(
+    query: artist,
+    source: MusicDataSource.buguyy,
+    platform: 'buguyy',
+    keyword: artist,
+    page: 1,
+    id: id,
+    name: name,
+    artist: artist,
+    album: '',
+    duration: 200,
+    link: '',
+    coverUrl: '',
+    qualities: const [MusicQuality(format: 'mp3')],
+    score: 100,
+    raw: const {},
+  );
+}
+
+ResolvedMusic _resolvedMusic({
+  String id = 'song-1',
+  String name = '稻香',
+  String artist = '周杰伦',
+}) {
+  return ResolvedMusic(
+    query: '周杰伦 稻香',
+    source: MusicDataSource.buguyy,
+    platform: 'buguyy',
+    id: id,
+    name: name,
+    artist: artist,
+    album: '',
+    url: 'https://cdn.example.test/$id.mp3',
+    quality: const MusicQuality(format: 'mp3'),
+  );
+}

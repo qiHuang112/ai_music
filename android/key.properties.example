@@ -1,0 +1,4 @@
+storeFile=/absolute/path/to/ai_music_release.jks
+storePassword=change-me
+keyAlias=ai-music
+keyPassword=change-me
