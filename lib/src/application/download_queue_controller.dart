@@ -162,6 +162,7 @@ class DownloadQueueController {
 }
 
 String _candidateDownloadKey(MusicSearchCandidate candidate) {
+  // 下载任务身份要比“歌手-歌名”更细；同名不同平台/链接/版本不能互相覆盖。
   return [
     candidate.source.name,
     candidate.platform,

@@ -40,6 +40,7 @@ class DownloadUseCase {
       );
     }
     final token = queue.start(taskId, candidate);
+    // 下载流程分两段：先解析直链，再下载/复用缓存。UI 只关心这里吐出的状态。
     onStatus(
       MusicUiMessage(MusicUiMessageCode.resolving, subject: candidate.name),
     );

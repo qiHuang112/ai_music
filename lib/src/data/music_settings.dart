@@ -130,6 +130,7 @@ class MusicSettingsStore {
   }
 
   Future<void> _withWriteLock(Future<void> Function() action) {
+    // 设置页可以连续切语言/主题；写队列保证后一次保存不会被前一次异步落盘覆盖。
     final previous = _writeTail;
     final completer = Completer<void>();
     _writeTail = previous.then((_) => completer.future);
@@ -156,5 +157,6 @@ Future<Object?> _tryDecodeJson(File file, String text) async {
 }
 
 MusicDataSource _singleSupportedSource(String? _) {
+  // 运行时只开放布谷歪歪；旧 auto/flac 配置统一迁移到这个单源。
   return MusicDataSource.buguyy;
 }

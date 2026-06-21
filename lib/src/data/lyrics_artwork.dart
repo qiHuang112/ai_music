@@ -99,6 +99,7 @@ class TrackMetadataRepository {
     if (_isComplete(metadata)) {
       return metadata;
     }
+    // 歌词搜索失败通常是来源短时间内确实无结果；半小时内不重复打网络请求。
     final lyricsMissActive = _hasFreshLyricsMiss(track.cacheId);
     for (final provider in _providers) {
       if (_shouldSkipProvider(
@@ -223,6 +224,7 @@ String _formatLrcTime(Duration value) {
 }
 
 List<TrackMetadataProvider> _defaultProviders(MusicResolverHttp httpClient) {
+  // provider 顺序从“零成本/本地”到“网络兜底”，避免每次进播放页都重新搜歌词。
   return [
     const CandidateArtworkProvider(),
     const ResolvedLyricsProvider(),

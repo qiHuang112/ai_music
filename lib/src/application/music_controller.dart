@@ -21,6 +21,10 @@ import 'music_ui_message.dart';
 import 'playback_use_case.dart';
 import 'settings_controller.dart';
 
+/// UI 层的组合门面。
+///
+/// 搜索、下载、播放、歌单和元数据的核心流程分别下沉到 use case。
+/// 这里保留 ChangeNotifier 状态，是为了让页面只依赖一个稳定入口。
 class MusicController extends ChangeNotifier {
   MusicController({
     required this.audioHandler,
@@ -73,6 +77,7 @@ class MusicController extends ChangeNotifier {
   List<CachedTrack> _cachedRecords = const [];
   PlaylistLibrary _playlistLibrary = const PlaylistLibrary.empty();
   int _metadataRequest = 0;
+  // 搜索框允许“非空换非空”快速输入；request id 用来丢弃晚返回的旧结果。
   int _searchRequest = 0;
   String? _metadataTrackId;
   bool _legacyRepairRunning = false;
@@ -153,6 +158,7 @@ class MusicController extends ChangeNotifier {
   }
 
   Future<void> saveSource(MusicDataSource nextSource) async {
+    // 当前 Android 版收敛为布谷歪歪单源；保留参数是为了兼容旧 UI 和测试接口。
     source = MusicDataSource.buguyy;
     notifyListeners();
     await _saveSettings();
@@ -219,6 +225,7 @@ class MusicController extends ChangeNotifier {
   }
 
   Future<void> downloadCandidate(MusicSearchCandidate candidate) async {
+    // 重复点击同一候选时只提示已有任务，避免清掉当前下载进度和状态。
     if (downloadQueue.hasActiveToken(
       downloadQueue.taskIdForCandidate(candidate),
     )) {
@@ -294,6 +301,7 @@ class MusicController extends ChangeNotifier {
       queueTracks: queueTracks,
     );
     if (loaded) {
+      // 同一首同一队列的重复点击不会重载队列，也不需要重设播放模式。
       await setPlaybackMode(playbackMode);
     }
   }
@@ -524,6 +532,7 @@ class MusicController extends ChangeNotifier {
 
   Future<void> _loadMetadataForTrack(Track track) async {
     _metadataTrackId = track.id;
+    // 切歌时歌词/封面请求可能晚返回；request id 保证只写入当前歌曲的结果。
     final request = ++_metadataRequest;
     final cached = _cachedRecords
         .where((record) => record.cacheId == track.id)

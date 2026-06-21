@@ -38,6 +38,7 @@ class JsonFileStore {
       '${file.path}.tmp-${DateTime.now().microsecondsSinceEpoch}',
     );
     try {
+      // 先写同目录临时文件再 rename，尽量避免进程被杀时留下半截 JSON。
       await temp.writeAsString(jsonEncode(value), flush: true);
       await temp.rename(file.path);
     } catch (_) {

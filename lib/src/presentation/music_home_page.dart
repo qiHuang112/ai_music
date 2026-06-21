@@ -133,6 +133,7 @@ class _MusicHomePageState extends State<MusicHomePage> {
   void _handleSearchChanged(String value) {
     _lastEmptyBackAt = null;
     if (controller.hasSearchState) {
+      // 输入变化立即清空旧结果，避免旧搜索晚返回后把新关键词页面污染。
       controller.clearSearch();
     }
     setState(() {});
@@ -140,6 +141,7 @@ class _MusicHomePageState extends State<MusicHomePage> {
 
   void _handleRootBack(AppStrings strings) {
     if (_searchController.text.trim().isNotEmpty || controller.hasSearchState) {
+      // 首页返回第一步只收起搜索态；用户再次返回才触发退出提示。
       _clearSearchInputAndState();
       return;
     }

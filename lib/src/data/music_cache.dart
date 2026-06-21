@@ -267,6 +267,7 @@ class CachedTrackStore {
     if (!await root.exists()) {
       await root.create(recursive: true);
     }
+    // cacheId 绑定来源、平台、id 和质量，避免同名歌曲/不同版本互相复用。
     final cacheId = cacheIdForResolved(result);
     final target = File(_targetPath(root, result));
     final existing = await _lookup(cacheId);
@@ -323,6 +324,7 @@ class CachedTrackStore {
       '${target.path}.download-${DateTime.now().microsecondsSinceEpoch}.tmp',
     );
     try {
+      // 先写临时文件并完成音频校验，通过后才 rename 和写索引，避免半文件进入缓存。
       final bytes = await _downloader.download(
         Uri.parse(result.url),
         temp,
@@ -591,6 +593,7 @@ class CachedTrackStore {
   }
 
   Future<T> _withIndexLock<T>(Future<T> Function() action) {
+    // 缓存索引是 read-modify-write；串行化避免并发下载完成时互相覆盖索引。
     final previous = _indexTail;
     final completer = Completer<void>();
     _indexTail = previous.then((_) => completer.future);
@@ -650,6 +653,7 @@ DateTime _cachedTrackTime(CachedTrack track) {
 const _minimumAudioBytes = 16 * 1024;
 
 Future<void> _validateAudioFile(File file, ResolvedMusic result) async {
+  // 第三方源可能 200 返回 HTML/JSON/反爬页；写入索引前必须做内容级校验。
   final length = await file.length();
   if (length < _minimumAudioBytes) {
     throw const AudioValidationException('downloaded audio is too small');

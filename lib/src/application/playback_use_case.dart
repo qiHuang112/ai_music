@@ -25,6 +25,7 @@ class PlaybackUseCase {
     final sameTrack =
         currentTrackId == track.id ||
         (currentTrackId == null && _lastRequestedTrackId == track.id);
+    // 去重必须同时看歌曲和队列；同一首在收藏/缓存/歌单里点击，下一首应按当前列表走。
     final sameQueue = _lastQueueSignature == queueSignature;
     if (sameTrack && sameQueue) {
       if (!audioHandler.playbackState.value.playing) {
@@ -99,6 +100,7 @@ class PlaybackUseCase {
     if (currentItemId != null &&
         nextItemId != null &&
         nextItemId != currentItemId) {
+      // just_audio 开启随机时可能切换当前 index；这里把用户正在听的位置拉回去。
       await audioHandler.restoreCurrentItemPosition(
         currentItemId,
         currentPosition,

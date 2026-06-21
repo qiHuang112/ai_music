@@ -257,6 +257,7 @@ class LibraryUseCase {
   }
 
   Future<T> _enqueuePlaylistMutation<T>(Future<T> Function() action) {
+    // 收藏和歌单操作可能被用户快速连点；串行化可以避免 read-modify-write 丢变更。
     final run = _playlistMutationTail.then((_) => action());
     _playlistMutationTail = run.then<void>((_) {}, onError: (_) {});
     return run;

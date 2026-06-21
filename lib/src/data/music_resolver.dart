@@ -85,6 +85,7 @@ class RemoteMusicResolver implements MusicResolver {
       buguyyError = error;
     }
 
+    // auto 沿用旧脚本语义：布谷歪歪为空或失败时才 fallback 到 FLAC。
     try {
       return await _flac.search(query);
     } catch (flacError) {

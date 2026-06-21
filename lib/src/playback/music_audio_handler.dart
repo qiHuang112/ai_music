@@ -51,6 +51,7 @@ class MusicAudioHandler extends BaseAudioHandler
     Duration initialPosition = Duration.zero,
     bool playWhenReady = true,
   }) async {
+    // App 内播放器、通知栏、锁屏和耳机按键都消费 audio_service 队列，不能绕过这里直接播。
     _items = List<PlayableAudio>.unmodifiable(items);
     queue.add(_items.map((item) => item.mediaItem).toList(growable: false));
 
@@ -189,6 +190,7 @@ class MusicAudioHandler extends BaseAudioHandler
     if (current == null || current.duration == duration) {
       return;
     }
+    // just_audio 常在 setAudioSources 之后才拿到时长；这里补发给系统播控和进度条。
     mediaItem.add(current.copyWith(duration: duration));
   }
 

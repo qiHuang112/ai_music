@@ -717,6 +717,7 @@ class _LyricsPanelState extends State<_LyricsPanel> {
 
   void _scheduleFollowResume() {
     final generation = ++_followGeneration;
+    // 手动滚动只浏览歌词和中线时间；短暂空闲后再恢复随播放进度自动跟随。
     Future<void>.delayed(const Duration(seconds: 2), () {
       if (mounted && generation == _followGeneration) {
         setState(() {
@@ -733,6 +734,7 @@ class LyricFollowState {
   double? _lastTargetOffset;
 
   bool shouldFollow(int index, double targetOffset) {
+    // positionStream 更新很密；同一句同一偏移不重复 animate，避免歌词页抖动。
     final sameIndex = _lastIndex == index;
     final sameTarget =
         _lastTargetOffset != null &&
