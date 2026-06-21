@@ -39,6 +39,13 @@ if [[ ! -d ohos ]]; then
   "$OHOS_FLUTTER_BIN" create --platforms ohos --org com.qi --project-name ai_music .
 fi
 
+# Entry/plugin ohpm lockfiles contain machine-local Flutter SDK/pub-cache paths.
+# Keep only the registry-level ohos/oh-package-lock.json5 in Git and regenerate
+# path-based locks during each local build.
+rm -f \
+  "$ROOT_DIR/ohos/entry/oh-package-lock.json5" \
+  "$ROOT_DIR/third_party/just_audio_harmonyos/ohos/oh-package-lock.json5"
+
 "$OHOS_FLUTTER_BIN" pub get
 
 cat > "$ROOT_DIR/ohos/.ohpmrc" <<'EOF'

@@ -34,7 +34,7 @@ export class MainMethodCallHandler implements MethodCallHandler {
     this.messenger = messenger;
   }
 
-  onMethodCall(call: MethodCall, result: MethodResult): void {
+  async onMethodCall(call: MethodCall, result: MethodResult) {
     switch (call.method) {
       case 'init':
         let id: string = call.argument("id");
@@ -51,13 +51,13 @@ export class MainMethodCallHandler implements MethodCallHandler {
         let playerId: string = call.argument("id");
         let player: AudioPlayer | undefined = this.players.get(playerId);
         if (player != null) {
-          player.dispose();
+          await player.dispose();
           this.players.delete(playerId);
         }
         result.success(new Map<String, Object>());
         break;
       case 'disposeAllPlayers':
-        this.dispose();
+        await this.dispose();
         result.success(new Map<String, Object>());
         break;
       default:
@@ -67,10 +67,18 @@ export class MainMethodCallHandler implements MethodCallHandler {
 
   }
 
-  dispose() {
+  async dispose(): Promise<void> {
+    let disposals: Promise<void>[] = [];
     this.players.forEach(player => {
-      player.dispose();
+      disposals.push(player.dispose());
     });
     this.players.clear();
+    for (let index = 0; index < disposals.length; index++) {
+      try {
+        await disposals[index];
+      } catch (error) {
+        console.error('MainMethodCallHandler', `dispose player failed: ${JSON.stringify(error)}`);
+      }
+    }
   }
 }

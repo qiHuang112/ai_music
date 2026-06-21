@@ -2,9 +2,9 @@
 {
   "name": "entry",
   "version": "1.0.0",
-  "description": "Please describe the basic information.",
+  "description": "AI Music HarmonyOS entry module.",
   "main": "",
-  "author": "",
-  "license": "",
+  "author": "QI",
+  "license": "UNLICENSED",
   "dependencies": {},
 }

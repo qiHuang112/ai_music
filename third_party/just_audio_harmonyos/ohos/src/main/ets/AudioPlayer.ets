@@ -361,7 +361,7 @@ export class AudioPlayer implements MethodCallHandler, onChangeMediaAvPlayerStat
     }
   }
 
-  dispose() {
+  async dispose(): Promise<void> {
     if (this.processingState == ProcessingState.loading) {
       this.abortExistingConnection();
     }
@@ -373,7 +373,7 @@ export class AudioPlayer implements MethodCallHandler, onChangeMediaAvPlayerStat
     this.mediaSources.clear();
     this.mediaSource = null;
     if (this.player != null) {
-      this.player.dispose();
+      await this.player.dispose();
       this.player = null;
       this.processingState = ProcessingState.none;
       this.broadcastImmediatePlaybackEvent();

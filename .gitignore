@@ -37,6 +37,9 @@ migrate_working_dir/
 **/.hvigor/
 **/node_modules/
 **/oh_modules/
+
+# These ohpm locks contain local Flutter SDK/pub-cache paths and are regenerated
+# by tool/build_ohos_hap.sh on each machine.
 /ohos/entry/oh-package-lock.json5
 /third_party/**/oh-package-lock.json5
 **/package-lock.json

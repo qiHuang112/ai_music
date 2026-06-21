@@ -29,6 +29,24 @@ export default class JustAudioOhosPlugin implements FlutterPlugin {
   private channel: MethodChannel | null = null;
   private methodCallHandler: MainMethodCallHandler | null = null;
 
+  private async disposePlayers(): Promise<void> {
+    await this.methodCallHandler?.dispose();
+  }
+
+  private async detachHandler(): Promise<void> {
+    const methodCallHandler = this.methodCallHandler;
+    this.methodCallHandler = null;
+    if (this.channel != null) {
+      this.channel.setMethodCallHandler(null);
+      this.channel = null;
+    }
+    await methodCallHandler?.dispose();
+  }
+
+  private logDisposeError(action: string, error: Error): void {
+    console.error("JustAudioOhosPlugin", `${action} failed: ${JSON.stringify(error)}`);
+  }
+
   getUniqueClassName(): string {
     return "JustAudioOhosPlugin"
   }
@@ -43,25 +61,21 @@ export default class JustAudioOhosPlugin implements FlutterPlugin {
     let engine: FlutterEngine = binding.getFlutterEngine();
     engine.addEngineLifecycleListener({
       onPreEngineRestart: () => {
-        this.methodCallHandler?.dispose();
+        this.disposePlayers().catch((error: Error) => {
+          this.logDisposeError('pre-engine restart dispose', error);
+        });
       },
       onEngineWillDestroy: () => {
-        this.methodCallHandler?.dispose();
-        this.methodCallHandler = null;
-        if (this.channel != null) {
-          this.channel.setMethodCallHandler(null);
-          this.channel = null;
-        }
+        this.detachHandler().catch((error: Error) => {
+          this.logDisposeError('engine destroy dispose', error);
+        });
       }
     } as EngineLifecycleListener);
   }
 
   onDetachedFromEngine(binding: FlutterPluginBinding): void {
-    this.methodCallHandler?.dispose();
-    this.methodCallHandler = null;
-    if (this.channel != null) {
-      this.channel.setMethodCallHandler(null)
-      this.channel = null;
-    }
+    this.detachHandler().catch((error: Error) => {
+      this.logDisposeError('detach dispose', error);
+    });
   }
 }

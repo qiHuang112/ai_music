@@ -159,7 +159,7 @@ export class MediaAvPlayer {
     }
   }
 
-  private disposeSession(): void {
+  private async disposeSession(): Promise<void> {
     const session = this.session;
     if (!session) {
       return;
@@ -173,16 +173,31 @@ export class MediaAvPlayer {
     } catch (error) {
       console.error(TAG, `remove av session callbacks failed: ${JSON.stringify(error)}`);
     }
-    session.deactivate()
-      .catch((error: BusinessError) => {
-        console.error(TAG, `deactivate av session failed: ${JSON.stringify(error)}`);
-      })
-      .then(() => {
-        return session.destroy();
-      })
-      .catch((error: BusinessError) => {
-        console.error(TAG, `destroy av session failed: ${JSON.stringify(error)}`);
-      });
+    try {
+      await session.deactivate();
+    } catch (error) {
+      console.error(TAG, `deactivate av session failed: ${JSON.stringify(error)}`);
+    }
+    try {
+      await session.destroy();
+    } catch (error) {
+      console.error(TAG, `destroy av session failed: ${JSON.stringify(error)}`);
+    }
+  }
+
+  private notifyLoadError(errorCode: string, errorMessage: string): void {
+    const error = new Error(errorMessage) as BusinessError<void>;
+    error.name = errorCode;
+    error.code = AVPLAYER_IO_ERROR;
+    this.mediaAvPlayerStateChangeListener?.onErrorCallback(error);
+  }
+
+  private reportLoadUriError(errorCode: string, errorMessage: string, reportError: boolean): boolean {
+    console.error(TAG, errorMessage);
+    if (reportError) {
+      this.notifyLoadError(errorCode, errorMessage);
+    }
+    return false;
   }
 
   /**
@@ -322,12 +337,18 @@ export class MediaAvPlayer {
             }
           }
           if (nextSong) {
-            media.createAVPlayer().then((value: media.AVPlayer) => {
+            media.createAVPlayer().then(async (value: media.AVPlayer) => {
               this.avPlayerNext = value;
               this.setAVPlayerNextCallback();
               let nextUrl = nextSong.getUri();
               if (nextUrl && this.avPlayerNext.state == "idle") {
-                this.loadUri(this.avPlayerNext, nextUrl);
+                const loaded = await this.loadUri(this.avPlayerNext, nextUrl, false);
+                if (!loaded) {
+                  this.offAVPlayerNextCallback();
+                  await this.avPlayerNext?.release();
+                  this.closeDataSrcFd(true);
+                  this.avPlayerNext = null;
+                }
               }
             });
           }
@@ -367,7 +388,10 @@ export class MediaAvPlayer {
           this.songItem = this.songList[this.musicIndex];
           let url = this.songItem?.getUri();
           if (url && this.avPlayer?.state == "idle") {
-            this.loadUri(this.avPlayer, url);
+            const loaded = await this.loadUri(this.avPlayer, url);
+            if (!loaded) {
+              break;
+            }
           }
         }
         this.avMetadata = await this.avMetadataExtractor?.fetchMetadata();
@@ -796,19 +820,44 @@ export class MediaAvPlayer {
         }
         let url = this.songItem?.getUri();
         if (url && this.avPlayer.state == "idle") {
-          this.loadUri(this.avPlayer, url);
+          const loaded = await this.loadUri(this.avPlayer, url);
+          if (!loaded) {
+            return;
+          }
         }
       }
     }
   }
 
-  dispose() {
-    this.disposeSession();
+  private async releaseAvPlayer(avPlayer: media.AVPlayer | null, name: string): Promise<void> {
+    if (!avPlayer) {
+      return;
+    }
+    try {
+      await avPlayer.release();
+    } catch (error) {
+      console.error(TAG, `${name} release failed: ${JSON.stringify(error)}`);
+    }
+  }
+
+  private async releaseMetadataExtractor(): Promise<void> {
+    if (!this.avMetadataExtractor) {
+      return;
+    }
+    try {
+      await this.avMetadataExtractor.release();
+    } catch (error) {
+      console.error(TAG, `metadata extractor release failed: ${JSON.stringify(error)}`);
+    }
+  }
+
+  async dispose(): Promise<void> {
     this.offAVPlayerCallback();
     this.offAVPlayerNextCallback();
-    this.avPlayer?.release();
-    this.avPlayerNext?.release();
-    this.avMetadataExtractor?.release();
+    await this.disposeSession();
+    await this.releaseAvPlayer(this.avPlayer, 'avPlayer');
+    await this.releaseAvPlayer(this.avPlayerNext, 'avPlayerNext');
+    await this.releaseMetadataExtractor();
     this.closeDataSrcFd(false);
     this.closeDataSrcFd(true);
     this.avMetadataExtractor = null;
@@ -880,16 +929,22 @@ export class MediaAvPlayer {
     }
   }
 
-  private async loadUri(avPlayer: media.AVPlayer, uri: string) {
+  private async loadUri(avPlayer: media.AVPlayer, uri: string, reportError: boolean = true): Promise<boolean> {
     const isNextPlayer = avPlayer === this.avPlayerNext;
     if (uri?.startsWith('http')) {
-      this.closeDataSrcFd(isNextPlayer);
-      let headers: Record<string, string> = { "User-Agent": "User-Agent-Value" };
-      if (this.songItem?.getHeader()) {
-        headers = this.songItem?.getHeader() as Record<string, string>
+      try {
+        this.closeDataSrcFd(isNextPlayer);
+        let headers: Record<string, string> = { "User-Agent": "User-Agent-Value" };
+        if (this.songItem?.getHeader()) {
+          headers = this.songItem?.getHeader() as Record<string, string>
+        }
+        let mediaSource: media.MediaSource = media.createMediaSourceWithUrl(uri, headers);
+        avPlayer.setMediaSource(mediaSource, this.playStrategy);
+        return true;
+      } catch (error) {
+        return this.reportLoadUriError('loadHttpDataSrcFailed',
+          `load http data src failed: ${JSON.stringify(error)}`, reportError);
       }
-      let mediaSource: media.MediaSource = media.createMediaSourceWithUrl(uri, headers);
-      avPlayer.setMediaSource(mediaSource, this.playStrategy);
     } else if (uri?.startsWith('file')) {
       if (this.context) {
         const dartFilePrefix = 'file:///';
@@ -927,6 +982,7 @@ export class MediaAvPlayer {
           if (this.avMetadataExtractor) {
             this.avMetadataExtractor.dataSrc = src;
           }
+          return true;
         } catch (error) {
           if (openedFd !== null) {
             try {
@@ -935,9 +991,12 @@ export class MediaAvPlayer {
               console.error(TAG, `close failed data src fd failed: ${JSON.stringify(closeError)}`);
             }
           }
-          console.error(TAG, `load file data src failed: ${JSON.stringify(error)}`);
+          return this.reportLoadUriError('loadFileDataSrcFailed',
+            `load file data src failed: ${JSON.stringify(error)}`, reportError);
         }
       }
+      return this.reportLoadUriError('loadFileDataSrcFailed',
+        'load file data src failed: missing HarmonyOS ability context', reportError);
     } else {
       if (this.context) {
         this.closeDataSrcFd(isNextPlayer);
@@ -952,8 +1011,11 @@ export class MediaAvPlayer {
             this.avMetadataExtractor.fdSrc = avFileDescriptor;
           }
           avPlayer.fdSrc = avFileDescriptor;
+          return true;
         }
       }
+      return this.reportLoadUriError('loadRawDataSrcFailed',
+        'load raw data src failed: missing resource descriptor', reportError);
     }
   }
 
