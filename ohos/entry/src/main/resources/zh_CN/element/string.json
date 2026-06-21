@@ -2,15 +2,15 @@
   "string": [
     {
       "name": "module_desc",
-      "value": "模块描述"
+      "value": "AI Music"
     },
     {
       "name": "EntryAbility_desc",
-      "value": "description"
+      "value": "AI Music"
     },
     {
       "name": "EntryAbility_label",
-      "value": "ai_music"
+      "value": "AI Music"
     }
   ]
 }

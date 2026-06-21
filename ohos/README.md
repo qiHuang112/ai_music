@@ -26,7 +26,7 @@ HarmonyOS 不允许应用在 `/storage/Users/currentUser` 下创建 `.ai_music` 
 /data/storage/el2/base/haps/entry/files/ai_music
 ```
 
-`tool/build_ohos_hap.sh` 会通过 `AI_MUSIC_SUPPORT_DIR` 显式传入该路径；如果没有走脚本，`lib/src/platform/app_storage.dart` 也会在识别到 HarmonyOS 时 fallback 到同一个沙箱目录。
+`tool/build_ohos_hap.sh` 会通过 `AI_MUSIC_SUPPORT_DIR` 显式传入该路径；如果没有走脚本，`lib/src/platform/app_storage.dart` 也会在识别到 HarmonyOS 时直接使用同一个沙箱目录，不再先依赖 `path_provider`。
 
 ## 播放链
 
@@ -35,6 +35,15 @@ HarmonyOS 不允许应用在 `/storage/Users/currentUser` 下创建 `.ai_music` 
 3. `MainMethodCallHandler` 按 Dart player id 管理多个 `AudioPlayer`。
 4. `AudioPlayer` 负责 MethodChannel/EventChannel 协议适配，把 Dart 的 load/play/pause/seek 映射到 `MediaAvPlayer`。
 5. `MediaAvPlayer` 直接持有 HarmonyOS `AVPlayer`、`AVMetadataExtractor`、`AVSession`，并负责本地 file fd、下一首预加载、状态机回调和最终释放。
+
+## 系统播控中心
+
+HarmonyOS 不走 Android 的 `audio_service` 后台通知链路，系统播控中心由 vendored 插件里的 `AVSession` 直接驱动：
+
+- `MediaAvPlayer` 创建并激活 `AVSession`，注册 play/pause/上一首/下一首/seek 系统命令。
+- `AVPlayer` 进入 initialized/prepared/playing/paused/completed/stopped/error/buffering 时，同步 `AVPlaybackState`、当前位置、缓冲位置、播放速度和当前曲目 id。
+- 曲目切换和 metadata 读取完成后，同步 title/artist/duration；没有可靠封面 URI 时不发布 `mediaImage`。
+- dispose、engine restart/detach 时必须注销命令回调并 deactivate/destroy session，避免系统播控中心残留旧状态。
 
 ## 预加载与资源所有权
 

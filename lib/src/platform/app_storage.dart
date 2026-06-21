@@ -13,6 +13,10 @@ Future<Directory> getAiMusicSupportDirectory() async {
     return Directory(override);
   }
 
+  if (isOpenHarmonyPlatform) {
+    return Directory(_ohosSupportDir);
+  }
+
   try {
     return await getApplicationSupportDirectory();
   } catch (_) {
@@ -26,12 +30,6 @@ Future<Directory> getAiMusicSupportSubdirectory(String name) async {
 }
 
 String _fallbackSupportPath() {
-  if (isOpenHarmonyPlatform) {
-    // HarmonyOS denies apps access to /storage/Users/currentUser. When
-    // path_provider is unavailable, stay inside the app EL2 sandbox.
-    return _ohosSupportDir;
-  }
-
   final home = Platform.environment['HOME']?.trim().isNotEmpty == true
       ? Platform.environment['HOME']!.trim()
       : Platform.environment['USERPROFILE']?.trim();

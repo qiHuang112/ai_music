@@ -104,6 +104,7 @@ export class MediaAvPlayer {
   private initialIndex: number = -1;
   private volume: number = -1;
   private speed: number = 1;
+  private playbackRate: number = 1;
   private seekModule: SeekMode = SeekMode.UNKNOWN;
   private playMode: LoopMode = LoopMode.DEFAULT;
   private isFirst: boolean = true;
@@ -146,6 +147,8 @@ export class MediaAvPlayer {
   // next 回调按具体 AVPlayer 绑定，避免延迟事件误操作新的 next player。
   private nextStateCallPlayer: media.AVPlayer | null = null
   private nextStateCall: ((state: string) => Promise<void>) | null = null
+  private lastBufferedPosition: number = 0
+  private lastAVSessionPlaybackStateUpdateTime: number = 0
 
   constructor() {
     const generation = ++this.initGeneration;
@@ -184,6 +187,7 @@ export class MediaAvPlayer {
       session.off('pause', this.pauseCall);
       session.off('playNext', this.playNextCall);
       session.off('playPrevious', this.playPreviousCall);
+      session.off('seek', this.avSessionSeekCall);
     } catch (error) {
       console.error(TAG, `remove ${name} callbacks failed: ${JSON.stringify(error)}`);
     }
@@ -215,6 +219,8 @@ export class MediaAvPlayer {
   private reportLoadUriError(errorCode: string, errorMessage: string, reportError: boolean): boolean {
     console.error(TAG, errorMessage);
     if (reportError) {
+      this.state = AudioPlayerState.ERROR;
+      this.syncAVSessionPlaybackState(avSession.PlaybackState.PLAYBACK_STATE_ERROR);
       this.notifyLoadError(errorCode, errorMessage);
     }
     return false;
@@ -278,6 +284,99 @@ export class MediaAvPlayer {
     return !this.isDisposed && (this.pendingAvPlayerNext === avPlayer || this.avPlayerNext === avPlayer);
   }
 
+  private avSessionStateForCurrentState(): avSession.PlaybackState {
+    switch (this.state) {
+      case AudioPlayerState.INITIALIZED:
+      case AudioPlayerState.LOAD:
+      case AudioPlayerState.PROGRESS_SPEED:
+        return avSession.PlaybackState.PLAYBACK_STATE_PREPARE;
+      case AudioPlayerState.PLAY:
+        return avSession.PlaybackState.PLAYBACK_STATE_PLAY;
+      case AudioPlayerState.PREPARED:
+      case AudioPlayerState.PAUSE:
+        return avSession.PlaybackState.PLAYBACK_STATE_PAUSE;
+      case AudioPlayerState.STOP:
+        return avSession.PlaybackState.PLAYBACK_STATE_STOP;
+      case AudioPlayerState.COMPLETED:
+        return avSession.PlaybackState.PLAYBACK_STATE_COMPLETED;
+      case AudioPlayerState.RELEASED:
+        return avSession.PlaybackState.PLAYBACK_STATE_RELEASED;
+      case AudioPlayerState.ERROR:
+      case AudioPlayerState.UNKNOWN:
+        return avSession.PlaybackState.PLAYBACK_STATE_ERROR;
+      case AudioPlayerState.IDLE:
+      default:
+        return avSession.PlaybackState.PLAYBACK_STATE_INITIAL;
+    }
+  }
+
+  private syncCurrentAVSessionPlaybackState(force: boolean = true): void {
+    this.syncAVSessionPlaybackState(this.avSessionStateForCurrentState(), force);
+  }
+
+  private syncAVSessionPlaybackState(state: avSession.PlaybackState, force: boolean = true,
+    bufferedTime?: number): void {
+    if (!this.session) {
+      return;
+    }
+    const now = new Date().getTime();
+    if (!force && now - this.lastAVSessionPlaybackStateUpdateTime < 1000) {
+      return;
+    }
+    this.lastAVSessionPlaybackStateUpdateTime = now;
+    this.setPlayState({
+      state: state,
+      speed: this.isPlaying ? this.playbackRate : 0,
+      position: {
+        elapsedTime: this.getCurrentTime(),
+        updateTime: now
+      },
+      bufferedTime: bufferedTime ?? this.lastBufferedPosition,
+      activeItemId: this.musicIndex,
+      duration: this.getDuration()
+    });
+  }
+
+  private getAVSessionTitle(): string {
+    const title = this.avMetadata?.title;
+    if (title && title.trim().length > 0) {
+      return title;
+    }
+    const id = this.songItem?.getId();
+    if (id && id.trim().length > 0) {
+      return id;
+    }
+    const uri = this.songItem?.getUri();
+    if (uri && uri.trim().length > 0) {
+      const cleanUri = uri.split('?')[0];
+      const segments = cleanUri.split('/');
+      const lastSegment = segments[segments.length - 1];
+      if (lastSegment && lastSegment.length > 0) {
+        return lastSegment;
+      }
+    }
+    return 'AI Music';
+  }
+
+  private getAVSessionArtist(): string {
+    const artist = this.avMetadata?.artist;
+    if (artist && artist.trim().length > 0) {
+      return artist;
+    }
+    return 'AI Music';
+  }
+
+  private async refreshAVSessionMetadata(): Promise<void> {
+    try {
+      if (this.avMetadataExtractor) {
+        this.avMetadata = await this.avMetadataExtractor.fetchMetadata();
+      }
+    } catch (error) {
+      console.error(TAG, `fetch AV metadata failed: ${JSON.stringify(error)}`);
+    }
+    this.setAVMetadata();
+  }
+
   /**
    * 获取MediaAvPlayer实例
    * */
@@ -310,6 +409,13 @@ export class MediaAvPlayer {
     console.info(TAG, `on playPrevious , do playPrevious task`);
     this.playPrevious();
   };
+  private avSessionSeekCall: (time: number) => void = (time: number) => {
+    console.info(TAG, `on seek , do seek task ${time}`);
+    this.seek(time).catch((error: BusinessError) => {
+      console.error(TAG, `session seek failed, code is ${error.code}, message is ${error.message}`);
+      this.syncAVSessionPlaybackState(avSession.PlaybackState.PLAYBACK_STATE_ERROR);
+    });
+  };
   /**
    * 异常监听
    * */
@@ -319,6 +425,7 @@ export class MediaAvPlayer {
       return;
     }
     console.error(TAG, `Invoke avPlayer failed, code is ${err.code}, message is ${err.message}`);
+    this.syncAVSessionPlaybackState(avSession.PlaybackState.PLAYBACK_STATE_ERROR);
     this.loadAssent(this.musicIndex);
     this.mediaAvPlayerStateChangeListener?.onErrorCallback(err);
   };
@@ -330,21 +437,27 @@ export class MediaAvPlayer {
     console.info(TAG, 'bufferingUpdate called,and infoType value is:' + infoType + ', value is :' + value);
     switch (infoType) {
       case media.BufferingInfoType.CACHED_DURATION:
+        this.lastBufferedPosition = value;
         this.mediaAvPlayerStateChangeListener?.onUpdateBufferedPosition(value);
+        this.syncCurrentAVSessionPlaybackState(false);
         break;
       case media.BufferingInfoType.BUFFERING_START:
         this.mediaAvPlayerStateChangeListener?.onStartBuffering();
+        this.syncAVSessionPlaybackState(avSession.PlaybackState.PLAYBACK_STATE_PREPARE);
         break;
       case media.BufferingInfoType.BUFFERING_PERCENT:
         if (value < 100) {
           this.mediaAvPlayerStateChangeListener?.onStartBuffering();
+          this.syncAVSessionPlaybackState(avSession.PlaybackState.PLAYBACK_STATE_PREPARE, false);
         } else if (this.seekModule != SeekMode.SEEK) {
           this.mediaAvPlayerStateChangeListener?.onEndBuffering();
+          this.syncCurrentAVSessionPlaybackState(false);
         }
         break;
       case media.BufferingInfoType.BUFFERING_END:
         if (this.seekModule != SeekMode.SEEK) {
           this.mediaAvPlayerStateChangeListener?.onEndBuffering();
+          this.syncCurrentAVSessionPlaybackState();
         }
         break;
     }
@@ -372,6 +485,7 @@ export class MediaAvPlayer {
           (this.songItem!.getStartUs() / 1000));
       }
     }
+    this.syncCurrentAVSessionPlaybackState(false);
   };
   /**
    * 进度条拖动回调,拖动松手后不会立刻回调,完成后回调
@@ -383,6 +497,7 @@ export class MediaAvPlayer {
       this.state == AudioPlayerState.PAUSE || this.state == AudioPlayerState.COMPLETED) {
       this.playingState();
     }
+    this.syncCurrentAVSessionPlaybackState();
     console.info(TAG, `AVPlayer seek succeeded, seek time is ${seekDoneTime}`);
   };
   /**
@@ -396,6 +511,7 @@ export class MediaAvPlayer {
       case 'idle':
         console.info(TAG, 'AVPlayer state idle called.');
         this.state = AudioPlayerState.IDLE;
+        this.syncAVSessionPlaybackState(avSession.PlaybackState.PLAYBACK_STATE_INITIAL);
         if (this.avPlayerNext == null && this.pendingAvPlayerNext == null && !this.nextPreloadInFlight) {
           this.offAVPlayerNextCallback();
           this.preMusicIndex = this.musicIndex + 1;
@@ -471,6 +587,7 @@ export class MediaAvPlayer {
       case 'initialized':
         console.info(TAG, 'AVPlayer state initialized called.');
         this.state = AudioPlayerState.INITIALIZED;
+        this.syncAVSessionPlaybackState(avSession.PlaybackState.PLAYBACK_STATE_PREPARE);
         if (this.avPlayer) {
           this.avPlayer.prepare().then(() => {
             console.info(TAG, 'AVPlayer prepare succeeded.');
@@ -483,17 +600,20 @@ export class MediaAvPlayer {
         this.state = AudioPlayerState.PREPARED;
         this.isPrepared = true
         console.info(TAG, 'AVPlayer prepared .');
+        await this.refreshAVSessionMetadata();
         if (this.initialPos != -1 && this.initialIndex != -1 && this.initialIndex == this.musicIndex) {
           this.seek(this.initialPos);
           this.initialPos = -1;
           this.initialIndex = -1;
           this.mediaAvPlayerStateChangeListener?.completeInitial();
           this.mediaAvPlayerStateChangeListener?.onPlaybackStateChanged(PlaybackState.STATE_READY);
+          this.syncAVSessionPlaybackState(avSession.PlaybackState.PLAYBACK_STATE_PAUSE);
           break;
         }
         if (this.isClipping) {
           this.avPlayer?.seek(this.songItem!.getStartUs() / 1000);
           this.mediaAvPlayerStateChangeListener?.onPlaybackStateChanged(PlaybackState.STATE_BUFFERING);
+          this.syncAVSessionPlaybackState(avSession.PlaybackState.PLAYBACK_STATE_PREPARE);
           break;
         }
         if (this.isPreBuffering) {
@@ -512,8 +632,8 @@ export class MediaAvPlayer {
             }
           }
         }
-        this.avMetadata = await this.avMetadataExtractor?.fetchMetadata();
-        this.setAVMetadata();
+        this.syncAVSessionPlaybackState(
+          this.isPlaying ? avSession.PlaybackState.PLAYBACK_STATE_PREPARE : avSession.PlaybackState.PLAYBACK_STATE_PAUSE);
         break;
       case 'playing':
         console.info(TAG, 'AVPlayer state playing called.');
@@ -521,14 +641,18 @@ export class MediaAvPlayer {
         this.isPlaying = true;
         this.state = AudioPlayerState.PLAY;
         this.mediaAvPlayerStateChangeListener?.onEndBuffering();
+        this.syncAVSessionPlaybackState(avSession.PlaybackState.PLAYBACK_STATE_PLAY);
         break;
       case 'paused':
         console.info(TAG, 'AVPlayer state paused called.');
+        this.isPlaying = false;
         this.state = AudioPlayerState.PAUSE;
+        this.syncAVSessionPlaybackState(avSession.PlaybackState.PLAYBACK_STATE_PAUSE);
         break;
       case 'completed':
         console.info(TAG, 'AVPlayer state completed called.');
         this.state = AudioPlayerState.COMPLETED;
+        this.syncAVSessionPlaybackState(avSession.PlaybackState.PLAYBACK_STATE_COMPLETED);
         if ((this.playMode == LoopMode.DEFAULT && this.musicIndex == this.songList.length - 1) ||
           this.songList.length == 0) {
           this.mediaAvPlayerStateChangeListener?.onPlaybackStateChanged(PlaybackState.STATE_ENDED);
@@ -538,14 +662,17 @@ export class MediaAvPlayer {
       case 'stopped':
         console.info(TAG, 'AVPlayer state stopped called.');
         this.state = AudioPlayerState.STOP;
+        this.syncAVSessionPlaybackState(avSession.PlaybackState.PLAYBACK_STATE_STOP);
         break;
       case 'released':
         console.info(TAG, 'AVPlayer state released called.');
         this.state = AudioPlayerState.RELEASED;
+        this.syncAVSessionPlaybackState(avSession.PlaybackState.PLAYBACK_STATE_RELEASED);
         break;
       default:
         console.info(TAG, 'AVPlayer state unknown called.');
         this.state = AudioPlayerState.UNKNOWN;
+        this.syncAVSessionPlaybackState(avSession.PlaybackState.PLAYBACK_STATE_ERROR);
         this.loadAssent(this.musicIndex)
         break;
     }
@@ -600,11 +727,14 @@ export class MediaAvPlayer {
       this.avPlayer?.play().then(() => {
         console.info(TAG, 'AVPlayer play succeeded.');
         this.mediaAvPlayerStateChangeListener?.onPlaybackStateChanged(PlaybackState.STATE_READY);
+        this.syncAVSessionPlaybackState(avSession.PlaybackState.PLAYBACK_STATE_PLAY);
       }, (err: BusinessError) => {
         console.error(TAG, `Invoke play failed, code is ${err.code}, message is ${err.message}`);
+        this.syncAVSessionPlaybackState(avSession.PlaybackState.PLAYBACK_STATE_ERROR);
       });
     } else if (this.avPlayer?.state == 'prepared' || this.avPlayer?.state == 'paused') {
       this.mediaAvPlayerStateChangeListener?.onPlaybackStateChanged(PlaybackState.STATE_READY);
+      this.syncAVSessionPlaybackState(avSession.PlaybackState.PLAYBACK_STATE_PAUSE);
     }
   }
 
@@ -649,6 +779,7 @@ export class MediaAvPlayer {
     this.session.on('pause', this.pauseCall);
     this.session.on('playNext', this.playNextCall);
     this.session.on('playPrevious', this.playPreviousCall);
+    this.session.on('seek', this.avSessionSeekCall);
   }
 
   /**
@@ -721,6 +852,7 @@ export class MediaAvPlayer {
     }
     if (this.session !== undefined) {
       this.setAVMetadata();
+      this.syncCurrentAVSessionPlaybackState();
     }
   }
 
@@ -729,9 +861,8 @@ export class MediaAvPlayer {
     try {
       let metadata: avSession.AVMetadata = {
         assetId: `${id}`,
-        title: this.avMetadata?.title ?? "未知",
-        artist: this.avMetadata?.artist ?? "未知",
-        mediaImage: this.avMetadata?.albumArtist,
+        title: this.getAVSessionTitle(),
+        artist: this.getAVSessionArtist(),
         duration: this.getDuration()
       };
       if (this.session) {
@@ -772,6 +903,7 @@ export class MediaAvPlayer {
   }
 
   public setSpeed(speed: number) {
+    this.playbackRate = speed;
     switch (speed) {
       case 0.5:
       case 0.6:
@@ -801,6 +933,7 @@ export class MediaAvPlayer {
         break;
     }
     this.avPlayer?.setSpeed(this.speed);
+    this.syncCurrentAVSessionPlaybackState();
   }
 
   /**
@@ -858,6 +991,7 @@ export class MediaAvPlayer {
     })
     this.mediaAvPlayerStateChangeListener?.setAudioSessionId(parseInt(session.sessionId))
     this.setListenerForMesFromController();
+    this.syncCurrentAVSessionPlaybackState();
   }
 
   /**
@@ -866,6 +1000,7 @@ export class MediaAvPlayer {
   public async play(result?: MethodResult) {
     this.isPlaying = true;
     if (!this.isPrepared) {
+      this.syncAVSessionPlaybackState(avSession.PlaybackState.PLAYBACK_STATE_PREPARE);
       this.start(0);
     } else if (this.avPlayer) {
       this.avPlayer.play().then(() => {
@@ -875,6 +1010,7 @@ export class MediaAvPlayer {
       }).catch((e: BusinessError) => {
         result?.error(e.code.toString(), e.message, e.data);
         console.error(TAG, "play::error:" + e.message);
+        this.syncAVSessionPlaybackState(avSession.PlaybackState.PLAYBACK_STATE_ERROR);
       })
     }
   }
@@ -892,6 +1028,7 @@ export class MediaAvPlayer {
       }).catch((e: BusinessError) => {
         result?.error(e.code.toString(), e.message, e.data)
         console.error(TAG, "pause::error" + e.message);
+        this.syncAVSessionPlaybackState(avSession.PlaybackState.PLAYBACK_STATE_ERROR);
       });
     }
   }
@@ -944,11 +1081,15 @@ export class MediaAvPlayer {
     if (musicIndex >= this.songList.length) {
       musicIndex = this.songList.length - 1;
       console.error(TAG, `current musicIndex ${musicIndex}`);
+      this.syncAVSessionPlaybackState(avSession.PlaybackState.PLAYBACK_STATE_ERROR);
       return;
     }
+    this.lastBufferedPosition = 0;
     this.mediaAvPlayerStateChangeListener?.onPlaybackStateChanged(PlaybackState.STATE_BUFFERING);
     this.mediaAvPlayerStateChangeListener?.onUpdateBufferedPosition(0);
+    this.syncAVSessionPlaybackState(avSession.PlaybackState.PLAYBACK_STATE_PREPARE, true, 0);
     this.songItem = this.songList[musicIndex];
+    this.avMetadata = undefined;
     this.isClipping = this.songItem.type == "clipping";
     this.updateMusicIndex(musicIndex);
     if (this.avPlayerNext && this.preMusicIndex == musicIndex && !this.isFirst) {
@@ -964,6 +1105,7 @@ export class MediaAvPlayer {
       this.nextDataSrcFd = null;
       this.setAVPlayerCallback();
       this.playMusicIndex = musicIndex;
+      await this.refreshAVSessionMetadata();
       if (promotedPlayer.state == 'prepared') {
         this.playingState();
       } else {
@@ -1030,6 +1172,7 @@ export class MediaAvPlayer {
     this.lifecycleGeneration++;
     this.initGeneration++;
     this.invalidateNextPreload();
+    this.syncAVSessionPlaybackState(avSession.PlaybackState.PLAYBACK_STATE_RELEASED);
     await this.waitForNextPreload();
     this.offAVPlayerCallback();
     this.offAVPlayerNextCallback();
@@ -1080,6 +1223,7 @@ export class MediaAvPlayer {
   public async seek(ms: number, index?: number) {
 
     this.mediaAvPlayerStateChangeListener?.onStartBuffering();
+    this.syncAVSessionPlaybackState(avSession.PlaybackState.PLAYBACK_STATE_PREPARE);
     if (ms == this.avPlayer?.duration) {
       if (this.isRandom) {
         this.playRandom();
@@ -1289,28 +1433,26 @@ export class MediaAvPlayer {
 
   public stop() {
     this.avPlayer?.stop();
+    this.state = AudioPlayerState.STOP;
+    this.syncAVSessionPlaybackState(avSession.PlaybackState.PLAYBACK_STATE_STOP);
   }
 
   private start(seekMs?: number) {
     if (this.avPlayer) {
+      this.syncAVSessionPlaybackState(avSession.PlaybackState.PLAYBACK_STATE_PREPARE);
       this.avPlayer.prepare().then(() => {
       }).catch((error: BusinessError) => {
         console.error(TAG, `start error ${JSON.stringify(error)}`);
         this.state = AudioPlayerState.ERROR;
-        this.updateIsPlay(false);
+        this.syncAVSessionPlaybackState(avSession.PlaybackState.PLAYBACK_STATE_ERROR);
         this.isPrepared = false;
       });
     }
   }
 
   private updateIsPlay(display: boolean) {
-    this.setPlayState({
-      state: display ? avSession.PlaybackState.PLAYBACK_STATE_PLAY : avSession.PlaybackState.PLAYBACK_STATE_PAUSE,
-      position: {
-        elapsedTime: this.getCurrentTime(),
-        updateTime: new Date().getTime()
-      }
-    });
+    this.syncAVSessionPlaybackState(
+      display ? avSession.PlaybackState.PLAYBACK_STATE_PLAY : avSession.PlaybackState.PLAYBACK_STATE_PAUSE);
   }
 
   public getCurrentTime() {
