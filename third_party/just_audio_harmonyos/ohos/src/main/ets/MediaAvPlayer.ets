@@ -140,6 +140,8 @@ export class MediaAvPlayer {
   private nextPreloadGeneration: number = -1
   private nextPreloadTask: Promise<void> | null = null
   private pendingAvPlayerNext: media.AVPlayer | null = null
+  private nextStateCallPlayer: media.AVPlayer | null = null
+  private nextStateCall: ((state: string) => Promise<void>) | null = null
 
   constructor() {
     const generation = ++this.initGeneration;
@@ -264,6 +266,10 @@ export class MediaAvPlayer {
       this.closeDataSrcFd(true);
     }
     await this.releaseAvPlayer(avPlayer, name);
+  }
+
+  private isActiveNextPlayer(avPlayer: media.AVPlayer): boolean {
+    return !this.isDisposed && (this.pendingAvPlayerNext === avPlayer || this.avPlayerNext === avPlayer);
   }
 
   /**
@@ -533,11 +539,8 @@ export class MediaAvPlayer {
         break;
     }
   };
-  /**
-   *订阅录制状态机AVRecorderState切换的事件，当 AVRecorderState状态机发生变化时，会通过订阅的回调方法通知用户。用户只能订阅一个状态机切换事件的回调方法，当用户重复订阅时，以最后一次订阅的回调接口为准
-   * */
-  private preStateCall: (state: string) => Promise<void> = async (state: string) => {
-    if (this.isDisposed) {
+  private async handlePreStateCall(avPlayer: media.AVPlayer, state: string): Promise<void> {
+    if (!this.isActiveNextPlayer(avPlayer)) {
       return;
     }
     switch (state) {
@@ -546,8 +549,7 @@ export class MediaAvPlayer {
         break;
       case 'initialized':
         console.info(TAG, 'avPlayerNext state initialized called.');
-        const nextPlayer = this.pendingAvPlayerNext ?? this.avPlayerNext;
-        nextPlayer?.prepare().then(() => {
+        avPlayer.prepare().then(() => {
           console.info(TAG, 'avPlayerNext AVPlayer prepare succeeded.');
         }, (err: BusinessError) => {
           console.error(TAG, `avPlayerNext Invoke prepare failed, code is ${err.code}, message is ${err.message}`);
@@ -580,7 +582,7 @@ export class MediaAvPlayer {
         console.info(TAG, 'avPlayerNext state unknown called.');
         break;
     }
-  };
+  }
 
   playingState() {
     if (this.isPlaying) {
@@ -596,14 +598,34 @@ export class MediaAvPlayer {
   }
 
   setAVPlayerNextCallback(avPlayer: media.AVPlayer | null = this.avPlayerNext) {
-    avPlayer?.on('stateChange', this.preStateCall);
-    avPlayer?.on('bufferingUpdate', this.bufferingUpdateNext);
+    if (!avPlayer) {
+      return;
+    }
+    if (this.nextStateCallPlayer && this.nextStateCallPlayer !== avPlayer) {
+      this.offAVPlayerNextCallback(this.nextStateCallPlayer);
+    } else {
+      this.offAVPlayerNextCallback(avPlayer);
+    }
+    const stateCall = async (state: string): Promise<void> => {
+      await this.handlePreStateCall(avPlayer, state);
+    };
+    this.nextStateCallPlayer = avPlayer;
+    this.nextStateCall = stateCall;
+    avPlayer.on('stateChange', stateCall);
+    avPlayer.on('bufferingUpdate', this.bufferingUpdateNext);
   }
 
 
-  offAVPlayerNextCallback(avPlayer: media.AVPlayer | null = this.avPlayerNext) {
-    avPlayer?.off('stateChange', this.preStateCall);
-    avPlayer?.off('bufferingUpdate', this.bufferingUpdateNext);
+  offAVPlayerNextCallback(avPlayer: media.AVPlayer | null = this.avPlayerNext ?? this.pendingAvPlayerNext) {
+    if (!avPlayer) {
+      return;
+    }
+    if (this.nextStateCall && this.nextStateCallPlayer === avPlayer) {
+      avPlayer.off('stateChange', this.nextStateCall);
+      this.nextStateCall = null;
+      this.nextStateCallPlayer = null;
+    }
+    avPlayer.off('bufferingUpdate', this.bufferingUpdateNext);
   }
 
 
@@ -918,19 +940,21 @@ export class MediaAvPlayer {
     this.isClipping = this.songItem.type == "clipping";
     this.updateMusicIndex(musicIndex);
     if (this.avPlayerNext && this.preMusicIndex == musicIndex && !this.isFirst) {
+      const promotedPlayer = this.avPlayerNext;
       this.offAVPlayerCallback();
       await this.avPlayer?.release();
       this.closeDataSrcFd(false);
-      this.avPlayer = this.avPlayerNext;
+      this.offAVPlayerNextCallback(promotedPlayer);
+      this.avPlayerNext = null;
+      this.avPlayer = promotedPlayer;
       this.currentDataSrcFd = this.nextDataSrcFd;
       this.nextDataSrcFd = null;
       this.setAVPlayerCallback();
-      if (this.avPlayerNext.state == 'prepared') {
+      if (promotedPlayer.state == 'prepared') {
         this.playingState();
       } else {
         this.isPreBuffering = true;
       }
-      this.avPlayerNext = null;
     } else {
       if (this.avPlayer) {
         if (this.avPlayerNext) {
