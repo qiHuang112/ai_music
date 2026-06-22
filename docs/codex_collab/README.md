@@ -32,15 +32,32 @@
 8. 任何进入提交历史的改动，都要在 `changes.md` 里记录 request、lane、thread 和 review 归属。
 9. 开发和 review 过程中遇到的可复用问题，要沉淀到 `knowledge/` 下对应 lane 的知识小仓库。
 10. 新功能、修复或可交互体验达到“可以让用户试”的状态时，负责人 lane 或架构师必须及时通知 product lane，也就是当前产品会话。
-11. 功能闭环后由负责人 lane 或架构师直接推送远端，不再等产品会话单独确认。
+11. 功能闭环后，owner lane 可以先本地提交，但不得自动推送远端；必须主动同步 product lane，等 product 明确确认后再 push。
+12. 任何 lane 发出 `task`、`review_request`、`review_result`、`status` 询问或等待对方回应后，如果 10 到 15 分钟没有反馈，应主动追问一次，确认对方是否正在工作、是否卡住或是否漏回消息；不要让任务静默卡住。
 
-## 闭环推送规则
+## 版本与推送规则
 
+- 每个 request 必须登记 `Target Version`、`Work Branch`、`Worktree Path`、`Base Branch` 和 `Merge Branch`。
+- 当前冻结版本只允许已登记任务、bugfix 和验收修复进入；新增功能默认进入下一版本。
 - 功能闭环定义：实现完成、必要测试通过、架构师 review accepted、体验包已安装或验证入口已明确、没有 blocker。
-- 满足闭环条件后，owner lane 应直接把对应提交推送到远端；如果 owner lane 没有推送能力或发现分支/远端冲突，架构师负责协调并推动。
-- 推送前必须确认提交范围只包含本 request 的改动，不能混入其它 lane 的脏改、临时构建产物或未验收改动。
-- 推送成功后更新 `changes.md` 和任务单状态，并给 product lane 发送 `status` 或 `demo_ready`，写清楚最终 commit、远端分支和体验状态。
+- 满足闭环条件后，owner lane 可以先本地提交，并把状态标为 `accepted_pending_push`；消息必须写清版本号、request、commit、本地验证、体验入口和等待 product 确认推送。
+- 未经 product lane 明确确认，不得 push commit、release 分支或 tag 到远端。
+- product 确认推送后，由 reviewer/architect 先打版本 tag，基于 tag 构建 Android release 包；release 包成功后再 push release 分支和 tag。
+- 推送前必须确认提交范围只包含本 request 或本次版本账本改动，不能混入其它 lane 的脏改、临时构建产物或未验收改动。
+- 推送成功后更新 `versions.md`、`changes.md` 和任务单状态，并给 product lane 发送 `status` 或 `demo_ready`，写清最终 commit、tag、远端分支、APK 路径和体验状态。
 - 如果推送失败，按 blocker 回报具体原因，例如认证失败、远端有新提交、rebase 冲突或网络不可达。
+
+## 分支与 Worktree 规则
+
+- 主目录 `/Users/huangqi/AIHome/ai_music` 只作为 `main` 稳定主线和产品验收入口，不作为多人日常开发目录。
+- 版本分支使用 `release/x.y.z`，例如 `release/1.0.0`、`release/1.0.1`。
+- 单需求开发分支使用 `feature/x.y.z/AM-YYYYMMDD-NNN-short-name`，并从对应 `release/x.y.z` 创建。
+- 紧急修复分支使用 `hotfix/x.y.z/AM-YYYYMMDD-NNN-short-name`，从对应 tag 或 release 分支创建。
+- 每个 lane 只在分配给自己的 worktree 里开发，不在主目录切分支，不复用其它 lane 的 stash。
+- 每个 feature 分支只服务一个 request，不允许跨 request 混合提交。
+- 架构师负责创建 release 分支/worktree、分配 request worktree、review feature 分支、合入 release 分支和处理跨 lane 冲突。
+- 开发 lane 遇到冲突时先停止开发，向架构师发送 `blocker`，说明冲突文件、目标分支和 request；不得强行覆盖或使用破坏性 git 命令。
+- 详细操作手册见 `docs/codex_collab/worktrees.md`。
 
 ## 体验同步规则
 
@@ -54,9 +71,19 @@
 - 通知 product lane 时要写明：能体验什么、在哪个平台体验、需要执行什么命令或安装什么包、还有哪些已知问题。
 - 不要让用户自己追问“好了没”；功能能试时，负责人 lane 要主动同步。
 
+## 设备分层规则
+
+- 小米 17 Pro 是 product lane / 主管验收设备，不是开发 lane 默认自测设备。
+- 开发 lane 自测默认使用小米 10 Pro 或其它明确分配给开发测试的设备。
+- 未经 product lane 明确许可，开发 lane 不应连接、安装、覆盖或用小米 17 Pro 做坐标点击、媒体控件验证等自测。
+- review `demo_ready` 或 `review_request` 时，架构师要检查设备使用是否合规；自测证据默认应来自开发测试设备，产品验收证据才来自小米 17 Pro。
+- 如果产品明确要求安装到小米 17 Pro，消息里必须写清楚授权来源、安装内容、是否覆盖用户数据和验收入口。
+
 ## Review 分发规则
 
 - 有人提交或准备提交后，owner lane 必须给架构师发送 `review_request`。
+- 架构师发出 review 结论后，必须主动回传给 owner lane；如果当前环境没有线程投递工具，要在当前会话明确输出可转发的 `review_result`，并在后续可投递时补发。
+- 架构师或任一 lane 等待对方处理 review、task、status 或 blocker 时，10 到 15 分钟没有反馈就主动追问一次。追问只确认状态和 blocker，不要重复施压或广播无关 lane。
 - 架构师 review 必须按平台和责任边界拆分结果，只发给实际相关 lane：
   - 公共 Dart 业务、Android、测试、Android 打包问题发给 `android` lane。
   - iOS 宿主、签名、IPA、CocoaPods、Apple 能力问题发给 `ios` lane。

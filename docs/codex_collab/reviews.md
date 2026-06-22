@@ -32,6 +32,19 @@
 | 2026-06-22 | AM-20260622-001 | architect | android | accepted | 右手化排序操作实现通过：普通态“调整顺序”入口位于右侧操作区，编辑态拖拽把手位于歌曲行右侧，完成/保存主操作位于右侧；AM-004/AM-005 的草稿拖拽、完成保存、搜索过滤禁入、返回确认、编辑态隐藏 mini player 和 onReorder 兼容逻辑未回退。 |
 | 2026-06-22 | AM-20260621-005 | architect | android | pushed/accepted | `cefd82c` 自建歌单排序简化已按自动推送规则推送远端；`origin/main` 已确认指向 `cefd82c135bca3280f6ff705cf1eadcfd1e97bda`，提交范围只包含 `music_home_page.dart` 和 `widget_test.dart`。 |
 | 2026-06-22 | AM-20260622-001 | architect | android | pushed/accepted | `8f04d15` 右手化排序操作已按自动推送规则推送远端；提交范围只包含 `music_home_page.dart` 和 `widget_test.dart`。 |
+| 2026-06-22 | AM-20260622-002 | architect | android | changes_requested | 撤回此前 accepted 口径：产品小米 17 Pro 真机验收确认安卓播控收藏和随机短听跳过均未达到验收。后续 review 必须要求 Android 系统媒体控件 compact slot、custom action 回调、收藏状态同步、手动 next 与自动下一首区分、播放器原生 shuffle 覆盖风险的真机证据。 |
+| 2026-06-22 | AM-20260622-003 | architect | android | blocked | 因 AM-20260622-002 真机验收失败，恢复 FLAC 资源源任务暂停推进；android lane 先修复 AM-20260622-002 并复盘单测/review 与真机结果不一致的问题。 |
+| 2026-06-22 | AM-20260622-002 | architect | android | changes_requested | 第二轮复审仍需回改：`MediaAction.rewind` 承载收藏槽位方向可继续验证，但关闭 `just_audio` 内建 shuffle 后，当前代码只让手动 `skipToNext()` 走 Dart planner；自然播放到下一首仍可能按原队列顺序前进，导致随机播放语义退化。 |
+| 2026-06-22 | AM-20260622-002 | architect | android | changes_requested | 第三轮复审仍需回改：自动播完走 `nextAfterCompleted()` 的方向正确，但 `_manualTargetIndex` 在手动 seek/恢复到当前同一 index 时可能因 `currentIndexStream` 不发新 index 而残留，下一次自然播放会被误判成手动跳转并绕过自动随机重定向。 |
+| 2026-06-22 | AM-20260622-002 | architect | android | changes_requested | 第四轮复审代码方向通过但验收证据不足：`PlaybackIndexTracker` 已覆盖手动目标残留边界，收藏槽位 workaround 可继续；accepted 前仍需补多曲开发测试设备证据，证明 shuffle 自然播下一首不顺序化、10 秒内手动 next 短听排除生效、10 秒后手动 next 不排除、自动下一首不触发短听排除。 |
+| 2026-06-22 | AM-20260622-002 | architect | android | changes_requested | 第五轮复审仍需补证据：产品最新槽位口径已满足，系统播控只发布收藏 custom action、播放/暂停、下一首三项，不再发布 Stop；小米 10 Pro 多曲自然播完已证明随机不顺序化。剩余缺口是 10 秒内手动 next 触发短听排除缺少开发设备实测证据。 |
+| 2026-06-22 | AM-20260622-002 | product | android | changes_requested | 产品截图补充后推翻第五轮槽位判断：安卓系统播控中心 P0 必须是 4 个槽位，顺序为收藏/取消收藏、上一首、播放/暂停、下一首；3 controls 或挤掉上一首不符合预期。下一轮必须真机证明 4 槽位可见可点。 |
+| 2026-06-22 | AM-20260622-002 | architect | android | changes_requested | 第六轮复审确认 4 槽位代码和小米 10 Pro 证据通过：完整 controls 为收藏/取消收藏、上一首、播放/暂停、下一首，Stop 不进入系统播控，compact indices 为 `[0,2,3]`。任务未 accepted 的唯一剩余缺口是 10 秒内手动 next 触发短听排除仍缺开发设备实测证据。 |
+| 2026-06-22 | AM-20260622-002 | architect | android | accepted | 第七轮复审通过：小米 10 Pro 已验证系统播控四槽位为收藏/取消收藏、上一首、播放/暂停、下一首，收藏同步生效；多曲自然播完随机不顺序化；App 内下一首按钮 10 秒内连续手动 next 后未立即回到短听跳过歌曲，满足当前随机短听排除验收。 |
+| 2026-06-22 | AM-20260622-002 | product | android | clarification_needed | 产品继续调整安卓播控中心逻辑：点赞/收藏从左侧改到右侧，右侧原点赞位置改成切换播放模式。该口径和当前 accepted 的 4 槽“收藏、上一首、播放/暂停、下一首”冲突；如果同时要求播放模式、上一首、播放/暂停、下一首、收藏，则是 5 个动作，需要先确认 Android/MIUI 系统槽位能力并由 product 决定取舍。 |
+| 2026-06-22 | AM-20260622-002 | android | architect | blocked | android lane 暂停 AM-002/AM-003，回报小米 10 Pro/MIUI 稳定主槽位为 4 个，若同时放播放模式、上一首、播放/暂停、下一首、收藏则需要 5 个动作，必须 product 决定取舍。android 建议保留上一首/播放暂停/下一首/收藏四槽，播放模式放 App 内或扩展入口。另有未提交的收藏导致进度条回跳修复，需随最终槽位方案一起 review。 |
+| 2026-06-22 | AM-20260622-002 | product | android | review | 产品确认播放模式重排暂缓/撤回：Android 系统播控继续使用已验证 4 槽“收藏/取消收藏、上一首、播放/暂停、下一首”。后续 review 不再要求槽位重排，只聚焦收藏点击导致播控进度条跳变修复，以及既有 4 槽位/随机短听逻辑不回退。 |
+| 2026-06-22 | AM-20260622-002 | architect | android | accepted | 第八轮复审通过：`syncControlState()` 同步收藏控件时补齐当前 position、buffer、speed 和 queueIndex，避免只刷新 controls 导致 Android 系统播控进度条按旧 position/新 timestamp 跳变；测试覆盖不触发 loadQueue、restore 或 seek，小米 10 Pro 证据显示收藏/取消收藏后进度自然前进且队列不变。提交范围限 AM-002 三个业务/测试文件。 |
 
 ## 结果值
 

@@ -20,6 +20,8 @@ AM-20260621-001-harmony-media-session.md
 - `review`：实现已完成，等待 review。
 - `changes_requested`：架构师 review 后发现问题，已分发给对应 lane 修复。
 - `accepted`：架构师或指定 reviewer 已验收。
+- `accepted_pending_push`：已验收并可本地提交，但等待 product 确认推送/发布。
+- `pushed`：已按 product 确认推送到远端。
 - `blocked`：需要用户输入或外部状态变化。
 
 ## 模板
@@ -30,6 +32,11 @@ AM-20260621-001-harmony-media-session.md
 Status: proposed
 Owner Lane: android|ios|ohos|architect
 Source Thread: <thread-id>
+Target Version: <x.y.z>
+Base Branch: release/<x.y.z>
+Work Branch: feature/<x.y.z>/AM-YYYYMMDD-NNN-short-title
+Worktree Path: /Users/huangqi/AIHome/worktrees/ai_music/<lane>-AM-YYYYMMDD-NNN
+Merge Branch: release/<x.y.z>
 Created: YYYY-MM-DD
 Updated: YYYY-MM-DD
 
@@ -48,6 +55,12 @@ Updated: YYYY-MM-DD
 
 ## 相关提交
 - <commit-sha> <提交标题>
+
+## 版本与发布
+- Target Version: <x.y.z>
+- Release Tag: <pending|vX.Y.Z|vX.Y.Z-rc.N>
+- Android APK: <pending|build/release/...apk>
+- Push Status: <not_ready|accepted_pending_push|pushed>
 
 ## Review 结果
 - Reviewer Lane: architect|android|ios|ohos|none

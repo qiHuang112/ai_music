@@ -61,3 +61,35 @@
 闭环标准：实现完成、必要测试通过、架构师 review accepted、体验安装或验证入口明确、没有 blocker。
 
 原因：产品不应该承担提交流转提醒职责。推送是工程闭环的一部分，应该由负责 lane 和架构师自动收口，避免功能已经验完但代码长期停在本地。
+
+状态：已被 2026-06-22 的“版本冻结、确认后推送和 release tag”决策替代。后续不再自动推送远端。
+
+## 2026-06-22：版本冻结、确认后推送和 release tag
+
+决策：AI Music 引入版本概念。当前版本冻结后不再新增功能，后续新增功能进入下一版本。功能 review accepted 后可以先本地提交，但远端 push 必须等待 product lane 明确确认。
+
+原因：项目已进入快速迭代期，需要让 product lane 能掌握每个版本新增了多少功能、哪些功能已验收、哪些功能已推送，并避免未确认改动直接进入远端主线。
+
+规则：
+
+- 每个 request 必须记录 `Target Version`。
+- 当前冻结版本只接收已登记任务、bugfix 和验收修复。
+- 新增功能默认进入下一版本。
+- 状态 `accepted_pending_push` 表示已 review accepted 且可本地提交，但仍等待 product 确认远端推送。
+- product 确认后，由 reviewer/architect 在 release 分支打 tag，基于 tag 构建 Android release 包；release 包成功后再 push release 分支和 tag。
+- 当前只发布 Android release 包，使用 `tool/build_android_release.sh`。
+
+## 2026-06-22：多开发并行使用 git worktree
+
+决策：主目录 `/Users/huangqi/AIHome/ai_music` 只作为 `main` 稳定主线和产品验收入口，不再作为多个 lane 共用的日常开发目录。开发 lane 必须在架构师分配的独立 worktree 中开发。
+
+原因：多个 lane 共用一个工作区会互相覆盖未提交改动、stash、分支状态、构建产物和设备安装包。`git worktree` 可以让每个版本和 request 拥有独立目录，降低冲突和误操作风险。
+
+规则：
+
+- 版本分支使用 `release/x.y.z`。
+- 单需求分支使用 `feature/x.y.z/AM-YYYYMMDD-NNN-short-name`。
+- 紧急修复分支使用 `hotfix/x.y.z/AM-YYYYMMDD-NNN-short-name`。
+- 每个 request 必须记录 `Work Branch`、`Worktree Path`、`Base Branch` 和 `Merge Branch`。
+- 架构师负责创建 release worktree、分配 request worktree、review 和合并。
+- 开发 lane 不在主目录切分支，不复用其它 lane 的 stash，不把未 review 代码合入 release。
