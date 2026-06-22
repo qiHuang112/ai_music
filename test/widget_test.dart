@@ -802,6 +802,10 @@ void main() {
     );
     expect(find.byTooltip('排序'), findsNothing);
     expect(find.text('调整顺序'), findsOneWidget);
+    expect(
+      tester.getCenter(find.byKey(const ValueKey('adjust-order-action'))).dx,
+      greaterThan(tester.getCenter(find.text('Road')).dx),
+    );
 
     await tester.pageBack();
     await tester.pumpAndSettle();
@@ -877,6 +881,14 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.byTooltip('拖拽排序'), findsNWidgets(2));
+    expect(
+      tester.getCenter(find.byTooltip('拖拽排序').first).dx,
+      greaterThan(tester.getCenter(find.text('Alpha')).dx),
+    );
+    expect(
+      tester.getCenter(find.byKey(const ValueKey('save-order-action'))).dx,
+      greaterThan(tester.getCenter(find.text('调整顺序')).dx),
+    );
     expect(find.byTooltip('添加到歌单'), findsNothing);
   });
 

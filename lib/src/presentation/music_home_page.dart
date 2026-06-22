@@ -854,6 +854,7 @@ class _PlaylistDetailPageState extends State<_PlaylistDetailPage> {
                     actions: [
                       if (canAdjustOrder)
                         TextButton.icon(
+                          key: const ValueKey('adjust-order-action'),
                           onPressed: hasActiveFilter
                               ? () => _showClearSearchToAdjustOrder(context)
                               : () => _startReorderEditing(sortedTracks),
@@ -983,6 +984,7 @@ class _PlaylistDetailPageState extends State<_PlaylistDetailPage> {
       title: Text(strings.adjustOrder),
       actions: [
         TextButton.icon(
+          key: const ValueKey('save-order-action'),
           onPressed: () => _saveReorderDraft(list, exitAfterSave: true),
           icon: const Icon(Icons.check),
           label: Text(strings.finishOrderEdit),
@@ -1499,7 +1501,7 @@ class _TrackTile extends StatelessWidget {
             vertical: 6,
           ),
           leading: isReorderEditing
-              ? dragHandle
+              ? const Icon(Icons.music_note_outlined)
               : isSelecting
               ? Checkbox(
                   value: selected,
@@ -1528,14 +1530,11 @@ class _TrackTile extends StatelessWidget {
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
           ),
-          trailing: isSelecting || isReorderEditing
+          trailing: isReorderEditing
+              ? dragHandle
+              : isSelecting
               ? null
-              : _TrackActions(
-                  controller: controller,
-                  list: list,
-                  track: track,
-                  dragHandle: dragHandle,
-                ),
+              : _TrackActions(controller: controller, list: list, track: track),
           onTap: isReorderEditing
               ? null
               : isSelecting
@@ -1557,13 +1556,11 @@ class _TrackActions extends StatelessWidget {
     required this.controller,
     required this.list,
     required this.track,
-    this.dragHandle,
   });
 
   final MusicController controller;
   final _ResolvedLibraryList list;
   final Track track;
-  final Widget? dragHandle;
 
   @override
   Widget build(BuildContext context) {
@@ -1606,7 +1603,6 @@ class _TrackActions extends StatelessWidget {
             ];
           },
         ),
-        ?dragHandle,
       ],
     );
   }
