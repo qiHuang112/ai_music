@@ -57,6 +57,7 @@ class MusicController extends ChangeNotifier {
     audioHandler.onOhosLoopModeRequested = _handleOhosLoopModeRequested;
     audioHandler.onOhosToggleFavoriteRequested =
         _handleOhosToggleFavoriteRequested;
+    audioHandler.onToggleFavoriteRequested = _handleToggleFavoriteRequested;
     _mediaItemSubscription = audioHandler.mediaItem.listen(
       _handleMediaItemChanged,
     );
@@ -719,6 +720,10 @@ class MusicController extends ChangeNotifier {
   }
 
   Future<void> _handleOhosToggleFavoriteRequested(String mediaId) async {
+    return _handleToggleFavoriteRequested(mediaId);
+  }
+
+  Future<void> _handleToggleFavoriteRequested(String mediaId) async {
     final track = currentTrack;
     if (track == null) {
       return;
@@ -731,7 +736,7 @@ class MusicController extends ChangeNotifier {
 
   Future<void> _syncOhosControlState() async {
     final track = currentTrack;
-    await audioHandler.syncOhosControlState(
+    await audioHandler.syncControlState(
       isFavorite: track != null && isFavorite(track),
     );
   }
@@ -740,6 +745,7 @@ class MusicController extends ChangeNotifier {
   void dispose() {
     audioHandler.onOhosLoopModeRequested = null;
     audioHandler.onOhosToggleFavoriteRequested = null;
+    audioHandler.onToggleFavoriteRequested = null;
     unawaited(_mediaItemSubscription.cancel());
     super.dispose();
   }

@@ -84,6 +84,49 @@ void main() {
     }
   });
 
+  test(
+    'system favorite action toggles the active track favorite state',
+    () async {
+      final handler = _SpyAudioHandler();
+      final cached = _cachedTrack(id: 'song-1', name: '第一首');
+      final playlistStore = _MemoryPlaylistStore();
+      final controller = MusicController(
+        audioHandler: handler,
+        resolver: _FakeMusicResolver(),
+        cacheStore: _FakeCacheStore(cached: [cached]),
+        playlistStore: playlistStore,
+        settingsStore: _FakeSettingsStore(),
+        metadataRepository: _StaticMetadataRepository(),
+      );
+
+      try {
+        await controller.initialize();
+        final track = trackFromCached(cached);
+        handler.emit(mediaItemFromTrack(track));
+        await Future<void>.delayed(Duration.zero);
+
+        expect(controller.isFavorite(track), isFalse);
+
+        await handler.customAction(MusicAudioHandler.toggleFavoriteAction, {
+          'mediaId': track.id,
+        });
+
+        expect(controller.isFavorite(track), isTrue);
+        expect(playlistStore.library.favoriteTrackIds, [track.id]);
+
+        await handler.customAction(MusicAudioHandler.toggleFavoriteAction, {
+          'mediaId': 'other-song',
+        });
+
+        expect(controller.isFavorite(track), isTrue);
+        expect(playlistStore.library.favoriteTrackIds, [track.id]);
+      } finally {
+        controller.dispose();
+        await handler.dispose();
+      }
+    },
+  );
+
   test('changing playback mode keeps current song and position', () async {
     final handler = _SpyAudioHandler();
     final cached = _cachedTrack(id: 'song-1', name: '第一首');
