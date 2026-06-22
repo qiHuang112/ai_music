@@ -56,4 +56,66 @@ void main() {
       await handler.dispose();
     }
   });
+
+  test('favorite control sync keeps the current playback position', () async {
+    final handler = _PositionedAudioHandler(
+      position: const Duration(seconds: 42),
+      bufferedPosition: const Duration(seconds: 60),
+      speed: 1.25,
+      queueIndex: 2,
+    );
+    try {
+      await Future<void>.delayed(Duration.zero);
+      handler.playbackState.add(
+        PlaybackState(
+          processingState: AudioProcessingState.ready,
+          playing: true,
+          updatePosition: const Duration(seconds: 5),
+          bufferedPosition: const Duration(seconds: 10),
+          speed: 1,
+          queueIndex: 0,
+        ),
+      );
+
+      await handler.syncControlState(isFavorite: true);
+
+      final state = handler.playbackState.value;
+      expect(state.updatePosition, const Duration(seconds: 42));
+      expect(state.bufferedPosition, const Duration(seconds: 60));
+      expect(state.speed, 1.25);
+      expect(state.queueIndex, 2);
+      expect(
+        state.controls[0].androidIcon,
+        'drawable/ic_notification_favorite',
+      );
+    } finally {
+      await handler.dispose();
+    }
+  });
+}
+
+class _PositionedAudioHandler extends MusicAudioHandler {
+  _PositionedAudioHandler({
+    required this.position,
+    required this.bufferedPosition,
+    required this.speed,
+    required this.queueIndex,
+  });
+
+  final Duration position;
+  final Duration bufferedPosition;
+  final double speed;
+  final int? queueIndex;
+
+  @override
+  Duration get currentPosition => position;
+
+  @override
+  Duration get currentBufferedPosition => bufferedPosition;
+
+  @override
+  double get currentSpeed => speed;
+
+  @override
+  int? get currentQueueIndex => queueIndex;
 }

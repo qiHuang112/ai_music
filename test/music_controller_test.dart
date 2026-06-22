@@ -103,6 +103,20 @@ void main() {
         await controller.initialize();
         final track = trackFromCached(cached);
         handler.emit(mediaItemFromTrack(track));
+        handler
+          ..currentPositionOverride = const Duration(seconds: 37)
+          ..currentBufferedPositionOverride = const Duration(seconds: 60)
+          ..currentQueueIndexOverride = 0
+          ..loadedIds = const [];
+        handler.playbackState.add(
+          PlaybackState(
+            processingState: AudioProcessingState.ready,
+            playing: true,
+            updatePosition: const Duration(seconds: 5),
+            bufferedPosition: const Duration(seconds: 10),
+            queueIndex: 0,
+          ),
+        );
         await Future<void>.delayed(Duration.zero);
 
         expect(controller.isFavorite(track), isFalse);
@@ -111,6 +125,18 @@ void main() {
 
         expect(controller.isFavorite(track), isTrue);
         expect(playlistStore.library.favoriteTrackIds, [track.id]);
+        expect(handler.loadedIds, isEmpty);
+        expect(handler.restoredMediaId, isNull);
+        expect(handler.restoredPosition, isNull);
+        expect(
+          handler.playbackState.value.updatePosition,
+          const Duration(seconds: 37),
+        );
+        expect(
+          handler.playbackState.value.bufferedPosition,
+          const Duration(seconds: 60),
+        );
+        expect(handler.playbackState.value.queueIndex, 0);
 
         await handler.customAction(MusicAudioHandler.toggleFavoriteAction, {
           'mediaId': 'other-song',
@@ -797,6 +823,8 @@ class _SpyAudioHandler extends MusicAudioHandler {
   AudioServiceShuffleMode? shuffleMode;
   AudioServiceRepeatMode? repeatMode;
   Duration currentPositionOverride = Duration.zero;
+  Duration currentBufferedPositionOverride = Duration.zero;
+  int? currentQueueIndexOverride;
   Duration? loadedInitialPosition;
   String? restoredMediaId;
   Duration? restoredPosition;
@@ -804,6 +832,12 @@ class _SpyAudioHandler extends MusicAudioHandler {
 
   @override
   Duration get currentPosition => currentPositionOverride;
+
+  @override
+  Duration get currentBufferedPosition => currentBufferedPositionOverride;
+
+  @override
+  int? get currentQueueIndex => currentQueueIndexOverride;
 
   @override
   Future<void> loadQueue(

@@ -60,6 +60,9 @@ class MusicAudioHandler extends BaseAudioHandler
   bool _isCurrentFavorite = false;
 
   Duration get currentPosition => _player.position;
+  Duration get currentBufferedPosition => _player.bufferedPosition;
+  double get currentSpeed => _player.speed;
+  int? get currentQueueIndex => _player.currentIndex;
   Stream<Duration> get positionStream => _player.positionStream;
 
   Future<void> configure() async {
@@ -242,6 +245,10 @@ class MusicAudioHandler extends BaseAudioHandler
       playbackState.value.copyWith(
         controls: _mediaControls(),
         androidCompactActionIndices: _androidCompactActionIndices,
+        updatePosition: currentPosition,
+        bufferedPosition: currentBufferedPosition,
+        speed: currentSpeed,
+        queueIndex: currentQueueIndex,
       ),
     );
     return _syncOhosControlState(
