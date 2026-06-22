@@ -5,35 +5,39 @@ import 'package:flutter_test/flutter_test.dart';
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
-  test('android compact controls use favorite, play pause, and next', () async {
-    final handler = MusicAudioHandler();
-    try {
-      await handler.syncControlState(isFavorite: false);
+  test(
+    'android controls use favorite, previous, play pause, and next',
+    () async {
+      final handler = MusicAudioHandler();
+      try {
+        await handler.syncControlState(isFavorite: false);
 
-      var state = handler.playbackState.value;
-      expect(state.androidCompactActionIndices, const [0, 1, 3]);
-      expect(state.controls[0].action, MediaAction.custom);
-      expect(
-        state.controls[0].customAction?.name,
-        MusicAudioHandler.toggleFavoriteAction,
-      );
-      expect(
-        state.controls[0].androidIcon,
-        'drawable/ic_notification_favorite_border',
-      );
-      expect(state.controls[1], MediaControl.play);
-      expect(state.controls[3], MediaControl.skipToNext);
+        var state = handler.playbackState.value;
+        expect(state.androidCompactActionIndices, const [0, 2, 3]);
+        expect(state.controls[0].action, MediaAction.custom);
+        expect(
+          state.controls[0].customAction?.name,
+          MusicAudioHandler.toggleFavoriteAction,
+        );
+        expect(
+          state.controls[0].androidIcon,
+          'drawable/ic_notification_favorite_border',
+        );
+        expect(state.controls[1], MediaControl.skipToPrevious);
+        expect(state.controls[2], MediaControl.play);
+        expect(state.controls[3], MediaControl.skipToNext);
 
-      await handler.syncControlState(isFavorite: true);
-      state = handler.playbackState.value;
-      expect(
-        state.controls[0].androidIcon,
-        'drawable/ic_notification_favorite',
-      );
-    } finally {
-      await handler.dispose();
-    }
-  });
+        await handler.syncControlState(isFavorite: true);
+        state = handler.playbackState.value;
+        expect(
+          state.controls[0].androidIcon,
+          'drawable/ic_notification_favorite',
+        );
+      } finally {
+        await handler.dispose();
+      }
+    },
+  );
 
   test('favorite custom action reports the active media id', () async {
     final handler = MusicAudioHandler();

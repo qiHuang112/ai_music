@@ -6,6 +6,7 @@ import 'package:flutter/services.dart';
 import 'package:just_audio/just_audio.dart';
 
 import '../platform/platform_detection.dart';
+import 'playback_index_tracker.dart';
 import 'shuffle_skip_planner.dart';
 
 class PlayableAudio {
@@ -28,7 +29,7 @@ class MusicAudioHandler extends BaseAudioHandler
       playbackState.add(_transformEvent(event));
     });
     _currentIndexSubscription = _player.currentIndexStream.listen(
-      _publishCurrentItem,
+      _handleCurrentIndexChanged,
     );
     _durationSubscription = _player.durationStream.listen(_publishDuration);
     _processingStateSubscription = _player.processingStateStream.listen((
@@ -54,6 +55,7 @@ class MusicAudioHandler extends BaseAudioHandler
   late final StreamSubscription<ProcessingState> _processingStateSubscription;
   List<PlayableAudio> _items = const [];
   final ShuffleSkipPlanner _shuffleSkipPlanner;
+  final PlaybackIndexTracker _indexTracker = PlaybackIndexTracker();
   bool _shuffleModeEnabled = false;
   bool _isCurrentFavorite = false;
 
@@ -73,6 +75,7 @@ class MusicAudioHandler extends BaseAudioHandler
   }) async {
     // App 内播放器、通知栏、锁屏和耳机按键都消费 audio_service 队列，不能绕过这里直接播。
     _items = List<PlayableAudio>.unmodifiable(items);
+    _indexTracker.reset();
     _shuffleSkipPlanner.reset(_items.map((item) => item.mediaItem.id).toList());
     queue.add(_items.map((item) => item.mediaItem).toList(growable: false));
 
@@ -126,6 +129,10 @@ class MusicAudioHandler extends BaseAudioHandler
     if (index == -1) {
       return;
     }
+    _indexTracker.markManualTarget(
+      currentIndex: _player.currentIndex,
+      targetIndex: index,
+    );
     await _player.seek(position, index: index);
     _publishCurrentItem(index);
   }
@@ -144,6 +151,10 @@ class MusicAudioHandler extends BaseAudioHandler
     if (index < 0 || index >= _items.length) {
       return;
     }
+    _indexTracker.markManualTarget(
+      currentIndex: _player.currentIndex,
+      targetIndex: index,
+    );
     await _player.seek(Duration.zero, index: index);
   }
 
@@ -161,16 +172,36 @@ class MusicAudioHandler extends BaseAudioHandler
           ? -1
           : _items.indexWhere((item) => item.mediaItem.id == nextId);
       if (nextIndex != -1) {
+        _indexTracker.markManualTarget(
+          currentIndex: _player.currentIndex,
+          targetIndex: nextIndex,
+        );
         await _player.seek(Duration.zero, index: nextIndex);
         _publishCurrentItem(nextIndex);
         return;
       }
     }
+    final nextIndex = _nextSequentialIndex();
+    if (nextIndex != null) {
+      _indexTracker.markManualTarget(
+        currentIndex: _player.currentIndex,
+        targetIndex: nextIndex,
+      );
+    }
     await _player.seekToNext();
   }
 
   @override
-  Future<void> skipToPrevious() => _player.seekToPrevious();
+  Future<void> skipToPrevious() {
+    final previousIndex = _previousSequentialIndex();
+    if (previousIndex != null) {
+      _indexTracker.markManualTarget(
+        currentIndex: _player.currentIndex,
+        targetIndex: previousIndex,
+      );
+    }
+    return _player.seekToPrevious();
+  }
 
   @override
   Future<void> setRepeatMode(AudioServiceRepeatMode repeatMode) async {
@@ -196,10 +227,9 @@ class MusicAudioHandler extends BaseAudioHandler
         _items.map((item) => item.mediaItem.id).toList(),
       );
     }
-    if (enabled) {
-      await _player.shuffle();
-    }
-    await _player.setShuffleModeEnabled(enabled);
+    // 手动下一首需要走 Dart 层的稳定随机顺序和短听排除策略；
+    // 不启用 just_audio 内建 shuffle，避免真机下一首被播放器内部顺序接管。
+    await _player.setShuffleModeEnabled(false);
     playbackState.add(playbackState.value.copyWith(shuffleMode: shuffleMode));
     unawaited(_syncOhosControlState(shuffleMode: shuffleMode));
   }
@@ -263,12 +293,67 @@ class MusicAudioHandler extends BaseAudioHandler
     await _player.dispose();
   }
 
-  void _publishCurrentItem(int? index) {
+  void _handleCurrentIndexChanged(int? index) {
     if (index == null || index < 0 || index >= _items.length) {
+      _indexTracker.markPublished(null);
       mediaItem.add(null);
       unawaited(_syncOhosMediaItem(null));
       return;
     }
+    final action = _indexTracker.handleIndexChanged(
+      index,
+      shuffleModeEnabled: _shuffleModeEnabled,
+      itemCount: _items.length,
+    );
+    switch (action) {
+      case PlaybackIndexChangeAction.ignore:
+        return;
+      case PlaybackIndexChangeAction.redirectAutomaticShuffle:
+        _redirectAutomaticShuffleAdvance(index);
+        return;
+      case PlaybackIndexChangeAction.publish:
+        _publishCurrentItem(index);
+    }
+  }
+
+  void _redirectAutomaticShuffleAdvance(int fallbackIndex) {
+    final previousIndex = _indexTracker.lastIndex;
+    if (previousIndex == null ||
+        previousIndex < 0 ||
+        previousIndex >= _items.length) {
+      _publishCurrentItem(fallbackIndex);
+      return;
+    }
+    final nextId = _shuffleSkipPlanner.nextAfterCompleted(
+      _items[previousIndex].mediaItem.id,
+    );
+    final shuffleIndex = nextId == null
+        ? -1
+        : _items.indexWhere((item) => item.mediaItem.id == nextId);
+    if (shuffleIndex == -1 || shuffleIndex == fallbackIndex) {
+      _publishCurrentItem(fallbackIndex);
+      return;
+    }
+    _indexTracker.markPendingShuffleRedirect(shuffleIndex);
+    unawaited(_seekToShuffleRedirect(shuffleIndex, fallbackIndex));
+  }
+
+  Future<void> _seekToShuffleRedirect(
+    int shuffleIndex,
+    int fallbackIndex,
+  ) async {
+    try {
+      await _player.seek(Duration.zero, index: shuffleIndex);
+    } catch (_) {
+      if (_indexTracker.pendingShuffleRedirectIndex == shuffleIndex) {
+        _indexTracker.pendingShuffleRedirectIndex = null;
+        _publishCurrentItem(fallbackIndex);
+      }
+    }
+  }
+
+  void _publishCurrentItem(int index) {
+    _indexTracker.markPublished(index);
     final item = _withKnownDuration(_items[index].mediaItem);
     mediaItem.add(item);
     unawaited(_syncOhosMediaItem(item));
@@ -433,7 +518,7 @@ class MusicAudioHandler extends BaseAudioHandler
     );
   }
 
-  static const List<int> _androidCompactActionIndices = [0, 1, 3];
+  static const List<int> _androidCompactActionIndices = [0, 2, 3];
 
   List<MediaControl> _mediaControls() {
     return [
@@ -445,9 +530,31 @@ class MusicAudioHandler extends BaseAudioHandler
         name: toggleFavoriteAction,
         extras: {'mediaId': mediaItem.value?.id ?? ''},
       ),
+      MediaControl.skipToPrevious,
       if (_player.playing) MediaControl.pause else MediaControl.play,
-      MediaControl.stop,
       MediaControl.skipToNext,
     ];
+  }
+
+  int? _nextSequentialIndex() {
+    final index = _player.currentIndex;
+    if (index == null || _items.isEmpty) {
+      return null;
+    }
+    if (index + 1 < _items.length) {
+      return index + 1;
+    }
+    return _player.loopMode == LoopMode.all ? 0 : null;
+  }
+
+  int? _previousSequentialIndex() {
+    final index = _player.currentIndex;
+    if (index == null || _items.isEmpty) {
+      return null;
+    }
+    if (index > 0) {
+      return index - 1;
+    }
+    return _player.loopMode == LoopMode.all ? _items.length - 1 : index;
   }
 }

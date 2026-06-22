@@ -107,9 +107,7 @@ void main() {
 
         expect(controller.isFavorite(track), isFalse);
 
-        await handler.customAction(MusicAudioHandler.toggleFavoriteAction, {
-          'mediaId': track.id,
-        });
+        await handler.customAction(MusicAudioHandler.toggleFavoriteAction);
 
         expect(controller.isFavorite(track), isTrue);
         expect(playlistStore.library.favoriteTrackIds, [track.id]);

@@ -33,10 +33,18 @@ class ShuffleSkipPlanner {
   }
 
   String? nextAfter(String currentId, {required Duration position}) {
+    return _nextAfter(currentId, markEarlySkip: position < earlySkipThreshold);
+  }
+
+  String? nextAfterCompleted(String currentId) {
+    return _nextAfter(currentId, markEarlySkip: false);
+  }
+
+  String? _nextAfter(String currentId, {required bool markEarlySkip}) {
     if (_order.length <= 1 || !_order.contains(currentId)) {
       return null;
     }
-    if (position < earlySkipThreshold) {
+    if (markEarlySkip) {
       _earlySkippedIds.add(currentId);
     }
     if (_earlySkippedIds.length >= _order.length) {

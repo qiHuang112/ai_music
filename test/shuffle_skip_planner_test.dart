@@ -41,4 +41,14 @@ void main() {
     expect(planner.earlySkippedIds, isEmpty);
     expect(planner.order, order);
   });
+
+  test('completed track keeps random order without marking an early skip', () {
+    final planner = ShuffleSkipPlanner(seed: 13)
+      ..reset(const ['alpha', 'beta', 'gamma']);
+    final order = planner.order;
+
+    expect(planner.nextAfterCompleted(order[0]), order[1]);
+    expect(planner.earlySkippedIds, isEmpty);
+    expect(planner.order, order);
+  });
 }
