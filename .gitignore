@@ -35,6 +35,7 @@ migrate_working_dir/
 /android/build/
 **/build/
 **/.hvigor/
+**/.ohpm/
 **/node_modules/
 **/oh_modules/
 

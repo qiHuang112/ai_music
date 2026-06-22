@@ -90,6 +90,10 @@ export default class MediaSource implements media.MediaSource {
     return this.id;
   }
 
+  getID(): string {
+    return this.getId();
+  }
+
   setUri(uri: string): MediaSource {
     this.uri = uri;
     return this;
