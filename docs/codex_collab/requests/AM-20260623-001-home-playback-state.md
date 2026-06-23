@@ -4,7 +4,7 @@
 - Owner lane: ohos
 - Architect lane: architect
 - Product lane: product
-- Status: accepted
+- Status: review
 - Target Version: 1.0.1
 - Base Branch: release/1.0.1
 - Work Branch: feature/1.0.1/AM-20260623-001-home-default-ohos
@@ -97,3 +97,7 @@
 2026-06-23 架构师 review accepted。提交 `9d38b5a9836b7d55b7f9bc4f5342272393a3e737` 范围符合分配边界，只改 `lib/src/presentation/app_localizations.dart`、`lib/src/presentation/music_home_page.dart`、`test/widget_test.dart` 和协同账本；未触碰 `MusicController`、`PlaybackUseCase`、`music_audio_handler`、FLAC/搜索解析、metadata 或平台宿主代码。首页默认展示收藏和自建歌单入口/摘要、搜索态隐藏默认首页、清空搜索恢复默认首页均有 widget 测试覆盖。架构师复跑 `/Users/huangqi/AIHome/tools/flutter/bin/flutter test test/widget_test.dart --no-pub` 和 `/Users/huangqi/AIHome/tools/flutter/bin/flutter analyze --no-pub` 通过。
 
 本轮接受“点击首页卡片进入现有详情页”的保守实现，不要求直接播放整列表，因为直接播放会触碰播放队列链路，可能与 AM-20260622-003 的公共播放修正冲突。若产品后续坚持首页卡片一键播放，应单独拆小任务，在 AM-20260622-003 收口后由架构师评估冲突。
+
+2026-06-23 产品补充小回改后，状态从 accepted 改回 changes_requested。默认首页已有“我的音乐”、收藏和自建歌单入口后，搜索框下方原来的旧空态提示块需要移除，包括图标、“搜索音乐”和“输入歌手或歌曲名，下载后会保存在本机缓存里。”默认态只保留收藏/歌单相关内容。修复时仍只改展示层和 widget 测试，不触碰播放、搜索、metadata、FLAC 或平台宿主；搜索输入态和搜索结果态不能回退。
+
+2026-06-23 ohos lane 已完成该小回改：未搜索默认首页不再渲染 `_SearchEmptyPrompt`，只保留“我的音乐”、收藏和自建歌单入口/摘要；`_SearchEmptyPrompt` 仍保留给非默认的输入未搜索状态，避免扩大搜索交互变更。widget 测试已补充默认首页、清空搜索恢复首页时不再出现“搜索音乐”和旧说明文案。

@@ -465,10 +465,8 @@ class _SearchBody extends StatelessWidget {
       return const _SearchEmptyPrompt();
     }
     return ListView(
-      padding: const EdgeInsets.fromLTRB(16, 18, 16, 112),
+      padding: const EdgeInsets.fromLTRB(16, 16, 16, 112),
       children: [
-        const _SearchEmptyPrompt(compact: true),
-        const SizedBox(height: 22),
         _HomeLibrarySection(
           controller: controller,
           onOpenLibrary: onOpenLibrary,
@@ -479,24 +477,18 @@ class _SearchBody extends StatelessWidget {
 }
 
 class _SearchEmptyPrompt extends StatelessWidget {
-  const _SearchEmptyPrompt({this.compact = false});
-
-  final bool compact;
+  const _SearchEmptyPrompt();
 
   @override
   Widget build(BuildContext context) {
     final colors = Theme.of(context).colorScheme;
     final child = Padding(
-      padding: EdgeInsets.all(compact ? 10 : 28),
+      padding: const EdgeInsets.all(28),
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(
-            Icons.travel_explore,
-            size: compact ? 42 : 52,
-            color: colors.primary,
-          ),
-          SizedBox(height: compact ? 12 : 16),
+          Icon(Icons.travel_explore, size: 52, color: colors.primary),
+          const SizedBox(height: 16),
           Text(
             AppStringsScope.of(context).searchEmptyTitle,
             style: Theme.of(context).textTheme.titleLarge,
@@ -512,9 +504,6 @@ class _SearchEmptyPrompt extends StatelessWidget {
         ],
       ),
     );
-    if (compact) {
-      return child;
-    }
     return Center(child: child);
   }
 }

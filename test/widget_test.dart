@@ -45,7 +45,9 @@ void main() {
 
     expect(find.text('搜音乐'), findsOneWidget);
     expect(find.text('歌手或歌曲'), findsOneWidget);
-    expect(find.text('搜索音乐'), findsOneWidget);
+    expect(find.text('我的音乐'), findsOneWidget);
+    expect(find.text('搜索音乐'), findsNothing);
+    expect(find.text('输入歌手或歌曲名，下载后会保存在本机缓存里。'), findsNothing);
     expect(find.byTooltip('下载'), findsOneWidget);
     expect(find.byTooltip('播放列表'), findsOneWidget);
     expect(find.text('No cached music yet'), findsNothing);
@@ -68,6 +70,8 @@ void main() {
     expect(find.byKey(const ValueKey('home-playlist-road')), findsOneWidget);
     expect(find.text('1 首 · Alpha'), findsOneWidget);
     expect(find.text('1 首 · Beta'), findsOneWidget);
+    expect(find.text('搜索音乐'), findsNothing);
+    expect(find.text('输入歌手或歌曲名，下载后会保存在本机缓存里。'), findsNothing);
 
     await tester.tap(find.byKey(const ValueKey('home-favorites-entry')));
     await tester.pumpAndSettle();
@@ -138,6 +142,8 @@ void main() {
 
     expect(find.byKey(const ValueKey('home-favorites-entry')), findsOneWidget);
     expect(find.byKey(const ValueKey('home-playlist-road')), findsOneWidget);
+    expect(find.text('搜索音乐'), findsNothing);
+    expect(find.text('输入歌手或歌曲名，下载后会保存在本机缓存里。'), findsNothing);
   });
 
   testWidgets('empty search does not call resolver', (tester) async {
@@ -199,7 +205,9 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('稻香'), findsNothing);
-    expect(find.text('搜索音乐'), findsOneWidget);
+    expect(find.text('我的音乐'), findsOneWidget);
+    expect(find.text('搜索音乐'), findsNothing);
+    expect(find.text('输入歌手或歌曲名，下载后会保存在本机缓存里。'), findsNothing);
   });
 
   testWidgets('downloaded search result exposes play action', (tester) async {
