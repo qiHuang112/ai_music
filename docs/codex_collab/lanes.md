@@ -38,7 +38,7 @@
 - 主目录 `/Users/huangqi/AIHome/ai_music` 只用于 `main` 稳定主线和产品验收；开发 lane 不在主目录日常开发或切分支。
 - 架构师负责创建 `release/x.y.z` 和 request worktree，并在任务单里写清 `Target Version`、`Work Branch`、`Worktree Path`、`Base Branch` 和 `Merge Branch`。
 - 开发 lane 只在自己分配的 worktree 开发，不复用其它 lane 的 stash，不把未 review 代码合入 release 分支。
-- 功能 review accepted 后可先本地提交，但远端 push 必须等待 product lane 明确确认；product 确认后由 reviewer/architect 打 tag、构建 Android release 包，再 push release 分支和 tag。
+- 功能 review accepted 且 owner 自测通过后，架构师可以直接合入目标分支并推送远端；推送后同步 product lane 验证最新包。
 - 不涉及 Android/公共 Dart 时不要找 `android` lane；不涉及 iOS 时不要找 `ios` lane；不涉及 HarmonyOS 时不要找 `ohos` lane。
 - 鸿蒙默认链路是 `ohos -> architect review -> ohos`，只有 review 发现公共 Dart、Android 或 iOS 影响时才通知其它 lane。
 - 某个 lane 需要触碰另一个 lane 的范围时，必须在任务单里记录 handoff，并通知目标 lane。

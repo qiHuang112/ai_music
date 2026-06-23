@@ -32,7 +32,7 @@
 8. 任何进入提交历史的改动，都要在 `changes.md` 里记录 request、lane、thread 和 review 归属。
 9. 开发和 review 过程中遇到的可复用问题，要沉淀到 `knowledge/` 下对应 lane 的知识小仓库。
 10. 新功能、修复或可交互体验达到“可以让用户试”的状态时，负责人 lane 或架构师必须及时通知 product lane，也就是当前产品会话。
-11. 功能闭环后，owner lane 可以先本地提交，但不得自动推送远端；必须主动同步 product lane，等 product 明确确认后再 push。
+11. 功能闭环后，owner lane 可以先本地提交并发给架构师 review；架构师 review 通过且 owner 自测通过后，架构师可以直接合入主分支并推送，不再等待 product 逐次确认。
 12. 任何 lane 发出 `task`、`review_request`、`review_result`、`status` 询问或等待对方回应后，如果 10 到 15 分钟没有反馈，应主动追问一次，确认对方是否正在工作、是否卡住或是否漏回消息；不要让任务静默卡住。
 13. UI lane 当前处于 onboarding，只负责熟悉 APP 页面、截图体验和 UI 建议；product 未明确要求 UI 验收或 UI 开发时，不加入自动化 review 流程。
 
@@ -40,12 +40,11 @@
 
 - 每个 request 必须登记 `Target Version`、`Work Branch`、`Worktree Path`、`Base Branch` 和 `Merge Branch`。
 - 当前冻结版本只允许已登记任务、bugfix 和验收修复进入；新增功能默认进入下一版本。
-- 功能闭环定义：实现完成、必要测试通过、架构师 review accepted、体验包已安装或验证入口已明确、没有 blocker。
-- 满足闭环条件后，owner lane 可以先本地提交，并把状态标为 `accepted_pending_push`；消息必须写清版本号、request、commit、本地验证、体验入口和等待 product 确认推送。
-- 未经 product lane 明确确认，不得 push commit、release 分支或 tag 到远端。
-- product 确认推送后，由 reviewer/architect 先打版本 tag，基于 tag 构建 Android release 包；release 包成功后再 push release 分支和 tag。
+- 功能闭环定义：实现完成、owner 自测通过、必要自动化测试通过、架构师 review accepted、没有 blocker。
+- 满足闭环条件后，架构师可以直接合入目标分支并推送远端；不再等待 product lane 逐次确认推送。
 - 推送前必须确认提交范围只包含本 request 或本次版本账本改动，不能混入其它 lane 的脏改、临时构建产物或未验收改动。
-- 推送成功后更新 `versions.md`、`changes.md` 和任务单状态，并给 product lane 发送 `status` 或 `demo_ready`，写清最终 commit、tag、远端分支、APK 路径和体验状态。
+- 需要发版时，由 reviewer/architect 打版本 tag，基于 tag 构建 Android release 包；release 包成功后再 push release 分支、main 和 tag。
+- 推送成功后更新 `versions.md`、`changes.md` 和任务单状态，并给 product lane 发送 `status` 或 `demo_ready`，写清最终 commit、tag、远端分支、APK/HAP 路径和体验状态。product 将直接验证最新包；如有问题再反馈新 bug。
 - 如果推送失败，按 blocker 回报具体原因，例如认证失败、远端有新提交、rebase 冲突或网络不可达。
 
 ## 分支与 Worktree 规则

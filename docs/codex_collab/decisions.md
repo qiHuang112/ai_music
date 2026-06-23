@@ -79,6 +79,22 @@
 - product 确认后，由 reviewer/architect 在 release 分支打 tag，基于 tag 构建 Android release 包；release 包成功后再 push release 分支和 tag。
 - 当前只发布 Android release 包，使用 `tool/build_android_release.sh`。
 
+状态：已被 2026-06-24 的“review accepted 后架构师直接合入并推送”决策替代。后续不再等待 product 逐次确认推送。
+
+## 2026-06-24：Review Accepted 后架构师直接合入并推送
+
+决策：功能实现完成后，只要同时满足架构师 review accepted 和 owner lane 自测通过，架构师即可直接合入目标分支并推送远端，不再等待 product lane 每次验收后转达推送。
+
+原因：项目已进入快速迭代，逐次等待 product 确认推送会降低效率。product lane 后续直接验证最新包；如果发现问题，再按新 bug 或回改需求同步给团队。
+
+规则：
+
+- owner lane 完成实现、自测和必要自动化测试后，发 `review_request` 给架构师。
+- 架构师 review accepted 后，确认提交范围干净、测试通过、无 blocker，即可合入目标分支并推送。
+- 推送后必须主动通知 product lane，写清最终 commit、远端分支、安装包路径、已安装设备和可验证范围。
+- 如果需要 release 包或 tag，由架构师按版本规则打 tag、构建 Android release 包并推送 tag。
+- product 验证最新包后如发现问题，重新进入 bug_report / changes_requested 流程。
+
 ## 2026-06-22：多开发并行使用 git worktree
 
 决策：主目录 `/Users/huangqi/AIHome/ai_music` 只作为 `main` 稳定主线和产品验收入口，不再作为多个 lane 共用的日常开发目录。开发 lane 必须在架构师分配的独立 worktree 中开发。

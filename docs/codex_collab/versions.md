@@ -6,8 +6,9 @@
 
 - 当前冻结版本不再接收新增功能，只接收已登记任务、bugfix 和验收修复。
 - 新增功能默认进入下一版本，除非 product lane 明确要求插入当前版本并写明原因。
-- `accepted_pending_push` 表示 review accepted 但等待 product 确认推送。
-- product 确认后，由 reviewer/architect 打 tag、基于 tag 构建 Android release 包，成功后再 push release 分支和 tag。
+- `accepted_pending_merge` 表示 review accepted 且 owner 自测通过，等待架构师合入目标分支。
+- 架构师确认提交范围、测试和 review 结论后，可以直接合入并推送；推送后同步 product 验证最新包。
+- 需要发版时，由 reviewer/architect 打 tag、基于 tag 构建 Android release 包，成功后再 push release 分支、main 和 tag。
 
 ## 1.0.0
 

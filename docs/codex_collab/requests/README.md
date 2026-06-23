@@ -20,8 +20,8 @@ AM-20260621-001-harmony-media-session.md
 - `review`：实现已完成，等待 review。
 - `changes_requested`：架构师 review 后发现问题，已分发给对应 lane 修复。
 - `accepted`：架构师或指定 reviewer 已验收。
-- `accepted_pending_push`：已验收并可本地提交，但等待 product 确认推送/发布。
-- `pushed`：已按 product 确认推送到远端。
+- `accepted_pending_merge`：架构师 review accepted 且 owner 自测通过，等待架构师合入目标分支。
+- `pushed`：已由架构师按闭环规则推送到远端，并同步 product 验证最新包。
 - `blocked`：需要用户输入或外部状态变化。
 
 ## 模板
