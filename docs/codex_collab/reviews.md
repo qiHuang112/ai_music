@@ -32,6 +32,11 @@
 | 2026-06-22 | AM-20260622-001 | architect | android | accepted | 右手化排序操作实现通过：普通态“调整顺序”入口位于右侧操作区，编辑态拖拽把手位于歌曲行右侧，完成/保存主操作位于右侧；AM-004/AM-005 的草稿拖拽、完成保存、搜索过滤禁入、返回确认、编辑态隐藏 mini player 和 onReorder 兼容逻辑未回退。 |
 | 2026-06-22 | AM-20260621-005 | architect | android | pushed/accepted | `cefd82c` 自建歌单排序简化已按自动推送规则推送远端；`origin/main` 已确认指向 `cefd82c135bca3280f6ff705cf1eadcfd1e97bda`，提交范围只包含 `music_home_page.dart` 和 `widget_test.dart`。 |
 | 2026-06-22 | AM-20260622-001 | architect | android | pushed/accepted | `8f04d15` 右手化排序操作已按自动推送规则推送远端；提交范围只包含 `music_home_page.dart` 和 `widget_test.dart`。 |
+| 2026-06-23 | AM-20260622-003 | architect | android | accepted | FLAC 源恢复首轮实现通过：设置页恢复 Auto/BuguYY/FLAC，设置存储真实保存读取 source，Auto 按 BuguYY 空或失败后 fallback FLAC；搜索结果展示真实来源，resolve/download 按候选具体 source 分派；HTTP client 增加瞬时网络重试并补测试。小米 10 Pro 证据显示搜索 `黑夜传说` 时 BuguYY count=0、FLAC count=40，下载和播放链路成功。 |
+| 2026-06-23 | AM-20260622-003 | product | android | changes_requested | 产品新增两个 1.0.0 阶段版必修验收点，撤回首轮 accepted：Auto 模式必须同时搜索 BuguYY 和 FLAC，不再只在 BuguYY 无结果时 fallback；FLAC 源歌曲必须解决封面和歌词缺失问题。修复后需重新提供 `黑夜传说` 真机证据和日志摘要，再由 architect 复审。 |
+| 2026-06-23 | AM-20260622-003 | architect | android | changes_requested | Auto 双源并搜和 FLAC 字段扩展方向通过，但旧缓存 metadata 刷新条件过窄：只在旧缓存无封面且搜索候选自带封面时 resolve，漏掉搜索候选无封面但 getUrl 有封面、以及旧缓存已有封面但缺歌词的场景。需扩大轻量 resolve 条件并补测试，仍不得重新下载音频。 |
+| 2026-06-23 | AM-20260622-003 | product | android | changes_requested | 产品补充最终 review gate：Auto 文案必须是双源并搜；搜索结果左侧来源标记 BuguYY 显示“布谷”、FLAC 显示 `FLAC`；副标题不能显示搜索源名称；FLAC 下载、resolve、历史缓存刷新必须能补歌词；播放页“暂无歌词”要自动尝试恢复并提供“重新获取歌词”，手动重试绕过 miss TTL 且不重新下载音频。 |
+| 2026-06-23 | AM-20260622-003 | architect | android | changes_requested | 复审仍需回改：UI 文案/来源标记/副标题、Auto 双源并搜、播放页手动歌词恢复和 miss TTL 绕过方向已覆盖；但旧缓存缺封面刷新仍要求搜索候选自带封面，漏掉候选无封面但 resolve/getUrl 返回封面的历史缓存场景。需去掉候选封面前置条件并补不重新下载音频的测试。 |
 
 ## 结果值
 

@@ -456,15 +456,7 @@ class _LyricsPreviewContent extends StatelessWidget {
       );
     }
     if (lyrics.isEmpty) {
-      return Center(
-        child: Text(
-          controller.metadataError ?? AppStringsScope.of(context).noLyrics,
-          textAlign: TextAlign.center,
-          style: Theme.of(
-            context,
-          ).textTheme.bodyMedium?.copyWith(color: colors.onSurfaceVariant),
-        ),
-      );
+      return Center(child: _MissingLyricsContent(controller: controller));
     }
     return StreamBuilder<Duration>(
       stream: controller.positionStream,
@@ -505,6 +497,79 @@ class _PreviewLyricRow {
 
   final LyricLine line;
   final bool active;
+}
+
+class _MissingLyricsContent extends StatefulWidget {
+  const _MissingLyricsContent({required this.controller});
+
+  final MusicController controller;
+
+  @override
+  State<_MissingLyricsContent> createState() => _MissingLyricsContentState();
+}
+
+class _MissingLyricsContentState extends State<_MissingLyricsContent> {
+  String? _autoRequestedTrackId;
+
+  @override
+  void didUpdateWidget(covariant _MissingLyricsContent oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.controller.currentTrack?.id !=
+        widget.controller.currentTrack?.id) {
+      _autoRequestedTrackId = null;
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    _scheduleAutoRecover();
+    final strings = AppStringsScope.of(context);
+    final colors = Theme.of(context).colorScheme;
+    final loading = widget.controller.isLoadingMetadata;
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Text(
+          widget.controller.metadataError ?? strings.noLyrics,
+          textAlign: TextAlign.center,
+          style: Theme.of(
+            context,
+          ).textTheme.bodyMedium?.copyWith(color: colors.onSurfaceVariant),
+        ),
+        const SizedBox(height: 10),
+        OutlinedButton.icon(
+          onPressed: loading
+              ? null
+              : () => widget.controller.recoverMetadataForCurrentTrack(
+                  bypassLyricsMiss: true,
+                ),
+          icon: loading
+              ? const SizedBox.square(
+                  dimension: 16,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                )
+              : const Icon(Icons.refresh),
+          label: Text(loading ? strings.fetchingLyrics : strings.retryLyrics),
+        ),
+      ],
+    );
+  }
+
+  void _scheduleAutoRecover() {
+    final trackId = widget.controller.currentTrack?.id;
+    if (trackId == null ||
+        _autoRequestedTrackId == trackId ||
+        widget.controller.currentLyrics.isNotEmpty ||
+        widget.controller.isLoadingMetadata) {
+      return;
+    }
+    _autoRequestedTrackId = trackId;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) {
+        widget.controller.autoRecoverMetadataForCurrentTrack();
+      }
+    });
+  }
 }
 
 List<_PreviewLyricRow> _previewLyricRows(
@@ -562,14 +627,7 @@ class _LyricsPanelState extends State<_LyricsPanel> {
     }
     if (lyrics.isEmpty) {
       return _wrapContent(
-        Center(
-          child: Text(
-            controller.metadataError ?? AppStringsScope.of(context).noLyrics,
-            style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-              color: Theme.of(context).colorScheme.onSurfaceVariant,
-            ),
-          ),
-        ),
+        Center(child: _MissingLyricsContent(controller: controller)),
       );
     }
 

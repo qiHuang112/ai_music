@@ -77,8 +77,9 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(resolver.lastQuery, '周杰伦');
-    expect(resolver.lastSource, MusicDataSource.buguyy);
+    expect(resolver.lastSource, MusicDataSource.auto);
     expect(find.text('稻香 0'), findsOneWidget);
+    expect(find.text('布谷'), findsWidgets);
     expect(find.textContaining('BuguYY'), findsNothing);
     expect(find.textContaining('MP3'), findsWidgets);
     expect(
@@ -254,7 +255,7 @@ void main() {
     expect(find.text('Beta'), findsNothing);
   });
 
-  testWidgets('settings pages persist language theme and single source', (
+  testWidgets('settings pages persist language theme and music source', (
     tester,
   ) async {
     final settings = _FakeSettingsStore();
@@ -287,10 +288,15 @@ void main() {
     await tester.tap(find.text('Music Source'));
     await tester.pumpAndSettle();
 
+    expect(find.text('Auto'), findsOneWidget);
     expect(find.text('BuguYY'), findsOneWidget);
-    expect(find.text('FLAC'), findsNothing);
-    expect(find.textContaining('only enabled'), findsOneWidget);
-    expect(settings.savedSource, isNull);
+    expect(find.text('FLAC'), findsOneWidget);
+
+    await tester.tap(find.text('FLAC'));
+    await tester.pumpAndSettle();
+
+    expect(settings.savedSource, MusicDataSource.flac);
+    expect(settings.settings.source, MusicDataSource.flac);
   });
 
   testWidgets('home back clears search then asks before exiting', (
@@ -1405,7 +1411,7 @@ class _FakeSettingsStore implements MusicSettingsStore {
   @override
   Future<void> saveSource(MusicDataSource source) async {
     savedSource = source;
-    settings = settings.copyWith(source: MusicDataSource.buguyy);
+    settings = settings.copyWith(source: source);
   }
 }
 

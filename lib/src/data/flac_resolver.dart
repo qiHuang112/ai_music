@@ -109,11 +109,19 @@ class FlacResolver {
       final url = data['url']?.toString() ?? '';
       if (url.isNotEmpty) {
         final lyrics = firstResolvedLyrics([
-          makeResolvedLyrics(data['lrc'], 'flac:getUrl:lrc'),
-          makeResolvedLyrics(data['lyric'], 'flac:getUrl:lyric'),
-          makeResolvedLyrics(candidate.raw['lrc'], 'flac:search:lrc'),
-          makeResolvedLyrics(candidate.raw['lyric'], 'flac:search:lyric'),
-          makeResolvedLyrics(candidate.raw['about'], 'flac:search:about'),
+          ..._lyricsFromPayload(data, 'flac:getUrl'),
+          ..._lyricsFromPayload(candidate.raw, 'flac:search'),
+        ]);
+        final coverUrl = _firstText([
+          data['picurl'],
+          data['pic_url'],
+          data['pic'],
+          data['cover'],
+          data['coverUrl'],
+          data['cover_url'],
+          data['album_pic'],
+          data['albumPic'],
+          candidate.coverUrl,
         ]);
         return ResolvedMusic(
           query: candidate.query,
@@ -125,7 +133,7 @@ class FlacResolver {
           album: candidate.album,
           url: url,
           quality: quality,
-          coverUrl: candidate.coverUrl,
+          coverUrl: coverUrl,
           lyrics: lyrics,
         );
       }
@@ -136,6 +144,40 @@ class FlacResolver {
     }
 
     throw StateError(errors.firstOrNull ?? 'No URL returned');
+  }
+
+  List<ResolvedLyrics?> _lyricsFromPayload(
+    Map<String, dynamic> payload,
+    String source,
+  ) {
+    const keys = [
+      'lrc',
+      'lrcText',
+      'lrc_text',
+      'lrcContent',
+      'lrc_content',
+      'lrc_lyric',
+      'lyric',
+      'lyricText',
+      'lyric_text',
+      'lyricContent',
+      'lyric_content',
+      'lyrics',
+      'lyricsText',
+      'lyrics_text',
+      'lyricsContent',
+      'lyrics_content',
+      'songLyric',
+      'song_lyric',
+      'content',
+      'text',
+      'data',
+      'about',
+    ];
+    return [
+      for (final key in keys) makeResolvedLyrics(payload[key], '$source:$key'),
+      makeResolvedLyrics(payload, '$source:payload'),
+    ];
   }
 
   Future<List<MusicSearchCandidate>> _searchPage(
@@ -174,4 +216,14 @@ class FlacResolver {
         })
         .toList(growable: false);
   }
+}
+
+String _firstText(List<Object?> values) {
+  for (final value in values) {
+    final text = value?.toString().trim() ?? '';
+    if (text.isNotEmpty) {
+      return text;
+    }
+  }
+  return '';
 }

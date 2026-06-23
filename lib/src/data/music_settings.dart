@@ -40,7 +40,7 @@ enum AppThemePreference {
 
 class MusicAppSettings {
   const MusicAppSettings({
-    this.source = MusicDataSource.buguyy,
+    this.source = MusicDataSource.auto,
     this.language = AppLanguage.zh,
     this.theme = AppThemePreference.dark,
   });
@@ -92,14 +92,14 @@ class MusicSettingsStore {
       final decoded = await _tryDecodeJson(file, text);
       if (decoded is Map) {
         return MusicAppSettings(
-          source: _singleSupportedSource(decoded['source']?.toString()),
+          source: MusicDataSource.fromStorage(decoded['source']?.toString()),
           language: AppLanguage.fromStorage(decoded['language']?.toString()),
           theme: AppThemePreference.fromStorage(
             decoded['themeMode']?.toString() ?? decoded['theme']?.toString(),
           ),
         );
       }
-      return MusicAppSettings(source: _singleSupportedSource(text));
+      return MusicAppSettings(source: MusicDataSource.fromStorage(text));
     } catch (_) {
       return const MusicAppSettings();
     }
@@ -108,10 +108,7 @@ class MusicSettingsStore {
   Future<void> saveSettings(MusicAppSettings settings) async {
     return _withWriteLock(() async {
       final file = await _settingsFile();
-      await _jsonStore.write(
-        file,
-        settings.copyWith(source: _singleSupportedSource(null)).toJson(),
-      );
+      await _jsonStore.write(file, settings.toJson());
     });
   }
 
@@ -121,7 +118,7 @@ class MusicSettingsStore {
 
   Future<void> saveSource(MusicDataSource source) async {
     final current = await loadSettings();
-    await saveSettings(current.copyWith(source: _singleSupportedSource(null)));
+    await saveSettings(current.copyWith(source: source));
   }
 
   Future<File> _settingsFile() async {
@@ -154,9 +151,4 @@ Future<Object?> _tryDecodeJson(File file, String text) async {
     await const JsonFileStore().backupCorruptFile(file);
     return text;
   }
-}
-
-MusicDataSource _singleSupportedSource(String? _) {
-  // 运行时只开放布谷歪歪；旧 auto/flac 配置统一迁移到这个单源。
-  return MusicDataSource.buguyy;
 }

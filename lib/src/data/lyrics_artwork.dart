@@ -94,13 +94,25 @@ class TrackMetadataRepository {
   static const Duration lyricsMissTtl = Duration(minutes: 30);
 
   Future<TrackMetadata> load(CachedTrack track) async {
+    return _load(track, bypassLyricsMiss: false);
+  }
+
+  Future<TrackMetadata> loadBypassingLyricsMiss(CachedTrack track) async {
+    return _load(track, bypassLyricsMiss: true);
+  }
+
+  Future<TrackMetadata> _load(
+    CachedTrack track, {
+    required bool bypassLyricsMiss,
+  }) async {
     var metadata =
         await _cacheStore.read(track.cacheId) ?? const TrackMetadata();
     if (_isComplete(metadata)) {
       return metadata;
     }
     // 歌词搜索失败通常是来源短时间内确实无结果；半小时内不重复打网络请求。
-    final lyricsMissActive = _hasFreshLyricsMiss(track.cacheId);
+    final lyricsMissActive =
+        !bypassLyricsMiss && _hasFreshLyricsMiss(track.cacheId);
     for (final provider in _providers) {
       if (_shouldSkipProvider(
         provider,

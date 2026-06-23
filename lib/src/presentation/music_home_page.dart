@@ -382,7 +382,14 @@ class _OnlineSearchPanel extends StatelessWidget {
                                   strokeWidth: 2,
                                 ),
                               )
-                            : const Icon(Icons.music_note),
+                            : Text(
+                                _sourceMarker(candidate),
+                                style: Theme.of(context).textTheme.labelSmall
+                                    ?.copyWith(
+                                      color: colors.onSecondaryContainer,
+                                      fontWeight: FontWeight.w700,
+                                    ),
+                              ),
                       ),
                       title: Text(
                         candidate.name.isEmpty
@@ -1879,13 +1886,22 @@ String _candidateSubtitle(MusicSearchCandidate candidate) {
     if (candidate.artist.isNotEmpty) candidate.artist,
     if (candidate.album.isNotEmpty) candidate.album,
     if (candidate.platform.isNotEmpty &&
-        candidate.platform.toLowerCase() != 'buguyy')
+        candidate.platform.toLowerCase() !=
+            candidate.source.storageValue.toLowerCase())
       candidate.platform,
     if (candidate.qualityLabel.isNotEmpty) candidate.qualityLabel,
     if (candidate.duration > 0)
       _formatCandidateDuration(Duration(seconds: candidate.duration)),
   ];
   return parts.join(' - ');
+}
+
+String _sourceMarker(MusicSearchCandidate candidate) {
+  return switch (candidate.source) {
+    MusicDataSource.buguyy => '布谷',
+    MusicDataSource.flac => 'FLAC',
+    MusicDataSource.auto => 'AUTO',
+  };
 }
 
 String _formatCandidateDuration(Duration duration) {
