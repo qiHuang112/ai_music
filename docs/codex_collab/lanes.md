@@ -11,6 +11,7 @@
 | android | AIMusic-安卓开发 | `019ee41d-647e-7250-bb01-f1ae81098696` | 公共 Dart 业务逻辑、Android 行为、Android 打包发布、测试、Android 架构文档。 | `lib/src/`、`test/`、`android/`、Android 构建工具、公共业务文档。 | idle |
 | ios | AIMusic-iOS开发 | `019ee563-42df-7de0-9c64-0a771f243f6a` | iOS 宿主工程、签名、IPA 打包、Apple 平台能力、iOS 文档。 | `ios/`、`tool/build_ios_ipa.sh`、iOS 相关 README。未 handoff 前不要改公共 Dart 业务。 | idle |
 | ohos | AIMusic-鸿蒙开发 | `019ee7db-7cfc-7c41-9827-6b851ce89548` | HarmonyOS 宿主、ArkTS 代码、vendored 鸿蒙音频插件、HAP 构建、鸿蒙文档。 | `ohos/`、`third_party/just_audio_harmonyos/`、`tool/build_ohos_hap.sh`、鸿蒙平台适配。 | active |
+| ui | AIMusic-UI体验设计 | `019ef1d2-d6ec-79d3-9225-fb4169680228` | 熟悉当前页面、整理 UI 现状、后续参与 UI 样式优化、截图体验和 UI 验收辅助。 | UI 体验报告、截图说明、UI 验收记录、`docs/codex_collab/knowledge/ui/`。未 handoff 前不要直接改业务代码。 | onboarding |
 
 ## 知识库
 
@@ -19,6 +20,7 @@
 - `android` lane 维护 `docs/codex_collab/knowledge/android/`。
 - `ios` lane 维护 `docs/codex_collab/knowledge/ios/`。
 - `ohos` lane 维护 `docs/codex_collab/knowledge/ohos/`。
+- `ui` lane 维护 `docs/codex_collab/knowledge/ui/`。
 - 每个 lane 在解决可复用问题后，都要把过程、命令、根因、解决方案和验证方法沉淀到自己的知识库。
 - `ohos` lane 处理 HarmonyOS / ArkTS / ArkUI / HAP / `hdc` / AVSession / 鸿蒙音频插件任务前，优先使用本机 `harmonyos-development` skill。
 
@@ -40,3 +42,5 @@
 - 不涉及 Android/公共 Dart 时不要找 `android` lane；不涉及 iOS 时不要找 `ios` lane；不涉及 HarmonyOS 时不要找 `ohos` lane。
 - 鸿蒙默认链路是 `ohos -> architect review -> ohos`，只有 review 发现公共 Dart、Android 或 iOS 影响时才通知其它 lane。
 - 某个 lane 需要触碰另一个 lane 的范围时，必须在任务单里记录 handoff，并通知目标 lane。
+- `ui` lane 当前只做熟悉、体验和 UI 建议；在 product 明确要求 UI 验收或 UI 开发前，不加入自动化 review 流程。
+- `ui` lane 如果需要体验包，应向 product/architect 请求，由 android、ohos 或 ios lane 安装或提供包；优先使用 Android 或 HarmonyOS 体验入口，相关开发忙时可找另一个平台支持。

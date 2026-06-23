@@ -34,6 +34,7 @@
 10. 新功能、修复或可交互体验达到“可以让用户试”的状态时，负责人 lane 或架构师必须及时通知 product lane，也就是当前产品会话。
 11. 功能闭环后，owner lane 可以先本地提交，但不得自动推送远端；必须主动同步 product lane，等 product 明确确认后再 push。
 12. 任何 lane 发出 `task`、`review_request`、`review_result`、`status` 询问或等待对方回应后，如果 10 到 15 分钟没有反馈，应主动追问一次，确认对方是否正在工作、是否卡住或是否漏回消息；不要让任务静默卡住。
+13. UI lane 当前处于 onboarding，只负责熟悉 APP 页面、截图体验和 UI 建议；product 未明确要求 UI 验收或 UI 开发时，不加入自动化 review 流程。
 
 ## 版本与推送规则
 
@@ -70,6 +71,7 @@
   - iOS 完成 IPA、签名、宿主能力或 Apple 平台体验改进后，通知 product lane 体验。
 - 通知 product lane 时要写明：能体验什么、在哪个平台体验、需要执行什么命令或安装什么包、还有哪些已知问题。
 - 不要让用户自己追问“好了没”；功能能试时，负责人 lane 要主动同步。
+- UI lane 需要体验包时，不自行占用设备或安装；由 product/architect 协调 android、ohos 或 ios lane 提供安装支持。默认优先 Android 或 HarmonyOS，如果对应 lane 忙，再找另一个平台支持。
 
 ## 设备分层规则
 
