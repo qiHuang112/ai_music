@@ -91,11 +91,15 @@ class AppStrings {
   String get lyrics => isZh ? '歌词' : 'Lyrics';
   String get noLyrics => isZh ? '暂无歌词' : 'No lyrics yet';
   String get nowPlaying => isZh ? '正在播放' : 'Now playing';
+  String get homeLibraryTitle => isZh ? '我的音乐' : 'My Music';
   String get libraryTitle => isZh ? '我的缓存列表' : 'My Library';
   String get localLibrary => isZh ? '本地' : 'Local';
   String get favorite => isZh ? '收藏' : 'Favorites';
   String get customPlaylists => isZh ? '自建歌单' : 'Custom Playlists';
   String get noCustomPlaylists => isZh ? '还没有自建歌单' : 'No custom playlists yet';
+  String get managePlaylists => isZh ? '管理歌单' : 'Manage playlists';
+  String get createPlaylistHomeHint =>
+      isZh ? '打开播放列表后可新建歌单。' : 'Open playlists to create one.';
   String get createPlaylistHint =>
       isZh ? '点右上角新建一个歌单。' : 'Tap the top-right button to create one.';
   String get newPlaylist => isZh ? '新建歌单' : 'New playlist';

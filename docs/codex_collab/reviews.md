@@ -45,6 +45,7 @@
 | 2026-06-22 | AM-20260622-002 | android | architect | blocked | android lane 暂停 AM-002/AM-003，回报小米 10 Pro/MIUI 稳定主槽位为 4 个，若同时放播放模式、上一首、播放/暂停、下一首、收藏则需要 5 个动作，必须 product 决定取舍。android 建议保留上一首/播放暂停/下一首/收藏四槽，播放模式放 App 内或扩展入口。另有未提交的收藏导致进度条回跳修复，需随最终槽位方案一起 review。 |
 | 2026-06-22 | AM-20260622-002 | product | android | review | 产品确认播放模式重排暂缓/撤回：Android 系统播控继续使用已验证 4 槽“收藏/取消收藏、上一首、播放/暂停、下一首”。后续 review 不再要求槽位重排，只聚焦收藏点击导致播控进度条跳变修复，以及既有 4 槽位/随机短听逻辑不回退。 |
 | 2026-06-22 | AM-20260622-002 | architect | android | accepted | 第八轮复审通过：`syncControlState()` 同步收藏控件时补齐当前 position、buffer、speed 和 queueIndex，避免只刷新 controls 导致 Android 系统播控进度条按旧 position/新 timestamp 跳变；测试覆盖不触发 loadQueue、restore 或 seek，小米 10 Pro 证据显示收藏/取消收藏后进度自然前进且队列不变。提交范围限 AM-002 三个业务/测试文件。 |
+| 2026-06-23 | AM-20260623-001 | architect | ohos | accepted | 首页默认展示收藏和自建歌单实现通过：提交 `9d38b5a` 只改公共展示层和 widget 测试，未触碰 `MusicController`、播放链路、搜索/FLAC/metadata 或平台宿主；未搜索首页展示收藏/自建歌单入口，搜索态隐藏默认首页，清空搜索恢复默认首页。接受点击进入现有详情页的保守实现，直接播放整列表后续另拆。 |
 
 ## 结果值
 
