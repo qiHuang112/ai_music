@@ -77,12 +77,85 @@ void main() {
         await Future<void>.delayed(const Duration(milliseconds: 10));
       }
 
-      expect(metadata.loadIds, [cached.cacheId]);
+      expect(metadata.loadIds, contains(cached.cacheId));
     } finally {
       controller.dispose();
       await handler.dispose();
     }
   });
+
+  test('metadata load keeps existing artwork media item unchanged', () async {
+    final handler = _SpyAudioHandler();
+    final cached = _cachedTrack(
+      id: 'song-1',
+      name: '第一首',
+      coverUrl: 'https://cdn.example.test/song-1.jpg',
+    );
+    final metadata = _StaticMetadataRepository(
+      metadata: TrackMetadata(
+        artworkUri: Uri.parse('https://cdn.example.test/song-1.jpg'),
+      ),
+    );
+    final controller = MusicController(
+      audioHandler: handler,
+      resolver: _FakeMusicResolver(),
+      cacheStore: _FakeCacheStore(cached: [cached]),
+      playlistStore: _FakePlaylistStore(),
+      settingsStore: _FakeSettingsStore(),
+      metadataRepository: metadata,
+    );
+
+    try {
+      await controller.initialize();
+      handler.emit(mediaItemFromTrack(trackFromCached(cached)));
+      for (var i = 0; i < 10 && metadata.loadIds.isEmpty; i += 1) {
+        await Future<void>.delayed(const Duration(milliseconds: 10));
+      }
+
+      expect(metadata.loadIds, contains(cached.cacheId));
+      expect(handler.mediaItemUpdateCount, 0);
+    } finally {
+      controller.dispose();
+      await handler.dispose();
+    }
+  });
+
+  test(
+    'downloaded candidate is cached before metadata priming completes',
+    () async {
+      final handler = _SpyAudioHandler();
+      final resolver = _DelayedMusicResolver();
+      final cacheStore = _DownloadCacheStore();
+      final metadata = _CompletingMetadataRepository();
+      final controller = MusicController(
+        audioHandler: handler,
+        resolver: resolver,
+        cacheStore: cacheStore,
+        playlistStore: _FakePlaylistStore(),
+        settingsStore: _FakeSettingsStore(),
+        metadataRepository: metadata,
+      );
+      final candidate = _candidate(id: 'song-1', name: '第一首');
+
+      try {
+        await controller.initialize();
+
+        await controller.downloadCandidate(candidate);
+
+        expect(metadata.loadIds, [cacheStore.cached.single.cacheId]);
+        expect(controller.isCandidateCached(candidate), isTrue);
+        expect(controller.cachedTracks.single.title, '第一首');
+
+        metadata.complete(const TrackMetadata());
+        for (var i = 0; i < 10 && controller.isLoadingCache; i += 1) {
+          await Future<void>.delayed(const Duration(milliseconds: 10));
+        }
+      } finally {
+        controller.dispose();
+        await handler.dispose();
+      }
+    },
+  );
 
   test(
     'system favorite action toggles the active track favorite state',
@@ -662,13 +735,14 @@ void main() {
       final handler = _SpyAudioHandler();
       final resolver = _DelayedMusicResolver();
       final cacheStore = _DownloadCacheStore();
+      final metadata = _StaticMetadataRepository();
       final controller = MusicController(
         audioHandler: handler,
         resolver: resolver,
         cacheStore: cacheStore,
         playlistStore: _FakePlaylistStore(),
         settingsStore: _FakeSettingsStore(),
-        metadataRepository: _StaticMetadataRepository(),
+        metadataRepository: metadata,
       );
       final firstCandidate = _candidate(id: 'song-1', name: '第一首');
       final secondCandidate = _candidate(id: 'song-2', name: '第二首');
@@ -696,6 +770,11 @@ void main() {
           controller.cachedTracks.map((track) => track.title),
           unorderedEquals(['第一首', '第二首']),
         );
+        expect(metadata.loadIds, hasLength(2));
+        expect(metadata.loadIds.toSet(), {
+          cacheStore.cached[0].cacheId,
+          cacheStore.cached[1].cacheId,
+        });
       } finally {
         controller.dispose();
         await handler.dispose();
@@ -806,6 +885,7 @@ void main() {
       expect(handler.loadedIds, [
         cacheIdForResolved(cacheStore.cached.single.music),
       ]);
+      expect(handler.playCalls, 1);
       expect(
         controller.statusMessage?.code,
         MusicUiMessageCode.playingCachedFile,
@@ -816,6 +896,116 @@ void main() {
       await handler.dispose();
     }
   });
+
+  test('next resumes playback when player is paused', () async {
+    final handler = _SpyAudioHandler();
+    final controller = MusicController(
+      audioHandler: handler,
+      resolver: _FakeMusicResolver(),
+      cacheStore: _FakeCacheStore(cached: const []),
+      playlistStore: _FakePlaylistStore(),
+      settingsStore: _FakeSettingsStore(),
+      metadataRepository: _StaticMetadataRepository(),
+    );
+
+    try {
+      await controller.initialize();
+      handler.playbackState.add(PlaybackState(playing: false));
+
+      await controller.next();
+
+      expect(handler.skipNextCalls, 1);
+      expect(handler.playCalls, 1);
+      expect(handler.playbackState.value.playing, isTrue);
+    } finally {
+      controller.dispose();
+      await handler.dispose();
+    }
+  });
+
+  test(
+    'playCandidate refreshes cached candidate cover without redownloading',
+    () async {
+      final handler = _SpyAudioHandler();
+      final resolver = _CoverResolvingMusicResolver();
+      final cacheStore = _DownloadCacheStore();
+      final cached = _cachedTrack(id: 'song-1', name: '第一首');
+      cacheStore.cached.add(cached);
+      final metadata = _StaticMetadataRepository();
+      final controller = MusicController(
+        audioHandler: handler,
+        resolver: resolver,
+        cacheStore: cacheStore,
+        playlistStore: _FakePlaylistStore(),
+        settingsStore: _FakeSettingsStore(),
+        metadataRepository: metadata,
+      );
+      final candidate = _candidate(
+        id: 'song-1',
+        name: '第一首',
+        coverUrl: 'https://img.example.test/song-1.jpg',
+      );
+
+      try {
+        await controller.initialize();
+
+        await controller.playCandidate(candidate);
+
+        expect(resolver.resolveIds, ['song-1']);
+        expect(cacheStore.downloadIds, isEmpty);
+        expect(
+          cacheStore.cached.single.music.coverUrl,
+          'https://img.example.test/song-1.jpg',
+        );
+        expect(metadata.loadIds, contains(cached.cacheId));
+        expect(handler.loadedIds, [cached.cacheId]);
+      } finally {
+        controller.dispose();
+        await handler.dispose();
+      }
+    },
+  );
+
+  test(
+    'playCandidate refreshes cached candidate lyrics even when cover exists',
+    () async {
+      final handler = _SpyAudioHandler();
+      final resolver = _LyricsResolvingMusicResolver();
+      final cacheStore = _DownloadCacheStore();
+      final cached = _cachedTrack(
+        id: 'song-1',
+        name: '第一首',
+        coverUrl: 'https://img.example.test/existing.jpg',
+      );
+      cacheStore.cached.add(cached);
+      final metadata = _StaticMetadataRepository();
+      final controller = MusicController(
+        audioHandler: handler,
+        resolver: resolver,
+        cacheStore: cacheStore,
+        playlistStore: _FakePlaylistStore(),
+        settingsStore: _FakeSettingsStore(),
+        metadataRepository: metadata,
+      );
+      final candidate = _candidate(id: 'song-1', name: '第一首');
+
+      try {
+        await controller.initialize();
+
+        await controller.playCandidate(candidate);
+
+        expect(resolver.resolveIds, ['song-1']);
+        expect(cacheStore.downloadIds, isEmpty);
+        expect(cacheStore.cached.single.music.coverUrl, cached.music.coverUrl);
+        expect(cacheStore.cached.single.music.lyrics?.text, contains('补齐歌词'));
+        expect(metadata.loadIds, contains(cached.cacheId));
+        expect(handler.loadedIds, [cached.cacheId]);
+      } finally {
+        controller.dispose();
+        await handler.dispose();
+      }
+    },
+  );
 }
 
 class _SpyAudioHandler extends MusicAudioHandler {
@@ -829,6 +1019,8 @@ class _SpyAudioHandler extends MusicAudioHandler {
   String? restoredMediaId;
   Duration? restoredPosition;
   int playCalls = 0;
+  int skipNextCalls = 0;
+  int mediaItemUpdateCount = 0;
 
   @override
   Duration get currentPosition => currentPositionOverride;
@@ -852,12 +1044,27 @@ class _SpyAudioHandler extends MusicAudioHandler {
     if (items.isNotEmpty) {
       mediaItem.add(items[initialIndex].mediaItem);
     }
+    if (playWhenReady) {
+      await play();
+    }
   }
 
   @override
   Future<void> play() async {
     playCalls += 1;
     playbackState.add(playbackState.value.copyWith(playing: true));
+  }
+
+  @override
+  Future<void> skipToNext() async {
+    skipNextCalls += 1;
+    await play();
+  }
+
+  @override
+  Future<void> updateCurrentMediaItem(MediaItem updated) async {
+    mediaItemUpdateCount += 1;
+    mediaItem.add(updated);
   }
 
   @override
@@ -893,6 +1100,12 @@ class _StaticMetadataRepository extends TrackMetadataRepository {
 
   @override
   Future<TrackMetadata> load(CachedTrack track) async {
+    loadIds.add(track.cacheId);
+    return metadata;
+  }
+
+  @override
+  Future<TrackMetadata> loadBypassingLyricsMiss(CachedTrack track) async {
     loadIds.add(track.cacheId);
     return metadata;
   }
@@ -1065,6 +1278,53 @@ class _FailingMusicResolver extends _FakeMusicResolver {
   }
 }
 
+class _CoverResolvingMusicResolver extends _FakeMusicResolver {
+  final resolveIds = <String>[];
+
+  @override
+  Future<ResolvedMusic> resolve(MusicSearchCandidate candidate) async {
+    resolveIds.add(candidate.id);
+    return ResolvedMusic(
+      query: candidate.query,
+      source: candidate.source,
+      platform: candidate.platform,
+      id: candidate.id,
+      name: candidate.name,
+      artist: candidate.artist,
+      album: candidate.album,
+      url: 'https://cdn.example.test/${candidate.id}.mp3',
+      quality: const MusicQuality(format: 'mp3'),
+      coverUrl: candidate.coverUrl,
+    );
+  }
+}
+
+class _LyricsResolvingMusicResolver extends _FakeMusicResolver {
+  final resolveIds = <String>[];
+
+  @override
+  Future<ResolvedMusic> resolve(MusicSearchCandidate candidate) async {
+    resolveIds.add(candidate.id);
+    return ResolvedMusic(
+      query: candidate.query,
+      source: candidate.source,
+      platform: candidate.platform,
+      id: candidate.id,
+      name: candidate.name,
+      artist: candidate.artist,
+      album: candidate.album,
+      url: 'https://cdn.example.test/${candidate.id}.mp3',
+      quality: const MusicQuality(format: 'mp3'),
+      lyrics: const ResolvedLyrics(
+        source: 'test',
+        text: '[00:01.00]补齐歌词',
+        lines: 1,
+        timed: true,
+      ),
+    );
+  }
+}
+
 class _CompletingSearchResolver extends _FakeMusicResolver {
   final _searchCompleter = Completer<List<MusicSearchCandidate>>();
 
@@ -1129,10 +1389,31 @@ class _DownloadCacheStore extends CachedTrackStore {
   }
 
   @override
+  Future<CachedTrack> updateCachedMusic(
+    CachedTrack cachedTrack,
+    ResolvedMusic music,
+  ) async {
+    final index = cached.indexWhere(
+      (track) => track.cacheId == cachedTrack.cacheId,
+    );
+    final updated = cachedTrack.copyWith(music: music, fromCache: true);
+    if (index == -1) {
+      cached.add(updated);
+    } else {
+      cached[index] = updated;
+    }
+    return updated;
+  }
+
+  @override
   Future<void> cleanupTemporaryFiles() async {}
 }
 
-MusicSearchCandidate _candidate({required String id, required String name}) {
+MusicSearchCandidate _candidate({
+  required String id,
+  required String name,
+  String coverUrl = '',
+}) {
   return MusicSearchCandidate(
     query: name,
     source: MusicDataSource.buguyy,
@@ -1145,14 +1426,18 @@ MusicSearchCandidate _candidate({required String id, required String name}) {
     album: '',
     duration: 200,
     link: '',
-    coverUrl: '',
+    coverUrl: coverUrl,
     qualities: const [MusicQuality(format: 'mp3')],
     score: 100,
     raw: const {},
   );
 }
 
-CachedTrack _cachedTrack({required String id, required String name}) {
+CachedTrack _cachedTrack({
+  required String id,
+  required String name,
+  String coverUrl = '',
+}) {
   final music = ResolvedMusic(
     query: name,
     source: MusicDataSource.buguyy,
@@ -1163,6 +1448,7 @@ CachedTrack _cachedTrack({required String id, required String name}) {
     album: '',
     url: 'https://cdn.example.test/$id.mp3',
     quality: const MusicQuality(format: 'mp3'),
+    coverUrl: coverUrl,
   );
   return CachedTrack(
     cacheId: cacheIdForResolved(music),

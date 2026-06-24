@@ -250,6 +250,87 @@ void main() {
     },
   );
 
+  test(
+    'metadata repository skips artwork providers when artwork is already cached',
+    () async {
+      final root = await Directory.systemTemp.createTemp(
+        'ai_music_meta_art_skip_',
+      );
+      final cache = MetadataCacheStore(rootProvider: () async => root);
+      final track = _cachedTrack();
+      final artworkProvider = _CountingArtworkProvider(
+        metadata: TrackMetadata(
+          artworkUri: Uri.parse('https://cdn.example.test/refetched.jpg'),
+        ),
+      );
+      final lyricsProvider = _CountingLyricsProvider(
+        metadata: const TrackMetadata(
+          lyrics: [LyricLine(time: Duration(seconds: 3), text: '补全歌词')],
+        ),
+      );
+      final repository = TrackMetadataRepository(
+        cacheStore: cache,
+        providers: [artworkProvider, lyricsProvider],
+      );
+
+      try {
+        final cachedArtwork = Uri.parse('https://cdn.example.test/cached.jpg');
+        await cache.write(
+          track.cacheId,
+          TrackMetadata(artworkUri: cachedArtwork),
+        );
+
+        final metadata = await repository.load(track);
+
+        expect(metadata.artworkUri, cachedArtwork);
+        expect(metadata.lyrics.single.text, '补全歌词');
+        expect(artworkProvider.calls, 0);
+        expect(lyricsProvider.calls, 1);
+      } finally {
+        await root.delete(recursive: true);
+      }
+    },
+  );
+
+  test(
+    'metadata repository runs artwork providers only when artwork is missing',
+    () async {
+      final root = await Directory.systemTemp.createTemp(
+        'ai_music_meta_art_fill_',
+      );
+      final cache = MetadataCacheStore(rootProvider: () async => root);
+      final track = _cachedTrack();
+      final artworkProvider = _CountingArtworkProvider(
+        metadata: TrackMetadata(
+          artworkUri: Uri.parse('https://cdn.example.test/fetched.jpg'),
+        ),
+      );
+      final lyricsProvider = _CountingLyricsProvider(
+        metadata: const TrackMetadata(
+          lyrics: [LyricLine(time: Duration(seconds: 3), text: '补全歌词')],
+        ),
+      );
+      final repository = TrackMetadataRepository(
+        cacheStore: cache,
+        providers: [artworkProvider, lyricsProvider],
+      );
+
+      try {
+        final metadata = await repository.load(track);
+
+        expect(
+          metadata.artworkUri.toString(),
+          'https://cdn.example.test/fetched.jpg',
+        );
+        expect(metadata.lyrics.single.text, '补全歌词');
+        expect(artworkProvider.calls, 1);
+        expect(lyricsProvider.calls, 1);
+      } finally {
+        await root.delete(recursive: true);
+      }
+    },
+  );
+
   test('LRC parser supports metadata, single and repeated timestamps', () {
     final lines = parseLrcLines('''
 [ti:测试]
@@ -413,6 +494,16 @@ class _CountingMetadataProvider implements TrackMetadataProvider {
     calls += 1;
     return metadata;
   }
+}
+
+class _CountingArtworkProvider extends _CountingMetadataProvider
+    implements ArtworkMetadataProvider {
+  _CountingArtworkProvider({super.metadata});
+}
+
+class _CountingLyricsProvider extends _CountingMetadataProvider
+    implements LyricsMetadataProvider {
+  _CountingLyricsProvider({super.metadata});
 }
 
 class _FakeResolverHttp implements MusicResolverHttp {

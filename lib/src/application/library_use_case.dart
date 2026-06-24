@@ -49,6 +49,18 @@ class LibraryUseCase {
     return snapshot;
   }
 
+  LibrarySnapshot applyCachedRecords(
+    List<CachedTrack> cachedRecords,
+    PlaylistLibrary playlistLibrary,
+  ) {
+    final cachedTracks = cachedRecords
+        .map(trackFromCached)
+        .toList(growable: false);
+    final snapshot = _snapshot(cachedRecords, cachedTracks, playlistLibrary);
+    _latestSnapshot = snapshot;
+    return snapshot;
+  }
+
   Future<LibrarySnapshot> deleteCachedTrack(
     Track track, {
     required LibrarySnapshot current,

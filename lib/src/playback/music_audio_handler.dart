@@ -159,6 +159,7 @@ class MusicAudioHandler extends BaseAudioHandler
       targetIndex: index,
     );
     await _player.seek(Duration.zero, index: index);
+    await play();
   }
 
   @override
@@ -181,6 +182,7 @@ class MusicAudioHandler extends BaseAudioHandler
         );
         await _player.seek(Duration.zero, index: nextIndex);
         _publishCurrentItem(nextIndex);
+        await play();
         return;
       }
     }
@@ -192,10 +194,11 @@ class MusicAudioHandler extends BaseAudioHandler
       );
     }
     await _player.seekToNext();
+    await play();
   }
 
   @override
-  Future<void> skipToPrevious() {
+  Future<void> skipToPrevious() async {
     final previousIndex = _previousSequentialIndex();
     if (previousIndex != null) {
       _indexTracker.markManualTarget(
@@ -203,7 +206,8 @@ class MusicAudioHandler extends BaseAudioHandler
         targetIndex: previousIndex,
       );
     }
-    return _player.seekToPrevious();
+    await _player.seekToPrevious();
+    await play();
   }
 
   @override

@@ -390,7 +390,14 @@ class _OnlineSearchPanel extends StatelessWidget {
                                   strokeWidth: 2,
                                 ),
                               )
-                            : const Icon(Icons.music_note),
+                            : Text(
+                                _sourceMarker(candidate),
+                                style: Theme.of(context).textTheme.labelSmall
+                                    ?.copyWith(
+                                      color: colors.onSecondaryContainer,
+                                      fontWeight: FontWeight.w700,
+                                    ),
+                              ),
                       ),
                       title: Text(
                         candidate.name.isEmpty
@@ -2049,22 +2056,37 @@ String _candidateSubtitle(MusicSearchCandidate candidate) {
   final parts = [
     if (candidate.artist.isNotEmpty) candidate.artist,
     if (candidate.album.isNotEmpty) candidate.album,
-    if (candidate.platform.isNotEmpty &&
-        candidate.platform.toLowerCase() != 'buguyy')
-      candidate.platform,
-    if (candidate.qualityLabel.isNotEmpty) candidate.qualityLabel,
-    if (candidate.duration > 0)
-      _formatCandidateDuration(Duration(seconds: candidate.duration)),
+    if (_qualityAndSize(candidate).isNotEmpty) _qualityAndSize(candidate),
   ];
   return parts.join(' - ');
 }
 
-String _formatCandidateDuration(Duration duration) {
-  final minutes = duration.inMinutes.remainder(60).toString().padLeft(2, '0');
-  final seconds = duration.inSeconds.remainder(60).toString().padLeft(2, '0');
-  final hours = duration.inHours;
-  if (hours > 0) {
-    return '$hours:$minutes:$seconds';
+String _qualityAndSize(MusicSearchCandidate candidate) {
+  MusicQuality? quality;
+  for (final item in candidate.qualities) {
+    if (item.format.trim().isNotEmpty) {
+      quality = item;
+      break;
+    }
   }
-  return '$minutes:$seconds';
+  if (quality == null) {
+    return '';
+  }
+  final format = quality.format.trim().toUpperCase();
+  final size = quality.size.trim();
+  if (candidate.source == MusicDataSource.flac && format == 'FLAC') {
+    return size;
+  }
+  if (size.isEmpty) {
+    return format;
+  }
+  return '$format · $size';
+}
+
+String _sourceMarker(MusicSearchCandidate candidate) {
+  return switch (candidate.source) {
+    MusicDataSource.buguyy => '布谷',
+    MusicDataSource.flac => 'FLAC',
+    MusicDataSource.auto => 'AUTO',
+  };
 }

@@ -207,6 +207,25 @@ abstract class MusicResolver {
   Future<ResolvedMusic> resolve(MusicSearchCandidate candidate);
 }
 
+class MusicSearchProgress {
+  const MusicSearchProgress({
+    required this.candidates,
+    required this.isComplete,
+    this.error,
+  });
+
+  final List<MusicSearchCandidate> candidates;
+  final bool isComplete;
+  final Object? error;
+}
+
+abstract class ProgressiveMusicResolver {
+  Stream<MusicSearchProgress> searchProgressively(
+    String query,
+    MusicDataSource source,
+  );
+}
+
 class ResolverHttpResponse {
   const ResolverHttpResponse({
     required this.statusCode,

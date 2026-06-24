@@ -52,10 +52,17 @@ class AppStrings {
   String get english => isZh ? '英文' : 'English';
   String get lightTheme => isZh ? '白色' : 'Light';
   String get darkTheme => isZh ? '黑色' : 'Dark';
+  String get autoSource => isZh ? '自动 / Auto' : 'Auto';
   String get buguyy => isZh ? '布谷歪歪 / BuguYY' : 'BuguYY';
-  String get onlyBuguyy => isZh
-      ? '当前只保留布谷歪歪作为搜索和下载来源。'
-      : 'BuguYY is the only enabled search and download source.';
+  String get flacSource => isZh ? 'FLAC / flac.music.hi.cn' : 'FLAC';
+  String get autoSourceDescription => isZh
+      ? '同时搜索布谷歪歪和 FLAC，合并展示可用结果。'
+      : 'Search BuguYY and FLAC together, then show the merged results.';
+  String get buguyyDescription =>
+      isZh ? '只使用布谷歪歪搜索和下载。' : 'Search and download with BuguYY only.';
+  String get flacSourceDescription => isZh
+      ? '只使用 flac.music.hi.cn 搜索和下载。'
+      : 'Search and download with flac.music.hi.cn only.';
   String get activeDownloads => isZh ? '正在下载' : 'Active Downloads';
   String get recentDownloads => isZh ? '最近任务' : 'Recent Tasks';
   String get cachedMusic => isZh ? '已缓存音乐' : 'Cached Music';
@@ -90,6 +97,8 @@ class AppStrings {
       isZh ? '清除搜索后可调整顺序' : 'Clear search to adjust order';
   String get lyrics => isZh ? '歌词' : 'Lyrics';
   String get noLyrics => isZh ? '暂无歌词' : 'No lyrics yet';
+  String get retryLyrics => isZh ? '重新获取歌词' : 'Fetch lyrics again';
+  String get fetchingLyrics => isZh ? '正在获取歌词' : 'Fetching lyrics';
   String get nowPlaying => isZh ? '正在播放' : 'Now playing';
   String get homeLibraryTitle => isZh ? '我的音乐' : 'My Music';
   String get libraryTitle => isZh ? '我的缓存列表' : 'My Library';

@@ -187,6 +187,7 @@ void main() {
                       'id': 'exact',
                       'name': '四季',
                       'artist': '陈奕迅',
+                      'pic_url': 'https://img.example.test/flac-cover.jpg',
                       'duration': 210,
                       'minfo': [
                         {'format': 'mp3', 'bitrate': '320', 'size': '9M'},
@@ -206,7 +207,8 @@ void main() {
             return _json(uri, {
               'data': {
                 'url': 'https://cdn.example.test/exact.flac',
-                'lrc': '[3.50]FLAC 歌词',
+                'pic_url': 'https://img.example.test/geturl-cover.jpg',
+                'lyrics': {'content': '[3.50]FLAC 歌词'},
               },
             });
           }
@@ -237,36 +239,74 @@ void main() {
 
       final resolved = await resolver.resolve(candidates.first);
       expect(resolved.url, 'https://cdn.example.test/exact.flac');
+      expect(resolved.coverUrl, 'https://img.example.test/geturl-cover.jpg');
       expect(getUrlForms.single['format'], 'flac');
       expect(resolved.lyrics?.text, '[00:03.50]FLAC 歌词');
-      expect(resolved.lyrics?.source, 'flac:getUrl:lrc');
+      expect(resolved.lyrics?.source, 'flac:getUrl:lyrics');
     },
   );
 
-  test('auto uses buguyy results without requesting flac', () async {
-    var flacRequests = 0;
-    final http = _FakeResolverHttp(
-      onGet: (uri, _) async => _json(uri, {
-        'data': [
-          {'id': 'song-1', 'title': '晴天', 'singer': '周杰伦'},
-        ],
-      }),
-      onPostForm: (_, _, _) async {
-        flacRequests += 1;
-        return _json(Uri.parse('https://flac.example.test'), {});
-      },
-    );
-    final resolver = RemoteMusicResolver(
-      httpClient: http,
-      initialFlacCookie: 'sl-session=test',
-    );
+  test(
+    'auto searches buguyy and flac then merges concrete candidates',
+    () async {
+      var buguyyRequests = 0;
+      var flacRequests = 0;
+      final http = _FakeResolverHttp(
+        onGet: (uri, _) async {
+          buguyyRequests += 1;
+          return _json(uri, {
+            'data': [
+              {'id': 'song-1', 'title': '晴天', 'singer': '周杰伦'},
+            ],
+          });
+        },
+        onPostForm: (uri, form, _) async {
+          flacRequests += 1;
+          if (uri.queryParameters['act'] == 'search') {
+            return _json(uri, {
+              'data': {
+                'list': form['platform'] == 'kuwo'
+                    ? [
+                        {
+                          'id': 'flac-1',
+                          'name': '晴天',
+                          'artist': '周杰伦',
+                          'pic_url': 'https://img.example.test/qingtian.jpg',
+                          'duration': 240,
+                          'minfo': [
+                            {'format': 'flac', 'bitrate': '900'},
+                          ],
+                        },
+                      ]
+                    : const [],
+              },
+            });
+          }
+          return _json(uri, {});
+        },
+      );
+      final resolver = RemoteMusicResolver(
+        httpClient: http,
+        initialFlacCookie: 'sl-session=test',
+      );
 
-    final candidates = await resolver.search('周杰伦', MusicDataSource.auto);
-    expect(candidates.single.source, MusicDataSource.buguyy);
-    expect(flacRequests, 0);
-  });
+      final candidates = await resolver.search('周杰伦', MusicDataSource.auto);
+      expect(
+        candidates.map((candidate) => candidate.source).toSet(),
+        containsAll([MusicDataSource.buguyy, MusicDataSource.flac]),
+      );
+      expect(
+        candidates
+            .firstWhere((candidate) => candidate.source == MusicDataSource.flac)
+            .coverUrl,
+        'https://img.example.test/qingtian.jpg',
+      );
+      expect(buguyyRequests, greaterThan(0));
+      expect(flacRequests, greaterThan(0));
+    },
+  );
 
-  test('auto falls back to flac when buguyy has no candidates', () async {
+  test('auto keeps flac results when buguyy has no candidates', () async {
     var flacRequests = 0;
     final http = _FakeResolverHttp(
       onGet: (uri, _) async => _json(uri, {'data': const []}),
@@ -301,6 +341,36 @@ void main() {
 
     final candidates = await resolver.search('陈奕迅', MusicDataSource.auto);
     expect(candidates.first.source, MusicDataSource.flac);
+    expect(flacRequests, greaterThan(0));
+  });
+
+  test('auto keeps buguyy results when flac fails', () async {
+    var buguyyRequests = 0;
+    var flacRequests = 0;
+    final http = _FakeResolverHttp(
+      onGet: (uri, _) async {
+        buguyyRequests += 1;
+        return _json(uri, {
+          'data': [
+            {'id': 'song-1', 'title': '晴天', 'singer': '周杰伦'},
+          ],
+        });
+      },
+      onPostForm: (_, _, _) async {
+        flacRequests += 1;
+        throw const HttpException('flac offline');
+      },
+    );
+    final resolver = RemoteMusicResolver(
+      httpClient: http,
+      initialFlacCookie: 'sl-session=test',
+    );
+
+    final candidates = await resolver.search('周杰伦', MusicDataSource.auto);
+
+    expect(candidates, hasLength(1));
+    expect(candidates.single.source, MusicDataSource.buguyy);
+    expect(buguyyRequests, greaterThan(0));
     expect(flacRequests, greaterThan(0));
   });
 }

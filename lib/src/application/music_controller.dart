@@ -84,7 +84,9 @@ class MusicController extends ChangeNotifier {
   // 搜索框允许“非空换非空”快速输入；request id 用来丢弃晚返回的旧结果。
   int _searchRequest = 0;
   String? _metadataTrackId;
+  final Set<String> _autoMetadataRecoveryAttempted = {};
   bool _legacyRepairRunning = false;
+  bool _isDisposed = false;
 
   MusicDataSource source = MusicDataSource.buguyy;
   List<MusicSearchCandidate> candidates = const [];
@@ -137,7 +139,7 @@ class MusicController extends ChangeNotifier {
 
   Future<void> initialize() async {
     final settings = await settingsController.load();
-    source = MusicDataSource.buguyy;
+    source = settings.source;
     language = settings.language;
     themePreference = settings.theme;
     await _cacheStore.cleanupTemporaryFiles();
@@ -146,24 +148,34 @@ class MusicController extends ChangeNotifier {
   }
 
   Future<void> loadCache({bool repairLegacy = true}) async {
+    if (_isDisposed) {
+      return;
+    }
     isLoadingCache = true;
     notifyListeners();
     try {
       _applyLibrarySnapshot(await libraryUseCase.loadCache());
+      if (_isDisposed) {
+        return;
+      }
       if (repairLegacy && !_legacyRepairRunning) {
         unawaited(repairLegacyCache());
       }
     } catch (exception) {
+      if (_isDisposed) {
+        return;
+      }
       errorDetail = friendlyError(exception);
     } finally {
-      isLoadingCache = false;
-      notifyListeners();
+      if (!_isDisposed) {
+        isLoadingCache = false;
+        notifyListeners();
+      }
     }
   }
 
   Future<void> saveSource(MusicDataSource nextSource) async {
-    // 当前 Android 版收敛为布谷歪歪单源；保留参数是为了兼容旧 UI 和测试接口。
-    source = MusicDataSource.buguyy;
+    source = nextSource;
     notifyListeners();
     await _saveSettings();
   }
@@ -194,15 +206,40 @@ class MusicController extends ChangeNotifier {
     candidates = const [];
     notifyListeners();
     try {
-      final result = await _resolver.search(trimmed, source);
-      if (request != _searchRequest) {
-        return;
-      }
-      candidates = result;
-      if (result.isEmpty) {
-        errorMessage = const MusicUiMessage(
-          MusicUiMessageCode.noOnlineMatchesFound,
-        );
+      final progressiveResolver = _resolver is ProgressiveMusicResolver
+          ? _resolver as ProgressiveMusicResolver
+          : null;
+      if (progressiveResolver != null) {
+        await for (final progress in progressiveResolver.searchProgressively(
+          trimmed,
+          source,
+        )) {
+          if (request != _searchRequest) {
+            return;
+          }
+          candidates = progress.candidates;
+          if (progress.isComplete) {
+            if (progress.error != null) {
+              errorDetail = friendlyError(progress.error!);
+            } else if (progress.candidates.isEmpty) {
+              errorMessage = const MusicUiMessage(
+                MusicUiMessageCode.noOnlineMatchesFound,
+              );
+            }
+          }
+          notifyListeners();
+        }
+      } else {
+        final result = await _resolver.search(trimmed, source);
+        if (request != _searchRequest) {
+          return;
+        }
+        candidates = result;
+        if (result.isEmpty) {
+          errorMessage = const MusicUiMessage(
+            MusicUiMessageCode.noOnlineMatchesFound,
+          );
+        }
       }
     } catch (exception) {
       if (request != _searchRequest) {
@@ -252,7 +289,12 @@ class MusicController extends ChangeNotifier {
       onChanged: notifyListeners,
     );
     if (result.cached != null) {
-      await loadCache(repairLegacy: false);
+      _upsertCachedRecord(result.cached!);
+      statusMessage = result.statusMessage ?? statusMessage;
+      errorDetail = result.errorDetail;
+      notifyListeners();
+      unawaited(_primeMetadataAndReloadCache(result.cached!));
+      return;
     }
     statusMessage = result.statusMessage ?? statusMessage;
     errorDetail = result.errorDetail;
@@ -282,6 +324,8 @@ class MusicController extends ChangeNotifier {
     if (record == null) {
       await downloadCandidate(candidate);
       record = _cachedRecordForCandidate(candidate);
+    } else {
+      record = await _refreshCachedCandidateMetadata(candidate, record);
     }
     if (record == null) {
       return;
@@ -542,7 +586,11 @@ class MusicController extends ChangeNotifier {
   }
 
   Future<void> _saveSettings() {
-    return settingsController.save(language: language, theme: themePreference);
+    return settingsController.save(
+      source: source,
+      language: language,
+      theme: themePreference,
+    );
   }
 
   LibrarySnapshot get _librarySnapshot {
@@ -561,6 +609,19 @@ class MusicController extends ChangeNotifier {
     cachedTracks = snapshot.cachedTracks;
     favoriteTracks = snapshot.favoriteTracks;
     customPlaylists = snapshot.customPlaylists;
+  }
+
+  void _upsertCachedRecord(CachedTrack record) {
+    final records = List<CachedTrack>.of(_cachedRecords);
+    final index = records.indexWhere((item) => item.cacheId == record.cacheId);
+    if (index == -1) {
+      records.add(record);
+    } else {
+      records[index] = record;
+    }
+    _applyLibrarySnapshot(
+      libraryUseCase.applyCachedRecords(records, _playlistLibrary),
+    );
   }
 
   CachedTrack? _cachedRecordForCandidate(MusicSearchCandidate candidate) {
@@ -685,7 +746,9 @@ class MusicController extends ChangeNotifier {
       }
       currentMetadata = metadata;
       final active = audioHandler.mediaItem.value;
-      if (active?.id == track.id && metadata.artworkUri != null) {
+      if (active?.id == track.id &&
+          metadata.artworkUri != null &&
+          active?.artUri != metadata.artworkUri) {
         await audioHandler.updateCurrentMediaItem(
           active!.copyWith(artUri: metadata.artworkUri),
         );
@@ -701,6 +764,178 @@ class MusicController extends ChangeNotifier {
         notifyListeners();
       }
     }
+  }
+
+  Future<void> _primeMetadataForCached(CachedTrack cached) async {
+    try {
+      await metadataUseCase.load(cached);
+    } catch (_) {
+      // 下载主流程不能因为封面/歌词兜底失败而失败；播放页仍会展示可读 metadataError。
+    }
+  }
+
+  Future<void> _primeMetadataAndReloadCache(CachedTrack cached) async {
+    await _primeMetadataForCached(cached);
+    if (_isDisposed) {
+      return;
+    }
+    await loadCache(repairLegacy: false);
+  }
+
+  Future<void> autoRecoverMetadataForCurrentTrack() async {
+    final track = currentTrack;
+    if (track == null || currentLyrics.isNotEmpty || isLoadingMetadata) {
+      return;
+    }
+    if (!_autoMetadataRecoveryAttempted.add(track.id)) {
+      return;
+    }
+    await recoverMetadataForCurrentTrack();
+  }
+
+  Future<void> recoverMetadataForCurrentTrack({
+    bool bypassLyricsMiss = false,
+  }) async {
+    final track = currentTrack;
+    if (track == null) {
+      return;
+    }
+    final request = ++_metadataRequest;
+    _metadataTrackId = track.id;
+    metadataError = null;
+    isLoadingMetadata = true;
+    notifyListeners();
+    try {
+      final cached = _cachedRecords
+          .where((record) => record.cacheId == track.id)
+          .firstOrNull;
+      if (cached == null) {
+        return;
+      }
+      final refreshed = await _resolveAndUpdateCachedMetadata(cached);
+      final metadata = bypassLyricsMiss
+          ? await metadataUseCase.loadBypassingLyricsMiss(refreshed)
+          : await metadataUseCase.load(refreshed);
+      if (!_isActiveMetadataRequest(request, track)) {
+        return;
+      }
+      currentMetadata = metadata;
+      if (metadata.hasLyrics) {
+        _autoMetadataRecoveryAttempted.remove(track.id);
+      }
+      final active = audioHandler.mediaItem.value;
+      if (active?.id == track.id &&
+          metadata.artworkUri != null &&
+          active?.artUri != metadata.artworkUri) {
+        await audioHandler.updateCurrentMediaItem(
+          active!.copyWith(artUri: metadata.artworkUri),
+        );
+        await _syncOhosControlState();
+      }
+    } catch (exception) {
+      if (_isActiveMetadataRequest(request, track)) {
+        metadataError = friendlyError(exception);
+      }
+    } finally {
+      if (_isActiveMetadataRequest(request, track)) {
+        isLoadingMetadata = false;
+        notifyListeners();
+      }
+    }
+  }
+
+  Future<CachedTrack> _refreshCachedCandidateMetadata(
+    MusicSearchCandidate candidate,
+    CachedTrack record,
+  ) async {
+    final hasCandidateCover = candidate.coverUrl.trim().isNotEmpty;
+    final missingCover = record.music.coverUrl.trim().isEmpty;
+    final missingLyrics =
+        record.music.lyrics == null && record.lyricsPath.trim().isEmpty;
+    if ((!missingCover || !hasCandidateCover) && !missingLyrics) {
+      await _primeMetadataForCached(record);
+      return record;
+    }
+    try {
+      final resolved = await _resolver.resolve(candidate);
+      final updated = await _cacheStore.updateCachedMusic(
+        record,
+        _mergeResolvedMetadata(record.music, resolved),
+      );
+      await _primeMetadataForCached(updated);
+      await loadCache(repairLegacy: false);
+      return _cachedRecords.firstWhere(
+        (cached) => cached.cacheId == updated.cacheId,
+        orElse: () => updated,
+      );
+    } catch (_) {
+      await _primeMetadataForCached(record);
+      return record;
+    }
+  }
+
+  Future<CachedTrack> _resolveAndUpdateCachedMetadata(
+    CachedTrack record,
+  ) async {
+    final resolved = await _resolver.resolve(_candidateFromCached(record));
+    final updated = await _cacheStore.updateCachedMusic(
+      record,
+      _mergeResolvedMetadata(record.music, resolved),
+    );
+    await loadCache(repairLegacy: false);
+    return _cachedRecords.firstWhere(
+      (cached) => cached.cacheId == updated.cacheId,
+      orElse: () => updated,
+    );
+  }
+
+  MusicSearchCandidate _candidateFromCached(CachedTrack record) {
+    final music = record.music;
+    return MusicSearchCandidate(
+      query: music.query.trim().isNotEmpty ? music.query : music.name,
+      source: music.source,
+      platform: music.platform,
+      keyword: music.query.trim().isNotEmpty ? music.query : music.name,
+      page: 1,
+      id: music.id,
+      name: music.name,
+      artist: music.artist,
+      album: music.album,
+      duration: 0,
+      link: '',
+      coverUrl: music.coverUrl,
+      qualities: [music.quality],
+      score: 100,
+      raw: const {},
+    );
+  }
+
+  ResolvedMusic _mergeResolvedMetadata(
+    ResolvedMusic current,
+    ResolvedMusic resolved,
+  ) {
+    return ResolvedMusic(
+      query: resolved.query.trim().isNotEmpty ? resolved.query : current.query,
+      source: resolved.source,
+      platform: resolved.platform.trim().isNotEmpty
+          ? resolved.platform
+          : current.platform,
+      id: resolved.id.trim().isNotEmpty ? resolved.id : current.id,
+      name: resolved.name.trim().isNotEmpty ? resolved.name : current.name,
+      artist: resolved.artist.trim().isNotEmpty
+          ? resolved.artist
+          : current.artist,
+      album: resolved.album.trim().isNotEmpty ? resolved.album : current.album,
+      url: current.url.trim().isNotEmpty ? current.url : resolved.url,
+      quality: resolved.quality.format.trim().isNotEmpty
+          ? resolved.quality
+          : current.quality,
+      coverUrl: resolved.coverUrl.trim().isNotEmpty
+          ? resolved.coverUrl
+          : current.coverUrl,
+      lyrics: resolved.lyrics ?? current.lyrics,
+      panLink: current.panLink || resolved.panLink,
+    );
   }
 
   bool _isActiveMetadataRequest(int request, Track track) {
@@ -743,6 +978,7 @@ class MusicController extends ChangeNotifier {
 
   @override
   void dispose() {
+    _isDisposed = true;
     audioHandler.onOhosLoopModeRequested = null;
     audioHandler.onOhosToggleFavoriteRequested = null;
     audioHandler.onToggleFavoriteRequested = null;

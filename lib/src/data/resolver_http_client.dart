@@ -54,6 +54,27 @@ class HttpMusicResolverClient implements MusicResolverHttp {
     Map<String, String> headers = const {},
     List<int>? body,
   }) async {
+    Object? lastError;
+    for (var attempt = 0; attempt < 3; attempt += 1) {
+      try {
+        return await _sendOnce(method, uri, headers: headers, body: body);
+      } catch (error) {
+        lastError = error;
+        if (!_isTransientNetworkError(error) || attempt == 2) {
+          rethrow;
+        }
+        await Future<void>.delayed(Duration(milliseconds: 250 * (attempt + 1)));
+      }
+    }
+    throw StateError('HTTP request failed: $lastError');
+  }
+
+  Future<ResolverHttpResponse> _sendOnce(
+    String method,
+    Uri uri, {
+    Map<String, String> headers = const {},
+    List<int>? body,
+  }) async {
     final ownsClient = client == null;
     final httpClient = client ?? HttpClient();
     try {
@@ -93,4 +114,11 @@ class HttpMusicResolverClient implements MusicResolverHttp {
       }
     }
   }
+}
+
+bool _isTransientNetworkError(Object error) {
+  return error is TimeoutException ||
+      error is SocketException ||
+      error is HandshakeException ||
+      error is HttpException;
 }

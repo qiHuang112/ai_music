@@ -26,11 +26,32 @@ MusicSearchCandidate candidateFromItem({
     album: item['album_name']?.toString() ?? '',
     duration: intFrom(item['duration']),
     link: item['link']?.toString() ?? '',
-    coverUrl: item['picurl']?.toString() ?? '',
+    coverUrl: _firstText([
+      item['picurl'],
+      item['pic_url'],
+      item['pic'],
+      item['cover'],
+      item['coverUrl'],
+      item['cover_url'],
+      item['album_pic'],
+      item['albumPic'],
+      item['img'],
+      item['image'],
+    ]),
     qualities: qualities,
     score: score,
     raw: item,
   );
+}
+
+String _firstText(List<Object?> values) {
+  for (final value in values) {
+    final text = value?.toString().trim() ?? '';
+    if (text.isNotEmpty) {
+      return text;
+    }
+  }
+  return '';
 }
 
 Map<String, dynamic> normalizeBuguyySong(Map<String, dynamic> item) {

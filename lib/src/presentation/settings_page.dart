@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../application/music_controller.dart';
+import '../data/music_resolver.dart';
 import '../data/music_settings.dart';
 import 'app_localizations.dart';
 
@@ -54,7 +55,7 @@ class SettingsPage extends StatelessWidget {
                 ListTile(
                   leading: const Icon(Icons.hub),
                   title: Text(strings.musicSource),
-                  subtitle: Text(strings.buguyy),
+                  subtitle: Text(_sourceTitle(strings, controller.source)),
                   trailing: const Icon(Icons.chevron_right),
                   onTap: () => Navigator.of(context).push<void>(
                     MaterialPageRoute(
@@ -168,18 +169,44 @@ class SourceSettingsPage extends StatelessWidget {
         return Scaffold(
           appBar: AppBar(title: Text(strings.musicSource)),
           body: SafeArea(
-            child: ListView(
-              children: [
-                ListTile(
-                  leading: const Icon(Icons.check_circle),
-                  title: Text(strings.buguyy),
-                  subtitle: Text(strings.onlyBuguyy),
-                ),
-              ],
+            child: RadioGroup<MusicDataSource>(
+              groupValue: controller.source,
+              onChanged: (source) {
+                if (source != null) {
+                  controller.saveSource(source);
+                }
+              },
+              child: ListView(
+                children: [
+                  RadioListTile<MusicDataSource>(
+                    value: MusicDataSource.auto,
+                    title: Text(strings.autoSource),
+                    subtitle: Text(strings.autoSourceDescription),
+                  ),
+                  RadioListTile<MusicDataSource>(
+                    value: MusicDataSource.buguyy,
+                    title: Text(strings.buguyy),
+                    subtitle: Text(strings.buguyyDescription),
+                  ),
+                  RadioListTile<MusicDataSource>(
+                    value: MusicDataSource.flac,
+                    title: Text(strings.flacSource),
+                    subtitle: Text(strings.flacSourceDescription),
+                  ),
+                ],
+              ),
             ),
           ),
         );
       },
     );
   }
+}
+
+String _sourceTitle(AppStrings strings, MusicDataSource source) {
+  return switch (source) {
+    MusicDataSource.auto => strings.autoSource,
+    MusicDataSource.buguyy => strings.buguyy,
+    MusicDataSource.flac => strings.flacSource,
+  };
 }

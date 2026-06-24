@@ -70,9 +70,12 @@ void main() {
             home: Scaffold(
               body: SizedBox(
                 height: 360,
-                child: LyricsPanelForTesting(
-                  controller: controller,
-                  positionStream: Stream<Duration>.value(Duration.zero),
+                child: AnimatedBuilder(
+                  animation: controller,
+                  builder: (context, _) => LyricsPanelForTesting(
+                    controller: controller,
+                    positionStream: Stream<Duration>.value(Duration.zero),
+                  ),
                 ),
               ),
             ),
@@ -94,6 +97,63 @@ void main() {
 
       expect(handler.seekedPositions, [const Duration(seconds: 20)]);
       await tester.pump(const Duration(seconds: 2));
+    } finally {
+      controller.dispose();
+    }
+  });
+
+  testWidgets('missing lyrics panel can retry metadata recovery', (
+    tester,
+  ) async {
+    final cached = _cachedTrack();
+    final handler = _SpyAudioHandler();
+    final metadata = _RetryMetadataRepository();
+    final controller = MusicController(
+      audioHandler: handler,
+      resolver: _LyricsResolver(),
+      cacheStore: _FakeCacheStore(cached: [cached]),
+      playlistStore: _FakePlaylistStore(),
+      settingsStore: _FakeSettingsStore(),
+      metadataRepository: metadata,
+    );
+
+    try {
+      await controller.initialize();
+      final track = trackFromCached(cached);
+      await controller.playTrack(track);
+      handler.emit(mediaItemFromTrack(track));
+      await controller.loadMetadataForCurrentTrack();
+
+      await tester.pumpWidget(
+        AppStringsScope(
+          language: AppLanguage.zh,
+          child: MaterialApp(
+            theme: ThemeData.dark(useMaterial3: true),
+            home: Scaffold(
+              body: SizedBox(
+                height: 360,
+                child: AnimatedBuilder(
+                  animation: controller,
+                  builder: (context, _) => LyricsPanelForTesting(
+                    controller: controller,
+                    positionStream: Stream<Duration>.value(Duration.zero),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pump();
+
+      expect(find.text('暂无歌词'), findsOneWidget);
+      expect(find.text('重新获取歌词'), findsOneWidget);
+
+      await tester.tap(find.text('重新获取歌词'));
+      await tester.pumpAndSettle();
+
+      expect(metadata.bypassLoadCount, 1);
+      expect(find.text('手动补齐'), findsOneWidget);
     } finally {
       controller.dispose();
     }
@@ -149,6 +209,23 @@ class _StaticMetadataRepository extends TrackMetadataRepository {
   }
 }
 
+class _RetryMetadataRepository extends TrackMetadataRepository {
+  int bypassLoadCount = 0;
+
+  @override
+  Future<TrackMetadata> load(CachedTrack track) async {
+    return const TrackMetadata();
+  }
+
+  @override
+  Future<TrackMetadata> loadBypassingLyricsMiss(CachedTrack track) async {
+    bypassLoadCount += 1;
+    return const TrackMetadata(
+      lyrics: [LyricLine(time: Duration(seconds: 1), text: '手动补齐')],
+    );
+  }
+}
+
 class _FakeCacheStore extends CachedTrackStore {
   _FakeCacheStore({required this.cached});
 
@@ -161,6 +238,23 @@ class _FakeCacheStore extends CachedTrackStore {
 
   @override
   Future<void> cleanupTemporaryFiles() async {}
+
+  @override
+  Future<CachedTrack> updateCachedMusic(
+    CachedTrack cachedTrack,
+    ResolvedMusic music,
+  ) async {
+    final index = cached.indexWhere(
+      (track) => track.cacheId == cachedTrack.cacheId,
+    );
+    final updated = cachedTrack.copyWith(music: music);
+    if (index == -1) {
+      cached.add(updated);
+    } else {
+      cached[index] = updated;
+    }
+    return updated;
+  }
 }
 
 class _FakePlaylistStore extends PlaylistStore {
@@ -208,6 +302,29 @@ class _FakeMusicResolver implements MusicResolver {
   @override
   Future<ResolvedMusic> resolve(MusicSearchCandidate candidate) async {
     throw UnimplementedError();
+  }
+}
+
+class _LyricsResolver extends _FakeMusicResolver {
+  @override
+  Future<ResolvedMusic> resolve(MusicSearchCandidate candidate) async {
+    return ResolvedMusic(
+      query: candidate.query,
+      source: candidate.source,
+      platform: candidate.platform,
+      id: candidate.id,
+      name: candidate.name,
+      artist: candidate.artist,
+      album: candidate.album,
+      url: 'https://cdn.example.test/${candidate.id}.mp3',
+      quality: const MusicQuality(format: 'mp3'),
+      lyrics: const ResolvedLyrics(
+        source: 'test',
+        text: '[00:01.00]手动补齐',
+        lines: 1,
+        timed: true,
+      ),
+    );
   }
 }
 

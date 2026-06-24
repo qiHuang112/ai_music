@@ -5,7 +5,7 @@ import 'package:ai_music/src/data/music_settings.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
-  test('settings store migrates legacy source text to buguyy', () async {
+  test('settings store restores legacy source text', () async {
     final root = await Directory.systemTemp.createTemp(
       'ai_music_settings_old_',
     );
@@ -16,7 +16,24 @@ void main() {
     try {
       final settings = await store.loadSettings();
 
-      expect(settings.source, MusicDataSource.buguyy);
+      expect(settings.source, MusicDataSource.flac);
+      expect(settings.language, AppLanguage.zh);
+      expect(settings.theme, AppThemePreference.dark);
+    } finally {
+      await root.delete(recursive: true);
+    }
+  });
+
+  test('settings store defaults to auto source', () async {
+    final root = await Directory.systemTemp.createTemp(
+      'ai_music_settings_default_',
+    );
+    final store = MusicSettingsStore(rootProvider: () async => root);
+
+    try {
+      final settings = await store.loadSettings();
+
+      expect(settings.source, MusicDataSource.auto);
       expect(settings.language, AppLanguage.zh);
       expect(settings.theme, AppThemePreference.dark);
     } finally {

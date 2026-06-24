@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:ai_music/src/application/music_controller.dart';
@@ -161,7 +162,14 @@ void main() {
     final resolver = _FakeMusicResolver(
       candidates: [
         for (var i = 0; i < 12; i += 1)
-          _candidate(id: 'song-$i', name: '稻香 $i', artist: '周杰伦'),
+          _candidate(
+            id: 'song-$i',
+            name: '稻香 $i',
+            artist: '周杰伦',
+            album: '叶惠美',
+            platform: 'kuwo',
+            quality: const MusicQuality(format: 'flac', size: '30MB'),
+          ),
       ],
     );
     await tester.pumpWidget(_app(resolver: resolver));
@@ -172,10 +180,13 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(resolver.lastQuery, '周杰伦');
-    expect(resolver.lastSource, MusicDataSource.buguyy);
+    expect(resolver.lastSource, MusicDataSource.auto);
     expect(find.text('稻香 0'), findsOneWidget);
+    expect(find.text('布谷'), findsWidgets);
     expect(find.textContaining('BuguYY'), findsNothing);
-    expect(find.textContaining('MP3'), findsWidgets);
+    expect(find.textContaining('kuwo'), findsNothing);
+    expect(find.textContaining('03:20'), findsNothing);
+    expect(find.textContaining('FLAC · 30MB'), findsWidgets);
     expect(
       tester.getSize(find.byType(ListView).first).height,
       greaterThan(300),
@@ -186,6 +197,73 @@ void main() {
       ),
       findsNothing,
     );
+  });
+
+  testWidgets(
+    'auto search shows first source while another source is loading',
+    (tester) async {
+      final resolver = _ProgressiveMusicResolver();
+      await tester.pumpWidget(_app(resolver: resolver));
+      await tester.pumpAndSettle();
+
+      await tester.enterText(find.byType(TextField), '晴天');
+      await tester.tap(find.byTooltip('在线搜索'));
+      await tester.pump();
+
+      resolver.emit(
+        MusicSearchProgress(
+          candidates: [_candidate(name: '先回来的歌', artist: '歌手')],
+          isComplete: false,
+        ),
+      );
+      await tester.pump();
+
+      expect(find.text('先回来的歌'), findsOneWidget);
+      expect(find.byType(LinearProgressIndicator), findsOneWidget);
+
+      resolver.emit(
+        MusicSearchProgress(
+          candidates: [
+            _candidate(name: '先回来的歌', artist: '歌手'),
+            _candidate(id: 'song-2', name: '后回来的歌', artist: '歌手'),
+          ],
+          isComplete: true,
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text('先回来的歌'), findsOneWidget);
+      expect(find.text('后回来的歌'), findsOneWidget);
+      expect(find.byType(LinearProgressIndicator), findsNothing);
+    },
+  );
+
+  testWidgets('flac source does not repeat flac in candidate subtitle', (
+    tester,
+  ) async {
+    final resolver = _FakeMusicResolver(
+      candidates: [
+        _candidate(
+          id: 'flac-song',
+          name: '黑夜传说',
+          artist: '杨世伟',
+          source: MusicDataSource.flac,
+          platform: 'kuwo',
+          quality: const MusicQuality(format: 'flac', size: '16.3Mb'),
+        ),
+      ],
+    );
+    await tester.pumpWidget(_app(resolver: resolver));
+    await tester.pumpAndSettle();
+
+    await tester.enterText(find.byType(TextField), '黑夜传说');
+    await tester.tap(find.byTooltip('在线搜索'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('FLAC'), findsOneWidget);
+    expect(find.textContaining('16.3Mb'), findsOneWidget);
+    expect(find.textContaining('FLAC · 16.3Mb'), findsNothing);
+    expect(find.textContaining('flac'), findsNothing);
   });
 
   testWidgets('clearing search input hides online candidates', (tester) async {
@@ -229,6 +307,35 @@ void main() {
 
     expect(find.byTooltip('播放'), findsOneWidget);
     expect(find.byTooltip('重新下载'), findsOneWidget);
+  });
+
+  testWidgets('download completion exposes play before metadata refresh', (
+    tester,
+  ) async {
+    final resolver = _FakeMusicResolver(
+      candidates: [_candidate(name: '稻香', artist: '周杰伦')],
+    );
+    final metadata = _BlockingMetadataRepository();
+    await tester.pumpWidget(
+      _app(resolver: resolver, metadataRepository: metadata),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.enterText(find.byType(TextField), '周杰伦');
+    await tester.tap(find.byTooltip('在线搜索'));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byIcon(Icons.download_for_offline));
+    for (var i = 0; i < 6 && find.byTooltip('播放').evaluate().isEmpty; i++) {
+      await tester.pump();
+    }
+
+    expect(metadata.loadCount, 1);
+    expect(find.byTooltip('播放'), findsOneWidget);
+    expect(find.byTooltip('重新下载'), findsOneWidget);
+
+    metadata.complete();
+    await tester.pumpAndSettle();
   });
 
   testWidgets('download status snack does not move search results', (
@@ -351,7 +458,7 @@ void main() {
     expect(find.text('Beta'), findsNothing);
   });
 
-  testWidgets('settings pages persist language theme and single source', (
+  testWidgets('settings pages persist language theme and music source', (
     tester,
   ) async {
     final settings = _FakeSettingsStore();
@@ -384,10 +491,15 @@ void main() {
     await tester.tap(find.text('Music Source'));
     await tester.pumpAndSettle();
 
+    expect(find.text('Auto'), findsOneWidget);
     expect(find.text('BuguYY'), findsOneWidget);
-    expect(find.text('FLAC'), findsNothing);
-    expect(find.textContaining('only enabled'), findsOneWidget);
-    expect(settings.savedSource, isNull);
+    expect(find.text('FLAC'), findsOneWidget);
+
+    await tester.tap(find.text('FLAC'));
+    await tester.pumpAndSettle();
+
+    expect(settings.savedSource, MusicDataSource.flac);
+    expect(settings.settings.source, MusicDataSource.flac);
   });
 
   testWidgets('home back clears search then asks before exiting', (
@@ -1405,6 +1517,23 @@ class _FakeMetadataRepository extends TrackMetadataRepository {
   }
 }
 
+class _BlockingMetadataRepository extends TrackMetadataRepository {
+  final _completer = Completer<TrackMetadata>();
+  int loadCount = 0;
+
+  @override
+  Future<TrackMetadata> load(CachedTrack track) {
+    loadCount += 1;
+    return _completer.future;
+  }
+
+  void complete([TrackMetadata metadata = const TrackMetadata()]) {
+    if (!_completer.isCompleted) {
+      _completer.complete(metadata);
+    }
+  }
+}
+
 class _HomeLibraryFixture {
   const _HomeLibraryFixture({
     required this.cacheStore,
@@ -1529,6 +1658,29 @@ class _FakeMusicResolver implements MusicResolver {
   }
 }
 
+class _ProgressiveMusicResolver extends _FakeMusicResolver
+    implements ProgressiveMusicResolver {
+  final _controller = StreamController<MusicSearchProgress>();
+
+  @override
+  Stream<MusicSearchProgress> searchProgressively(
+    String query,
+    MusicDataSource source,
+  ) {
+    searchCount += 1;
+    lastQuery = query;
+    lastSource = source;
+    return _controller.stream;
+  }
+
+  void emit(MusicSearchProgress progress) {
+    _controller.add(progress);
+    if (progress.isComplete) {
+      _controller.close();
+    }
+  }
+}
+
 class _FakeSettingsStore implements MusicSettingsStore {
   MusicAppSettings settings = const MusicAppSettings();
   MusicDataSource? savedSource;
@@ -1552,7 +1704,7 @@ class _FakeSettingsStore implements MusicSettingsStore {
   @override
   Future<void> saveSource(MusicDataSource source) async {
     savedSource = source;
-    settings = settings.copyWith(source: MusicDataSource.buguyy);
+    settings = settings.copyWith(source: source);
   }
 }
 
@@ -1603,21 +1755,25 @@ MusicSearchCandidate _candidate({
   String id = 'song-1',
   required String name,
   required String artist,
+  MusicDataSource source = MusicDataSource.buguyy,
+  String album = '',
+  String platform = 'buguyy',
+  MusicQuality quality = const MusicQuality(format: 'mp3'),
 }) {
   return MusicSearchCandidate(
     query: artist,
-    source: MusicDataSource.buguyy,
-    platform: 'buguyy',
+    source: source,
+    platform: platform,
     keyword: artist,
     page: 1,
     id: id,
     name: name,
     artist: artist,
-    album: '',
+    album: album,
     duration: 200,
     link: '',
     coverUrl: '',
-    qualities: const [MusicQuality(format: 'mp3')],
+    qualities: [quality],
     score: 100,
     raw: const {},
   );

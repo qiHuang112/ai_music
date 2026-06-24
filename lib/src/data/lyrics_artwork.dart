@@ -21,7 +21,12 @@ abstract class TrackMetadataProvider {
   Future<TrackMetadata> find(CachedTrack track);
 }
 
-class CandidateArtworkProvider implements TrackMetadataProvider {
+abstract class ArtworkMetadataProvider implements TrackMetadataProvider {}
+
+abstract class LyricsMetadataProvider implements TrackMetadataProvider {}
+
+class CandidateArtworkProvider
+    implements TrackMetadataProvider, ArtworkMetadataProvider {
   const CandidateArtworkProvider();
 
   @override
@@ -31,7 +36,8 @@ class CandidateArtworkProvider implements TrackMetadataProvider {
   }
 }
 
-class EmptyLyricsProvider implements TrackMetadataProvider {
+class EmptyLyricsProvider
+    implements TrackMetadataProvider, LyricsMetadataProvider {
   const EmptyLyricsProvider();
 
   @override
@@ -40,7 +46,8 @@ class EmptyLyricsProvider implements TrackMetadataProvider {
   }
 }
 
-class ResolvedLyricsProvider implements TrackMetadataProvider {
+class ResolvedLyricsProvider
+    implements TrackMetadataProvider, LyricsMetadataProvider {
   const ResolvedLyricsProvider();
 
   @override
@@ -54,7 +61,8 @@ class ResolvedLyricsProvider implements TrackMetadataProvider {
   }
 }
 
-class CachedLyricsFileProvider implements TrackMetadataProvider {
+class CachedLyricsFileProvider
+    implements TrackMetadataProvider, LyricsMetadataProvider {
   const CachedLyricsFileProvider();
 
   @override
@@ -94,13 +102,25 @@ class TrackMetadataRepository {
   static const Duration lyricsMissTtl = Duration(minutes: 30);
 
   Future<TrackMetadata> load(CachedTrack track) async {
+    return _load(track, bypassLyricsMiss: false);
+  }
+
+  Future<TrackMetadata> loadBypassingLyricsMiss(CachedTrack track) async {
+    return _load(track, bypassLyricsMiss: true);
+  }
+
+  Future<TrackMetadata> _load(
+    CachedTrack track, {
+    required bool bypassLyricsMiss,
+  }) async {
     var metadata =
         await _cacheStore.read(track.cacheId) ?? const TrackMetadata();
     if (_isComplete(metadata)) {
       return metadata;
     }
     // 歌词搜索失败通常是来源短时间内确实无结果；半小时内不重复打网络请求。
-    final lyricsMissActive = _hasFreshLyricsMiss(track.cacheId);
+    final lyricsMissActive =
+        !bypassLyricsMiss && _hasFreshLyricsMiss(track.cacheId);
     for (final provider in _providers) {
       if (_shouldSkipProvider(
         provider,
@@ -153,14 +173,19 @@ class TrackMetadataRepository {
             provider is LrcApiLyricsProvider)) {
       return true;
     }
-    if (!metadata.hasLyrics) {
-      return false;
+    final artworkOnly =
+        provider is ArtworkMetadataProvider &&
+        provider is! LyricsMetadataProvider;
+    if (metadata.hasArtwork && artworkOnly) {
+      return true;
     }
-    return provider is ResolvedLyricsProvider ||
-        provider is CachedLyricsFileProvider ||
-        provider is BuguyyLyricsProvider ||
-        provider is LrcApiLyricsProvider ||
-        provider is EmptyLyricsProvider;
+    final lyricsOnly =
+        provider is LyricsMetadataProvider &&
+        provider is! ArtworkMetadataProvider;
+    if (metadata.hasLyrics && lyricsOnly) {
+      return true;
+    }
+    return false;
   }
 
   bool _hasFreshLyricsMiss(String cacheId) {
@@ -235,7 +260,8 @@ List<TrackMetadataProvider> _defaultProviders(MusicResolverHttp httpClient) {
   ];
 }
 
-class BuguyyLyricsProvider implements TrackMetadataProvider {
+class BuguyyLyricsProvider
+    implements TrackMetadataProvider, LyricsMetadataProvider {
   BuguyyLyricsProvider({
     required MusicResolverHttp httpClient,
     String? baseUrl,
@@ -299,7 +325,8 @@ class BuguyyLyricsProvider implements TrackMetadataProvider {
   }
 }
 
-class LrcApiLyricsProvider implements TrackMetadataProvider {
+class LrcApiLyricsProvider
+    implements TrackMetadataProvider, LyricsMetadataProvider {
   const LrcApiLyricsProvider({
     required MusicResolverHttp httpClient,
     this.baseUrl = 'https://api.lrc.cx',

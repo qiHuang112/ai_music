@@ -11,15 +11,12 @@ class SettingsController {
   }
 
   Future<void> save({
+    required MusicDataSource source,
     required AppLanguage language,
     required AppThemePreference theme,
   }) {
     return settingsStore.saveSettings(
-      MusicAppSettings(
-        source: MusicDataSource.buguyy,
-        language: language,
-        theme: theme,
-      ),
+      MusicAppSettings(source: source, language: language, theme: theme),
     );
   }
 }
