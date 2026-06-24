@@ -12,7 +12,7 @@
 
 ## 1.0.0
 
-- Status: released
+- Status: blocked
 - Branch: `main`
 - Release Tag: `v1.0.0`
 - Android APK: `/Users/huangqi/AIHome/projects/ai_music_integration/build/release/ai-music-v1.0.0-android-arm64.apk`
@@ -32,6 +32,13 @@
 - 架构师创建并推送 tag `v1.0.0`。
 - 基于 `v1.0.0` 对应代码构建 Android arm64 release 包，大小约 8.86 MB。
 - 已安装到产品授权的小米 17 Pro `192.168.31.190:45075`，包信息为 `com.qi.ai.music` / `versionCode=2001` / `versionName=1.0.0` / `arm64-v8a` / `lastUpdateTime=2026-06-24 22:02:10`。
+- 2026-06-24 产品反馈该 Android release 包播放后系统播控中心没有出现，`v1.0.0` 发布状态降为 blocked。修复前不得继续把该包作为正式 release 交付；1.0.1 新功能暂停覆盖本 blocker。
+
+## 1.0.0 Blocker
+
+| Request | 问题 | Owner | 状态 | 验收 |
+| --- | --- | --- | --- | --- |
+| AM-20260624-ANDROID-RELEASE-MEDIA-CONTROL | Android release 包播放后系统播控中心消失 | android | urgent_p1 | release 包在小米 10 Pro 和/或小米 17 Pro 播放后系统播控中心出现，四槽为收藏、上一首、播放/暂停、下一首且可用，`dumpsys media_session`/通知/前台服务证据正常 |
 
 ## Worktree 状态
 
