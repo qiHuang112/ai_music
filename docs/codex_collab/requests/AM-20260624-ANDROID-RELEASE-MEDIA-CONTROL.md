@@ -36,6 +36,7 @@ Android lane 需要基于 release 包定位，不允许只用 debug 包证明：
 - Android 13+ / MIUI 通知权限、前台服务权限或 media notification slot 策略在 release 包下表现不同。
 - `POST_NOTIFICATIONS` 缺失可以解释普通通知不可见，但不能单独作为最终根因；Android 官方文档说明 media session 相关通知属于通知运行时权限豁免项。因此如果播放后 `dumpsys media_session` 没有 active session，优先继续查 audio_service 初始化、播放状态发布、service/foreground notification 启动链路。
 - 必须对比旧可用包或旧可用提交与当前 release 的差异，覆盖 `audio_service` active session、`PlaybackState` / `MediaItem` 发布、notification controls、foreground service、manifest service/receiver 和 release 打包差异。
+- 如果当前 release 播放后已经存在 `media-session com.qi.ai.music/media-session`、metadata 和 queue，但 `active=false`、`PlaybackState state=0`，则优先按播放状态链路排查：点击播放是否真正调用 `AudioHandler.play/loadQueue`，`just_audio` 是否报错，`playbackState` 是否发布 `playing`，foreground service 是否因状态未 playing 而未升起。
 - `MediaItem`、`PlaybackState`、`controls`、`androidCompactActionIndices` 在 release 包播放链路中没有正确发布。
 - release 构建脚本、manifest、R8/proguard、签名或安装覆盖导致系统媒体会话未被系统识别。
 
@@ -72,6 +73,7 @@ Android lane 需要基于 release 包定位，不允许只用 debug 包证明：
 
 - debug 包是否正常出现系统播控中心。
 - release 包是否复现系统播控中心消失。
+- 当前 release 播放后如果 session 存在但 inactive，必须提供 `AudioHandler`/`just_audio`/`playbackState` 的调用和错误日志，不能继续停留在通知权限。
 - 播放后 `dumpsys media_session` 关键字段：session 是否存在、active 状态、metadata、state、actions、custom actions。
 - 播放后 `dumpsys notification` 或等价命令中是否有 AI Music media notification。
 - `logcat` 中 audio_service、MediaSession、foreground service、notification 相关错误。
@@ -92,12 +94,15 @@ Android lane 需要基于 release 包定位，不允许只用 debug 包证明：
 - 2026-06-24 type=product_decision lane=product status=approved_dev_device_uninstall summary=产品确认小米 10 Pro 是开发验证机，允许卸载当前旧包后安装本次 release 包验证；该授权只适用于小米 10 Pro，不适用于小米 17 Pro。
 - 2026-06-24 type=status lane=architect status=ready_for_android_validation summary=架构师已在小米 10 Pro `192.168.31.76:41325` 卸载旧包并安装 release 包成功，包 `versionCode=2001`、`versionName=1.0.0`、`lastUpdateTime=2026-06-24 22:32:22`。通知权限已通过 ADB 授权，`POST_NOTIFICATION: allow`，runtime `android.permission.POST_NOTIFICATIONS: granted=true`。下一步由 Android lane 在小米 10 Pro 播放歌曲并回传 active media session、notification/logcat 和四槽位证据。
 - 2026-06-24 type=product_correction lane=product status=scope_correction summary=产品明确纠偏：Android P1 不是让团队实现通知权限，而是找回之前已经支持过、现在 release 包回归丢失的系统播控中心能力。通知权限只是可能的兼容/排查点，不能作为需求本身，也不能在没有播放后 active session/四槽位证据时 declared fixed。
+- 2026-06-24 type=blocker lane=android status=playback_session_not_active summary=Android lane 在小米 10 Pro release 包中搜索 `Taylor`，下载并点击播放 `last christmas / taylor`。`dumpsys media_session` 显示 `media-session com.qi.ai.music/media-session` 存在，metadata 为 `last christmas, taylor`，queue size=1，但 `active=false`，`PlaybackState state=0 position=0 actions=3669711`；notification 中未抓到 AI Music 媒体通知。结论：安装和通知权限 blocker 已解除，当前核心是 release 下点击播放后 audio_service/just_audio 状态没有进入 active/playing。
+- 2026-06-24 type=evidence_update lane=product status=playback_state_root_cause_direction summary=产品确认当前根因方向应从“通知权限”切到“release 下播放状态没有进入 active/playing 或 playbackState 没发布”。后续 review 优先卡点击播放后音频是否实际开始、`AudioHandler.play` / `playbackState.add` 是否执行、`processingState` / `playing` 是否更新、release 与 debug 在该链路是否不同、8MB arm64 包是否缺 `audio_service` 类、manifest service/receiver 或 notification controls。
+- 2026-06-24 type=review_result lane=architect status=changes_requested summary=Android 的新定位方向正确：继续查播放按钮触发、`AudioHandler.play/loadQueue`、`just_audio` 错误、foreground service 和 playbackState 发布。架构师本地未找到可直接交付的旧可用 APK 路径；Android 需要从 git 历史、早期 release 或已知旧提交中找旧可用包/commit 做对照。
 
 ## Review 结果
 
 - Reviewer Lane: architect
 - Result: changes_requested
-- Android Findings: `POST_NOTIFICATIONS` 声明和 Android 13+ 运行时请求方向可以继续，`MainActivity` 仍继承 `AudioServiceActivity`，未发现破坏 audio_service 初始化的明显问题。但当前只证明了权限请求弹窗出现，还没有证明产品允许权限后 release 播放能恢复 active MediaSession、media notification 和四槽位。`test/release_config_test.dart` 的 reason 文案和知识库现象说明需收敛为“小米/Android 13+ release 兼容条件”，不要表述成 Android 官方一定隐藏 media notification。
+- Android Findings: `POST_NOTIFICATIONS` 声明和 Android 13+ 运行时请求方向可以保留为兼容修复，但不是根因闭环。小米 10 Pro release 证据显示 session、metadata、queue 已出现但 `active=false`、`PlaybackState state=0`，因此当前主线应转向播放状态链路：播放入口、`AudioHandler.play/loadQueue`、`just_audio` 错误、foreground service 和 `playbackState` 发布。accepted 前必须看到 release 播放后 active MediaSession、media notification 和四槽位可用。
 - iOS Findings: 不涉及。
 - HarmonyOS Findings: 不涉及。
 - Architect Findings: `v1.0.0` tag 已存在，但发布状态已降为 blocked。修复闭环前不继续把当前 release APK 当作正式交付包。当前小米 10 Pro 已可用于 release 验证：release 包安装成功且通知权限已授权。Android lane 必须按“恢复既有系统播控能力”验收，拿到播放后 active MediaSession、notification controls 和四槽位可用证据后，再回 architect lane 发 `review_request`。
