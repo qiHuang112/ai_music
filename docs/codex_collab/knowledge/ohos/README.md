@@ -19,4 +19,5 @@
 
 ## 经验条目
 
-- 暂无。后续遇到可复用问题时在本目录新增 Markdown 文件。
+- [HarmonyOS AVSession 元数据与系统播控接入](avsession-metadata-controls.md)：记录系统播控中心 metadata、状态、按钮命令、HDC/hidumper 验证和回归排查经验。
+- [HarmonyOS MediaSource 旧队列与预加载 ownership](media-source-cache-and-preload.md)：记录下载后立即播放、串歌、无声、旧 `mediaSources` 复用和预加载播放器释放相关排查经验。
