@@ -37,6 +37,7 @@ Android lane 需要基于 release 包定位，不允许只用 debug 包证明：
 - `POST_NOTIFICATIONS` 缺失可以解释普通通知不可见，但不能单独作为最终根因；Android 官方文档说明 media session 相关通知属于通知运行时权限豁免项。因此如果播放后 `dumpsys media_session` 没有 active session，优先继续查 audio_service 初始化、播放状态发布、service/foreground notification 启动链路。
 - 必须对比旧可用包或旧可用提交与当前 release 的差异，覆盖 `audio_service` active session、`PlaybackState` / `MediaItem` 发布、notification controls、foreground service、manifest service/receiver 和 release 打包差异。
 - 如果当前 release 播放后已经存在 `media-session com.qi.ai.music/media-session`、metadata 和 queue，但 `active=false`、`PlaybackState state=0`，则优先按播放状态链路排查：点击播放是否真正调用 `AudioHandler.play/loadQueue`，`just_audio` 是否报错，`playbackState` 是否发布 `playing`，foreground service 是否因状态未 playing 而未升起。
+- 当前最强根因假设：release logcat 出现 `IllegalArgumentException: You must specify an icon resource id to build a CustomAction`；源码里有 `ic_notification_favorite*.xml`，但 8.86MB release APK 的 `aapt dump resources` 未看到这两个资源。自定义收藏 action 的 `androidIcon` 在 release APK 中不可用，会导致 `audio_service` 构建 `CustomAction` 失败，进而阻断 `playbackState`/notification 发布。
 - `MediaItem`、`PlaybackState`、`controls`、`androidCompactActionIndices` 在 release 包播放链路中没有正确发布。
 - release 构建脚本、manifest、R8/proguard、签名或安装覆盖导致系统媒体会话未被系统识别。
 
@@ -60,6 +61,7 @@ Android lane 需要基于 release 包定位，不允许只用 debug 包证明：
 ## 验收标准
 
 - Android release 包安装后，播放一首歌曲，系统播控中心必须重新出现。
+- `aapt dump resources` 必须能证明自定义收藏 action 使用的图标资源已经进入 release APK，或代码改为使用 release APK 中确定存在的内置/应用资源。
 - 四槽位顺序保持既定口径：收藏/取消收藏、上一首、播放/暂停、下一首。
 - 收藏、上一首、播放/暂停、下一首均可用。
 - 不能把“通知权限已声明/已授权”当作 accepted 条件；accepted 条件必须是播放后播控中心出现且四槽位可见可点。
@@ -77,6 +79,8 @@ Android lane 需要基于 release 包定位，不允许只用 debug 包证明：
 - 播放后 `dumpsys media_session` 关键字段：session 是否存在、active 状态、metadata、state、actions、custom actions。
 - 播放后 `dumpsys notification` 或等价命令中是否有 AI Music media notification。
 - `logcat` 中 audio_service、MediaSession、foreground service、notification 相关错误。
+- 如果曾出现 `You must specify an icon resource id to build a CustomAction`，修复后必须提供小米 10 release 播放 logcat 证明该异常消失。
+- `aapt dump resources` 对比：当前 8.86MB arm64 release 是否缺少 `ic_notification_favorite` / `ic_notification_favorite_border`，修复后这两个资源是否进入 APK；或者说明已改用其它有效资源。
 - release 构建是否启用了 shrink/minify/resource shrink；如启用，需要验证 proguard keep 和资源是否被裁。
 - 旧可用包或旧可用提交与当前 release 的关键差异：manifest、service/receiver、foreground service、notification controls、`audio_service` 初始化和 playback state 发布。
 
@@ -97,12 +101,13 @@ Android lane 需要基于 release 包定位，不允许只用 debug 包证明：
 - 2026-06-24 type=blocker lane=android status=playback_session_not_active summary=Android lane 在小米 10 Pro release 包中搜索 `Taylor`，下载并点击播放 `last christmas / taylor`。`dumpsys media_session` 显示 `media-session com.qi.ai.music/media-session` 存在，metadata 为 `last christmas, taylor`，queue size=1，但 `active=false`，`PlaybackState state=0 position=0 actions=3669711`；notification 中未抓到 AI Music 媒体通知。结论：安装和通知权限 blocker 已解除，当前核心是 release 下点击播放后 audio_service/just_audio 状态没有进入 active/playing。
 - 2026-06-24 type=evidence_update lane=product status=playback_state_root_cause_direction summary=产品确认当前根因方向应从“通知权限”切到“release 下播放状态没有进入 active/playing 或 playbackState 没发布”。后续 review 优先卡点击播放后音频是否实际开始、`AudioHandler.play` / `playbackState.add` 是否执行、`processingState` / `playing` 是否更新、release 与 debug 在该链路是否不同、8MB arm64 包是否缺 `audio_service` 类、manifest service/receiver 或 notification controls。
 - 2026-06-24 type=review_result lane=architect status=changes_requested summary=Android 的新定位方向正确：继续查播放按钮触发、`AudioHandler.play/loadQueue`、`just_audio` 错误、foreground service 和 playbackState 发布。架构师本地未找到可直接交付的旧可用 APK 路径；Android 需要从 git 历史、早期 release 或已知旧提交中找旧可用包/commit 做对照。
+- 2026-06-24 type=review_evidence lane=product status=root_cause_likely_confirmed summary=新证据显示 logcat 有 `IllegalArgumentException: You must specify an icon resource id to build a CustomAction`；源码有 `ic_notification_favorite*.xml`，但当前 8.86MB release APK 的 `aapt dump resources` 没有这两个资源。音频实际在播，metadata/queue 有，但 playbackState 卡 `state=0`、notification 不出。根因高度指向自定义收藏 action 的 `androidIcon` 资源在 release APK 中不可用，导致 `audio_service` 构建 `CustomAction` 失败。
 
 ## Review 结果
 
 - Reviewer Lane: architect
 - Result: changes_requested
-- Android Findings: `POST_NOTIFICATIONS` 声明和 Android 13+ 运行时请求方向可以保留为兼容修复，但不是根因闭环。小米 10 Pro release 证据显示 session、metadata、queue 已出现但 `active=false`、`PlaybackState state=0`，因此当前主线应转向播放状态链路：播放入口、`AudioHandler.play/loadQueue`、`just_audio` 错误、foreground service 和 `playbackState` 发布。accepted 前必须看到 release 播放后 active MediaSession、media notification 和四槽位可用。
+- Android Findings: `POST_NOTIFICATIONS` 声明和 Android 13+ 运行时请求方向可以保留为兼容修复，但不是根因闭环。小米 10 Pro release 证据显示 session、metadata、queue 已出现但 `active=false`、`PlaybackState state=0`；新增 logcat 和 APK 资源证据进一步指向自定义收藏 action 的 `androidIcon` 资源在 release APK 中不可用，导致 `CustomAction` 构建异常。accepted 前必须看到 `aapt dump resources` 证明图标资源进入 APK或已改用有效资源、小米 10 release 播放 logcat 无该异常、active MediaSession、media notification 和四槽位可用。
 - iOS Findings: 不涉及。
 - HarmonyOS Findings: 不涉及。
 - Architect Findings: `v1.0.0` tag 已存在，但发布状态已降为 blocked。修复闭环前不继续把当前 release APK 当作正式交付包。当前小米 10 Pro 已可用于 release 验证：release 包安装成功且通知权限已授权。Android lane 必须按“恢复既有系统播控能力”验收，拿到播放后 active MediaSession、notification controls 和四槽位可用证据后，再回 architect lane 发 `review_request`。
