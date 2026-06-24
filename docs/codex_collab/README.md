@@ -34,7 +34,8 @@
 10. 新功能、修复或可交互体验达到“可以让用户试”的状态时，负责人 lane 或架构师必须及时通知 product lane，也就是当前产品会话。
 11. 功能闭环后，owner lane 可以先本地提交并发给架构师 review；架构师 review 通过且 owner 自测通过后，架构师可以直接合入主分支并推送，不再等待 product 逐次确认。
 12. 任何 lane 发出 `task`、`review_request`、`review_result`、`status` 询问或等待对方回应后，如果 10 到 15 分钟没有反馈，应主动追问一次，确认对方是否正在工作、是否卡住或是否漏回消息；不要让任务静默卡住。
-13. UI lane 当前处于 onboarding，只负责熟悉 APP 页面、截图体验和 UI 建议；product 未明确要求 UI 验收或 UI 开发时，不加入自动化 review 流程。
+13. 不允许所有人停着等 product 催。只要任务未闭环，owner lane 和 architect lane 都有推进责任：能继续排查就继续排查，能自测就自测，能 review 就 review；如果卡住，必须主动发 `blocker` 写清卡点、已尝试动作和需要谁决策。
+14. UI lane 当前处于 onboarding，只负责熟悉 APP 页面、截图体验和 UI 建议；product 未明确要求 UI 验收或 UI 开发时，不加入自动化 review 流程。
 
 ## 版本与推送规则
 
@@ -97,6 +98,7 @@
 - 如果 review 没有问题，架构师要回传 `review_result`，并把任务状态更新为 `accepted`。
 - 如果 review 有问题，架构师要给对应 lane 发送 `review_result` 或 `task`，写清楚 priority、文件位置、问题原因和期望修复。
 - 开发 lane 修完后，再次请求架构师 review，直到 `accepted`。
+- `accepted` 前，如果 owner lane、architect lane 或依赖 lane 超过 10 到 15 分钟没有新状态，等待方必须主动追问；如果连续追问仍无进展，架构师要改为明确 `blocked` 或重新分配 owner，不能让任务挂起到 product 再来催。
 
 ## 知识沉淀规则
 

@@ -35,6 +35,7 @@
 - 架构师 review 后，要按实际影响范围分类 findings，并只分发给相关 lane。
 - 任何 lane 发出任务、review、状态询问或等待对方回应后，10 到 15 分钟没有反馈就主动追问一次，确认对方是否正在工作、卡住或漏回；不要无限被动等待。
 - 架构师 lane 对已发出的 review/task/handoff 负有跟进责任，owner lane 长时间不回应时要主动追状态。
+- 不允许所有 lane 停住等 product 催。任务未闭环时，owner lane 要主动推进实现/自测/review_request；architect lane 要主动推进 review/合入/推送/装包；遇到阻塞必须发 `blocker`，不能只保持 idle。
 - 主目录 `/Users/huangqi/AIHome/ai_music` 只用于 `main` 稳定主线和产品验收；开发 lane 不在主目录日常开发或切分支。
 - 架构师负责创建 `release/x.y.z` 和 request worktree，并在任务单里写清 `Target Version`、`Work Branch`、`Worktree Path`、`Base Branch` 和 `Merge Branch`。
 - 开发 lane 只在自己分配的 worktree 开发，不复用其它 lane 的 stash，不把未 review 代码合入 release 分支。

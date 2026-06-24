@@ -95,6 +95,20 @@
 - 如果需要 release 包或 tag，由架构师按版本规则打 tag、构建 Android release 包并推送 tag。
 - product 验证最新包后如发现问题，重新进入 bug_report / changes_requested 流程。
 
+## 2026-06-24：任务未闭环时禁止全员停等 Product 催促
+
+决策：任何未闭环任务都必须由 owner lane 和 architect lane 主动推进，不允许所有人停在 idle、等待、定位结论或待投递状态，直到 product 再次催促。等待 review、等待设备、等待其它 lane、等待合入或等待推送时，10 到 15 分钟没有新反馈就必须主动追问；如果无法继续推进，必须发 `blocker`。
+
+原因：AI Music 现在以可用 App 为目标快速迭代，product 不应该承担流程催办和状态追踪成本。团队必须自己闭环：修复、验证、review、合入、推送、装包、通知 product。
+
+规则：
+
+- owner lane 不能只完成定位报告；根因明确后要继续推动修复，除非明确 blocker。
+- architect lane 不能只更新任务单；需要跟进 owner lane 到 review、合入、推送和安装。
+- 依赖其它 lane 时，等待方负责 10 到 15 分钟后主动追问。
+- 如果连续无进展，架构师必须重新分配 owner、拆分任务或标记 blocked。
+- product lane 只验收最新包和反馈问题，不负责日常催办。
+
 ## 2026-06-22：多开发并行使用 git worktree
 
 决策：主目录 `/Users/huangqi/AIHome/ai_music` 只作为 `main` 稳定主线和产品验收入口，不再作为多个 lane 共用的日常开发目录。开发 lane 必须在架构师分配的独立 worktree 中开发。
