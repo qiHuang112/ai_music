@@ -27,6 +27,37 @@ void main() {
     expect(gradle, contains('Release signing is not configured'));
   });
 
+  test('android media controls request notification permission', () async {
+    final manifest = await File(
+      'android/app/src/main/AndroidManifest.xml',
+    ).readAsString();
+    final mainActivity = await File(
+      'android/app/src/main/kotlin/com/qi/ai/music/MainActivity.kt',
+    ).readAsString();
+
+    expect(
+      manifest,
+      contains('android.permission.POST_NOTIFICATIONS'),
+      reason:
+          'Android 13+ / MIUI release builds need notification permission '
+          'declared and requested for stable media notification visibility.',
+    );
+    expect(mainActivity, contains('Manifest.permission.POST_NOTIFICATIONS'));
+    expect(mainActivity, contains('requestPermissions('));
+  });
+
+  test(
+    'android media custom action icons are kept in release resources',
+    () async {
+      final keep = await File(
+        'android/app/src/main/res/raw/keep.xml',
+      ).readAsString();
+
+      expect(keep, contains('@drawable/ic_notification_favorite'));
+      expect(keep, contains('@drawable/ic_notification_favorite_border'));
+    },
+  );
+
   test(
     'release signing secrets are ignored and dependency overrides removed',
     () async {
