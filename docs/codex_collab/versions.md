@@ -12,17 +12,26 @@
 
 ## 1.0.0
 
-- Status: release_ready
-- Branch: `release/1.0.0`
-- Release Tag: pending `v1.0.0`
-- Android APK: pending final tag build
+- Status: released
+- Branch: `main`
+- Release Tag: `v1.0.0`
+- Android APK: `/Users/huangqi/AIHome/projects/ai_music_integration/build/release/ai-music-v1.0.0-android-arm64.apk`
+- Android APK SHA256: `54230c472cda52da0dd56d498edb98b8335ba5da50dead02d3bcce73c7a2d4e3`
 - Frozen At: 2026-06-22
 - Feature Count: 2
 
 | Request | 功能 | Owner | Work Branch | 状态 | Commit | Release |
 | --- | --- | --- | --- | --- | --- | --- |
-| AM-20260622-002 | 安卓播控收藏、随机短听跳过和收藏进度条回归修复 | android | main 迁移前已完成 | pushed/accepted | `74b8bea` | pending |
-| AM-20260622-003 | 恢复 FLAC 源、Auto 双源搜索、搜索展示优化、歌词封面基础恢复 | android | `lane/integration` 验收后合入 `main` | accepted | `71a51bd` | pending `v1.0.0` |
+| AM-20260622-002 | 安卓播控收藏、随机短听跳过和收藏进度条回归修复 | android | main 迁移前已完成 | pushed/accepted | `74b8bea` | `v1.0.0` |
+| AM-20260622-003 | 恢复 FLAC 源、Auto 双源搜索、搜索展示优化、歌词封面基础恢复 | android | `lane/integration` 验收后合入 `main` | pushed/accepted | `d032dca` | `v1.0.0` |
+
+## 1.0.0 发布记录
+
+- 2026-06-24 产品已在小米 17 Pro 验收 integration 包体验 OK，授权合入主线和发布 `v1.0.0`。
+- 架构师将业务提交 `d032dca` 和账本提交 `2cd71ea` 推送到 `origin/main`。
+- 架构师创建并推送 tag `v1.0.0`。
+- 基于 `v1.0.0` 对应代码构建 Android arm64 release 包，大小约 8.86 MB。
+- 已安装到产品授权的小米 17 Pro `192.168.31.190:45075`，包信息为 `com.qi.ai.music` / `versionCode=2001` / `versionName=1.0.0` / `arm64-v8a` / `lastUpdateTime=2026-06-24 22:02:10`。
 
 ## Worktree 状态
 
@@ -40,11 +49,13 @@
 ## 1.0.1
 
 - Status: planned
-- Branch: `release/1.0.1`
+- Branch: `main` + lane branch
 - Release Tag: pending
 - Android APK: pending
 - Frozen At: pending
-- Feature Count: 0
+- Feature Count: 2
 
 | Request | 功能 | Owner | Work Branch | 状态 | Commit | Release |
 | --- | --- | --- | --- | --- | --- | --- |
+| AM-20260624-002 | 播放状态持久化，优先开工 | android | `lane/android` | assigned | pending | 1.0.1 |
+| AM-20260624-001 | 歌词/封面稳定加载 pipeline，第二优先级 | android | `lane/android` | assigned | pending | 1.0.1 |
