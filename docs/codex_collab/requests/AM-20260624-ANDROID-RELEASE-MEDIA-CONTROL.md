@@ -84,6 +84,8 @@ Android lane 需要基于 release 包定位，不允许只用 debug 包证明：
 - 2026-06-24 type=follow_up lane=product status=action_required summary=产品强调设备规则：Android lane 开发验证使用小米 10 Pro，小米 17 Pro 只做最终验收。架构师需盯住本 P1，不让 1.0.1 新功能覆盖；等 Android 回小米 10 验证结果后快速给 accepted/changes_requested/blocker 结论，并主动回 Android 和 product。
 - 2026-06-24 type=coordination lane=architect status=blocker summary=Android 构建环境卡住后，架构师选择 B 路径接手构建环境协助：停止卡住的 integration debug build / Gradle daemon，并用 integration 当前修复现场成功构建 arm64 release 包 `build/release/ai-music-v1.0.0-android-arm64.apk`，大小约 8.86 MB，sha256 `0b896cb87a42e21d9962e0707fc24a4c32dd81c45170df71368afa60451a88e3`。安装到小米 10 Pro `192.168.31.76:41325` 时失败，原因为设备已有 `com.qi.ai.music` 的签名不同：`INSTALL_FAILED_UPDATE_INCOMPATIBLE`。小米 10 Pro 当前包 `versionCode=1`、`versionName=1.0.0`、`lastUpdateTime=2026-06-24 07:31:56`。下一步需要 Android/产品确认是否允许卸载小米 10 Pro 现有包后安装 release，或改用一致签名体系重打包；业务修复仍归 Android。
 - 2026-06-24 type=status lane=architect status=blocker summary=按 product 要求复查第二条 debug build，pid `96369`/`96453` 超过 2 分半仍停在 `assembleDebug`，未产出新的 debug 包。架构师已停止该 debug build 和 Gradle daemon，不再无声重试 debug 路径。当前可用验证包为已成功构建的 release APK：`build/release/ai-music-v1.0.0-android-arm64.apk`，sha256 `0b896cb87a42e21d9962e0707fc24a4c32dd81c45170df71368afa60451a88e3`。下一步仍是解决小米 10 Pro 签名冲突后安装 release 包验证，或 Android 提供同签名 release/debug 构建。
+- 2026-06-24 type=product_decision lane=product status=approved_dev_device_uninstall summary=产品确认小米 10 Pro 是开发验证机，允许卸载当前旧包后安装本次 release 包验证；该授权只适用于小米 10 Pro，不适用于小米 17 Pro。
+- 2026-06-24 type=status lane=architect status=ready_for_android_validation summary=架构师已在小米 10 Pro `192.168.31.76:41325` 卸载旧包并安装 release 包成功，包 `versionCode=2001`、`versionName=1.0.0`、`lastUpdateTime=2026-06-24 22:32:22`。通知权限已通过 ADB 授权，`POST_NOTIFICATION: allow`，runtime `android.permission.POST_NOTIFICATIONS: granted=true`。下一步由 Android lane 在小米 10 Pro 播放歌曲并回传 active media session、notification/logcat 和四槽位证据。
 
 ## Review 结果
 
@@ -92,4 +94,4 @@ Android lane 需要基于 release 包定位，不允许只用 debug 包证明：
 - Android Findings: `POST_NOTIFICATIONS` 声明和 Android 13+ 运行时请求方向可以继续，`MainActivity` 仍继承 `AudioServiceActivity`，未发现破坏 audio_service 初始化的明显问题。但当前只证明了权限请求弹窗出现，还没有证明产品允许权限后 release 播放能恢复 active MediaSession、media notification 和四槽位。`test/release_config_test.dart` 的 reason 文案和知识库现象说明需收敛为“小米/Android 13+ release 兼容条件”，不要表述成 Android 官方一定隐藏 media notification。
 - iOS Findings: 不涉及。
 - HarmonyOS Findings: 不涉及。
-- Architect Findings: `v1.0.0` tag 已存在，但发布状态已降为 blocked。修复闭环前不继续把当前 release APK 当作正式交付包。Android lane 完成 wording 回改并拿到开发机或验收机 release 播放证据后，再回 architect lane 发 `review_request`。当前小米 10 Pro release 安装被签名不一致阻塞，需明确允许卸载开发机现有包，或统一签名后再验证。
+- Architect Findings: `v1.0.0` tag 已存在，但发布状态已降为 blocked。修复闭环前不继续把当前 release APK 当作正式交付包。当前小米 10 Pro 已可用于 release 验证：release 包安装成功且通知权限已授权。Android lane 完成 wording 回改并拿到开发机 release 播放证据后，再回 architect lane 发 `review_request`。
