@@ -47,6 +47,9 @@
 | 2026-06-22 | AM-20260622-002 | architect | android | accepted | 第八轮复审通过：`syncControlState()` 同步收藏控件时补齐当前 position、buffer、speed 和 queueIndex，避免只刷新 controls 导致 Android 系统播控进度条按旧 position/新 timestamp 跳变；测试覆盖不触发 loadQueue、restore 或 seek，小米 10 Pro 证据显示收藏/取消收藏后进度自然前进且队列不变。提交范围限 AM-002 三个业务/测试文件。 |
 | 2026-06-23 | AM-20260623-001 | architect | ohos | accepted | 首页默认展示收藏和自建歌单实现通过：提交 `9d38b5a` 只改公共展示层和 widget 测试，未触碰 `MusicController`、播放链路、搜索/FLAC/metadata 或平台宿主；未搜索首页展示收藏/自建歌单入口，搜索态隐藏默认首页，清空搜索恢复默认首页。接受点击进入现有详情页的保守实现，直接播放整列表后续另拆。 |
 | 2026-06-23 | AM-20260623-001 | product | ohos | changes_requested | 产品补充小回改：默认首页已经展示“我的音乐”、收藏和自建歌单入口后，搜索框下方旧空态提示块应移除，包括 icon、“搜索音乐”和“输入歌手或歌曲名，下载后会保存在本机缓存里。”修复后仍需保留收藏/歌单入口，搜索输入和搜索结果状态不能回退。 |
+| 2026-06-24 | AM-20260623-003 | product | ohos | blocker | 产品澄清新 P1 串歌发生在 HarmonyOS，Android 没有问题。ohos lane 为主 owner，需复现并排查 `just_audio_harmonyos` 本地 fd/data source、AVPlayer source、预加载播放器升格、AVSession metadata 与 Dart mediaItem 是否错位；accepted 前必须提供鸿蒙测试机 3 首不同歌曲逐个点击播放不串歌证据。 |
+| 2026-06-24 | AM-20260623-003 | architect | ohos | blocked | 进一步定位为 HarmonyOS vendored plugin 缓存旧 `MediaSource` 队列：full `load` 前没有清空/刷新 `mediaSources`，native `songList` 沿用旧 3 首队列。请在 `lane/ohos` 修 `AudioPlayer.ets` mediaSources 刷新和 `MediaAvPlayer.loadAssent()` 越界/load failure 可靠回传；Android 公共 Dart 队列修复降为后续安全加固/必要时协助。 |
+| 2026-06-24 | AM-20260623-003 | architect | ohos | in_progress_fix | 已分派 ohos 直接进入修复阶段，不再等待新 worktree：在 `/Users/huangqi/AIHome/projects/ai_music_ohos` 的 `lane/ohos` 修改 `AudioPlayer.ets` full load 清空/刷新 `mediaSources`，并修改 `MediaAvPlayer.loadAssent()` 越界/load failure 可靠回传 Dart。修复后构建 signed HAP，安装到 `192.168.31.53:10178`，复测 `qi` 歌单后搜索/下载/播放多首 `yellow` 的串歌路径。 |
 
 ## 结果值
 

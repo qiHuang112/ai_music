@@ -305,7 +305,7 @@ export class AudioPlayer implements MethodCallHandler, onChangeMediaAvPlayerStat
         case "load":
           let initialPosition: number = call.argument("initialPosition");
           let initialIndex: number = call.argument("initialIndex");
-          await this.load(this.getAudioSource(call.argument("audioSource")),
+          await this.load(this.getFreshAudioSource(call.argument("audioSource")),
             initialPosition == null ? AudioPlayer.TIME_UNSET : initialPosition / 1000,
             initialIndex, result);
           break;
@@ -558,6 +558,12 @@ export class AudioPlayer implements MethodCallHandler, onChangeMediaAvPlayerStat
       }
     }
     return mediaSource;
+  }
+
+  private getFreshAudioSource(json: Any): MediaSource {
+    // just_audio may reuse source ids between full queue loads; stale native trees must not survive.
+    this.mediaSources.clear();
+    return this.getAudioSource(json);
   }
 
   private async load(mediaSource: MediaSource, initialPosition: number, initialIndex: number, result: MethodResult) {
