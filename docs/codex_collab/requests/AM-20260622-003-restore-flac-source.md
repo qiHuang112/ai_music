@@ -4,14 +4,14 @@
 - Owner lane: android
 - Architect lane: architect
 - Product lane: product
-- Status: assigned
+- Status: accepted
 - Target Version: 1.0.0
-- Base Branch: release/1.0.0
-- Work Branch: feature/1.0.0/AM-20260622-003-restore-flac-source
-- Worktree Path: /Users/huangqi/AIHome/worktrees/ai_music/android-AM-20260622-003
-- Merge Branch: release/1.0.0
+- Base Branch: main
+- Work Branch: lane/integration
+- Worktree Path: /Users/huangqi/AIHome/projects/ai_music_integration
+- Merge Branch: main
 - Created: 2026-06-22
-- Updated: 2026-06-22
+- Updated: 2026-06-24
 
 ## 背景
 
@@ -22,8 +22,16 @@
 - 设置页恢复 `Auto`、`BuguYY`、`FLAC` 三种资源源入口。
 - `BuguYY` 单源模式只走布谷歪歪，不被 FLAC 异常拖慢或拖垮。
 - `FLAC` 单源模式能走现有 `FlacResolver` / `ChallengeClient` / `MusicDataSource.flac` 链路。
-- `Auto` 模式沿用旧语义：先尝试布谷歪歪；布谷歪歪为空或失败时再 fallback 到 FLAC。
-- 搜索结果要清楚展示候选真实来源，避免用户分不清来自 BuguYY 还是 FLAC。
+- `Auto` 模式为 BuguYY 和 FLAC 双源并搜：先返回的一路先展示，另一路返回后稳定合并，不能空白等待两个源都返回。
+- 搜索结果左侧展示候选真实来源：BuguYY 显示“布谷”，FLAC 显示 `FLAC`；副标题不重复来源，不展示平台字段。
+- 副标题收敛为作者、专辑、最多一组格式与大小；FLAC 来源如果左侧已有 `FLAC` 标记，副标题不再重复 `FLAC` 文案。
+- FLAC 候选和 resolve 需要解析封面和歌词字段；下载/历史缓存刷新时可补歌词和封面，但不能重新下载音频。
+- 播放页“暂无歌词”时自动尝试恢复一次，并提供“重新获取歌词”入口；手动重试绕过 miss TTL。
+- 暂停状态下，用户点击搜索结果播放、上一首、下一首或队列跳转等明确播放动作，新歌应自动开始播放。
+- 下载完成后搜索结果播放按钮应立即出现，metadata 补全和完整缓存刷新不得阻塞 UI。
+- 已有封面的缓存歌曲播放时复用现有 metadata，不重复走网络封面 provider。
+- 搜索结果中当前播放的缓存歌曲应有明确播放态反馈，不能让用户误判没有播放。
+- 下载和 resolve 必须继续按候选真实 `source` 分派，不把 `auto` 候选传入 resolve。
 - 下载和 resolve 必须继续按候选真实 `source` 分派，不把 `auto` 候选传入 resolve。
 - 失败降级、设置持久化和历史配置读取需要有测试覆盖。
 - 核心真机验收用例：搜索《黑夜传说》。该歌布谷YY没有，`flac.music.hi.cn` 有；多源搜索必须能在布谷YY无结果时展示 FLAC 源结果。
@@ -35,6 +43,8 @@
 2026-06-22 产品补充核心验收用例：搜索《黑夜传说》。android lane 后续实现和 review_request 必须提供真机或模拟器上的 ADB 自测流程与日志摘要，证明 Auto 模式在 BuguYY 无结果时能展示 FLAC 结果。
 
 2026-06-22 版本/worktree 规则落地后，本任务分配到独立 worktree：`/Users/huangqi/AIHome/worktrees/ai_music/android-AM-20260622-003`，分支为 `feature/1.0.0/AM-20260622-003-restore-flac-source`。android lane 后续不得在主目录 `/Users/huangqi/AIHome/ai_music` 继续开发 AM-003。
+
+2026-06-24 产品确认小米 17 Pro 上的 latest integration Android 包体验 OK，允许合并。架构师复审后将 integration staged 业务改动整理为提交 `71a51bd` 并合入 `main`。本提交覆盖 Auto 双源渐进搜索、搜索展示收敛、FLAC 歌词/封面字段解析、历史缓存 metadata 恢复、播放页重试入口、下载后缓存状态即时刷新、已有封面不重复拉取和暂停切歌自动播放。验证通过 `flutter analyze --no-pub`、`flutter test --no-pub` 121 项；基于 integration 验收包安装到小米 17 Pro `192.168.31.190:45075`，产品反馈 OK。
 
 ## Review 要求
 

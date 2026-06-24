@@ -12,17 +12,17 @@
 
 ## 1.0.0
 
-- Status: frozen_in_progress
+- Status: release_ready
 - Branch: `release/1.0.0`
-- Release Tag: pending
-- Android APK: pending
+- Release Tag: pending `v1.0.0`
+- Android APK: pending final tag build
 - Frozen At: 2026-06-22
 - Feature Count: 2
 
 | Request | 功能 | Owner | Work Branch | 状态 | Commit | Release |
 | --- | --- | --- | --- | --- | --- | --- |
 | AM-20260622-002 | 安卓播控收藏、随机短听跳过和收藏进度条回归修复 | android | main 迁移前已完成 | pushed/accepted | `74b8bea` | pending |
-| AM-20260622-003 | 恢复 `flac.music.hi.cn` 资源源 | android | `feature/1.0.0/AM-20260622-003-restore-flac-source` | assigned | pending | pending |
+| AM-20260622-003 | 恢复 FLAC 源、Auto 双源搜索、搜索展示优化、歌词封面基础恢复 | android | `lane/integration` 验收后合入 `main` | accepted | `71a51bd` | pending `v1.0.0` |
 
 ## Worktree 状态
 

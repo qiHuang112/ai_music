@@ -55,6 +55,7 @@
 | 2026-06-24 | AM-20260623-003 | architect | ohos | blocked | 进一步定位为 HarmonyOS vendored plugin 缓存旧 `MediaSource` 队列：full `load` 前没有清空/刷新 `mediaSources`，native `songList` 沿用旧 3 首队列。请在 `lane/ohos` 修 `AudioPlayer.ets` mediaSources 刷新和 `MediaAvPlayer.loadAssent()` 越界/load failure 可靠回传；Android 公共 Dart 队列修复降为后续安全加固/必要时协助。 |
 | 2026-06-24 | AM-20260623-003 | architect | ohos | in_progress_fix | 已分派 ohos 直接进入修复阶段，不再等待新 worktree：在 `/Users/huangqi/AIHome/projects/ai_music_ohos` 的 `lane/ohos` 修改 `AudioPlayer.ets` full load 清空/刷新 `mediaSources`，并修改 `MediaAvPlayer.loadAssent()` 越界/load failure 可靠回传 Dart。修复后构建 signed HAP，安装到 `192.168.31.53:10178`，复测 `qi` 歌单后搜索/下载/播放多首 `yellow` 的串歌路径。 |
 | 2026-06-24 | AM-20260623-003 | architect | ohos | accepted | `5916b4c` 鸿蒙播放器旧队列复用修复通过：full load 重建 native source tree，清理旧 next preload，`loadAssent()` 越界/空 uri 可靠上抛；ohos 已在 `qi` 旧队列后连续播放 `yellow1` 到 `yellow4`，metadata、source path、file size 和 `AVPlayer play succeeded` 一致，未再出现串歌/无声。Android/公共 Dart 的下载按钮延迟、搜索结果当前播放态和封面重复拉取 P2 仍后续处理。 |
+| 2026-06-24 | AM-20260622-003 | architect | android | accepted | 产品已在小米 17 Pro 验收 integration 包 OK，架构师复审并合入 `71a51bd`：Auto 双源渐进搜索、来源标记和副标题收敛、FLAC 歌词/封面字段解析、历史缓存 metadata 恢复、播放页重试入口、下载后缓存状态即时刷新、已有封面不重复拉取和暂停切歌自动播放均纳入 1.0.0。验证通过 `flutter analyze --no-pub`、`flutter test --no-pub` 121 项，release APK 约 9MB。 |
 
 ## 结果值
 

@@ -19,6 +19,7 @@
 | 2026-06-22 | AM-20260622-002 | android | `019ee41d-647e-7250-bb01-f1ae81098696` | `74b8bea` | 修复系统收藏进度跳变 | pushed/accepted |
 | 2026-06-23 | AM-20260623-001 | ohos | `019ee7db-7cfc-7c41-9827-6b851ce89548` | pending | 首页默认展示收藏和自建歌单 | accepted |
 | 2026-06-23 | AM-20260623-001 | ohos | `019ee7db-7cfc-7c41-9827-6b851ce89548` | pending | 移除默认首页旧搜索提示 | review_requested |
+| 2026-06-24 | AM-20260622-003 | android | `019ee41d-647e-7250-bb01-f1ae81098696` | `71a51bd` | 完善双源搜索与歌词封面恢复 | accepted |
 
 ## 规则
 
