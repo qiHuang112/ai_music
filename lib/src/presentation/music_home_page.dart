@@ -15,6 +15,7 @@ import 'list_search.dart';
 import 'player_page.dart';
 import 'playlist_actions.dart';
 import 'settings_page.dart';
+import 'swipe_to_skip.dart';
 
 class MusicHomePage extends StatefulWidget {
   const MusicHomePage({super.key, required this.controller});
@@ -1890,51 +1891,58 @@ class _MiniPlayer extends StatelessWidget {
               color: Theme.of(context).colorScheme.surfaceContainerHighest,
               child: SafeArea(
                 top: false,
-                child: InkWell(
-                  onTap: () => _openPlayer(context),
-                  child: Padding(
-                    padding: const EdgeInsets.fromLTRB(16, 10, 8, 10),
-                    child: Row(
-                      children: [
-                        const Icon(Icons.album),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: Column(
-                            mainAxisSize: MainAxisSize.min,
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                item.title,
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                style: Theme.of(context).textTheme.titleSmall,
-                              ),
-                              Text(
-                                item.artist ?? '',
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                              ),
-                            ],
+                child: SwipeToSkip(
+                  key: const ValueKey('mini-player-swipe-area'),
+                  onSwipeLeft: controller.next,
+                  onSwipeRight: controller.previous,
+                  child: InkWell(
+                    onTap: () => _openPlayer(context),
+                    child: Padding(
+                      padding: const EdgeInsets.fromLTRB(16, 10, 8, 10),
+                      child: Row(
+                        children: [
+                          const Icon(Icons.album),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Column(
+                              mainAxisSize: MainAxisSize.min,
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  item.title,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: Theme.of(context).textTheme.titleSmall,
+                                ),
+                                Text(
+                                  item.artist ?? '',
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                              ],
+                            ),
                           ),
-                        ),
-                        IconButton(
-                          tooltip: strings.previous,
-                          onPressed: controller.previous,
-                          icon: const Icon(Icons.skip_previous),
-                        ),
-                        IconButton(
-                          tooltip: state.playing ? strings.pause : strings.play,
-                          onPressed: controller.togglePlayPause,
-                          icon: Icon(
-                            state.playing ? Icons.pause : Icons.play_arrow,
+                          IconButton(
+                            tooltip: strings.previous,
+                            onPressed: controller.previous,
+                            icon: const Icon(Icons.skip_previous),
                           ),
-                        ),
-                        IconButton(
-                          tooltip: strings.next,
-                          onPressed: controller.next,
-                          icon: const Icon(Icons.skip_next),
-                        ),
-                      ],
+                          IconButton(
+                            tooltip: state.playing
+                                ? strings.pause
+                                : strings.play,
+                            onPressed: controller.togglePlayPause,
+                            icon: Icon(
+                              state.playing ? Icons.pause : Icons.play_arrow,
+                            ),
+                          ),
+                          IconButton(
+                            tooltip: strings.next,
+                            onPressed: controller.next,
+                            icon: const Icon(Icons.skip_next),
+                          ),
+                        ],
+                      ),
                     ),
                   ),
                 ),

@@ -158,10 +158,111 @@ void main() {
       controller.dispose();
     }
   });
+
+  testWidgets('player page swipe skips next and previous', (tester) async {
+    final cached = _cachedTrack();
+    final handler = _SpyAudioHandler();
+    final controller = MusicController(
+      audioHandler: handler,
+      resolver: _FakeMusicResolver(),
+      cacheStore: _FakeCacheStore(cached: [cached]),
+      playlistStore: _FakePlaylistStore(),
+      settingsStore: _FakeSettingsStore(),
+      metadataRepository: _StaticMetadataRepository(
+        metadata: const TrackMetadata(),
+      ),
+    );
+
+    try {
+      await controller.initialize();
+      final track = trackFromCached(cached);
+      await controller.playTrack(track);
+      handler.emit(mediaItemFromTrack(track));
+
+      await tester.pumpWidget(
+        AppStringsScope(
+          language: AppLanguage.zh,
+          child: MaterialApp(
+            theme: ThemeData.dark(useMaterial3: true),
+            home: PlayerPage(controller: controller),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      final swipeArea = find.byKey(const ValueKey('player-page-swipe-area'));
+      expect(swipeArea, findsOneWidget);
+
+      await tester.drag(swipeArea, const Offset(-180, 0));
+      await tester.pump();
+      expect(handler.skipNextCalls, 1);
+      expect(handler.skipPreviousCalls, 0);
+
+      await tester.drag(swipeArea, const Offset(180, 0));
+      await tester.pump();
+      expect(handler.skipNextCalls, 1);
+      expect(handler.skipPreviousCalls, 1);
+    } finally {
+      controller.dispose();
+    }
+  });
+
+  testWidgets('player page slider drag does not skip tracks', (tester) async {
+    final cached = _cachedTrack();
+    final handler = _SpyAudioHandler();
+    final controller = MusicController(
+      audioHandler: handler,
+      resolver: _FakeMusicResolver(),
+      cacheStore: _FakeCacheStore(cached: [cached]),
+      playlistStore: _FakePlaylistStore(),
+      settingsStore: _FakeSettingsStore(),
+      metadataRepository: _StaticMetadataRepository(
+        metadata: const TrackMetadata(),
+      ),
+    );
+
+    try {
+      await controller.initialize();
+      final track = trackFromCached(cached);
+      await controller.playTrack(track);
+      handler.emit(
+        mediaItemFromTrack(
+          track,
+        ).copyWith(duration: const Duration(minutes: 3)),
+      );
+
+      await tester.pumpWidget(
+        AppStringsScope(
+          language: AppLanguage.zh,
+          child: MaterialApp(
+            theme: ThemeData.dark(useMaterial3: true),
+            home: PlayerPage(controller: controller),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.scrollUntilVisible(
+        find.byType(Slider),
+        120,
+        scrollable: find.byType(Scrollable),
+      );
+      await tester.pump();
+      await tester.drag(find.byType(Slider), const Offset(120, 0));
+      await tester.pump();
+
+      expect(handler.skipNextCalls, 0);
+      expect(handler.skipPreviousCalls, 0);
+    } finally {
+      controller.dispose();
+    }
+  });
 }
 
 class _SpyAudioHandler extends MusicAudioHandler {
   final seekedPositions = <Duration>[];
+  int skipNextCalls = 0;
+  int skipPreviousCalls = 0;
 
   @override
   Future<void> loadQueue(
@@ -179,6 +280,16 @@ class _SpyAudioHandler extends MusicAudioHandler {
   @override
   Future<void> seek(Duration position) async {
     seekedPositions.add(position);
+  }
+
+  @override
+  Future<void> skipToNext() async {
+    skipNextCalls += 1;
+  }
+
+  @override
+  Future<void> skipToPrevious() async {
+    skipPreviousCalls += 1;
   }
 
   @override

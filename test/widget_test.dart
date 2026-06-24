@@ -54,6 +54,64 @@ void main() {
     expect(find.text('No cached music yet'), findsNothing);
   });
 
+  testWidgets('mini player swipe skips tracks without opening player', (
+    tester,
+  ) async {
+    final handler = _WidgetAudioHandler();
+    await tester.pumpWidget(_app(audioHandler: handler));
+    await tester.pumpAndSettle();
+
+    handler.emit(
+      const MediaItem(
+        id: 'song-1',
+        title: 'Swipe Song',
+        artist: 'Singer',
+        duration: Duration(minutes: 3),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    final swipeArea = find.byKey(const ValueKey('mini-player-swipe-area'));
+    expect(swipeArea, findsOneWidget);
+
+    await tester.drag(swipeArea, const Offset(-160, 0));
+    await tester.pump();
+    expect(handler.skipNextCalls, 1);
+    expect(handler.skipPreviousCalls, 0);
+    expect(find.text('正在播放'), findsNothing);
+
+    await tester.drag(swipeArea, const Offset(160, 0));
+    await tester.pump();
+    expect(handler.skipNextCalls, 1);
+    expect(handler.skipPreviousCalls, 1);
+  });
+
+  testWidgets('mini player buttons still skip after swipe support', (
+    tester,
+  ) async {
+    final handler = _WidgetAudioHandler();
+    await tester.pumpWidget(_app(audioHandler: handler));
+    await tester.pumpAndSettle();
+
+    handler.emit(
+      const MediaItem(
+        id: 'song-1',
+        title: 'Button Song',
+        artist: 'Singer',
+        duration: Duration(minutes: 3),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byTooltip('下一首'));
+    await tester.pump();
+    await tester.tap(find.byTooltip('上一首'));
+    await tester.pump();
+
+    expect(handler.skipNextCalls, 1);
+    expect(handler.skipPreviousCalls, 1);
+  });
+
   testWidgets('home defaults to favorite and custom playlist summaries', (
     tester,
   ) async {
@@ -1585,8 +1643,21 @@ _HomeLibraryFixture _homeLibraryFixture() {
 }
 
 class _WidgetAudioHandler extends MusicAudioHandler {
+  int skipNextCalls = 0;
+  int skipPreviousCalls = 0;
+
   void emit(MediaItem? item) {
     mediaItem.add(item);
+  }
+
+  @override
+  Future<void> skipToNext() async {
+    skipNextCalls += 1;
+  }
+
+  @override
+  Future<void> skipToPrevious() async {
+    skipPreviousCalls += 1;
   }
 }
 
