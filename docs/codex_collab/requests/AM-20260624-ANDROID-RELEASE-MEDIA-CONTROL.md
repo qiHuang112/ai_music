@@ -44,6 +44,7 @@ Android lane 需要基于 release 包定位，不允许只用 debug 包证明：
 - `android/`、`lib/src/playback/`、`lib/src/application/` 中与系统播控发布相关的最小修复。
 - Android release 构建脚本、manifest、proguard/R8 规则、notification resource 或权限声明。
 - Android 小米 10 Pro 开发机自测；如 product 已授权，可在小米 17 Pro 复核安装。
+- 后续开发验证默认使用小米 10 Pro。小米 17 Pro 只作为 product 最终验收设备；需要用户点“允许通知”时，由 architect/product 协调，不由开发 lane 当作日常自测设备反复操作。
 
 不包含：
 
@@ -60,6 +61,7 @@ Android lane 需要基于 release 包定位，不允许只用 debug 包证明：
 - `dumpsys media_session` 能看到 AI Music active session、metadata、playback state 和 controls/custom actions。
 - 通知或系统媒体控件可见；如受 MIUI/Android 版本策略限制，需提供具体系统证据说明不是 App 未发布。
 - release 包验证必须覆盖小米 10 Pro 开发机；如安装到小米 17 Pro，需要明确 product 授权来源和端口。
+- 下一轮 review 优先接受小米 10 Pro 的 release 播放证据；小米 17 Pro 只用于最终验收，并需要产品手动允许通知权限后复测。
 - 修复后重新构建 Android arm64 release 包，记录路径、大小、sha256、安装设备和 `dumpsys package` 信息。
 
 ## Android lane 必须提供的定位证据
@@ -79,6 +81,7 @@ Android lane 需要基于 release 包定位，不允许只用 debug 包证明：
 - 2026-06-24 type=review_result lane=architect status=changes_requested summary=允许补 `POST_NOTIFICATIONS` 声明和 Android 13+ 运行时请求作为兼容修复，但该点不能作为唯一根因；accepted 前必须证明 release 播放后 active media session、media notification 和四槽位均恢复。
 - 2026-06-24 type=review_request lane=android status=review summary=Android lane 已完成最小补丁并构建安装 release 包：Manifest 声明 `POST_NOTIFICATIONS`，`MainActivity` 在 Android 13+ 请求通知权限，回归测试覆盖声明和请求逻辑；小米 17 Pro 已出现系统权限弹窗但设备屏幕黑/弹窗不可操作，`pm grant` 不被 user build 允许，当前仍等待用户允许通知权限后复验。
 - 2026-06-24 type=review_result lane=architect status=changes_requested summary=代码方向无明显架构风险，但 P1 未达 accepted：缺少用户允许权限后 release 播放的 active media session、media notification 和四槽位可用证据；测试和知识库措辞需避免把 `POST_NOTIFICATIONS` 写成官方通用唯一根因。
+- 2026-06-24 type=follow_up lane=product status=action_required summary=产品强调设备规则：Android lane 开发验证使用小米 10 Pro，小米 17 Pro 只做最终验收。架构师需盯住本 P1，不让 1.0.1 新功能覆盖；等 Android 回小米 10 验证结果后快速给 accepted/changes_requested/blocker 结论，并主动回 Android 和 product。
 
 ## Review 结果
 
