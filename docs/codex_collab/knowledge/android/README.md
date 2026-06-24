@@ -11,5 +11,4 @@
 
 ## 经验条目
 
-- 暂无。后续遇到可复用问题时在本目录新增 Markdown 文件。
-
+- [Android release APK 体积异常排查](android-release-apk-size.md)：定位 `libflutter.so` 未 strip 导致 arm64 release 包从约 9MB 膨胀到约 45MB，并记录构建、验证和发布口径。
