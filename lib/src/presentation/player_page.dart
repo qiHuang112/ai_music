@@ -541,7 +541,7 @@ class _MissingLyricsContentState extends State<_MissingLyricsContent> {
           onPressed: loading
               ? null
               : () => widget.controller.recoverMetadataForCurrentTrack(
-                  bypassLyricsMiss: true,
+                  bypassMetadataMiss: true,
                 ),
           icon: loading
               ? const SizedBox.square(

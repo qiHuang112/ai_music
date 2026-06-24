@@ -794,7 +794,7 @@ class MusicController extends ChangeNotifier {
   }
 
   Future<void> recoverMetadataForCurrentTrack({
-    bool bypassLyricsMiss = false,
+    bool bypassMetadataMiss = false,
   }) async {
     final track = currentTrack;
     if (track == null) {
@@ -813,8 +813,8 @@ class MusicController extends ChangeNotifier {
         return;
       }
       final refreshed = await _resolveAndUpdateCachedMetadata(cached);
-      final metadata = bypassLyricsMiss
-          ? await metadataUseCase.loadBypassingLyricsMiss(refreshed)
+      final metadata = bypassMetadataMiss
+          ? await metadataUseCase.loadBypassingMetadataMiss(refreshed)
           : await metadataUseCase.load(refreshed);
       if (!_isActiveMetadataRequest(request, track)) {
         return;

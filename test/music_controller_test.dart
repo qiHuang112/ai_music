@@ -1105,7 +1105,7 @@ class _StaticMetadataRepository extends TrackMetadataRepository {
   }
 
   @override
-  Future<TrackMetadata> loadBypassingLyricsMiss(CachedTrack track) async {
+  Future<TrackMetadata> loadBypassingMetadataMiss(CachedTrack track) async {
     loadIds.add(track.cacheId);
     return metadata;
   }

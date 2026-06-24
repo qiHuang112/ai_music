@@ -218,7 +218,7 @@ class _RetryMetadataRepository extends TrackMetadataRepository {
   }
 
   @override
-  Future<TrackMetadata> loadBypassingLyricsMiss(CachedTrack track) async {
+  Future<TrackMetadata> loadBypassingMetadataMiss(CachedTrack track) async {
     bypassLoadCount += 1;
     return const TrackMetadata(
       lyrics: [LyricLine(time: Duration(seconds: 1), text: '手动补齐')],

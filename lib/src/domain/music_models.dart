@@ -71,11 +71,15 @@ class TrackMetadata {
     this.artworkUri,
     this.lyrics = const [],
     this.source = '',
+    this.artworkMiss,
+    this.lyricsMiss,
   });
 
   final Uri? artworkUri;
   final List<LyricLine> lyrics;
   final String source;
+  final MetadataFieldMiss? artworkMiss;
+  final MetadataFieldMiss? lyricsMiss;
 
   bool get hasArtwork => artworkUri != null;
 
@@ -85,13 +89,31 @@ class TrackMetadata {
     Uri? artworkUri,
     List<LyricLine>? lyrics,
     String? source,
+    MetadataFieldMiss? artworkMiss,
+    MetadataFieldMiss? lyricsMiss,
   }) {
     return TrackMetadata(
       artworkUri: artworkUri ?? this.artworkUri,
       lyrics: lyrics ?? this.lyrics,
       source: source ?? this.source,
+      artworkMiss: artworkMiss ?? this.artworkMiss,
+      lyricsMiss: lyricsMiss ?? this.lyricsMiss,
     );
   }
+}
+
+class MetadataFieldMiss {
+  const MetadataFieldMiss({
+    required this.until,
+    this.provider = '',
+    this.status = 'miss',
+  });
+
+  final DateTime until;
+  final String provider;
+  final String status;
+
+  bool isActive(DateTime now) => now.isBefore(until);
 }
 
 class Lyric {

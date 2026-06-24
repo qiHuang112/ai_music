@@ -11,7 +11,10 @@ void main() {
   test('metadata repository uses resolved cover url and caches it', () async {
     final root = await Directory.systemTemp.createTemp('ai_music_meta_test_');
     final cache = MetadataCacheStore(rootProvider: () async => root);
-    final repository = TrackMetadataRepository(cacheStore: cache);
+    final repository = TrackMetadataRepository(
+      cacheStore: cache,
+      providers: const [CandidateArtworkProvider()],
+    );
     final track = _cachedTrack(
       coverUrl: 'https://cdn.example.test/cover.jpg',
       filePath: '${root.path}${Platform.pathSeparator}song.mp3',
@@ -179,6 +182,165 @@ void main() {
         now = now.add(const Duration(minutes: 31));
         expect((await repository.load(track)).lyrics, isEmpty);
         expect(calls, 4);
+      } finally {
+        await root.delete(recursive: true);
+      }
+    },
+  );
+
+  test(
+    'metadata repository keeps artwork and lyric misses independently',
+    () async {
+      final root = await Directory.systemTemp.createTemp(
+        'ai_music_meta_field_miss_',
+      );
+      final cache = MetadataCacheStore(rootProvider: () async => root);
+      final track = _cachedTrack();
+      var now = DateTime(2026, 1, 1, 12);
+      final artworkProvider = _CountingArtworkProvider();
+      final lyricsProvider = _CountingLyricsProvider();
+      final repository = TrackMetadataRepository(
+        cacheStore: cache,
+        providers: [artworkProvider, lyricsProvider],
+        now: () => now,
+      );
+
+      try {
+        final first = await repository.load(track);
+        expect(first.hasArtwork, isFalse);
+        expect(first.hasLyrics, isFalse);
+        expect(artworkProvider.calls, 1);
+        expect(lyricsProvider.calls, 1);
+
+        await cache.write(
+          track.cacheId,
+          const TrackMetadata(
+            lyrics: [LyricLine(time: Duration(seconds: 1), text: '新歌词')],
+          ),
+        );
+        final metadata = await repository.load(track);
+
+        expect(metadata.lyrics.single.text, '新歌词');
+        expect(artworkProvider.calls, 1);
+        expect(lyricsProvider.calls, 1);
+
+        now = now.add(const Duration(minutes: 31));
+        await repository.load(track);
+
+        expect(artworkProvider.calls, 2);
+        expect(lyricsProvider.calls, 1);
+      } finally {
+        await root.delete(recursive: true);
+      }
+    },
+  );
+
+  test('manual retry bypasses metadata miss ttl', () async {
+    final root = await Directory.systemTemp.createTemp(
+      'ai_music_meta_retry_miss_',
+    );
+    final cache = MetadataCacheStore(rootProvider: () async => root);
+    final track = _cachedTrack();
+    final artworkProvider = _CountingArtworkProvider();
+    final lyricsProvider = _CountingLyricsProvider();
+    final repository = TrackMetadataRepository(
+      cacheStore: cache,
+      providers: [artworkProvider, lyricsProvider],
+    );
+
+    try {
+      await repository.load(track);
+      await repository.load(track);
+      expect(artworkProvider.calls, 1);
+      expect(lyricsProvider.calls, 1);
+
+      await repository.loadBypassingMetadataMiss(track);
+
+      expect(artworkProvider.calls, 2);
+      expect(lyricsProvider.calls, 2);
+    } finally {
+      await root.delete(recursive: true);
+    }
+  });
+
+  test('metadata miss ttl survives repository restart', () async {
+    final root = await Directory.systemTemp.createTemp(
+      'ai_music_meta_persist_miss_',
+    );
+    final cache = MetadataCacheStore(rootProvider: () async => root);
+    final track = _cachedTrack();
+    var now = DateTime(2026, 1, 1, 12);
+    final firstArtworkProvider = _CountingArtworkProvider();
+    final firstLyricsProvider = _CountingLyricsProvider();
+
+    try {
+      await TrackMetadataRepository(
+        cacheStore: cache,
+        providers: [firstArtworkProvider, firstLyricsProvider],
+        now: () => now,
+      ).load(track);
+
+      expect(firstArtworkProvider.calls, 1);
+      expect(firstLyricsProvider.calls, 1);
+
+      final persisted = await cache.read(track.cacheId);
+      expect(persisted?.artworkMiss?.isActive(now), isTrue);
+      expect(persisted?.lyricsMiss?.isActive(now), isTrue);
+      expect(persisted?.artworkMiss?.provider, '_counting_artwork_provider');
+      expect(persisted?.lyricsMiss?.provider, '_counting_lyrics_provider');
+
+      final restartedArtworkProvider = _CountingArtworkProvider();
+      final restartedLyricsProvider = _CountingLyricsProvider();
+      await TrackMetadataRepository(
+        cacheStore: cache,
+        providers: [restartedArtworkProvider, restartedLyricsProvider],
+        now: () => now,
+      ).load(track);
+
+      expect(restartedArtworkProvider.calls, 0);
+      expect(restartedLyricsProvider.calls, 0);
+
+      now = now.add(const Duration(minutes: 31));
+      await TrackMetadataRepository(
+        cacheStore: cache,
+        providers: [restartedArtworkProvider, restartedLyricsProvider],
+        now: () => now,
+      ).load(track);
+
+      expect(restartedArtworkProvider.calls, 1);
+      expect(restartedLyricsProvider.calls, 1);
+    } finally {
+      await root.delete(recursive: true);
+    }
+  });
+
+  test(
+    'metadata repository does not overwrite success with empty result',
+    () async {
+      final root = await Directory.systemTemp.createTemp(
+        'ai_music_meta_no_empty_overwrite_',
+      );
+      final cache = MetadataCacheStore(rootProvider: () async => root);
+      final track = _cachedTrack();
+      final artwork = Uri.parse('https://cdn.example.test/cached.jpg');
+      final repository = TrackMetadataRepository(
+        cacheStore: cache,
+        providers: const [_StaticMetadataProvider(TrackMetadata())],
+      );
+
+      try {
+        await cache.write(
+          track.cacheId,
+          TrackMetadata(
+            artworkUri: artwork,
+            lyrics: const [LyricLine(time: Duration(seconds: 1), text: '已成功')],
+          ),
+        );
+
+        final metadata = await repository.loadBypassingMetadataMiss(track);
+
+        expect(metadata.artworkUri, artwork);
+        expect(metadata.lyrics.single.text, '已成功');
       } finally {
         await root.delete(recursive: true);
       }
@@ -379,6 +541,77 @@ plain text
     expect(metadata.source, 'buguyy');
   });
 
+  test(
+    'itunes artwork provider picks matching high resolution cover',
+    () async {
+      final provider = ItunesArtworkProvider(
+        httpClient: _FakeResolverHttp(
+          onGet: (uri, _) async {
+            expect(uri.host, 'itunes.apple.com');
+            expect(uri.queryParameters['entity'], 'song');
+            expect(uri.queryParameters['country'], 'CN');
+            return _json(uri, {
+              'results': [
+                {
+                  'trackName': '稻香',
+                  'artistName': '周杰伦',
+                  'collectionName': '错误专辑',
+                  'artworkUrl100':
+                      'https://img.example.test/other/100x100bb.jpg',
+                },
+                {
+                  'trackName': '稻香',
+                  'artistName': '周杰伦',
+                  'collectionName': '魔杰座',
+                  'artworkUrl100':
+                      'https://img.example.test/song/100x100bb.jpg',
+                },
+              ],
+            });
+          },
+        ),
+      );
+
+      final metadata = await provider.find(_cachedTrack(album: '魔杰座'));
+
+      expect(
+        metadata.artworkUri.toString(),
+        'https://img.example.test/song/600x600bb.jpg',
+      );
+      expect(metadata.source, 'itunes');
+    },
+  );
+
+  test('lrclib lyrics provider reads synced lyrics response', () async {
+    final provider = LrcLibLyricsProvider(
+      httpClient: _FakeResolverHttp(
+        onGet: (uri, _) async {
+          expect(uri.host, 'lrclib.net');
+          expect(uri.queryParameters['track_name'], '稻香');
+          return _json(uri, [
+            {
+              'trackName': '稻香',
+              'artistName': '周杰伦',
+              'albumName': '错误专辑',
+              'syncedLyrics': '[00:02.00]错误歌词',
+            },
+            {
+              'trackName': '稻香',
+              'artistName': '周杰伦',
+              'albumName': '魔杰座',
+              'syncedLyrics': '[00:02.00]LRCLIB 歌词',
+            },
+          ]);
+        },
+      ),
+    );
+
+    final metadata = await provider.find(_cachedTrack(album: '魔杰座'));
+
+    expect(metadata.lyrics.single.text, 'LRCLIB 歌词');
+    expect(metadata.source, 'lrclib');
+  });
+
   test('lrcapi lyrics provider reads single LRC response', () async {
     final provider = LrcApiLyricsProvider(
       httpClient: _FakeResolverHttp(
@@ -440,6 +673,7 @@ CachedTrack _cachedTrack({
   ResolvedLyrics? lyrics,
   String lyricsPath = '',
   String filePath = '/tmp/song-1.mp3',
+  String album = '',
 }) {
   final music = ResolvedMusic(
     query: '周杰伦 稻香',
@@ -448,7 +682,7 @@ CachedTrack _cachedTrack({
     id: 'song-1',
     name: '稻香',
     artist: '周杰伦',
-    album: '',
+    album: album,
     url: 'https://cdn.example.test/song-1.mp3',
     quality: const MusicQuality(format: 'mp3'),
     coverUrl: coverUrl,
@@ -497,12 +731,12 @@ class _CountingMetadataProvider implements TrackMetadataProvider {
 }
 
 class _CountingArtworkProvider extends _CountingMetadataProvider
-    implements ArtworkMetadataProvider {
+    implements ArtworkMetadataProvider, NetworkMetadataProvider {
   _CountingArtworkProvider({super.metadata});
 }
 
 class _CountingLyricsProvider extends _CountingMetadataProvider
-    implements LyricsMetadataProvider {
+    implements LyricsMetadataProvider, NetworkMetadataProvider {
   _CountingLyricsProvider({super.metadata});
 }
 
