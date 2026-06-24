@@ -1,6 +1,6 @@
 # AM-20260624-003 状态栏和播放页滑动切歌
 
-Status: assigned
+Status: merged
 Owner Lane: android
 Source Thread: 019eea5b-9b46-7f92-a35c-7d080ea1e986
 Target Version: 1.0.1
@@ -11,6 +11,7 @@ Worktree Path: /Users/huangqi/AIHome/worktrees/ai_music/android-AM-20260624-003
 Merge Branch: main
 Created: 2026-06-24
 Updated: 2026-06-24
+Merged Commit: 5ec19b6
 
 ## 目标
 
@@ -74,23 +75,26 @@ Updated: 2026-06-24
 - 2026-06-24 type=task lane=product summary=产品新增需求：底部播放状态栏整体左右滑动时能切歌；单曲播放详情页也支持左右滑动切歌。
 - 2026-06-24 type=status lane=android status=queued_readonly_assessed summary=Android lane 已只读评估实现入口：mini player 在 `music_home_page.dart` 的 `_MiniPlayer`，播放详情页在 `player_page.dart`，复用 `MusicController.next()` / `previous()`。当前不打断 AM-001 metadata pipeline。
 - 2026-06-24 type=task lane=architect status=assigned summary=架构师已从最新 `origin/main` 创建专属 worktree `/Users/huangqi/AIHome/worktrees/ai_music/android-AM-20260624-003` 和分支 `feature/1.0.1/AM-20260624-003-swipe-to-skip`，用于后续 Android 开工。
+- 2026-06-24 type=review_result lane=architect status=accepted summary=架构师 review 通过：mini player 和播放详情页主体左右滑动分别复用 `next()` / `previous()`；按钮点击逻辑保留；额外要求 Android 验证详情页 Slider 拖动不误触切歌。
+- 2026-06-24 type=status lane=android status=committed_installed_verified summary=Android 提交 `5ec19b6`，补充 Slider 拖动不误触切歌测试；`flutter test --no-pub` 133 项、`flutter analyze --no-pub` 通过；同签 release 已安装小米 10 Pro，单曲边界下 mini player/详情页左右滑不崩，Slider 只改进度。
+- 2026-06-24 type=status lane=architect status=merged summary=提交 `5ec19b6` 已 fast-forward 合入 integration main，等待推送远端。
 
 ## 相关提交
 
-- pending
+- `5ec19b6` 支持播放界面滑动切歌
 
 ## 版本与发布
 
 - Target Version: 1.0.1
 - Release Tag: pending
 - Android APK: pending
-- Push Status: not_ready
+- Push Status: pushed
 
 ## Review 结果
 
 - Reviewer Lane: architect
-- Result: assigned
-- Android Findings: AM-003 边界接受，已分配专属 worktree。Android lane 当前优先 AM-001；等有容量开工 AM-003 时，请在该 worktree 实现，不混入 AM-001 metadata pipeline、AM-002 播放状态持久化或 Android release 播控 hotfix。完成后回 architect lane，带 commit、`flutter test --no-pub`、`flutter analyze --no-pub`、小米 10 Pro 手势自测摘要和边界测试结果。
+- Result: accepted/merged
+- Android Findings: AM-003 实现通过并合入 `5ec19b6`。底部 mini player 和播放详情页主体支持左右滑动切歌，复用现有 `MusicController.next()` / `previous()`；原按钮点击逻辑保留；测试覆盖 mini player 滑动不打开播放页、按钮仍可用、播放详情页左右滑，以及 Slider 拖动不误触切歌。Android 已在小米 10 Pro 用同签 release 做单曲边界验证。
 - iOS Findings: 暂不涉及。
 - HarmonyOS Findings: 暂不涉及。
 - Architect Findings: base/merge 暂按最新 `main` 作为 1.0.1 基线；如果后续创建正式 `release/1.0.1`，由架构师负责 rebase/merge，不让 Android 自行跨分支搬改动。

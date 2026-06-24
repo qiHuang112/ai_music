@@ -60,6 +60,7 @@
 | 2026-06-24 | AM-20260624-003 | architect | android | assigned | 滑动切歌任务边界通过并创建专属 worktree `/Users/huangqi/AIHome/worktrees/ai_music/android-AM-20260624-003`，分支 `feature/1.0.1/AM-20260624-003-swipe-to-skip`。Android 当前继续优先 AM-001，后续有容量时在该 worktree 开工，不混入 AM-001/AM-002 或 release hotfix。 |
 | 2026-06-24 | AM-20260624-001 | architect | android | changes_requested | 第一轮 metadata pipeline review 要求回修：miss TTL 需持久化；iTunes/LRCLIB 匹配需加入 `country=CN` 和专辑评分；手动重试 API 需从 lyrics-only 语义改为 metadata miss 语义。 |
 | 2026-06-24 | AM-20260624-001 | architect | android | accepted | 第二轮 metadata pipeline review 通过并合入 `c23ae84`：字段级歌词/封面 miss TTL 已持久化，iTunes/LRCLIB 匹配已收紧，`loadBypassingMetadataMiss` 语义清楚；架构师复跑 metadata 单测、analyze 和全量测试通过。 |
+| 2026-06-24 | AM-20260624-003 | architect | android | accepted | 滑动切歌 review 通过并合入 `5ec19b6`：mini player 和播放详情页主体左右滑动复用现有上一首/下一首逻辑，按钮点击未回退；测试覆盖 mini player、播放详情页和 Slider 拖动不误触切歌，小米 10 Pro 同签 release 单曲边界验证通过。 |
 
 ## 结果值
 
