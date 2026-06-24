@@ -77,12 +77,14 @@ Android lane 需要基于 release 包定位，不允许只用 debug 包证明：
 - 2026-06-24 type=task lane=architect status=assigned summary=架构师将该问题切给 Android lane 主责定位，1.0.1 新功能不得覆盖该 P1。
 - 2026-06-24 type=status lane=android status=in_progress summary=Android lane 静态确认 release manifest 中 `AudioService`、`MediaButtonReceiver`、`AudioServiceActivity` 均存在，release 未启用 minify/R8；小米 17 Pro `appops` 显示 `POST_NOTIFICATION: ignore`，且当前 `dumpsys media_session` 只看到 Last MediaButtonReceiver/Audio playback uid，未见 active AI Music session，notification 列表未见 AI Music media notification。
 - 2026-06-24 type=review_result lane=architect status=changes_requested summary=允许补 `POST_NOTIFICATIONS` 声明和 Android 13+ 运行时请求作为兼容修复，但该点不能作为唯一根因；accepted 前必须证明 release 播放后 active media session、media notification 和四槽位均恢复。
+- 2026-06-24 type=review_request lane=android status=review summary=Android lane 已完成最小补丁并构建安装 release 包：Manifest 声明 `POST_NOTIFICATIONS`，`MainActivity` 在 Android 13+ 请求通知权限，回归测试覆盖声明和请求逻辑；小米 17 Pro 已出现系统权限弹窗但设备屏幕黑/弹窗不可操作，`pm grant` 不被 user build 允许，当前仍等待用户允许通知权限后复验。
+- 2026-06-24 type=review_result lane=architect status=changes_requested summary=代码方向无明显架构风险，但 P1 未达 accepted：缺少用户允许权限后 release 播放的 active media session、media notification 和四槽位可用证据；测试和知识库措辞需避免把 `POST_NOTIFICATIONS` 写成官方通用唯一根因。
 
 ## Review 结果
 
 - Reviewer Lane: architect
-- Result: blocked
-- Android Findings: 等待 Android lane 提供 release/debug 对比、dumpsys、logcat 和修复提交。
+- Result: changes_requested
+- Android Findings: `POST_NOTIFICATIONS` 声明和 Android 13+ 运行时请求方向可以继续，`MainActivity` 仍继承 `AudioServiceActivity`，未发现破坏 audio_service 初始化的明显问题。但当前只证明了权限请求弹窗出现，还没有证明产品允许权限后 release 播放能恢复 active MediaSession、media notification 和四槽位。`test/release_config_test.dart` 的 reason 文案和知识库现象说明需收敛为“小米/Android 13+ release 兼容条件”，不要表述成 Android 官方一定隐藏 media notification。
 - iOS Findings: 不涉及。
 - HarmonyOS Findings: 不涉及。
-- Architect Findings: `v1.0.0` tag 已存在，但发布状态已降为 blocked。修复闭环前不继续把当前 release APK 当作正式交付包。
+- Architect Findings: `v1.0.0` tag 已存在，但发布状态已降为 blocked。修复闭环前不继续把当前 release APK 当作正式交付包。Android lane 完成 wording 回改并拿到用户允许通知后的 release 播放证据后，再回 architect lane 发 `review_request`。
