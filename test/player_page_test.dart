@@ -173,6 +173,7 @@ void main() {
       cacheStore: _FakeCacheStore(cached: [cached]),
       playlistStore: _FakePlaylistStore(),
       settingsStore: _FakeSettingsStore(),
+      playbackStateStore: _FakePlaybackStateStore(),
       metadataRepository: _StaticMetadataRepository(
         metadata: const TrackMetadata(),
       ),
@@ -209,6 +210,7 @@ void main() {
       expect(handler.skipPreviousCalls, 1);
     } finally {
       controller.dispose();
+      await handler.dispose();
     }
   });
 
@@ -221,6 +223,7 @@ void main() {
       cacheStore: _FakeCacheStore(cached: [cached]),
       playlistStore: _FakePlaylistStore(),
       settingsStore: _FakeSettingsStore(),
+      playbackStateStore: _FakePlaybackStateStore(),
       metadataRepository: _StaticMetadataRepository(
         metadata: const TrackMetadata(),
       ),
@@ -260,6 +263,7 @@ void main() {
       expect(handler.skipPreviousCalls, 0);
     } finally {
       controller.dispose();
+      await handler.dispose();
     }
   });
 }

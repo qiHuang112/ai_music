@@ -79,6 +79,8 @@ Updated: 2026-06-24
 - 2026-06-24 type=status lane=ohos summary=ohos 完成首版实现：新增播放状态持久化模型，恢复播放模式、队列来源、队列顺序和当前歌曲；恢复时进度从 0 开始且不自动播放；删除缺失曲目时安全降级。
 - 2026-06-24 type=review_result lane=architect status=changes_requested summary=首版方向正确但需修复收藏/歌单恢复语义：收藏和自建歌单恢复不能从本地缓存补回已移除成员；收藏/歌单成员变化后必须刷新或清理持久化快照；清理快照时必须同步清掉内存 active queue/source/current；同时要求基于最新 `origin/main` 重测，避免覆盖 AM-001 metadata 和 AM-003 手势。
 - 2026-06-24 type=status lane=ohos summary=ohos 已将 `lane/ohos` rebase 到 `origin/main` `a05fff9`，并修复二轮 review findings：收藏/歌单来源只按当前成员恢复，成员删除或取消收藏后刷新快照，清快照时同步清内存队列和来源。
+- 2026-06-24 type=review_result lane=architect status=changes_requested summary=二轮业务逻辑 review 通过；唯一阻塞是分支基线落后，缺少已推主线的 AM-003 滑动切歌 `5ec19b6` 和账本 `3322552`，要求以 `origin/main=3322552e4a7fe8a5ff46559712e61c016b40acde` 为基线重放并重测。
+- 2026-06-24 type=status lane=ohos summary=ohos 已将 AM-002 两个提交 rebase 到 `origin/main` `3322552`；自动合并无冲突，确认 `music_home_page.dart` 同时保留 AM-003 迷你播放器滑动切歌和 AM-002 播放状态来源传递；同时补齐 `player_page_test` 新滑动用例的 fake playback store 隔离，避免测试 runner 因真实持久化 store 收尾卡住。
 
 ## 验证记录
 
@@ -96,6 +98,13 @@ Updated: 2026-06-24
 - 2026-06-24 二轮修复后 `flutter test --no-pub`：通过，137 tests passed。
 - 2026-06-24 二轮修复后 `OHOS_FLUTTER_BIN=/Users/huangqi/AIHome/tools/flutter_ohos/bin/flutter OHOS_CODESIGN=true tool/build_ohos_hap.sh`：通过，生成 `build/ohos/hap/entry-default-signed.hap`，23.8MB；构建副作用 `pubspec.lock` 和 `third_party/just_audio_harmonyos/ohos/BuildProfile.ets` 已恢复。
 - 2026-06-24 二轮修复后无线 HDC 仍阻塞：`/Applications/DevEco-Studio.app/Contents/sdk/default/openharmony/toolchains/hdc -v` 返回 `Ver: 3.2.0c`；`hdc start -r` 无输出，`hdc list targets` 与 `hdc tconn 192.168.31.53:10178` 均返回 `Connect server failed`，因此本轮无法完成设备安装和杀进程重进手测。
+- 2026-06-24 基于 `origin/main` `3322552` 重放后 `flutter analyze --no-pub`：通过，No issues found。
+- 2026-06-24 基于 `origin/main` `3322552` 重放后 `flutter test --no-pub test/music_controller_test.dart`：通过，32 tests passed。
+- 2026-06-24 基于 `origin/main` `3322552` 重放后 `flutter test --no-pub test/widget_test.dart`：通过，36 tests passed，包含 AM-003 迷你播放器滑动切歌测试。
+- 2026-06-24 基于 `origin/main` `3322552` 重放后 `flutter test --no-pub test/player_page_test.dart`：通过，5 tests passed，包含 AM-003 播放页滑动切歌和 slider 不误触切歌测试。
+- 2026-06-24 基于 `origin/main` `3322552` 重放后 `flutter test --no-pub`：通过，141 tests passed。
+- 2026-06-24 基于 `origin/main` `3322552` 重放后 `OHOS_FLUTTER_BIN=/Users/huangqi/AIHome/tools/flutter_ohos/bin/flutter OHOS_CODESIGN=true tool/build_ohos_hap.sh`：通过，生成 `build/ohos/hap/entry-default-signed.hap`，23.8MB；构建副作用 `pubspec.lock` 和 `third_party/just_audio_harmonyos/ohos/BuildProfile.ets` 已恢复。
+- 2026-06-24 基于 `origin/main` `3322552` 重放后无线 HDC 仍阻塞：`hdc list targets` 返回 `Connect server failed`，仍属本机 HDC 服务层问题。
 
 ## Review 结果
 
