@@ -290,6 +290,23 @@ export class MediaAvPlayer {
     }
   }
 
+  private async clearNextPreload(reason: string): Promise<void> {
+    this.invalidateNextPreload();
+    await this.waitForNextPreload();
+    const nextPlayer = this.avPlayerNext;
+    if (nextPlayer) {
+      this.offAVPlayerNextCallback(nextPlayer);
+      this.avPlayerNext = null;
+      this.closeDataSrcFd(true);
+      await this.releaseAvPlayer(nextPlayer, reason);
+    }
+    await this.releasePendingNextPlayer(this.pendingAvPlayerNext, `${reason} pending`);
+    this.pendingAvPlayerNext = null;
+    this.nextPreloadTask = null;
+    this.nextPreloadInFlight = false;
+    this.nextPreloadGeneration = -1;
+  }
+
   private async releasePendingNextPlayer(avPlayer: media.AVPlayer | null, name: string): Promise<void> {
     if (!avPlayer) {
       return;
@@ -1449,17 +1466,24 @@ export class MediaAvPlayer {
     if (this.seekModule == SeekMode.SEEK) {
       this.seekModule = SeekMode.UNKNOWN;
     }
-    if (musicIndex >= this.songList.length) {
-      musicIndex = this.songList.length - 1;
-      console.error(TAG, `current musicIndex ${musicIndex}`);
-      this.syncAVSessionPlaybackState(avSession.PlaybackState.PLAYBACK_STATE_ERROR);
+    if (musicIndex < 0 || musicIndex >= this.songList.length) {
+      const message = `loadAssent index out of range: index=${musicIndex}, length=${this.songList.length}`;
+      this.reportLoadUriError('loadIndexOutOfRange', message, true);
       return;
     }
+    const targetSongItem = this.songList[musicIndex];
+    const targetUri = targetSongItem?.getUri();
+    if (!targetUri) {
+      const message = `loadAssent missing source uri: index=${musicIndex}, length=${this.songList.length}`;
+      this.reportLoadUriError('loadSourceUriMissing', message, true);
+      return;
+    }
+    console.info(TAG, `loadAssent source: index=${musicIndex}, length=${this.songList.length}, uri=${targetUri}`);
     this.lastBufferedPosition = 0;
     this.mediaAvPlayerStateChangeListener?.onPlaybackStateChanged(PlaybackState.STATE_BUFFERING);
     this.mediaAvPlayerStateChangeListener?.onUpdateBufferedPosition(0);
     this.syncAVSessionPlaybackState(avSession.PlaybackState.PLAYBACK_STATE_PREPARE, true, 0);
-    this.songItem = this.songList[musicIndex];
+    this.songItem = targetSongItem;
     this.avMetadata = undefined;
     this.avSessionCover = undefined;
     this.avSessionCoverUri = '';
@@ -1499,9 +1523,8 @@ export class MediaAvPlayer {
           this.closeDataSrcFd(false);
           this.playMusicIndex = musicIndex;
         }
-        let url = this.songItem?.getUri();
-        if (url && this.avPlayer.state == "idle") {
-          const loaded = await this.loadUri(this.avPlayer, url, true, generation);
+        if (this.avPlayer.state == "idle") {
+          const loaded = await this.loadUri(this.avPlayer, targetUri, true, generation);
           if (!loaded) {
             return;
           }
@@ -1658,6 +1681,7 @@ export class MediaAvPlayer {
           const dataSrcFd: number = fileIo.openSync(uri).fd;
           openedFd = dataSrcFd;
           let fileSize: number = fileIo.statSync(uri).size;
+          console.info(TAG, `load file data src ${isNextPlayer ? 'next' : 'current'}: path=${uri}, size=${fileSize}`);
           let src: media.AVDataSrcDescriptor = {
             fileSize: fileSize,
             callback: (buf: ArrayBuffer, length: number, pos: number | undefined) => {
@@ -1775,7 +1799,7 @@ export class MediaAvPlayer {
       return;
     }
     this.lifecycleGeneration++;
-    this.invalidateNextPreload();
+    await this.clearNextPreload('full load avPlayerNext');
     this.initialPos = seekPostion ?? -1;
     if (this.initialPos != -1) {
       this.initialIndex = currentIndex

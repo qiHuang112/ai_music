@@ -45,10 +45,105 @@ void main() {
 
     expect(find.text('搜音乐'), findsOneWidget);
     expect(find.text('歌手或歌曲'), findsOneWidget);
-    expect(find.text('搜索音乐'), findsOneWidget);
+    expect(find.text('我的音乐'), findsOneWidget);
+    expect(find.text('搜索音乐'), findsNothing);
+    expect(find.text('输入歌手或歌曲名，下载后会保存在本机缓存里。'), findsNothing);
     expect(find.byTooltip('下载'), findsOneWidget);
     expect(find.byTooltip('播放列表'), findsOneWidget);
     expect(find.text('No cached music yet'), findsNothing);
+  });
+
+  testWidgets('home defaults to favorite and custom playlist summaries', (
+    tester,
+  ) async {
+    final fixture = _homeLibraryFixture();
+    await tester.pumpWidget(
+      _app(
+        cacheStore: fixture.cacheStore,
+        playlistStore: fixture.playlistStore,
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('我的音乐'), findsOneWidget);
+    expect(find.byKey(const ValueKey('home-favorites-entry')), findsOneWidget);
+    expect(find.byKey(const ValueKey('home-playlist-road')), findsOneWidget);
+    expect(find.text('1 首 · Alpha'), findsOneWidget);
+    expect(find.text('1 首 · Beta'), findsOneWidget);
+    expect(find.text('搜索音乐'), findsNothing);
+    expect(find.text('输入歌手或歌曲名，下载后会保存在本机缓存里。'), findsNothing);
+
+    await tester.tap(find.byKey(const ValueKey('home-favorites-entry')));
+    await tester.pumpAndSettle();
+
+    expect(find.text('收藏'), findsOneWidget);
+    expect(find.text('Alpha'), findsOneWidget);
+
+    await tester.pageBack();
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('home-playlist-road')));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Road'), findsOneWidget);
+    expect(find.text('Beta'), findsOneWidget);
+  });
+
+  testWidgets('search results hide home default library summaries', (
+    tester,
+  ) async {
+    final fixture = _homeLibraryFixture();
+    final resolver = _FakeMusicResolver(
+      candidates: [_candidate(name: '稻香', artist: '周杰伦')],
+    );
+    await tester.pumpWidget(
+      _app(
+        resolver: resolver,
+        cacheStore: fixture.cacheStore,
+        playlistStore: fixture.playlistStore,
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const ValueKey('home-favorites-entry')), findsOneWidget);
+
+    await tester.enterText(find.byType(TextField), '周杰伦');
+    await tester.tap(find.byTooltip('在线搜索'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('稻香'), findsOneWidget);
+    expect(find.byKey(const ValueKey('home-favorites-entry')), findsNothing);
+    expect(find.byKey(const ValueKey('home-playlist-road')), findsNothing);
+  });
+
+  testWidgets('clearing search restores home default library summaries', (
+    tester,
+  ) async {
+    final fixture = _homeLibraryFixture();
+    final resolver = _FakeMusicResolver(
+      candidates: [_candidate(name: '稻香', artist: '周杰伦')],
+    );
+    await tester.pumpWidget(
+      _app(
+        resolver: resolver,
+        cacheStore: fixture.cacheStore,
+        playlistStore: fixture.playlistStore,
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.enterText(find.byType(TextField), '周杰伦');
+    await tester.tap(find.byTooltip('在线搜索'));
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const ValueKey('home-favorites-entry')), findsNothing);
+
+    await tester.enterText(find.byType(TextField), '');
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const ValueKey('home-favorites-entry')), findsOneWidget);
+    expect(find.byKey(const ValueKey('home-playlist-road')), findsOneWidget);
+    expect(find.text('搜索音乐'), findsNothing);
+    expect(find.text('输入歌手或歌曲名，下载后会保存在本机缓存里。'), findsNothing);
   });
 
   testWidgets('empty search does not call resolver', (tester) async {
@@ -110,7 +205,9 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('稻香'), findsNothing);
-    expect(find.text('搜索音乐'), findsOneWidget);
+    expect(find.text('我的音乐'), findsOneWidget);
+    expect(find.text('搜索音乐'), findsNothing);
+    expect(find.text('输入歌手或歌曲名，下载后会保存在本机缓存里。'), findsNothing);
   });
 
   testWidgets('downloaded search result exposes play action', (tester) async {
@@ -1306,6 +1403,56 @@ class _FakeMetadataRepository extends TrackMetadataRepository {
   Future<void> delete(String cacheId) async {
     deletedIds.add(cacheId);
   }
+}
+
+class _HomeLibraryFixture {
+  const _HomeLibraryFixture({
+    required this.cacheStore,
+    required this.playlistStore,
+  });
+
+  final _FakeCacheStore cacheStore;
+  final _FakePlaylistStore playlistStore;
+}
+
+_HomeLibraryFixture _homeLibraryFixture() {
+  final alphaMusic = _resolvedMusic(id: 'alpha', name: 'Alpha', artist: 'A');
+  final betaMusic = _resolvedMusic(id: 'beta', name: 'Beta', artist: 'B');
+  final alpha = CachedTrack(
+    cacheId: cacheIdForResolved(alphaMusic),
+    music: alphaMusic,
+    filePath: '/tmp/alpha.mp3',
+    sizeBytes: 4,
+    fromCache: true,
+  );
+  final beta = CachedTrack(
+    cacheId: cacheIdForResolved(betaMusic),
+    music: betaMusic,
+    filePath: '/tmp/beta.mp3',
+    sizeBytes: 4,
+    fromCache: true,
+  );
+  final playlistStore = _FakePlaylistStore()
+    ..library = PlaylistLibrary(
+      favoriteEntries: [
+        PlaylistTrackEntry(trackId: alpha.cacheId, addedAt: DateTime(2026)),
+      ],
+      playlists: [
+        MusicPlaylist(
+          id: 'road',
+          name: 'Road',
+          entries: [
+            PlaylistTrackEntry(trackId: beta.cacheId, addedAt: DateTime(2026)),
+          ],
+          createdAt: DateTime(2026),
+          updatedAt: DateTime(2026),
+        ),
+      ],
+    );
+  return _HomeLibraryFixture(
+    cacheStore: _FakeCacheStore(cached: [alpha, beta]),
+    playlistStore: playlistStore,
+  );
 }
 
 class _WidgetAudioHandler extends MusicAudioHandler {

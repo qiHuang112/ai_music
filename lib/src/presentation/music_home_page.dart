@@ -111,7 +111,15 @@ class _MusicHomePageState extends State<MusicHomePage> {
                       ),
                     )
                   else
-                    Expanded(child: _SearchBody(controller: controller)),
+                    Expanded(
+                      child: _SearchBody(
+                        controller: controller,
+                        showDefaultLibrary: _searchController.text
+                            .trim()
+                            .isEmpty,
+                        onOpenLibrary: _openLibrary,
+                      ),
+                    ),
                 ],
               ),
             ),
@@ -435,44 +443,207 @@ class _OnlineSearchPanel extends StatelessWidget {
 }
 
 class _SearchBody extends StatelessWidget {
-  const _SearchBody({required this.controller});
+  const _SearchBody({
+    required this.controller,
+    required this.showDefaultLibrary,
+    required this.onOpenLibrary,
+  });
 
   final MusicController controller;
+  final bool showDefaultLibrary;
+  final VoidCallback onOpenLibrary;
 
   @override
   Widget build(BuildContext context) {
-    final colors = Theme.of(context).colorScheme;
     if (controller.isSearching) {
       return const SizedBox.shrink();
     }
     if (controller.candidates.isNotEmpty) {
       return const SizedBox.shrink();
     }
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.all(28),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
+    if (!showDefaultLibrary) {
+      return const _SearchEmptyPrompt();
+    }
+    return ListView(
+      padding: const EdgeInsets.fromLTRB(16, 16, 16, 112),
+      children: [
+        _HomeLibrarySection(
+          controller: controller,
+          onOpenLibrary: onOpenLibrary,
+        ),
+      ],
+    );
+  }
+}
+
+class _SearchEmptyPrompt extends StatelessWidget {
+  const _SearchEmptyPrompt();
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+    final child = Padding(
+      padding: const EdgeInsets.all(28),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(Icons.travel_explore, size: 52, color: colors.primary),
+          const SizedBox(height: 16),
+          Text(
+            AppStringsScope.of(context).searchEmptyTitle,
+            style: Theme.of(context).textTheme.titleLarge,
+          ),
+          const SizedBox(height: 8),
+          Text(
+            AppStringsScope.of(context).searchEmptyBody,
+            textAlign: TextAlign.center,
+            style: Theme.of(
+              context,
+            ).textTheme.bodyMedium?.copyWith(color: colors.onSurfaceVariant),
+          ),
+        ],
+      ),
+    );
+    return Center(child: child);
+  }
+}
+
+class _HomeLibrarySection extends StatelessWidget {
+  const _HomeLibrarySection({
+    required this.controller,
+    required this.onOpenLibrary,
+  });
+
+  final MusicController controller;
+  final VoidCallback onOpenLibrary;
+
+  @override
+  Widget build(BuildContext context) {
+    final strings = AppStringsScope.of(context);
+    final playlists = controller.customPlaylists;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Row(
           children: [
-            Icon(Icons.travel_explore, size: 52, color: colors.primary),
-            const SizedBox(height: 16),
-            Text(
-              AppStringsScope.of(context).searchEmptyTitle,
-              style: Theme.of(context).textTheme.titleLarge,
+            Expanded(
+              child: Text(
+                strings.homeLibraryTitle,
+                style: Theme.of(context).textTheme.titleMedium,
+              ),
             ),
-            const SizedBox(height: 8),
-            Text(
-              AppStringsScope.of(context).searchEmptyBody,
-              textAlign: TextAlign.center,
-              style: Theme.of(
-                context,
-              ).textTheme.bodyMedium?.copyWith(color: colors.onSurfaceVariant),
+            TextButton.icon(
+              key: const ValueKey('home-manage-playlists'),
+              onPressed: onOpenLibrary,
+              icon: const Icon(Icons.queue_music),
+              label: Text(strings.managePlaylists),
             ),
           ],
         ),
+        const SizedBox(height: 8),
+        _HomeLibraryTile(
+          key: const ValueKey('home-favorites-entry'),
+          icon: Icons.favorite,
+          title: strings.favorite,
+          subtitle: _librarySubtitle(
+            strings,
+            controller.favoriteTracks,
+            emptyText: strings.noFavoritesYet,
+          ),
+          onTap: () => _openList(context, _LibraryListSpec.favorite()),
+        ),
+        const SizedBox(height: 20),
+        Text(
+          strings.customPlaylists,
+          style: Theme.of(context).textTheme.titleMedium,
+        ),
+        const SizedBox(height: 8),
+        if (playlists.isEmpty)
+          _HomeLibraryTile(
+            key: const ValueKey('home-empty-custom-playlists'),
+            icon: Icons.playlist_add,
+            title: strings.noCustomPlaylists,
+            subtitle: strings.createPlaylistHomeHint,
+            onTap: onOpenLibrary,
+          )
+        else
+          for (final playlist in playlists.take(4)) ...[
+            _HomeLibraryTile(
+              key: ValueKey('home-playlist-${playlist.id}'),
+              icon: Icons.queue_music,
+              title: playlist.name,
+              subtitle: _librarySubtitle(
+                strings,
+                controller.tracksForPlaylist(playlist),
+                emptyText: strings.noSongsInPlaylist,
+              ),
+              onTap: () =>
+                  _openList(context, _LibraryListSpec.custom(playlist)),
+            ),
+            const SizedBox(height: 8),
+          ],
+        if (playlists.length > 4)
+          Align(
+            alignment: Alignment.centerLeft,
+            child: TextButton.icon(
+              onPressed: onOpenLibrary,
+              icon: const Icon(Icons.more_horiz),
+              label: Text(strings.managePlaylists),
+            ),
+          ),
+      ],
+    );
+  }
+
+  Future<void> _openList(BuildContext context, _LibraryListSpec selection) {
+    return Navigator.of(context).push<void>(
+      MaterialPageRoute(
+        builder: (context) =>
+            _PlaylistDetailPage(controller: controller, selection: selection),
       ),
     );
   }
+}
+
+class _HomeLibraryTile extends StatelessWidget {
+  const _HomeLibraryTile({
+    super.key,
+    required this.icon,
+    required this.title,
+    required this.subtitle,
+    required this.onTap,
+  });
+
+  final IconData icon;
+  final String title;
+  final String subtitle;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+    return ListTile(
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+      tileColor: colors.surfaceContainerHighest,
+      leading: Icon(icon, color: colors.primary),
+      title: Text(title, maxLines: 1, overflow: TextOverflow.ellipsis),
+      subtitle: Text(subtitle, maxLines: 2, overflow: TextOverflow.ellipsis),
+      trailing: const Icon(Icons.chevron_right),
+      onTap: onTap,
+    );
+  }
+}
+
+String _librarySubtitle(
+  AppStrings strings,
+  List<Track> tracks, {
+  required String emptyText,
+}) {
+  if (tracks.isEmpty) {
+    return emptyText;
+  }
+  final preview = tracks.take(3).map((track) => track.title).join(' / ');
+  return '${strings.songCount(tracks.length)} · $preview';
 }
 
 class _LibraryPage extends StatelessWidget {
