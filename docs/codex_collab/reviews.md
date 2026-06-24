@@ -58,6 +58,8 @@
 | 2026-06-24 | AM-20260622-003 | architect | android | accepted | 产品已在小米 17 Pro 验收 integration 包 OK，架构师复审并合入 `71a51bd`：Auto 双源渐进搜索、来源标记和副标题收敛、FLAC 歌词/封面字段解析、历史缓存 metadata 恢复、播放页重试入口、下载后缓存状态即时刷新、已有封面不重复拉取和暂停切歌自动播放均纳入 1.0.0。验证通过 `flutter analyze --no-pub`、`flutter test --no-pub` 121 项，release APK 约 9MB。 |
 | 2026-06-24 | AM-20260624-001 | architect | ios | accepted | iOS provider 风险调研通过并同步知识库：第一版 metadata pipeline 推荐已有源字段、本地内嵌封面、iTunes 封面、LRCLIB 歌词；LrcAPI/MusicBrainz-CAA 低优先级或实验开关；网易/QQ/酷我非官方直连不进入第一版默认链路。Android 实现完成后需 handoff iOS 做 ATS、本地 file URI、锁屏封面和后台音频更新验证。 |
 | 2026-06-24 | AM-20260624-003 | architect | android | assigned | 滑动切歌任务边界通过并创建专属 worktree `/Users/huangqi/AIHome/worktrees/ai_music/android-AM-20260624-003`，分支 `feature/1.0.1/AM-20260624-003-swipe-to-skip`。Android 当前继续优先 AM-001，后续有容量时在该 worktree 开工，不混入 AM-001/AM-002 或 release hotfix。 |
+| 2026-06-24 | AM-20260624-001 | architect | android | changes_requested | 第一轮 metadata pipeline review 要求回修：miss TTL 需持久化；iTunes/LRCLIB 匹配需加入 `country=CN` 和专辑评分；手动重试 API 需从 lyrics-only 语义改为 metadata miss 语义。 |
+| 2026-06-24 | AM-20260624-001 | architect | android | accepted | 第二轮 metadata pipeline review 通过并合入 `c23ae84`：字段级歌词/封面 miss TTL 已持久化，iTunes/LRCLIB 匹配已收紧，`loadBypassingMetadataMiss` 语义清楚；架构师复跑 metadata 单测、analyze 和全量测试通过。 |
 
 ## 结果值
 

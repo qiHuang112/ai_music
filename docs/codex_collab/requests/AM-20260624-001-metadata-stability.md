@@ -1,6 +1,6 @@
 # AM-20260624-001 歌词封面稳定加载
 
-Status: assigned
+Status: merged
 Owner Lane: android
 Assist Lane: ios validation support, architect review
 Source Thread: 019ee4b7-e7d2-7751-a4c4-150ede83c350
@@ -12,6 +12,7 @@ Worktree Path: /Users/huangqi/AIHome/worktrees/ai_music/android-AM-20260624-001
 Merge Branch: main
 Created: 2026-06-24
 Updated: 2026-06-24
+Merged Commit: c23ae84
 
 ## 目标
 
@@ -94,12 +95,15 @@ Updated: 2026-06-24
 - 2026-06-24 type=status lane=android summary=Android lane 已确认 P1 hotfix 归属复核，并准备转入 metadata pipeline。架构师确认 P1 已 accepted/可归档后，Android 可以正式开 AM-20260624-001。
 - 2026-06-24 type=blocker lane=android status=worktree_blocked_plan_ready summary=Android lane 判断 `/Users/huangqi/AIHome/projects/ai_music_android` 存在旧 AM-003 脏现场，不应混入 AM-001。架构师已从 `origin/main` 创建专属 worktree `/Users/huangqi/AIHome/worktrees/ai_music/android-AM-20260624-001` 和分支 `feature/1.0.1/AM-20260624-001-metadata-pipeline`。
 - 2026-06-24 type=review_request lane=ios status=review summary=iOS lane 补充 metadata provider 风险调研并写入 `docs/codex_collab/knowledge/ios/2026-06-24-metadata-provider-risk.md`。架构师 review 接受：第一版推荐已有源字段、本地内嵌封面、iTunes 封面、LRCLIB 歌词；LrcAPI 和 MusicBrainz/CAA 低优先级或实验开关；网易/QQ/酷我非官方直连不建议第一版默认接入。
+- 2026-06-24 type=review_request lane=android status=changes_requested summary=Android 第一阶段实现经架构师 review 后要求回修：miss TTL 需持久化，iTunes/LRCLIB 匹配需加入 `country=CN` 和专辑评分，手动重试 API 需从 lyrics-only 语义改为 metadata miss 语义。
+- 2026-06-24 type=review_result lane=architect status=accepted summary=Android 第二轮回修通过：`TrackMetadata` 持久化歌词/封面 miss TTL；iTunes 增加 `country=CN`；iTunes/LRCLIB 多结果用 title/artist 基础匹配并用 album 评分；`loadBypassingMetadataMiss` 语义补齐。架构师复跑 `flutter test --no-pub test/metadata_test.dart`、`flutter analyze --no-pub`、`flutter test --no-pub` 通过。
+- 2026-06-24 type=status lane=architect status=merged summary=Android 提交 `c23ae84` 已 fast-forward 合入 integration main，等待推送远端后由 Android 继续小米 10 Pro metadata 样例验证。
 
 ## Review 结果
 
 - Reviewer Lane: architect
-- Result: assigned
-- Android Findings: Android lane 可以在 `/Users/huangqi/AIHome/worktrees/ai_music/android-AM-20260624-001` 正式开工 AM-20260624-001；完成后回 architect lane，带 commit、`flutter test --no-pub`、`flutter analyze --no-pub`、小米 10 Pro metadata 自测、provider 命中/TTL/cache 日志摘要。不得混入 AM-20260624-002 播放状态持久化或 Android release 播控热修文件。实现时必须避开 iOS 风险调研列出的坑：metadata provider 不得变成音频源 fallback；网络 provider 必须短超时、低并发、可取消；晚返回结果不能覆盖当前曲或用空结果覆盖成功值；MusicBrainz/CAA 不做高优先级默认依赖；网易/QQ/酷我非官方直连不进入第一版默认链路。
+- Result: accepted/merged
+- Android Findings: Android 提交 `c23ae84` 已通过架构师 review 并合入 integration main。实现包含字段级歌词/封面 miss TTL 持久化、成功 metadata 不被空结果覆盖、手动 `loadBypassingMetadataMiss` 绕过 TTL、iTunes 封面兜底、LRCLIB 歌词兜底、provider 超时保护和播放页手动恢复入口语义更新。架构师复跑 `flutter test --no-pub test/metadata_test.dart`、`flutter analyze --no-pub`、`flutter test --no-pub` 通过。Android lane 后续需回 architect/product：小米 10 Pro metadata 自测、provider 命中/TTL/cache 日志摘要；重点验证 `黑夜传说` FLAC 歌词/封面、BuguYY 已有封面不重复请求、旧缓存缺歌词/封面自动恢复和手动重试。
 - iOS Findings: iOS provider 风险调研 accepted，并已同步到知识库。Android pipeline 完成后，请 architect handoff iOS lane，带实现 commit、测试结果、provider 列表、是否使用本地音频标签读取、是否缓存本地封面、需要 iOS 真机验证的点；iOS 重点验证 ATS、本地 file URI、锁屏/控制中心封面和后台音频期间 metadata 更新。
 - HarmonyOS Findings: 暂不涉及。
 - Architect Findings: 架构师只做 review/合并/发布，不直接写本任务公共 Dart 业务。
