@@ -100,6 +100,51 @@ void main() {
     }
   });
 
+  test(
+    'initialize does not restore removed favorite tracks from local cache',
+    () async {
+      final handler = _SpyAudioHandler();
+      final removed = _cachedTrack(id: 'song-1', name: '已取消收藏');
+      final kept = _cachedTrack(id: 'song-2', name: '仍在收藏');
+      final playbackStore = _MemoryPlaybackStateStore(
+        SavedPlaybackState(
+          playbackMode: PlaybackMode.loopAll,
+          queueSource: const PlaybackQueueSource.favorite(),
+          queueTrackIds: [removed.cacheId, kept.cacheId],
+          currentTrackId: removed.cacheId,
+        ),
+      );
+      final playlistStore = _MemoryPlaylistStore()
+        ..library = PlaylistLibrary(
+          favoriteEntries: [
+            PlaylistTrackEntry(trackId: kept.cacheId, addedAt: DateTime(2026)),
+          ],
+          playlists: const [],
+        );
+      final controller = MusicController(
+        audioHandler: handler,
+        resolver: _FakeMusicResolver(),
+        cacheStore: _FakeCacheStore(cached: [removed, kept]),
+        playlistStore: playlistStore,
+        settingsStore: _FakeSettingsStore(),
+        playbackStateStore: playbackStore,
+        metadataRepository: _StaticMetadataRepository(),
+      );
+
+      try {
+        await controller.initialize();
+
+        expect(handler.loadedIds, [kept.cacheId]);
+        expect(handler.loadedInitialIndex, 0);
+        expect(playbackStore.state?.queueTrackIds, [kept.cacheId]);
+        expect(playbackStore.state?.currentTrackId, kept.cacheId);
+      } finally {
+        controller.dispose();
+        await handler.dispose();
+      }
+    },
+  );
+
   test('initialize restores custom playlist queue', () async {
     final handler = _SpyAudioHandler();
     final first = _cachedTrack(id: 'song-1', name: '第一首');
@@ -146,6 +191,42 @@ void main() {
       await handler.dispose();
     }
   });
+
+  test(
+    'initialize clears custom playlist state when playlist no longer exists',
+    () async {
+      final handler = _SpyAudioHandler();
+      final cached = _cachedTrack(id: 'song-1', name: '本地仍存在');
+      final playbackStore = _MemoryPlaybackStateStore(
+        SavedPlaybackState(
+          playbackMode: PlaybackMode.loopAll,
+          queueSource: const PlaybackQueueSource.customPlaylist('deleted'),
+          queueTrackIds: [cached.cacheId],
+          currentTrackId: cached.cacheId,
+        ),
+      );
+      final controller = MusicController(
+        audioHandler: handler,
+        resolver: _FakeMusicResolver(),
+        cacheStore: _FakeCacheStore(cached: [cached]),
+        playlistStore: _FakePlaylistStore(),
+        settingsStore: _FakeSettingsStore(),
+        playbackStateStore: playbackStore,
+        metadataRepository: _StaticMetadataRepository(),
+      );
+
+      try {
+        await controller.initialize();
+
+        expect(handler.loadedIds, isEmpty);
+        expect(playbackStore.state, isNull);
+        expect(playbackStore.clearCount, 1);
+      } finally {
+        controller.dispose();
+        await handler.dispose();
+      }
+    },
+  );
 
   test('initialize skips a deleted current track in saved queue', () async {
     final handler = _SpyAudioHandler();
@@ -708,6 +789,106 @@ void main() {
         );
         expect(controller.favoriteTracks, isEmpty);
         expect(controller.customPlaylists.single.trackIds, isEmpty);
+      } finally {
+        controller.dispose();
+        await handler.dispose();
+      }
+    },
+  );
+
+  test(
+    'removing active favorite clears persisted queue and does not resurrect it',
+    () async {
+      final handler = _SpyAudioHandler();
+      final cached = _cachedTrack(id: 'song-1', name: '第一首');
+      final playbackStore = _MemoryPlaybackStateStore();
+      final playlistStore = _MemoryPlaylistStore()
+        ..library = PlaylistLibrary(
+          favoriteEntries: [
+            PlaylistTrackEntry(
+              trackId: cached.cacheId,
+              addedAt: DateTime(2026),
+            ),
+          ],
+          playlists: const [],
+        );
+      final controller = MusicController(
+        audioHandler: handler,
+        resolver: _FakeMusicResolver(),
+        cacheStore: _FakeCacheStore(cached: [cached]),
+        playlistStore: playlistStore,
+        settingsStore: _FakeSettingsStore(),
+        playbackStateStore: playbackStore,
+        metadataRepository: _StaticMetadataRepository(),
+      );
+
+      try {
+        await controller.initialize();
+        final track = trackFromCached(cached);
+        await controller.playTrack(
+          track,
+          index: 0,
+          queueTracks: [track],
+          queueSource: const PlaybackQueueSource.favorite(),
+        );
+
+        expect(playbackStore.state?.queueTrackIds, [cached.cacheId]);
+
+        await controller.toggleFavorite(track);
+        await controller.setPlaybackMode(PlaybackMode.shuffle);
+
+        expect(playbackStore.state, isNull);
+        expect(playbackStore.clearCount, 1);
+      } finally {
+        controller.dispose();
+        await handler.dispose();
+      }
+    },
+  );
+
+  test(
+    'removing active playlist track clears persisted custom playlist queue',
+    () async {
+      final handler = _SpyAudioHandler();
+      final cached = _cachedTrack(id: 'song-1', name: '第一首');
+      final playbackStore = _MemoryPlaybackStateStore();
+      final playlist = MusicPlaylist(
+        id: 'road',
+        name: 'Road',
+        trackIds: [cached.cacheId],
+        createdAt: DateTime(2026),
+        updatedAt: DateTime(2026),
+      );
+      final playlistStore = _MemoryPlaylistStore()
+        ..library = PlaylistLibrary(playlists: [playlist]);
+      final controller = MusicController(
+        audioHandler: handler,
+        resolver: _FakeMusicResolver(),
+        cacheStore: _FakeCacheStore(cached: [cached]),
+        playlistStore: playlistStore,
+        settingsStore: _FakeSettingsStore(),
+        playbackStateStore: playbackStore,
+        metadataRepository: _StaticMetadataRepository(),
+      );
+
+      try {
+        await controller.initialize();
+        final track = trackFromCached(cached);
+        await controller.playTrack(
+          track,
+          index: 0,
+          queueTracks: [track],
+          queueSource: const PlaybackQueueSource.customPlaylist('road'),
+        );
+
+        await controller.removeTrackFromPlaylist(
+          controller.customPlaylists.single,
+          track,
+        );
+        await controller.setPlaybackMode(PlaybackMode.repeatOne);
+
+        expect(playbackStore.state, isNull);
+        expect(playbackStore.clearCount, 1);
       } finally {
         controller.dispose();
         await handler.dispose();

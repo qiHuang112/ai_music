@@ -509,6 +509,7 @@ class MusicController extends ChangeNotifier {
     _applyLibrarySnapshot(
       await libraryUseCase.toggleFavorite(track, current: _librarySnapshot),
     );
+    await _refreshPersistedQueueAfterLibraryChange();
     notifyListeners();
     await _syncOhosControlState();
   }
@@ -550,6 +551,7 @@ class MusicController extends ChangeNotifier {
         current: _librarySnapshot,
       ),
     );
+    await _refreshPersistedQueueAfterLibraryChange();
     notifyListeners();
   }
 
@@ -564,6 +566,7 @@ class MusicController extends ChangeNotifier {
         current: _librarySnapshot,
       ),
     );
+    await _refreshPersistedQueueAfterLibraryChange();
     notifyListeners();
   }
 
@@ -578,6 +581,7 @@ class MusicController extends ChangeNotifier {
         current: _librarySnapshot,
       ),
     );
+    await _refreshPersistedQueueAfterLibraryChange();
     notifyListeners();
   }
 
@@ -592,6 +596,7 @@ class MusicController extends ChangeNotifier {
         current: _librarySnapshot,
       ),
     );
+    await _refreshPersistedQueueAfterLibraryChange();
     notifyListeners();
   }
 
@@ -602,6 +607,7 @@ class MusicController extends ChangeNotifier {
         current: _librarySnapshot,
       ),
     );
+    await _refreshPersistedQueueAfterLibraryChange();
     notifyListeners();
   }
 
@@ -1061,31 +1067,48 @@ class MusicController extends ChangeNotifier {
     final byId = {for (final track in cachedTracks) track.id: track};
     switch (saved.queueSource.type) {
       case PlaybackQueueSourceType.favorite:
-        return _orderedTracks(savedIds, favoriteTracks, byId);
+        return _orderedTracks(
+          savedIds,
+          favoriteTracks,
+          byId,
+          allowCacheFallback: false,
+        );
       case PlaybackQueueSourceType.customPlaylist:
         final playlist = customPlaylists
             .where((item) => item.id == saved.queueSource.id)
             .firstOrNull;
         if (playlist == null) {
-          return _orderedTracks(savedIds, const [], byId);
+          return const [];
         }
-        return _orderedTracks(savedIds, tracksForPlaylist(playlist), byId);
+        return _orderedTracks(
+          savedIds,
+          tracksForPlaylist(playlist),
+          byId,
+          allowCacheFallback: false,
+        );
       case PlaybackQueueSourceType.localCache:
       case PlaybackQueueSourceType.searchCache:
-        return _orderedTracks(savedIds, cachedTracks, byId);
+        return _orderedTracks(
+          savedIds,
+          cachedTracks,
+          byId,
+          allowCacheFallback: true,
+        );
     }
   }
 
   List<Track> _orderedTracks(
     List<String> savedIds,
     List<Track> sourceTracks,
-    Map<String, Track> cachedById,
-  ) {
+    Map<String, Track> cachedById, {
+    required bool allowCacheFallback,
+  }) {
     final sourceById = {for (final track in sourceTracks) track.id: track};
     final tracks = <Track>[];
     final seen = <String>{};
     for (final id in savedIds) {
-      final track = sourceById[id] ?? cachedById[id];
+      final track =
+          sourceById[id] ?? (allowCacheFallback ? cachedById[id] : null);
       if (track != null && seen.add(track.id)) {
         tracks.add(track);
       }
@@ -1215,6 +1238,8 @@ class MusicController extends ChangeNotifier {
   }
 
   Future<void> _clearPlaybackState() async {
+    _activeQueueSource = const PlaybackQueueSource.localCache();
+    _activeQueueTrackIds = const [];
     try {
       await _playbackStateStore.clear();
     } catch (_) {

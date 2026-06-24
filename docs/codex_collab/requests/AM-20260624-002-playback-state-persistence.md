@@ -77,6 +77,8 @@ Updated: 2026-06-24
 - 2026-06-24 type=coordination_request lane=product summary=P1 release 播控由架构师备援推进时，其它 lane 不能空转；播放状态持久化改由 ohos lane 在独立工程并行实现，前提是不碰 Android release 播控文件、不碰 `android/`。
 - 2026-06-24 type=unblock_start lane=product summary=产品确认当前 Android release 播控 P1 不需要 ohos 参与，允许 ohos 在 `/Users/huangqi/AIHome/projects/ai_music_ohos`、`lane/ohos` 并行承接 AM-002 公共 Dart 首版。
 - 2026-06-24 type=status lane=ohos summary=ohos 完成首版实现：新增播放状态持久化模型，恢复播放模式、队列来源、队列顺序和当前歌曲；恢复时进度从 0 开始且不自动播放；删除缺失曲目时安全降级。
+- 2026-06-24 type=review_result lane=architect status=changes_requested summary=首版方向正确但需修复收藏/歌单恢复语义：收藏和自建歌单恢复不能从本地缓存补回已移除成员；收藏/歌单成员变化后必须刷新或清理持久化快照；清理快照时必须同步清掉内存 active queue/source/current；同时要求基于最新 `origin/main` 重测，避免覆盖 AM-001 metadata 和 AM-003 手势。
+- 2026-06-24 type=status lane=ohos summary=ohos 已将 `lane/ohos` rebase 到 `origin/main` `a05fff9`，并修复二轮 review findings：收藏/歌单来源只按当前成员恢复，成员删除或取消收藏后刷新快照，清快照时同步清内存队列和来源。
 
 ## 验证记录
 
@@ -87,6 +89,13 @@ Updated: 2026-06-24
 - 2026-06-24 `flutter test --no-pub`：通过，127 tests passed。
 - 2026-06-24 `OHOS_FLUTTER_BIN=/Users/huangqi/AIHome/tools/flutter_ohos/bin/flutter OHOS_CODESIGN=true tool/build_ohos_hap.sh`：通过，生成 `build/ohos/hap/entry-default-signed.hap`，23.8MB。
 - 2026-06-24 无线 HDC 安装阻塞：`hdc tconn 192.168.31.53:10178` 和 `hdc list targets` 均返回 `Connect server failed`；HAP 已生成，但本轮无法完成设备安装/杀进程重进手测。
+- 2026-06-24 二轮修复后 `flutter analyze --no-pub`：通过，No issues found。
+- 2026-06-24 二轮修复后 `flutter test --no-pub test/music_controller_test.dart`：通过，32 tests passed；覆盖已移除收藏不从缓存恢复、歌单不存在清快照、取消收藏/移除歌单成员后不复活旧队列。
+- 2026-06-24 二轮修复后 `flutter test --no-pub test/widget_test.dart`：通过，34 tests passed。
+- 2026-06-24 二轮修复后 `flutter test --no-pub test/player_page_test.dart`：通过，3 tests passed。
+- 2026-06-24 二轮修复后 `flutter test --no-pub`：通过，137 tests passed。
+- 2026-06-24 二轮修复后 `OHOS_FLUTTER_BIN=/Users/huangqi/AIHome/tools/flutter_ohos/bin/flutter OHOS_CODESIGN=true tool/build_ohos_hap.sh`：通过，生成 `build/ohos/hap/entry-default-signed.hap`，23.8MB；构建副作用 `pubspec.lock` 和 `third_party/just_audio_harmonyos/ohos/BuildProfile.ets` 已恢复。
+- 2026-06-24 二轮修复后无线 HDC 仍阻塞：`/Applications/DevEco-Studio.app/Contents/sdk/default/openharmony/toolchains/hdc -v` 返回 `Ver: 3.2.0c`；`hdc start -r` 无输出，`hdc list targets` 与 `hdc tconn 192.168.31.53:10178` 均返回 `Connect server failed`，因此本轮无法完成设备安装和杀进程重进手测。
 
 ## Review 结果
 
