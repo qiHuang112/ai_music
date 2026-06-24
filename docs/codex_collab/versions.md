@@ -60,17 +60,19 @@
 - Release Tag: pending
 - Android APK: pending
 - Frozen At: pending
-- Feature Count: 2
+- Feature Count: 3
 
 | Request | 功能 | Owner | Work Branch | 状态 | Commit | Release |
 | --- | --- | --- | --- | --- | --- | --- |
 | AM-20260624-002 | 播放状态持久化，ohos 并行实现，Android 协助复核 | ohos | `lane/ohos` | assigned_to_ohos | pending | 1.0.1 |
 | AM-20260624-001 | 歌词/封面稳定加载 pipeline，Android 主责，iOS 验证支持 | android | `feature/1.0.1/AM-20260624-001-metadata-pipeline` | assigned | pending | 1.0.1 |
+| AM-20260624-003 | 底部播放状态栏和播放详情页左右滑动切歌 | android | `feature/1.0.1/AM-20260624-003-swipe-to-skip` | assigned | pending | 1.0.1 |
 
 ## 并行队列
 
 - AM-20260624-ANDROID-RELEASE-MEDIA-CONTROL：1.0.0 blocker 已通过 `46ce92d` / `v1.0.0-hotfix.1` 修复并完成产品验收；Android lane 只需做归属复核和知识沉淀检查，不阻塞 1.0.1 开工。
 - AM-20260624-002：ohos lane 在 `/Users/huangqi/AIHome/projects/ai_music_ohos` / `lane/ohos` 开发公共 Dart 播放状态持久化；禁止触碰 `android/`、Android release 播控热修文件和 metadata pipeline。
 - AM-20260624-001：android lane 在 `/Users/huangqi/AIHome/worktrees/ai_music/android-AM-20260624-001` / `feature/1.0.1/AM-20260624-001-metadata-pipeline` 开发 metadata pipeline；禁止混入旧 `/Users/huangqi/AIHome/projects/ai_music_android` 脏现场和 AM-002 播放状态持久化。
+- AM-20260624-003：android lane 后续在独立 worktree/branch 开发底部播放状态栏和播放详情页滑动切歌；禁止混入 AM-001 metadata pipeline、AM-002 播放状态持久化或 Android release 播控 hotfix。
 - iOS lane：等待 Android metadata pipeline review accepted 后做 provider/ATS/file URI/锁屏封面等平台风险验证；未收到 handoff 前不改公共 Dart。
 - UI lane：做页面现状巡检和 UI 建议，不进入自动 review，不直接改业务代码。
