@@ -22,7 +22,7 @@
 | 2026-06-24 | AM-20260622-003 | android | `019ee41d-647e-7250-bb01-f1ae81098696` | `71a51bd` | 完善双源搜索与歌词封面恢复 | accepted |
 | 2026-06-24 | AM-20260624-001 | android | `019ee41d-647e-7250-bb01-f1ae81098696` | `c23ae84` | 增强歌词封面元数据补全 | accepted/merged |
 | 2026-06-24 | AM-20260624-003 | android | `019ee41d-647e-7250-bb01-f1ae81098696` | `5ec19b6` | 支持播放界面滑动切歌 | accepted/merged |
-| 2026-06-25 | AM-20260624-002 | ohos | `019ee7db-7cfc-7c41-9827-6b851ce89548` | `98d64a1`/`473ac61`/`9cbde92` | 实现播放状态持久化 | accepted/merged |
+| 2026-06-25 | AM-20260624-002 | ohos | `019ee7db-7cfc-7c41-9827-6b851ce89548` | `98d64a1`/`473ac61`/`9cbde92` | 实现播放状态持久化 | accepted/merged/device_verified |
 
 ## 规则
 

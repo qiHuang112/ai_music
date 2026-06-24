@@ -1,6 +1,6 @@
 # AM-20260624-002 播放状态持久化
 
-Status: merged
+Status: device_verified
 Owner Lane: ohos
 Assist Lane: android review, architect review
 Source Thread: 019ee4b7-e7d2-7751-a4c4-150ede83c350
@@ -84,6 +84,7 @@ Merged Commits: 98d64a1, 473ac61, 9cbde92
 - 2026-06-24 type=status lane=ohos summary=ohos 已将 AM-002 两个提交 rebase 到 `origin/main` `3322552`；自动合并无冲突，确认 `music_home_page.dart` 同时保留 AM-003 迷你播放器滑动切歌和 AM-002 播放状态来源传递；同时补齐 `player_page_test` 新滑动用例的 fake playback store 隔离，避免测试 runner 因真实持久化 store 收尾卡住。
 - 2026-06-25 type=review_result lane=architect status=accepted summary=架构师二轮 review 通过：AM-002 已基于 `origin/main=3322552`，保留 AM-003 滑动切歌；恢复时不自动播放，收藏/自建歌单恢复不复活已移除歌曲，成员变化会刷新或清理持久化快照。架构师复跑 analyze、关键测试和 diff check 通过。
 - 2026-06-25 type=status lane=architect status=merged summary=架构师已将 AM-002 三个提交 cherry-pick 合入 integration main，合入后提交为 `98d64a1`、`473ac61`、`9cbde92`；HDC 仍是设备安装 blocker，后续由 ohos lane 恢复后补真机杀进程重进验证。
+- 2026-06-25 type=validation_result lane=ohos status=device_verified summary=ohos lane 已使用 `hdc tconn 192.168.31.53:6666` 连接鸿蒙测试机，`hdc list targets -v` 显示 `192.168.31.53:6666 TCP Connected localhost`；HAP 安装、启动、杀进程重进验证通过。重启后恢复当前歌曲 `十年 / 陈奕迅`，播放页显示 `00:00 / 03:25` 且中央为播放按钮；点击下一首切到 `浮夸 / 陈奕迅`，证明恢复队列可用。
 
 ## 验证记录
 
@@ -108,6 +109,8 @@ Merged Commits: 98d64a1, 473ac61, 9cbde92
 - 2026-06-24 基于 `origin/main` `3322552` 重放后 `flutter test --no-pub`：通过，141 tests passed。
 - 2026-06-24 基于 `origin/main` `3322552` 重放后 `OHOS_FLUTTER_BIN=/Users/huangqi/AIHome/tools/flutter_ohos/bin/flutter OHOS_CODESIGN=true tool/build_ohos_hap.sh`：通过，生成 `build/ohos/hap/entry-default-signed.hap`，23.8MB；构建副作用 `pubspec.lock` 和 `third_party/just_audio_harmonyos/ohos/BuildProfile.ets` 已恢复。
 - 2026-06-24 基于 `origin/main` `3322552` 重放后无线 HDC 仍阻塞：`hdc list targets` 返回 `Connect server failed`，仍属本机 HDC 服务层问题。
+- 2026-06-25 鸿蒙真机补验：先执行 `/Applications/DevEco-Studio.app/Contents/sdk/default/openharmony/toolchains/hdc tconn 192.168.31.53:6666`，`hdc list targets -v` 显示 `192.168.31.53:6666 TCP Connected localhost`。安装命令 `hdc -t 192.168.31.53:6666 install -r build/ohos/hap/entry-default-signed.hap` 返回 `install bundle successfully`；启动命令 `hdc -t 192.168.31.53:6666 shell aa start -a EntryAbility -b com.qi.ai.music` 返回 `start ability successfully`。
+- 2026-06-25 鸿蒙杀进程重进验证：执行 `aa force-stop com.qi.ai.music` 后重新启动，首页 mini player 恢复当前歌曲 `十年 / 陈奕迅`，收藏入口显示 `2 首 · 浮夸 / 十年`，自建歌单 `qi` 显示 `3 首 · 十年 / 浮夸 / Midnight City`。进入播放页显示当前歌曲 `十年 / 陈奕迅`，进度 `00:00 / 03:25`，中央为播放按钮，确认默认不自动播放且进度从 0 开始；点击下一首后页面切到 `浮夸 / 陈奕迅`。证据截图：`/Users/huangqi/AIHome/worktrees/ai_music/ai_music_screen_am002.png`、`/Users/huangqi/AIHome/worktrees/ai_music/ai_music_player_screen_am002.png`、`/Users/huangqi/AIHome/worktrees/ai_music/ai_music_after_next_screen_am002.png`。
 
 ## Review 结果
 
@@ -115,5 +118,5 @@ Merged Commits: 98d64a1, 473ac61, 9cbde92
 - Result: accepted/merged
 - Android Findings: Android lane 暂不实现本任务，改为协助复核公共 Dart/Android 行为；收到 ohos review_request 后，请检查播放队列恢复、测试覆盖和 Android 行为风险。
 - iOS Findings: 暂不涉及。
-- HarmonyOS Findings: AM-002 已通过代码 review 并合入 main。HDC 服务层仍返回 `Connect server failed`，因此鸿蒙真机杀进程重进验证暂未完成；HDC 恢复后请 ohos lane 补装 HAP 并回 architect/product 验证摘要。
-- Architect Findings: 架构师已复跑 analyze、关键 widget/controller/player 测试和 diff check，并将提交合入 integration main；后续只跟进 HDC blocker 和 product 体验同步。
+- HarmonyOS Findings: AM-002 已通过代码 review、合入 main，并在鸿蒙测试机完成安装和杀进程重进补验。恢复播放模式/队列/current track 的核心路径可用；默认不自动播放，进度从 0 开始。
+- Architect Findings: 架构师已复跑 analyze、关键 widget/controller/player 测试和 diff check，并将提交合入 integration main；ohos lane 已补齐 HDC 真机验证，AM-002 可按 device_verified 归档。

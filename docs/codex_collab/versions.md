@@ -64,7 +64,7 @@
 
 | Request | 功能 | Owner | Work Branch | 状态 | Commit | Release |
 | --- | --- | --- | --- | --- | --- | --- |
-| AM-20260624-002 | 播放状态持久化，ohos 并行实现，Android 协助复核 | ohos | `lane/ohos` | merged | `98d64a1`/`473ac61`/`9cbde92` | 1.0.1 |
+| AM-20260624-002 | 播放状态持久化，ohos 并行实现，Android 协助复核 | ohos | `lane/ohos` | device_verified | `98d64a1`/`473ac61`/`9cbde92` | 1.0.1 |
 | AM-20260624-001 | 歌词/封面稳定加载 pipeline，Android 主责，iOS 验证支持 | android | `feature/1.0.1/AM-20260624-001-metadata-pipeline` | assigned | pending | 1.0.1 |
 | AM-20260624-003 | 底部播放状态栏和播放详情页左右滑动切歌 | android | `feature/1.0.1/AM-20260624-003-swipe-to-skip` | assigned | pending | 1.0.1 |
 
