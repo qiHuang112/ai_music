@@ -1,6 +1,6 @@
 # AM-20260624-002 播放状态持久化
 
-Status: review
+Status: merged
 Owner Lane: ohos
 Assist Lane: android review, architect review
 Source Thread: 019ee4b7-e7d2-7751-a4c4-150ede83c350
@@ -11,7 +11,8 @@ Work Branch: lane/ohos
 Worktree Path: /Users/huangqi/AIHome/projects/ai_music_ohos
 Merge Branch: main
 Created: 2026-06-24
-Updated: 2026-06-24
+Updated: 2026-06-25
+Merged Commits: 98d64a1, 473ac61, 9cbde92
 
 ## 目标
 
@@ -81,6 +82,8 @@ Updated: 2026-06-24
 - 2026-06-24 type=status lane=ohos summary=ohos 已将 `lane/ohos` rebase 到 `origin/main` `a05fff9`，并修复二轮 review findings：收藏/歌单来源只按当前成员恢复，成员删除或取消收藏后刷新快照，清快照时同步清内存队列和来源。
 - 2026-06-24 type=review_result lane=architect status=changes_requested summary=二轮业务逻辑 review 通过；唯一阻塞是分支基线落后，缺少已推主线的 AM-003 滑动切歌 `5ec19b6` 和账本 `3322552`，要求以 `origin/main=3322552e4a7fe8a5ff46559712e61c016b40acde` 为基线重放并重测。
 - 2026-06-24 type=status lane=ohos summary=ohos 已将 AM-002 两个提交 rebase 到 `origin/main` `3322552`；自动合并无冲突，确认 `music_home_page.dart` 同时保留 AM-003 迷你播放器滑动切歌和 AM-002 播放状态来源传递；同时补齐 `player_page_test` 新滑动用例的 fake playback store 隔离，避免测试 runner 因真实持久化 store 收尾卡住。
+- 2026-06-25 type=review_result lane=architect status=accepted summary=架构师二轮 review 通过：AM-002 已基于 `origin/main=3322552`，保留 AM-003 滑动切歌；恢复时不自动播放，收藏/自建歌单恢复不复活已移除歌曲，成员变化会刷新或清理持久化快照。架构师复跑 analyze、关键测试和 diff check 通过。
+- 2026-06-25 type=status lane=architect status=merged summary=架构师已将 AM-002 三个提交 cherry-pick 合入 integration main，合入后提交为 `98d64a1`、`473ac61`、`9cbde92`；HDC 仍是设备安装 blocker，后续由 ohos lane 恢复后补真机杀进程重进验证。
 
 ## 验证记录
 
@@ -109,8 +112,8 @@ Updated: 2026-06-24
 ## Review 结果
 
 - Reviewer Lane: architect
-- Result: assigned
+- Result: accepted/merged
 - Android Findings: Android lane 暂不实现本任务，改为协助复核公共 Dart/Android 行为；收到 ohos review_request 后，请检查播放队列恢复、测试覆盖和 Android 行为风险。
 - iOS Findings: 暂不涉及。
-- HarmonyOS Findings: ohos lane 接手实现。完成后回 architect lane，带 commit、`flutter test --no-pub`、`flutter analyze --no-pub`、HarmonyOS 杀进程/重进验证摘要；如触碰公共 Dart 高冲突文件，必须在 review_request 中列出文件和冲突风险。
-- Architect Findings: 架构师只做 review/合并/发布，不直接写本任务公共 Dart 业务。
+- HarmonyOS Findings: AM-002 已通过代码 review 并合入 main。HDC 服务层仍返回 `Connect server failed`，因此鸿蒙真机杀进程重进验证暂未完成；HDC 恢复后请 ohos lane 补装 HAP 并回 architect/product 验证摘要。
+- Architect Findings: 架构师已复跑 analyze、关键 widget/controller/player 测试和 diff check，并将提交合入 integration main；后续只跟进 HDC blocker 和 product 体验同步。

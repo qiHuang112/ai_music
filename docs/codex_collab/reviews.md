@@ -61,6 +61,7 @@
 | 2026-06-24 | AM-20260624-001 | architect | android | changes_requested | 第一轮 metadata pipeline review 要求回修：miss TTL 需持久化；iTunes/LRCLIB 匹配需加入 `country=CN` 和专辑评分；手动重试 API 需从 lyrics-only 语义改为 metadata miss 语义。 |
 | 2026-06-24 | AM-20260624-001 | architect | android | accepted | 第二轮 metadata pipeline review 通过并合入 `c23ae84`：字段级歌词/封面 miss TTL 已持久化，iTunes/LRCLIB 匹配已收紧，`loadBypassingMetadataMiss` 语义清楚；架构师复跑 metadata 单测、analyze 和全量测试通过。 |
 | 2026-06-24 | AM-20260624-003 | architect | android | accepted | 滑动切歌 review 通过并合入 `5ec19b6`：mini player 和播放详情页主体左右滑动复用现有上一首/下一首逻辑，按钮点击未回退；测试覆盖 mini player、播放详情页和 Slider 拖动不误触切歌，小米 10 Pro 同签 release 单曲边界验证通过。 |
+| 2026-06-25 | AM-20260624-002 | architect | ohos | accepted | 播放状态持久化二轮 review 通过并合入 `98d64a1`/`473ac61`/`9cbde92`：恢复时不自动播放，收藏/自建歌单恢复不复活已移除歌曲，成员变化会刷新或清理持久化快照；已基于 `origin/main=3322552` 保留 AM-003 滑动切歌，架构师复跑 analyze、关键测试和 diff check 通过。HDC 仍是设备安装 blocker，后续补真机验证。 |
 
 ## 结果值
 
