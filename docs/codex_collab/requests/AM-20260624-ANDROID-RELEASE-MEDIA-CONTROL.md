@@ -15,6 +15,8 @@ Updated: 2026-06-24
 
 修复产品在小米 17 Pro 安装最新 Android release 包后发现的 P1：播放歌曲后系统播控中心没有出现。
 
+本任务目标是恢复 AI Music 之前已经支持过的 Android 系统播控中心能力，不是新增“通知权限功能”。`POST_NOTIFICATIONS` 只能作为 Android 13+ / MIUI release 包兼容和排查点，不能作为需求本身，也不能在缺少播放后 active MediaSession、notification controls 和四槽位证据时 declared fixed。
+
 这是 1.0.0 release blocker。修复闭环前，不推进新的 1.0.1 公共 Dart 功能，不把当前 `v1.0.0` release 包继续作为正式可发布包交付。
 
 ## 背景
@@ -33,6 +35,7 @@ Android lane 需要基于 release 包定位，不允许只用 debug 包证明：
 - release shrink/混淆/资源裁剪影响 notification icon、custom action、service 或 receiver。
 - Android 13+ / MIUI 通知权限、前台服务权限或 media notification slot 策略在 release 包下表现不同。
 - `POST_NOTIFICATIONS` 缺失可以解释普通通知不可见，但不能单独作为最终根因；Android 官方文档说明 media session 相关通知属于通知运行时权限豁免项。因此如果播放后 `dumpsys media_session` 没有 active session，优先继续查 audio_service 初始化、播放状态发布、service/foreground notification 启动链路。
+- 必须对比旧可用包或旧可用提交与当前 release 的差异，覆盖 `audio_service` active session、`PlaybackState` / `MediaItem` 发布、notification controls、foreground service、manifest service/receiver 和 release 打包差异。
 - `MediaItem`、`PlaybackState`、`controls`、`androidCompactActionIndices` 在 release 包播放链路中没有正确发布。
 - release 构建脚本、manifest、R8/proguard、签名或安装覆盖导致系统媒体会话未被系统识别。
 
@@ -58,6 +61,7 @@ Android lane 需要基于 release 包定位，不允许只用 debug 包证明：
 - Android release 包安装后，播放一首歌曲，系统播控中心必须重新出现。
 - 四槽位顺序保持既定口径：收藏/取消收藏、上一首、播放/暂停、下一首。
 - 收藏、上一首、播放/暂停、下一首均可用。
+- 不能把“通知权限已声明/已授权”当作 accepted 条件；accepted 条件必须是播放后播控中心出现且四槽位可见可点。
 - `dumpsys media_session` 能看到 AI Music active session、metadata、playback state 和 controls/custom actions。
 - 通知或系统媒体控件可见；如受 MIUI/Android 版本策略限制，需提供具体系统证据说明不是 App 未发布。
 - release 包验证必须覆盖小米 10 Pro 开发机；如安装到小米 17 Pro，需要明确 product 授权来源和端口。
@@ -72,6 +76,7 @@ Android lane 需要基于 release 包定位，不允许只用 debug 包证明：
 - 播放后 `dumpsys notification` 或等价命令中是否有 AI Music media notification。
 - `logcat` 中 audio_service、MediaSession、foreground service、notification 相关错误。
 - release 构建是否启用了 shrink/minify/resource shrink；如启用，需要验证 proguard keep 和资源是否被裁。
+- 旧可用包或旧可用提交与当前 release 的关键差异：manifest、service/receiver、foreground service、notification controls、`audio_service` 初始化和 playback state 发布。
 
 ## 消息记录
 
@@ -86,6 +91,7 @@ Android lane 需要基于 release 包定位，不允许只用 debug 包证明：
 - 2026-06-24 type=status lane=architect status=blocker summary=按 product 要求复查第二条 debug build，pid `96369`/`96453` 超过 2 分半仍停在 `assembleDebug`，未产出新的 debug 包。架构师已停止该 debug build 和 Gradle daemon，不再无声重试 debug 路径。当前可用验证包为已成功构建的 release APK：`build/release/ai-music-v1.0.0-android-arm64.apk`，sha256 `0b896cb87a42e21d9962e0707fc24a4c32dd81c45170df71368afa60451a88e3`。下一步仍是解决小米 10 Pro 签名冲突后安装 release 包验证，或 Android 提供同签名 release/debug 构建。
 - 2026-06-24 type=product_decision lane=product status=approved_dev_device_uninstall summary=产品确认小米 10 Pro 是开发验证机，允许卸载当前旧包后安装本次 release 包验证；该授权只适用于小米 10 Pro，不适用于小米 17 Pro。
 - 2026-06-24 type=status lane=architect status=ready_for_android_validation summary=架构师已在小米 10 Pro `192.168.31.76:41325` 卸载旧包并安装 release 包成功，包 `versionCode=2001`、`versionName=1.0.0`、`lastUpdateTime=2026-06-24 22:32:22`。通知权限已通过 ADB 授权，`POST_NOTIFICATION: allow`，runtime `android.permission.POST_NOTIFICATIONS: granted=true`。下一步由 Android lane 在小米 10 Pro 播放歌曲并回传 active media session、notification/logcat 和四槽位证据。
+- 2026-06-24 type=product_correction lane=product status=scope_correction summary=产品明确纠偏：Android P1 不是让团队实现通知权限，而是找回之前已经支持过、现在 release 包回归丢失的系统播控中心能力。通知权限只是可能的兼容/排查点，不能作为需求本身，也不能在没有播放后 active session/四槽位证据时 declared fixed。
 
 ## Review 结果
 
@@ -94,4 +100,4 @@ Android lane 需要基于 release 包定位，不允许只用 debug 包证明：
 - Android Findings: `POST_NOTIFICATIONS` 声明和 Android 13+ 运行时请求方向可以继续，`MainActivity` 仍继承 `AudioServiceActivity`，未发现破坏 audio_service 初始化的明显问题。但当前只证明了权限请求弹窗出现，还没有证明产品允许权限后 release 播放能恢复 active MediaSession、media notification 和四槽位。`test/release_config_test.dart` 的 reason 文案和知识库现象说明需收敛为“小米/Android 13+ release 兼容条件”，不要表述成 Android 官方一定隐藏 media notification。
 - iOS Findings: 不涉及。
 - HarmonyOS Findings: 不涉及。
-- Architect Findings: `v1.0.0` tag 已存在，但发布状态已降为 blocked。修复闭环前不继续把当前 release APK 当作正式交付包。当前小米 10 Pro 已可用于 release 验证：release 包安装成功且通知权限已授权。Android lane 完成 wording 回改并拿到开发机 release 播放证据后，再回 architect lane 发 `review_request`。
+- Architect Findings: `v1.0.0` tag 已存在，但发布状态已降为 blocked。修复闭环前不继续把当前 release APK 当作正式交付包。当前小米 10 Pro 已可用于 release 验证：release 包安装成功且通知权限已授权。Android lane 必须按“恢复既有系统播控能力”验收，拿到播放后 active MediaSession、notification controls 和四槽位可用证据后，再回 architect lane 发 `review_request`。
