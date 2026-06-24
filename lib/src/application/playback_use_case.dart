@@ -54,6 +54,31 @@ class PlaybackUseCase {
     return true;
   }
 
+  Future<void> restoreQueue(
+    List<Track> queue, {
+    required int currentIndex,
+  }) async {
+    if (queue.isEmpty) {
+      await stop();
+      return;
+    }
+    final safeIndex = currentIndex.clamp(0, queue.length - 1);
+    await audioHandler.loadQueue(
+      [
+        for (final item in queue)
+          PlayableAudio(
+            mediaItem: mediaItemFromTrack(item),
+            uri: _uriForTrack(item),
+          ),
+      ],
+      initialIndex: safeIndex,
+      initialPosition: Duration.zero,
+      playWhenReady: false,
+    );
+    _lastRequestedTrackId = queue[safeIndex].id;
+    _lastQueueSignature = _queueSignature(queue);
+  }
+
   Future<void> togglePlayPause() async {
     final playing = audioHandler.playbackState.value.playing;
     if (playing) {

@@ -7,6 +7,7 @@ import 'package:ai_music/src/data/music_cache.dart';
 import 'package:ai_music/src/data/music_playlists.dart';
 import 'package:ai_music/src/data/music_resolver.dart';
 import 'package:ai_music/src/data/music_settings.dart';
+import 'package:ai_music/src/data/playback_state_store.dart';
 import 'package:ai_music/src/domain/music_models.dart';
 import 'package:ai_music/src/presentation/app_localizations.dart';
 import 'package:ai_music/src/presentation/music_home_page.dart';
@@ -1533,6 +1534,7 @@ Widget _app({
   _FakeSettingsStore? settings,
   TrackMetadataRepository? metadataRepository,
   MusicAudioHandler? audioHandler,
+  PlaybackStateStore? playbackStateStore,
 }) {
   final controller = MusicController(
     audioHandler: audioHandler ?? MusicAudioHandler(),
@@ -1540,6 +1542,7 @@ Widget _app({
     cacheStore: cacheStore ?? _FakeCacheStore(),
     playlistStore: playlistStore ?? _FakePlaylistStore(),
     settingsStore: settings ?? _FakeSettingsStore(),
+    playbackStateStore: playbackStateStore ?? _FakePlaybackStateStore(),
     metadataRepository: metadataRepository ?? _FakeMetadataRepository(),
   );
   return AnimatedBuilder(
@@ -1776,6 +1779,27 @@ class _FakeSettingsStore implements MusicSettingsStore {
   Future<void> saveSource(MusicDataSource source) async {
     savedSource = source;
     settings = settings.copyWith(source: source);
+  }
+}
+
+class _FakePlaybackStateStore extends PlaybackStateStore {
+  _FakePlaybackStateStore() : super(rootProvider: _unusedRootProvider);
+
+  SavedPlaybackState? state;
+
+  @override
+  Future<SavedPlaybackState?> load() async {
+    return state;
+  }
+
+  @override
+  Future<void> save(SavedPlaybackState state) async {
+    this.state = state;
+  }
+
+  @override
+  Future<void> clear() async {
+    state = null;
   }
 }
 

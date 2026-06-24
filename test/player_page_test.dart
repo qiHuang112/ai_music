@@ -7,6 +7,7 @@ import 'package:ai_music/src/data/music_cache.dart';
 import 'package:ai_music/src/data/music_playlists.dart';
 import 'package:ai_music/src/data/music_resolver.dart';
 import 'package:ai_music/src/data/music_settings.dart';
+import 'package:ai_music/src/data/playback_state_store.dart';
 import 'package:ai_music/src/domain/music_models.dart';
 import 'package:ai_music/src/playback/music_audio_handler.dart';
 import 'package:ai_music/src/presentation/app_localizations.dart';
@@ -39,6 +40,7 @@ void main() {
       cacheStore: _FakeCacheStore(cached: [cached]),
       playlistStore: _FakePlaylistStore(),
       settingsStore: _FakeSettingsStore(),
+      playbackStateStore: _FakePlaybackStateStore(),
       metadataRepository: _StaticMetadataRepository(
         metadata: const TrackMetadata(
           lyrics: [
@@ -96,9 +98,10 @@ void main() {
       await tester.pump();
 
       expect(handler.seekedPositions, [const Duration(seconds: 20)]);
-      await tester.pump(const Duration(seconds: 2));
+      await tester.pump(const Duration(milliseconds: 2100));
     } finally {
       controller.dispose();
+      await handler.dispose();
     }
   });
 
@@ -114,6 +117,7 @@ void main() {
       cacheStore: _FakeCacheStore(cached: [cached]),
       playlistStore: _FakePlaylistStore(),
       settingsStore: _FakeSettingsStore(),
+      playbackStateStore: _FakePlaybackStateStore(),
       metadataRepository: metadata,
     );
 
@@ -156,6 +160,7 @@ void main() {
       expect(find.text('手动补齐'), findsOneWidget);
     } finally {
       controller.dispose();
+      await handler.dispose();
     }
   });
 
@@ -304,6 +309,9 @@ class _SpyAudioHandler extends MusicAudioHandler {
     Duration position,
   ) async {}
 
+  @override
+  Future<void> dispose() async {}
+
   void emit(MediaItem item) {
     mediaItem.add(item);
   }
@@ -399,6 +407,27 @@ class _FakeSettingsStore implements MusicSettingsStore {
 
   @override
   Future<void> saveSource(MusicDataSource source) async {}
+}
+
+class _FakePlaybackStateStore extends PlaybackStateStore {
+  _FakePlaybackStateStore() : super(rootProvider: _unusedRootProvider);
+
+  SavedPlaybackState? state;
+
+  @override
+  Future<SavedPlaybackState?> load() async {
+    return state;
+  }
+
+  @override
+  Future<void> save(SavedPlaybackState state) async {
+    this.state = state;
+  }
+
+  @override
+  Future<void> clear() async {
+    state = null;
+  }
 }
 
 class _FakeMusicResolver implements MusicResolver {

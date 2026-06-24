@@ -10,6 +10,7 @@ import 'package:ai_music/src/data/music_cache.dart';
 import 'package:ai_music/src/data/music_playlists.dart';
 import 'package:ai_music/src/data/music_resolver.dart';
 import 'package:ai_music/src/data/music_settings.dart';
+import 'package:ai_music/src/data/playback_state_store.dart';
 import 'package:ai_music/src/domain/music_models.dart';
 import 'package:ai_music/src/playback/music_audio_handler.dart';
 import 'package:audio_service/audio_service.dart';
@@ -52,6 +53,175 @@ void main() {
       await handler.dispose();
     }
   });
+
+  test('initialize restores favorite queue without auto-playing', () async {
+    final handler = _SpyAudioHandler();
+    final first = _cachedTrack(id: 'song-1', name: '第一首');
+    final second = _cachedTrack(id: 'song-2', name: '第二首');
+    final playbackStore = _MemoryPlaybackStateStore(
+      SavedPlaybackState(
+        playbackMode: PlaybackMode.shuffle,
+        queueSource: const PlaybackQueueSource.favorite(),
+        queueTrackIds: [second.cacheId, first.cacheId],
+        currentTrackId: first.cacheId,
+      ),
+    );
+    final playlistStore = _MemoryPlaylistStore()
+      ..library = PlaylistLibrary(
+        favoriteEntries: [
+          PlaylistTrackEntry(trackId: second.cacheId, addedAt: DateTime(2026)),
+          PlaylistTrackEntry(trackId: first.cacheId, addedAt: DateTime(2026)),
+        ],
+        playlists: const [],
+      );
+    final controller = MusicController(
+      audioHandler: handler,
+      resolver: _FakeMusicResolver(),
+      cacheStore: _FakeCacheStore(cached: [first, second]),
+      playlistStore: playlistStore,
+      settingsStore: _FakeSettingsStore(),
+      playbackStateStore: playbackStore,
+      metadataRepository: _StaticMetadataRepository(),
+    );
+
+    try {
+      await controller.initialize();
+
+      expect(handler.loadedIds, [second.cacheId, first.cacheId]);
+      expect(handler.mediaItem.value?.id, first.cacheId);
+      expect(handler.loadedInitialPosition, Duration.zero);
+      expect(handler.playCalls, 0);
+      expect(handler.shuffleMode, AudioServiceShuffleMode.all);
+      expect(handler.repeatMode, AudioServiceRepeatMode.all);
+      expect(controller.playbackMode, PlaybackMode.shuffle);
+    } finally {
+      controller.dispose();
+      await handler.dispose();
+    }
+  });
+
+  test('initialize restores custom playlist queue', () async {
+    final handler = _SpyAudioHandler();
+    final first = _cachedTrack(id: 'song-1', name: '第一首');
+    final second = _cachedTrack(id: 'song-2', name: '第二首');
+    final playbackStore = _MemoryPlaybackStateStore(
+      SavedPlaybackState(
+        playbackMode: PlaybackMode.loopAll,
+        queueSource: const PlaybackQueueSource.customPlaylist('road'),
+        queueTrackIds: [first.cacheId, second.cacheId],
+        currentTrackId: second.cacheId,
+      ),
+    );
+    final playlistStore = _MemoryPlaylistStore()
+      ..library = PlaylistLibrary(
+        playlists: [
+          MusicPlaylist(
+            id: 'road',
+            name: 'Road',
+            trackIds: [first.cacheId, second.cacheId],
+            createdAt: DateTime(2026),
+            updatedAt: DateTime(2026),
+          ),
+        ],
+      );
+    final controller = MusicController(
+      audioHandler: handler,
+      resolver: _FakeMusicResolver(),
+      cacheStore: _FakeCacheStore(cached: [first, second]),
+      playlistStore: playlistStore,
+      settingsStore: _FakeSettingsStore(),
+      playbackStateStore: playbackStore,
+      metadataRepository: _StaticMetadataRepository(),
+    );
+
+    try {
+      await controller.initialize();
+
+      expect(handler.loadedIds, [first.cacheId, second.cacheId]);
+      expect(handler.mediaItem.value?.id, second.cacheId);
+      expect(handler.playCalls, 0);
+      expect(handler.repeatMode, AudioServiceRepeatMode.all);
+    } finally {
+      controller.dispose();
+      await handler.dispose();
+    }
+  });
+
+  test('initialize skips a deleted current track in saved queue', () async {
+    final handler = _SpyAudioHandler();
+    final first = _cachedTrack(id: 'song-1', name: '第一首');
+    final third = _cachedTrack(id: 'song-3', name: '第三首');
+    final missing = _cachedTrack(id: 'song-2', name: '已删除');
+    final playbackStore = _MemoryPlaybackStateStore(
+      SavedPlaybackState(
+        playbackMode: PlaybackMode.sequential,
+        queueSource: const PlaybackQueueSource.searchCache(),
+        queueTrackIds: [first.cacheId, missing.cacheId, third.cacheId],
+        currentTrackId: missing.cacheId,
+      ),
+    );
+    final controller = MusicController(
+      audioHandler: handler,
+      resolver: _FakeMusicResolver(),
+      cacheStore: _FakeCacheStore(cached: [first, third]),
+      playlistStore: _FakePlaylistStore(),
+      settingsStore: _FakeSettingsStore(),
+      playbackStateStore: playbackStore,
+      metadataRepository: _StaticMetadataRepository(),
+    );
+
+    try {
+      await controller.initialize();
+
+      expect(handler.loadedIds, [first.cacheId, third.cacheId]);
+      expect(handler.loadedInitialIndex, 1);
+      expect(playbackStore.state?.currentTrackId, third.cacheId);
+      expect(playbackStore.state?.queueTrackIds, [
+        first.cacheId,
+        third.cacheId,
+      ]);
+      expect(handler.playCalls, 0);
+    } finally {
+      controller.dispose();
+      await handler.dispose();
+    }
+  });
+
+  test(
+    'initialize clears saved playback when queue has no cached tracks',
+    () async {
+      final handler = _SpyAudioHandler();
+      final missing = _cachedTrack(id: 'song-2', name: '已删除');
+      final playbackStore = _MemoryPlaybackStateStore(
+        SavedPlaybackState(
+          playbackMode: PlaybackMode.repeatOne,
+          queueSource: const PlaybackQueueSource.localCache(),
+          queueTrackIds: [missing.cacheId],
+          currentTrackId: missing.cacheId,
+        ),
+      );
+      final controller = MusicController(
+        audioHandler: handler,
+        resolver: _FakeMusicResolver(),
+        cacheStore: _FakeCacheStore(cached: const []),
+        playlistStore: _FakePlaylistStore(),
+        settingsStore: _FakeSettingsStore(),
+        playbackStateStore: playbackStore,
+        metadataRepository: _StaticMetadataRepository(),
+      );
+
+      try {
+        await controller.initialize();
+
+        expect(handler.loadedIds, isEmpty);
+        expect(playbackStore.state, isNull);
+        expect(playbackStore.clearCount, 1);
+      } finally {
+        controller.dispose();
+        await handler.dispose();
+      }
+    },
+  );
 
   test('media item changes trigger metadata reload', () async {
     final handler = _SpyAudioHandler();
@@ -1015,6 +1185,7 @@ class _SpyAudioHandler extends MusicAudioHandler {
   Duration currentPositionOverride = Duration.zero;
   Duration currentBufferedPositionOverride = Duration.zero;
   int? currentQueueIndexOverride;
+  int? loadedInitialIndex;
   Duration? loadedInitialPosition;
   String? restoredMediaId;
   Duration? restoredPosition;
@@ -1039,6 +1210,7 @@ class _SpyAudioHandler extends MusicAudioHandler {
     bool playWhenReady = true,
   }) async {
     loadedIds = [for (final item in items) item.mediaItem.id];
+    loadedInitialIndex = initialIndex;
     loadedInitialPosition = initialPosition;
     queue.add(items.map((item) => item.mediaItem).toList(growable: false));
     if (items.isNotEmpty) {
@@ -1225,6 +1397,32 @@ class _FakeSettingsStore implements MusicSettingsStore {
 
   @override
   Future<void> saveSource(MusicDataSource source) async {}
+}
+
+class _MemoryPlaybackStateStore extends PlaybackStateStore {
+  _MemoryPlaybackStateStore([this.state])
+    : super(rootProvider: _unusedRootProvider);
+
+  SavedPlaybackState? state;
+  int clearCount = 0;
+  int saveCount = 0;
+
+  @override
+  Future<SavedPlaybackState?> load() async {
+    return state;
+  }
+
+  @override
+  Future<void> save(SavedPlaybackState state) async {
+    saveCount += 1;
+    this.state = state;
+  }
+
+  @override
+  Future<void> clear() async {
+    clearCount += 1;
+    state = null;
+  }
 }
 
 class _FakeMusicResolver implements MusicResolver {

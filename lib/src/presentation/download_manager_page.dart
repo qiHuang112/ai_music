@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../application/download_queue_controller.dart';
 import '../application/music_controller.dart';
+import '../data/playback_state_store.dart';
 import '../domain/music_models.dart';
 import 'app_localizations.dart';
 import 'list_search.dart';
@@ -285,8 +286,12 @@ class _CachedTrackTile extends StatelessWidget {
     return ListTile(
       leading: IconButton.filledTonal(
         tooltip: strings.play,
-        onPressed: () =>
-            controller.playTrack(track, index: index, queueTracks: queueTracks),
+        onPressed: () => controller.playTrack(
+          track,
+          index: index,
+          queueTracks: queueTracks,
+          queueSource: const PlaybackQueueSource.localCache(),
+        ),
         icon: const Icon(Icons.play_arrow),
       ),
       title: Text(track.title, maxLines: 1, overflow: TextOverflow.ellipsis),

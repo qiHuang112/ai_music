@@ -1,6 +1,6 @@
 # AM-20260624-002 播放状态持久化
 
-Status: assigned_to_ohos
+Status: review
 Owner Lane: ohos
 Assist Lane: android review, architect review
 Source Thread: 019ee4b7-e7d2-7751-a4c4-150ede83c350
@@ -75,6 +75,18 @@ Updated: 2026-06-24
 - 2026-06-24 type=correction lane=product summary=产品要求 1.0.1 公共 Dart 业务切回 Android lane 主责，架构师不要长期直接写业务代码。
 - 2026-06-24 type=task lane=architect summary=架构师将播放状态持久化拆为 Android lane 独立 1.0.1 任务。
 - 2026-06-24 type=coordination_request lane=product summary=P1 release 播控由架构师备援推进时，其它 lane 不能空转；播放状态持久化改由 ohos lane 在独立工程并行实现，前提是不碰 Android release 播控文件、不碰 `android/`。
+- 2026-06-24 type=unblock_start lane=product summary=产品确认当前 Android release 播控 P1 不需要 ohos 参与，允许 ohos 在 `/Users/huangqi/AIHome/projects/ai_music_ohos`、`lane/ohos` 并行承接 AM-002 公共 Dart 首版。
+- 2026-06-24 type=status lane=ohos summary=ohos 完成首版实现：新增播放状态持久化模型，恢复播放模式、队列来源、队列顺序和当前歌曲；恢复时进度从 0 开始且不自动播放；删除缺失曲目时安全降级。
+
+## 验证记录
+
+- 2026-06-24 `flutter analyze --no-pub`：通过，No issues found。
+- 2026-06-24 `flutter test --no-pub test/music_controller_test.dart`：通过，28 tests passed。
+- 2026-06-24 `flutter test --no-pub test/widget_test.dart`：通过，34 tests passed。
+- 2026-06-24 `flutter test --no-pub test/player_page_test.dart`：通过，3 tests passed；同时修复该测试拖动歌词后遗留 2 秒 timer 的测试收尾问题。
+- 2026-06-24 `flutter test --no-pub`：通过，127 tests passed。
+- 2026-06-24 `OHOS_FLUTTER_BIN=/Users/huangqi/AIHome/tools/flutter_ohos/bin/flutter OHOS_CODESIGN=true tool/build_ohos_hap.sh`：通过，生成 `build/ohos/hap/entry-default-signed.hap`，23.8MB。
+- 2026-06-24 无线 HDC 安装阻塞：`hdc tconn 192.168.31.53:10178` 和 `hdc list targets` 均返回 `Connect server failed`；HAP 已生成，但本轮无法完成设备安装/杀进程重进手测。
 
 ## Review 结果
 

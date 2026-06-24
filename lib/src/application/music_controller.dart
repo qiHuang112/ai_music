@@ -9,6 +9,7 @@ import '../data/music_cache.dart';
 import '../data/music_playlists.dart';
 import '../data/music_resolver.dart';
 import '../data/music_settings.dart';
+import '../data/playback_state_store.dart';
 import '../domain/music_models.dart';
 import '../playback/music_audio_handler.dart';
 import 'download_queue_controller.dart';
@@ -32,12 +33,14 @@ class MusicController extends ChangeNotifier {
     CachedTrackStore? cacheStore,
     PlaylistStore? playlistStore,
     MusicSettingsStore? settingsStore,
+    PlaybackStateStore? playbackStateStore,
     TrackMetadataRepository? metadataRepository,
     LegacyCacheRepairer? legacyRepairer,
   }) : _resolver = resolver ?? RemoteMusicResolver(),
        _cacheStore = cacheStore ?? CachedTrackStore(),
        _playlistStore = playlistStore ?? PlaylistStore(),
        _settingsStore = settingsStore ?? MusicSettingsStore(),
+       _playbackStateStore = playbackStateStore ?? PlaybackStateStore(),
        _metadataRepository = metadataRepository ?? TrackMetadataRepository(),
        _legacyRepairerOverride = legacyRepairer {
     settingsController = SettingsController(settingsStore: _settingsStore);
@@ -68,6 +71,7 @@ class MusicController extends ChangeNotifier {
   final CachedTrackStore _cacheStore;
   final PlaylistStore _playlistStore;
   final MusicSettingsStore _settingsStore;
+  final PlaybackStateStore _playbackStateStore;
   final TrackMetadataRepository _metadataRepository;
   final LegacyCacheRepairer? _legacyRepairerOverride;
   final LibraryController libraryController = const LibraryController();
@@ -85,6 +89,9 @@ class MusicController extends ChangeNotifier {
   int _searchRequest = 0;
   String? _metadataTrackId;
   final Set<String> _autoMetadataRecoveryAttempted = {};
+  PlaybackQueueSource _activeQueueSource =
+      const PlaybackQueueSource.localCache();
+  List<String> _activeQueueTrackIds = const [];
   bool _legacyRepairRunning = false;
   bool _isDisposed = false;
 
@@ -139,11 +146,16 @@ class MusicController extends ChangeNotifier {
 
   Future<void> initialize() async {
     final settings = await settingsController.load();
+    final savedPlayback = await _playbackStateStore.load();
     source = settings.source;
     language = settings.language;
     themePreference = settings.theme;
+    if (savedPlayback != null) {
+      playbackMode = savedPlayback.playbackMode;
+    }
     await _cacheStore.cleanupTemporaryFiles();
     await loadCache();
+    await _restorePlaybackState(savedPlayback);
     notifyListeners();
   }
 
@@ -331,8 +343,23 @@ class MusicController extends ChangeNotifier {
       return;
     }
     final track = trackFromCached(record);
-    final index = cachedTracks.indexWhere((item) => item.id == track.id);
-    await playTrack(track, index: index == -1 ? null : index);
+    final searchQueue = _searchCachedQueue();
+    final searchIndex = searchQueue.indexWhere((item) => item.id == track.id);
+    if (searchIndex != -1) {
+      await playTrack(
+        track,
+        index: searchIndex,
+        queueTracks: searchQueue,
+        queueSource: const PlaybackQueueSource.searchCache(),
+      );
+    } else {
+      final index = cachedTracks.indexWhere((item) => item.id == track.id);
+      await playTrack(
+        track,
+        index: index == -1 ? null : index,
+        queueSource: const PlaybackQueueSource.localCache(),
+      );
+    }
     statusMessage = const MusicUiMessage(MusicUiMessageCode.playingCachedFile);
     notifyListeners();
   }
@@ -341,7 +368,11 @@ class MusicController extends ChangeNotifier {
     Track track, {
     int? index,
     List<Track>? queueTracks,
+    PlaybackQueueSource? queueSource,
   }) async {
+    final queue = (queueTracks ?? cachedTracks).isEmpty
+        ? <Track>[track]
+        : queueTracks ?? cachedTracks;
     final loaded = await playbackUseCase.playTrack(
       track,
       index: index,
@@ -349,6 +380,9 @@ class MusicController extends ChangeNotifier {
       queueTracks: queueTracks,
     );
     if (loaded) {
+      _activeQueueSource = queueSource ?? _inferQueueSource(queue);
+      _activeQueueTrackIds = [for (final item in queue) item.id];
+      await _savePlaybackState(currentTrackId: track.id);
       // 同一首同一队列的重复点击不会重载队列，也不需要重设播放模式。
       await setPlaybackMode(playbackMode);
     }
@@ -364,13 +398,18 @@ class MusicController extends ChangeNotifier {
 
   Future<void> previous() => playbackUseCase.previous();
 
-  Future<void> stop() => playbackUseCase.stop();
+  Future<void> stop() async {
+    await playbackUseCase.stop();
+    _activeQueueTrackIds = const [];
+    await _clearPlaybackState();
+  }
 
   Future<void> deleteCachedTrack(Track track) async {
     await _handleDeletedTracksPlaybackImpact({track.id});
     _applyLibrarySnapshot(
       await libraryUseCase.deleteCachedTrack(track, current: _librarySnapshot),
     );
+    await _refreshPersistedQueueAfterLibraryChange();
     notifyListeners();
   }
 
@@ -386,6 +425,7 @@ class MusicController extends ChangeNotifier {
         current: _librarySnapshot,
       ),
     );
+    await _refreshPersistedQueueAfterLibraryChange();
     notifyListeners();
   }
 
@@ -407,7 +447,9 @@ class MusicController extends ChangeNotifier {
     } finally {
       _legacyRepairRunning = false;
       isRepairingLegacyCache = false;
-      notifyListeners();
+      if (!_isDisposed) {
+        notifyListeners();
+      }
     }
   }
 
@@ -415,6 +457,7 @@ class MusicController extends ChangeNotifier {
     playbackMode = mode;
     notifyListeners();
     await playbackUseCase.applyPlaybackMode(mode);
+    await _savePlaybackState();
     await _syncOhosControlState();
   }
 
@@ -495,6 +538,7 @@ class MusicController extends ChangeNotifier {
     _applyLibrarySnapshot(
       await libraryUseCase.deletePlaylist(playlist, current: _librarySnapshot),
     );
+    await _refreshPersistedQueueAfterLibraryChange();
     notifyListeners();
   }
 
@@ -568,6 +612,7 @@ class MusicController extends ChangeNotifier {
         current: _librarySnapshot,
       ),
     );
+    await _refreshPersistedQueueAfterLibraryChange();
     notifyListeners();
   }
 
@@ -582,6 +627,7 @@ class MusicController extends ChangeNotifier {
         current: _librarySnapshot,
       ),
     );
+    await _refreshPersistedQueueAfterLibraryChange();
     notifyListeners();
   }
 
@@ -650,6 +696,7 @@ class MusicController extends ChangeNotifier {
     final currentId = currentItem?.id;
     if (currentId != null && deletedIds.contains(currentId)) {
       await stop();
+      await _clearPlaybackState();
       return;
     }
     final queuedIds = [for (final item in audioHandler.queue.value) item.id];
@@ -658,6 +705,7 @@ class MusicController extends ChangeNotifier {
     }
     if (currentId == null) {
       await stop();
+      await _clearPlaybackState();
       return;
     }
     final byId = {for (final track in cachedTracks) track.id: track};
@@ -670,6 +718,7 @@ class MusicController extends ChangeNotifier {
     );
     if (currentIndex == -1) {
       await stop();
+      await _clearPlaybackState();
       return;
     }
     final wasPlaying = audioHandler.playbackState.value.playing;
@@ -681,6 +730,8 @@ class MusicController extends ChangeNotifier {
     );
     if (loaded) {
       await playbackUseCase.applyPlaybackMode(playbackMode);
+      _activeQueueTrackIds = [for (final track in remainingQueue) track.id];
+      await _savePlaybackState(currentTrackId: currentId);
     }
     if (!wasPlaying) {
       await audioHandler.pause();
@@ -699,6 +750,7 @@ class MusicController extends ChangeNotifier {
       return;
     }
     if (_metadataTrackId == item.id) {
+      unawaited(_savePlaybackState(currentTrackId: item.id));
       return;
     }
     final track = cachedTracks
@@ -715,6 +767,7 @@ class MusicController extends ChangeNotifier {
       return;
     }
     unawaited(_loadMetadataForTrack(track));
+    unawaited(_savePlaybackState(currentTrackId: item.id));
     unawaited(_syncOhosControlState());
   }
 
@@ -974,6 +1027,199 @@ class MusicController extends ChangeNotifier {
     await audioHandler.syncControlState(
       isFavorite: track != null && isFavorite(track),
     );
+  }
+
+  Future<void> _restorePlaybackState(SavedPlaybackState? saved) async {
+    if (saved == null) {
+      return;
+    }
+    playbackMode = saved.playbackMode;
+    if (!saved.hasQueue) {
+      await playbackUseCase.applyPlaybackMode(playbackMode);
+      return;
+    }
+    final queue = _queueForSavedState(saved);
+    if (queue.isEmpty) {
+      await _clearPlaybackState();
+      return;
+    }
+    final currentIndex = _restoredCurrentIndex(queue, saved);
+    if (currentIndex == -1) {
+      await _clearPlaybackState();
+      return;
+    }
+    _activeQueueSource = saved.queueSource;
+    _activeQueueTrackIds = [for (final track in queue) track.id];
+    await playbackUseCase.restoreQueue(queue, currentIndex: currentIndex);
+    await playbackUseCase.applyPlaybackMode(playbackMode);
+    await audioHandler.pause();
+    await _savePlaybackState(currentTrackId: queue[currentIndex].id);
+  }
+
+  List<Track> _queueForSavedState(SavedPlaybackState saved) {
+    final savedIds = saved.queueTrackIds;
+    final byId = {for (final track in cachedTracks) track.id: track};
+    switch (saved.queueSource.type) {
+      case PlaybackQueueSourceType.favorite:
+        return _orderedTracks(savedIds, favoriteTracks, byId);
+      case PlaybackQueueSourceType.customPlaylist:
+        final playlist = customPlaylists
+            .where((item) => item.id == saved.queueSource.id)
+            .firstOrNull;
+        if (playlist == null) {
+          return _orderedTracks(savedIds, const [], byId);
+        }
+        return _orderedTracks(savedIds, tracksForPlaylist(playlist), byId);
+      case PlaybackQueueSourceType.localCache:
+      case PlaybackQueueSourceType.searchCache:
+        return _orderedTracks(savedIds, cachedTracks, byId);
+    }
+  }
+
+  List<Track> _orderedTracks(
+    List<String> savedIds,
+    List<Track> sourceTracks,
+    Map<String, Track> cachedById,
+  ) {
+    final sourceById = {for (final track in sourceTracks) track.id: track};
+    final tracks = <Track>[];
+    final seen = <String>{};
+    for (final id in savedIds) {
+      final track = sourceById[id] ?? cachedById[id];
+      if (track != null && seen.add(track.id)) {
+        tracks.add(track);
+      }
+    }
+    return tracks;
+  }
+
+  int _restoredCurrentIndex(List<Track> queue, SavedPlaybackState saved) {
+    final direct = queue.indexWhere(
+      (track) => track.id == saved.currentTrackId,
+    );
+    if (direct != -1) {
+      return direct;
+    }
+    final savedCurrentIndex = saved.queueTrackIds.indexOf(saved.currentTrackId);
+    if (savedCurrentIndex == -1) {
+      return queue.isEmpty ? -1 : 0;
+    }
+    for (
+      var i = savedCurrentIndex + 1;
+      i < saved.queueTrackIds.length;
+      i += 1
+    ) {
+      final nextIndex = queue.indexWhere(
+        (track) => track.id == saved.queueTrackIds[i],
+      );
+      if (nextIndex != -1) {
+        return nextIndex;
+      }
+    }
+    return queue.isEmpty ? -1 : 0;
+  }
+
+  PlaybackQueueSource _inferQueueSource(List<Track> queue) {
+    final ids = [for (final track in queue) track.id];
+    if (_sameTrackIds(ids, [for (final track in favoriteTracks) track.id])) {
+      return const PlaybackQueueSource.favorite();
+    }
+    for (final playlist in customPlaylists) {
+      if (_sameTrackIds(ids, playlist.trackIds)) {
+        return PlaybackQueueSource.customPlaylist(playlist.id);
+      }
+    }
+    return const PlaybackQueueSource.localCache();
+  }
+
+  bool _sameTrackIds(List<String> left, List<String> right) {
+    if (left.length != right.length) {
+      return false;
+    }
+    for (var i = 0; i < left.length; i += 1) {
+      if (left[i] != right[i]) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  List<Track> _searchCachedQueue() {
+    final tracks = <Track>[];
+    final seen = <String>{};
+    for (final candidate in candidates) {
+      final record = _cachedRecordForCandidate(candidate);
+      if (record != null && seen.add(record.cacheId)) {
+        tracks.add(trackFromCached(record));
+      }
+    }
+    return tracks;
+  }
+
+  Future<void> _refreshPersistedQueueAfterLibraryChange() async {
+    final currentId = audioHandler.mediaItem.value?.id;
+    if (currentId == null) {
+      await _clearPlaybackState();
+      return;
+    }
+    final queue = _queueForSource(_activeQueueSource);
+    if (queue.isEmpty || !queue.any((track) => track.id == currentId)) {
+      await _clearPlaybackState();
+      return;
+    }
+    _activeQueueTrackIds = [for (final track in queue) track.id];
+    await _savePlaybackState(currentTrackId: currentId);
+  }
+
+  List<Track> _queueForSource(PlaybackQueueSource source) {
+    switch (source.type) {
+      case PlaybackQueueSourceType.favorite:
+        return favoriteTracks;
+      case PlaybackQueueSourceType.customPlaylist:
+        final playlist = customPlaylists
+            .where((item) => item.id == source.id)
+            .firstOrNull;
+        return playlist == null ? const [] : tracksForPlaylist(playlist);
+      case PlaybackQueueSourceType.localCache:
+        return cachedTracks;
+      case PlaybackQueueSourceType.searchCache:
+        final savedIds = _activeQueueTrackIds;
+        final byId = {for (final track in cachedTracks) track.id: track};
+        return [
+          for (final id in savedIds)
+            if (byId[id] != null) byId[id]!,
+        ];
+    }
+  }
+
+  Future<void> _savePlaybackState({String? currentTrackId}) async {
+    if (_activeQueueTrackIds.isEmpty) {
+      return;
+    }
+    final id = currentTrackId ?? audioHandler.mediaItem.value?.id ?? '';
+    if (id.isEmpty) {
+      return;
+    }
+    try {
+      await _playbackStateStore.save(
+        SavedPlaybackState(
+          playbackMode: playbackMode,
+          queueSource: _activeQueueSource,
+          queueTrackIds: _activeQueueTrackIds,
+          currentTrackId: id,
+        ),
+      );
+    } catch (_) {
+      // 播放状态持久化是恢复体验增强，不能反向影响播放、切歌或删除。
+    }
+  }
+
+  Future<void> _clearPlaybackState() async {
+    try {
+      await _playbackStateStore.clear();
+    } catch (_) {
+      // 清理陈旧快照失败不应影响当前播放主链路。
+    }
   }
 
   @override

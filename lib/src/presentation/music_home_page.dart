@@ -7,6 +7,7 @@ import 'package:flutter/services.dart';
 import '../application/music_controller.dart';
 import '../application/music_ui_message.dart';
 import '../data/music_playlists.dart';
+import '../data/playback_state_store.dart';
 import '../data/music_resolver.dart';
 import '../domain/music_models.dart';
 import 'app_localizations.dart';
@@ -1692,6 +1693,7 @@ class _TrackTile extends StatelessWidget {
                     track,
                     index: index,
                     queueTracks: tracks,
+                    queueSource: _queueSourceForList(list),
                   ),
                   icon: Icon(active ? Icons.equalizer : Icons.play_arrow),
                 ),
@@ -1722,12 +1724,23 @@ class _TrackTile extends StatelessWidget {
                   track,
                   index: index,
                   queueTracks: tracks,
+                  queueSource: _queueSourceForList(list),
                 ),
           onLongPress: isReorderEditing ? null : () => onStartSelection(track),
         );
       },
     );
   }
+}
+
+PlaybackQueueSource _queueSourceForList(_ResolvedLibraryList list) {
+  if (list.isFavorite) {
+    return const PlaybackQueueSource.favorite();
+  }
+  if (list.canManage && list.playlist != null) {
+    return PlaybackQueueSource.customPlaylist(list.playlist!.id);
+  }
+  return const PlaybackQueueSource.localCache();
 }
 
 class _TrackActions extends StatelessWidget {
