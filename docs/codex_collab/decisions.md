@@ -109,6 +109,20 @@
 - 如果连续无进展，架构师必须重新分配 owner、拆分任务或标记 blocked。
 - product lane 只验收最新包和反馈问题，不负责日常催办。
 
+## 2026-06-24：跨 Lane 沟通必须写清回传路径
+
+决策：任何 lane 给其它 lane 发 `task`、`review_result`、`handoff`、`blocker`、`status` 询问或其它需要对方继续处理的消息时，必须写清下一步由谁执行、完成后回给谁、回什么内容。被等待方完成后，也必须主动回到指定 lane 或线程同步结果。
+
+原因：只写“我等你”或只在自己线程结束，会让流程断掉。等待方不知道对方是否看到了，执行方也可能不知道完成后要回哪里，最后又变成 product 催促。
+
+规则：
+
+- `next_action` 必须包含回传对象和回传内容，例如“完成后回 architect lane，带 commit、测试结果、设备验证和是否需要安装 product 设备”。
+- 架构师发出 review、任务拆分或 blocker 后，不能只更新任务单；需要明确 owner lane 修完后回到架构师 lane 请求 review。
+- owner lane 自测、修复、构建、安装或遇到 blocker 后，必须主动回给等待方，不等对方追问。
+- 架构师完成 review、合并、推送、打包或安装后，必须主动同步 owner lane 和 product lane，写清 commit、包路径、设备和下一步验收口径。
+- 沟通要精简，只写事实、判断和下一步；避免无效寒暄、重复复述长上下文和无法执行的泛泛表述。
+
 ## 2026-06-22：多开发并行使用 git worktree
 
 决策：主目录 `/Users/huangqi/AIHome/ai_music` 只作为 `main` 稳定主线和产品验收入口，不再作为多个 lane 共用的日常开发目录。开发 lane 必须在架构师分配的独立 worktree 中开发。
