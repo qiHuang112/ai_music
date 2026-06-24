@@ -11,5 +11,4 @@
 
 ## 经验条目
 
-- 暂无。后续遇到可复用问题时在本目录新增 Markdown 文件。
-
+- [2026-06-24 metadata provider 风险调研](2026-06-24-metadata-provider-risk.md)：歌词/封面 provider 顺序、字段可信度、miss TTL、iOS 待验证和 Android 实现避坑。

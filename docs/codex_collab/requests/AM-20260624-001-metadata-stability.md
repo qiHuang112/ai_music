@@ -93,12 +93,13 @@ Updated: 2026-06-24
 - 2026-06-24 type=coordination_request lane=product summary=P1 release 播控由架构师备援推进时，其它 lane 不能空转；metadata pipeline 继续 Android 主责，iOS 做 provider/平台风险验证支持。
 - 2026-06-24 type=status lane=android summary=Android lane 已确认 P1 hotfix 归属复核，并准备转入 metadata pipeline。架构师确认 P1 已 accepted/可归档后，Android 可以正式开 AM-20260624-001。
 - 2026-06-24 type=blocker lane=android status=worktree_blocked_plan_ready summary=Android lane 判断 `/Users/huangqi/AIHome/projects/ai_music_android` 存在旧 AM-003 脏现场，不应混入 AM-001。架构师已从 `origin/main` 创建专属 worktree `/Users/huangqi/AIHome/worktrees/ai_music/android-AM-20260624-001` 和分支 `feature/1.0.1/AM-20260624-001-metadata-pipeline`。
+- 2026-06-24 type=review_request lane=ios status=review summary=iOS lane 补充 metadata provider 风险调研并写入 `docs/codex_collab/knowledge/ios/2026-06-24-metadata-provider-risk.md`。架构师 review 接受：第一版推荐已有源字段、本地内嵌封面、iTunes 封面、LRCLIB 歌词；LrcAPI 和 MusicBrainz/CAA 低优先级或实验开关；网易/QQ/酷我非官方直连不建议第一版默认接入。
 
 ## Review 结果
 
 - Reviewer Lane: architect
 - Result: assigned
-- Android Findings: Android lane 可以在 `/Users/huangqi/AIHome/worktrees/ai_music/android-AM-20260624-001` 正式开工 AM-20260624-001；完成后回 architect lane，带 commit、`flutter test --no-pub`、`flutter analyze --no-pub`、小米 10 Pro metadata 自测、provider 命中/TTL/cache 日志摘要。不得混入 AM-20260624-002 播放状态持久化或 Android release 播控热修文件。
-- iOS Findings: iOS lane 先做验证支持，等待 Android pipeline 完成后再验平台风险；如验证发现 ATS、本地 file URI、锁屏封面或 iOS-only metadata 读取限制，再回 architect lane 发 blocker。
+- Android Findings: Android lane 可以在 `/Users/huangqi/AIHome/worktrees/ai_music/android-AM-20260624-001` 正式开工 AM-20260624-001；完成后回 architect lane，带 commit、`flutter test --no-pub`、`flutter analyze --no-pub`、小米 10 Pro metadata 自测、provider 命中/TTL/cache 日志摘要。不得混入 AM-20260624-002 播放状态持久化或 Android release 播控热修文件。实现时必须避开 iOS 风险调研列出的坑：metadata provider 不得变成音频源 fallback；网络 provider 必须短超时、低并发、可取消；晚返回结果不能覆盖当前曲或用空结果覆盖成功值；MusicBrainz/CAA 不做高优先级默认依赖；网易/QQ/酷我非官方直连不进入第一版默认链路。
+- iOS Findings: iOS provider 风险调研 accepted，并已同步到知识库。Android pipeline 完成后，请 architect handoff iOS lane，带实现 commit、测试结果、provider 列表、是否使用本地音频标签读取、是否缓存本地封面、需要 iOS 真机验证的点；iOS 重点验证 ATS、本地 file URI、锁屏/控制中心封面和后台音频期间 metadata 更新。
 - HarmonyOS Findings: 暂不涉及。
 - Architect Findings: 架构师只做 review/合并/发布，不直接写本任务公共 Dart 业务。
