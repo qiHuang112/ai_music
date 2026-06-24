@@ -2,12 +2,13 @@
 
 Status: assigned
 Owner Lane: android
+Assist Lane: ios validation support, architect review
 Source Thread: 019ee4b7-e7d2-7751-a4c4-150ede83c350
 Target Version: 1.0.1
 Priority: P2 start after AM-20260624-002 or when architect confirms capacity
 Base Branch: main
-Work Branch: lane/android
-Worktree Path: /Users/huangqi/AIHome/projects/ai_music_android
+Work Branch: feature/1.0.1/AM-20260624-001-metadata-pipeline
+Worktree Path: /Users/huangqi/AIHome/worktrees/ai_music/android-AM-20260624-001
 Merge Branch: main
 Created: 2026-06-24
 Updated: 2026-06-24
@@ -24,6 +25,8 @@ Updated: 2026-06-24
 - Architect lane 只做方案 review、边界把关、合并发布和冲突裁决；不长期直接实现公共 Dart 业务。
 - iOS lane 已提供平台风险清单，等 Android pipeline 实现后再做 iOS 验证；除非验证发现 iOS-only 限制，否则不提前改 iOS 宿主。
 - ohos lane 只在 HarmonyOS HAP 验证或鸿蒙平台侧 metadata/AVSession 问题出现时参与。
+- 本任务可与 AM-20260624-002 并行：Android lane 专注 metadata pipeline；ohos lane 负责播放状态持久化。Android 不等待 ohos 完成才开工。
+- `/Users/huangqi/AIHome/projects/ai_music_android` 保留为旧 AM-003/历史现场，不作为 AM-001 开发目录；Android 不得把 AM-001 混入该脏 worktree。
 
 ## 范围
 
@@ -41,6 +44,7 @@ Updated: 2026-06-24
 
 - HarmonyOS P1 串歌修复。
 - Android 系统播控槽位或随机播放策略。
+- Android release 播控热修 `46ce92d` 的文件和验证链路，除非发现直接回归；不得修改 `android/app/src/main/res/raw/keep.xml`、`android/app/src/main/AndroidManifest.xml`、`android/app/src/main/kotlin/com/qi/ai/music/MainActivity.kt` 或 `test/release_config_test.dart`。
 - 1.0.0 已发布功能的回写，除非作为 bugfix 经 architect 确认。
 - 未经 architect/product 确认的新音源、非官方高风险歌词源或自建服务。
 - 第一版默认不新增本地音频标签读取依赖；如 Android 认为必须引入 `audio_metadata_reader` 或同类依赖，先发方案变更给 architect review。
@@ -86,12 +90,15 @@ Updated: 2026-06-24
 - 2026-06-24 type=coordination_request lane=product summary=产品要求 Android 先和 architect 沟通方案，再实现封面和歌词稳定加载。
 - 2026-06-24 type=plan_review_request lane=android summary=Android lane 提交 metadata pipeline 方案草案，等待 architect 确认边界。
 - 2026-06-24 type=review_result lane=architect summary=方案方向接受，切回 Android lane 主责实现；第一版不新增音频标签读取依赖，除非另发方案变更 review。
+- 2026-06-24 type=coordination_request lane=product summary=P1 release 播控由架构师备援推进时，其它 lane 不能空转；metadata pipeline 继续 Android 主责，iOS 做 provider/平台风险验证支持。
+- 2026-06-24 type=status lane=android summary=Android lane 已确认 P1 hotfix 归属复核，并准备转入 metadata pipeline。架构师确认 P1 已 accepted/可归档后，Android 可以正式开 AM-20260624-001。
+- 2026-06-24 type=blocker lane=android status=worktree_blocked_plan_ready summary=Android lane 判断 `/Users/huangqi/AIHome/projects/ai_music_android` 存在旧 AM-003 脏现场，不应混入 AM-001。架构师已从 `origin/main` 创建专属 worktree `/Users/huangqi/AIHome/worktrees/ai_music/android-AM-20260624-001` 和分支 `feature/1.0.1/AM-20260624-001-metadata-pipeline`。
 
 ## Review 结果
 
 - Reviewer Lane: architect
 - Result: assigned
-- Android Findings: Android lane 按本任务单实现，不混入 1.0.0 release 收口。
-- iOS Findings: iOS lane 先做验证支持，等待 Android pipeline 完成后再验平台风险。
+- Android Findings: Android lane 可以在 `/Users/huangqi/AIHome/worktrees/ai_music/android-AM-20260624-001` 正式开工 AM-20260624-001；完成后回 architect lane，带 commit、`flutter test --no-pub`、`flutter analyze --no-pub`、小米 10 Pro metadata 自测、provider 命中/TTL/cache 日志摘要。不得混入 AM-20260624-002 播放状态持久化或 Android release 播控热修文件。
+- iOS Findings: iOS lane 先做验证支持，等待 Android pipeline 完成后再验平台风险；如验证发现 ATS、本地 file URI、锁屏封面或 iOS-only metadata 读取限制，再回 architect lane 发 blocker。
 - HarmonyOS Findings: 暂不涉及。
 - Architect Findings: 架构师只做 review/合并/发布，不直接写本任务公共 Dart 业务。

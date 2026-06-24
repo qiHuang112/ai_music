@@ -1,13 +1,14 @@
 # AM-20260624-002 播放状态持久化
 
-Status: assigned
-Owner Lane: android
+Status: assigned_to_ohos
+Owner Lane: ohos
+Assist Lane: android review, architect review
 Source Thread: 019ee4b7-e7d2-7751-a4c4-150ede83c350
 Target Version: 1.0.1
 Priority: P1 first implementation
 Base Branch: main
-Work Branch: lane/android
-Worktree Path: /Users/huangqi/AIHome/projects/ai_music_android
+Work Branch: lane/ohos
+Worktree Path: /Users/huangqi/AIHome/projects/ai_music_ohos
 Merge Branch: main
 Created: 2026-06-24
 Updated: 2026-06-24
@@ -23,9 +24,11 @@ Updated: 2026-06-24
 
 ## 责任边界
 
-- Android lane 是公共 Dart 实现 owner。
+- ohos lane 是本任务实现 owner，负责在 `/Users/huangqi/AIHome/projects/ai_music_ohos` / `lane/ohos` 做公共 Dart 实现和 HarmonyOS 基础验证。该安排是为了和 Android lane 的 1.0.1 metadata pipeline 并行，避免 Android lane 空转或被单点占满。
+- Android lane 是公共 Dart owner 方向的协助方：不直接抢写本任务，但在架构师 review 后负责检查公共 Dart 播放队列、测试和 Android 行为风险。
 - Architect lane 只做方案 review、边界把关、合并发布和冲突裁决，不直接实现本任务业务代码。
-- ohos/iOS lane 只在平台验证发现问题时参与；本任务不要求它们先改宿主代码。
+- iOS lane 暂不参与，除非恢复状态在 iOS 真机上出现平台差异。
+- ohos lane 开工前必须读取 `harmonyos-development` skill；如果只改公共 Dart，也要额外确认不会触碰鸿蒙串歌修复或 Android release 播控热修文件。
 
 ## 范围
 
@@ -43,6 +46,8 @@ Updated: 2026-06-24
 - 歌词/封面 metadata pipeline。
 - Android 系统播控槽位、随机短听策略。
 - HarmonyOS vendored plugin 或 AVSession 修复。
+- Android release 播控热修文件：`android/app/src/main/AndroidManifest.xml`、`android/app/src/main/kotlin/com/qi/ai/music/MainActivity.kt`、`android/app/src/main/res/raw/keep.xml`、`test/release_config_test.dart`。
+- 整个 `android/` 目录；如 ohos lane 发现必须改 Android 宿主或 Android 打包，先发 blocker 给 architect，不得直接修改。
 - 1.0.0 release 代码变更。
 
 ## 验收标准
@@ -61,19 +66,21 @@ Updated: 2026-06-24
 - 单测覆盖收藏队列恢复、自建歌单队列恢复、搜索缓存队列恢复。
 - 单测覆盖播放模式恢复。
 - 单测覆盖删除歌曲后的降级。
-- Android lane 在小米 10 Pro 上做杀进程/重进手动自测，并记录步骤和结果。
+- ohos lane 在 HarmonyOS 测试机上做杀进程/重进手动自测，并记录步骤和结果。
+- Android lane 在收到 architect review_result 后，基于同一提交做公共 Dart/Android 风险复核；如需要真机验证，再使用小米 10 Pro，不使用小米 17 Pro。
 
 ## 消息记录
 
 - 2026-06-23 type=task lane=product summary=产品提出播放状态记录需求，建议进入 1.0.1，不混入 AM-20260622-003。
 - 2026-06-24 type=correction lane=product summary=产品要求 1.0.1 公共 Dart 业务切回 Android lane 主责，架构师不要长期直接写业务代码。
 - 2026-06-24 type=task lane=architect summary=架构师将播放状态持久化拆为 Android lane 独立 1.0.1 任务。
+- 2026-06-24 type=coordination_request lane=product summary=P1 release 播控由架构师备援推进时，其它 lane 不能空转；播放状态持久化改由 ohos lane 在独立工程并行实现，前提是不碰 Android release 播控文件、不碰 `android/`。
 
 ## Review 结果
 
 - Reviewer Lane: architect
 - Result: assigned
-- Android Findings: Android lane 按本任务单实现，不混入 1.0.0 release 收口。
+- Android Findings: Android lane 暂不实现本任务，改为协助复核公共 Dart/Android 行为；收到 ohos review_request 后，请检查播放队列恢复、测试覆盖和 Android 行为风险。
 - iOS Findings: 暂不涉及。
-- HarmonyOS Findings: 暂不涉及。
+- HarmonyOS Findings: ohos lane 接手实现。完成后回 architect lane，带 commit、`flutter test --no-pub`、`flutter analyze --no-pub`、HarmonyOS 杀进程/重进验证摘要；如触碰公共 Dart 高冲突文件，必须在 review_request 中列出文件和冲突风险。
 - Architect Findings: 架构师只做 review/合并/发布，不直接写本任务公共 Dart 业务。
