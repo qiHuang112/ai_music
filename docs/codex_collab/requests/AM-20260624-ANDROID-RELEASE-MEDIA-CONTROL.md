@@ -1,6 +1,6 @@
 # AM-20260624-ANDROID-RELEASE-MEDIA-CONTROL Android release 播控中心消失
 
-Status: urgent_p1
+Status: accepted_pushed_verified
 Owner Lane: android
 Source Thread: 019ee4b7-e7d2-7751-a4c4-150ede83c350
 Target Version: 1.0.0
@@ -17,7 +17,7 @@ Updated: 2026-06-24
 
 本任务目标是恢复 AI Music 之前已经支持过的 Android 系统播控中心能力，不是新增“通知权限功能”。`POST_NOTIFICATIONS` 只能作为 Android 13+ / MIUI release 包兼容和排查点，不能作为需求本身，也不能在缺少播放后 active MediaSession、notification controls 和四槽位证据时 declared fixed。
 
-这是 1.0.0 release blocker。修复闭环前，不推进新的 1.0.1 公共 Dart 功能，不把当前 `v1.0.0` release 包继续作为正式可发布包交付。
+这是 1.0.0 release blocker。已通过 `v1.0.0-hotfix.1` 修复并在小米 10 Pro 开发机、小米 17 Pro 验收机验证通过。
 
 ## 背景
 
@@ -105,12 +105,15 @@ Android lane 需要基于 release 包定位，不允许只用 debug 包证明：
 - 2026-06-24 type=status lane=architect status=owner_followup_required summary=架构师核对 integration 工程，当前未提交代码仍只有通知权限相关 diff：`AndroidManifest.xml`、`MainActivity.kt`、`test/release_config_test.dart`；源码中存在 `res/drawable/ic_notification_favorite*.xml`，但还没有新增资源 keep 规则、没有测试覆盖 release APK 资源表，也没有证明 `aapt dump resources` 能看到收藏图标资源。Android owner 需要立即把 CustomAction icon 资源修复落成代码或回 blocker。
 - 2026-06-24 type=escalation lane=product status=android_owner_overdue summary=Android owner 超过应回窗口仍未回资源 keep 修复包或精确 blocker。小米 10 Pro 开发验证已授权，P1 不应继续等待许可。root cause 已足够明确：release shrink/资源裁剪导致收藏 drawable 未进入 APK，`audio_service` CustomAction icon resource id 无效。架构师将该状态升级为 owner blocker；Android 必须在 10 分钟内回修复包或精确 blocker。
 - 2026-06-24 type=escalation lane=product status=owner_blocker_followup summary=产品复核 integration 工程仍只有通知权限相关 diff，没有 `res/raw/keep.xml` 或等价资源保留规则。架构师继续维持 owner blocker：Android accepted 前必须提交资源 keep/等价修复、测试覆盖、`aapt dump resources` 资源表证据、小米 10 release 播放 logcat 无 CustomAction 异常、media_session active/state=playing、notification/四槽位恢复。Android 10 分钟内仍需回修复包或精确 blocker。
+- 2026-06-24 type=review_result lane=architect status=accepted summary=架构师按 B 路径补齐 release 资源 keep 修复，提交 `46ce92d` 并推送 `origin/main`，tag `v1.0.0-hotfix.1` 指向该提交。release APK sha256 `b3a0ca0c4dd14849bc56b977debba0a811326572fb072b4368398fabfee15e39`；`aapt dump resources` 已确认 `ic_notification_favorite` 和 `ic_notification_favorite_border` 进入 APK；`flutter analyze --no-pub` 和 `flutter test --no-pub` 通过。
+- 2026-06-24 type=validation lane=android status=pushed_verified summary=小米 10 Pro release 验证通过：播放 `last christmas / taylor` 后 `dumpsys media_session active=true`、`PlaybackState state=3`，notification/system UI 四槽位为收藏、上一首、播放/暂停、下一首；点击收藏后 custom action 变为 `取消收藏`，logcat 无 `You must specify an icon resource id` / CustomAction icon 异常。
+- 2026-06-24 type=product_validation lane=product status=accepted summary=产品授权安装 hotfix release 到小米 17 Pro `192.168.31.190:45075`，安装成功，`POST_NOTIFICATION: allow` 且 runtime granted；产品验证反馈“没问题”。
 
 ## Review 结果
 
 - Reviewer Lane: architect
-- Result: changes_requested
-- Android Findings: `POST_NOTIFICATIONS` 声明和 Android 13+ 运行时请求方向可以保留为兼容修复，但不是根因闭环。小米 10 Pro release 证据显示 session、metadata、queue 已出现但 `active=false`、`PlaybackState state=0`；新增 logcat 和 APK 资源证据进一步指向自定义收藏 action 的 `androidIcon` 资源在 release APK 中不可用，导致 `CustomAction` 构建异常。accepted 前必须看到 `aapt dump resources` 证明图标资源进入 APK或已改用有效资源、小米 10 release 播放 logcat 无该异常、active MediaSession、media notification 和四槽位可用。
+- Result: accepted
+- Android Findings: 根因确认为 release 资源裁剪导致自定义收藏 action 的 `ic_notification_favorite*` 图标资源未进入 APK，`audio_service` 构建 `CustomAction` 异常后阻断系统播控发布。修复通过 `res/raw/keep.xml` 保留收藏图标资源，并保留 `POST_NOTIFICATIONS` 兼容补丁。小米 10 Pro release 证据已满足：`aapt dump resources` 可见图标资源，播放后 active MediaSession、`PlaybackState state=3`、notification/system UI 四槽位恢复，点击收藏可切换为取消收藏，logcat 无 CustomAction icon 异常。
 - iOS Findings: 不涉及。
 - HarmonyOS Findings: 不涉及。
-- Architect Findings: `v1.0.0` tag 已存在，但发布状态已降为 blocked。修复闭环前不继续把当前 release APK 当作正式交付包。当前小米 10 Pro 已可用于 release 验证：release 包安装成功且通知权限已授权。Android lane 必须按“恢复既有系统播控能力”验收，优先修复 CustomAction icon 资源进入 release APK 或改用有效资源；拿到 `aapt dump resources`、无异常 logcat、active MediaSession、notification controls 和四槽位可用证据后，再回 architect lane 发 `review_request`。若 Android owner 继续不回，按 no-idle 流程维持 owner blocker，并由架构师协助构建环境，但业务修复仍归 Android。
+- Architect Findings: `v1.0.0` 旧 tag 不改写，使用 `v1.0.0-hotfix.1` 标记本次 Android 播控热修。`origin/main` 已推到 `46ce92d`，小米 17 Pro 已安装同一 sha 的 release 包并由产品验证通过。该 blocker 可关闭，后续 1.0.1 可恢复推进。
