@@ -73,6 +73,7 @@ class TrackMetadata {
     this.source = '',
     this.artworkMiss,
     this.lyricsMiss,
+    this.lyricsProviderMisses = const [],
   });
 
   final Uri? artworkUri;
@@ -80,6 +81,7 @@ class TrackMetadata {
   final String source;
   final MetadataFieldMiss? artworkMiss;
   final MetadataFieldMiss? lyricsMiss;
+  final List<MetadataFieldMiss> lyricsProviderMisses;
 
   bool get hasArtwork => artworkUri != null;
 
@@ -91,6 +93,7 @@ class TrackMetadata {
     String? source,
     MetadataFieldMiss? artworkMiss,
     MetadataFieldMiss? lyricsMiss,
+    List<MetadataFieldMiss>? lyricsProviderMisses,
   }) {
     return TrackMetadata(
       artworkUri: artworkUri ?? this.artworkUri,
@@ -98,6 +101,7 @@ class TrackMetadata {
       source: source ?? this.source,
       artworkMiss: artworkMiss ?? this.artworkMiss,
       lyricsMiss: lyricsMiss ?? this.lyricsMiss,
+      lyricsProviderMisses: lyricsProviderMisses ?? this.lyricsProviderMisses,
     );
   }
 }

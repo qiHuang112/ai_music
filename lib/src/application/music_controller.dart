@@ -804,6 +804,11 @@ class MusicController extends ChangeNotifier {
         return;
       }
       currentMetadata = metadata;
+      _logMetadataController(
+        'load complete trackId=${track.id} name="${track.title}" '
+        'lyrics=${metadata.lyrics.length} '
+        'artwork=${metadata.artworkUri != null}',
+      );
       final active = audioHandler.mediaItem.value;
       if (active?.id == track.id &&
           metadata.artworkUri != null &&
@@ -849,7 +854,11 @@ class MusicController extends ChangeNotifier {
     if (!_autoMetadataRecoveryAttempted.add(track.id)) {
       return;
     }
-    await recoverMetadataForCurrentTrack();
+    final hasActiveLyricsMiss =
+        currentMetadata.lyricsMiss?.isActive(DateTime.now()) ?? false;
+    await recoverMetadataForCurrentTrack(
+      bypassMetadataMiss: hasActiveLyricsMiss,
+    );
   }
 
   Future<void> recoverMetadataForCurrentTrack({
@@ -879,6 +888,11 @@ class MusicController extends ChangeNotifier {
         return;
       }
       currentMetadata = metadata;
+      _logMetadataController(
+        'recover complete trackId=${track.id} name="${track.title}" '
+        'bypass=$bypassMetadataMiss lyrics=${metadata.lyrics.length} '
+        'artwork=${metadata.artworkUri != null}',
+      );
       if (metadata.hasLyrics) {
         _autoMetadataRecoveryAttempted.remove(track.id);
       }
@@ -901,6 +915,11 @@ class MusicController extends ChangeNotifier {
         notifyListeners();
       }
     }
+  }
+
+  void _logMetadataController(String message) {
+    // ignore: avoid_print
+    print('[AI Music][metadata][controller] $message');
   }
 
   Future<CachedTrack> _refreshCachedCandidateMetadata(
@@ -960,7 +979,7 @@ class MusicController extends ChangeNotifier {
       name: music.name,
       artist: music.artist,
       album: music.album,
-      duration: 0,
+      duration: music.duration,
       link: '',
       coverUrl: music.coverUrl,
       qualities: [music.quality],
@@ -994,6 +1013,7 @@ class MusicController extends ChangeNotifier {
           : current.coverUrl,
       lyrics: resolved.lyrics ?? current.lyrics,
       panLink: current.panLink || resolved.panLink,
+      duration: resolved.duration > 0 ? resolved.duration : current.duration,
     );
   }
 

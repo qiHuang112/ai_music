@@ -70,6 +70,38 @@ void main() {
     expect(metadata.source, 'resolver:lrc');
   });
 
+  test('resolved lyrics provider ignores audio urls', () async {
+    final provider = const ResolvedLyricsProvider();
+    final metadata = await provider.find(
+      _cachedTrack(
+        lyrics: const ResolvedLyrics(
+          source: 'resolver:url',
+          text: 'https://cdn.example.test/song.flac?token=abc',
+          lines: 1,
+          timed: false,
+        ),
+      ),
+    );
+
+    expect(metadata.lyrics, isEmpty);
+  });
+
+  test('resolved lyrics provider ignores untimed title text', () async {
+    final provider = const ResolvedLyricsProvider();
+    final metadata = await provider.find(
+      _cachedTrack(
+        lyrics: const ResolvedLyrics(
+          source: 'resolver:title',
+          text: '十年',
+          lines: 1,
+          timed: false,
+        ),
+      ),
+    );
+
+    expect(metadata.lyrics, isEmpty);
+  });
+
   test('cached lyrics file provider reads sidecar lrc file', () async {
     final root = await Directory.systemTemp.createTemp('ai_music_lrc_file_');
     final lrc = File('${root.path}${Platform.pathSeparator}song.lrc');
@@ -315,6 +347,84 @@ void main() {
   });
 
   test(
+    'lyrics provider miss does not block fallback provider after restart',
+    () async {
+      final root = await Directory.systemTemp.createTemp(
+        'ai_music_meta_provider_miss_',
+      );
+      final cache = MetadataCacheStore(rootProvider: () async => root);
+      final track = _cachedTrack();
+      final now = DateTime(2026, 1, 1, 12);
+      final firstProvider = _PrimaryMissingLyricsProvider();
+
+      try {
+        await TrackMetadataRepository(
+          cacheStore: cache,
+          providers: [firstProvider],
+          now: () => now,
+        ).load(track);
+
+        expect(firstProvider.calls, 1);
+        final persisted = await cache.read(track.cacheId);
+        expect(persisted?.lyricsProviderMisses, hasLength(1));
+        expect(
+          persisted?.lyricsProviderMisses.single.provider,
+          '_primary_missing_lyrics_provider',
+        );
+
+        final restartedPrimary = _PrimaryMissingLyricsProvider();
+        final fallback = _FallbackLyricsProvider();
+        final metadata = await TrackMetadataRepository(
+          cacheStore: cache,
+          providers: [restartedPrimary, fallback],
+          now: () => now,
+        ).load(track);
+
+        expect(restartedPrimary.calls, 0);
+        expect(fallback.calls, 1);
+        expect(metadata.lyrics.single.text, '兜底歌词');
+      } finally {
+        await root.delete(recursive: true);
+      }
+    },
+  );
+
+  test('legacy lyrics miss only skips the matching provider', () async {
+    final root = await Directory.systemTemp.createTemp(
+      'ai_music_meta_legacy_provider_miss_',
+    );
+    final cache = MetadataCacheStore(rootProvider: () async => root);
+    final track = _cachedTrack();
+    final now = DateTime(2026, 1, 1, 12);
+
+    try {
+      await cache.write(
+        track.cacheId,
+        TrackMetadata(
+          lyricsMiss: MetadataFieldMiss(
+            until: now.add(const Duration(minutes: 30)),
+            provider: '_primary_missing_lyrics_provider',
+          ),
+        ),
+      );
+
+      final primary = _PrimaryMissingLyricsProvider();
+      final fallback = _FallbackLyricsProvider();
+      final metadata = await TrackMetadataRepository(
+        cacheStore: cache,
+        providers: [primary, fallback],
+        now: () => now,
+      ).load(track);
+
+      expect(primary.calls, 0);
+      expect(fallback.calls, 1);
+      expect(metadata.lyrics.single.text, '兜底歌词');
+    } finally {
+      await root.delete(recursive: true);
+    }
+  });
+
+  test(
     'metadata repository does not overwrite success with empty result',
     () async {
       final root = await Directory.systemTemp.createTemp(
@@ -542,6 +652,66 @@ plain text
   });
 
   test(
+    'flac platform provider reads NetEase lyrics for wyy candidates',
+    () async {
+      final provider = FlacPlatformLyricsProvider(
+        httpClient: _FakeResolverHttp(
+          onGet: (uri, _) async {
+            expect(uri.host, 'music.163.com');
+            expect(uri.queryParameters['id'], '469065898');
+            return _json(uri, {
+              'lrc': {'lyric': '[00:01.00]网易歌词\n[00:03.00]第二句'},
+            });
+          },
+        ),
+      );
+
+      final metadata = await provider.find(
+        _cachedTrack(
+          source: MusicDataSource.flac,
+          platform: 'wyy',
+          id: '469065898',
+        ),
+      );
+
+      expect(metadata.lyrics.map((line) => line.text), ['网易歌词', '第二句']);
+      expect(metadata.source, 'flac:wyy');
+    },
+  );
+
+  test('flac platform provider reads Kuwo lyric rows', () async {
+    final provider = FlacPlatformLyricsProvider(
+      httpClient: _FakeResolverHttp(
+        onGet: (uri, _) async {
+          expect(uri.host, 'm.kuwo.cn');
+          expect(uri.queryParameters['musicId'], '37408886');
+          return _json(uri, {
+            'status': 200,
+            'data': {
+              'lrclist': [
+                {'time': '0.0', 'lineLyric': '黑夜传说 - 姜杰'},
+                {'time': '6.23', 'lineLyric': '词：姜杰'},
+              ],
+            },
+          });
+        },
+      ),
+    );
+
+    final metadata = await provider.find(
+      _cachedTrack(
+        source: MusicDataSource.flac,
+        platform: 'kuwo',
+        id: '37408886',
+      ),
+    );
+
+    expect(metadata.lyrics.first.text, '黑夜传说 - 姜杰');
+    expect(metadata.lyrics[1].time, const Duration(milliseconds: 6230));
+    expect(metadata.source, 'flac:kuwo');
+  });
+
+  test(
     'itunes artwork provider picks matching high resolution cover',
     () async {
       final provider = ItunesArtworkProvider(
@@ -612,6 +782,124 @@ plain text
     expect(metadata.source, 'lrclib');
   });
 
+  test('lrclib lyrics provider retries traditional aliases', () async {
+    var calls = 0;
+    final provider = LrcLibLyricsProvider(
+      httpClient: _FakeResolverHttp(
+        onGet: (uri, _) async {
+          calls += 1;
+          if (calls == 1) {
+            expect(uri.queryParameters['track_name'], '一絲不掛');
+            expect(uri.queryParameters['artist_name'], '陳奕迅');
+            return _json(uri, const []);
+          }
+          expect(uri.queryParameters['track_name'], '一丝不挂');
+          expect(uri.queryParameters['artist_name'], '陈奕迅');
+          return _json(uri, [
+            {
+              'trackName': '一絲不掛',
+              'artistName': '陳奕迅',
+              'duration': 242,
+              'syncedLyrics': '[00:02.00]繁体命中',
+            },
+          ]);
+        },
+      ),
+    );
+
+    final metadata = await provider.find(
+      _cachedTrack(name: '一丝不挂', artist: '陈奕迅', duration: 242),
+    );
+
+    expect(calls, 2);
+    expect(metadata.lyrics.single.text, '繁体命中');
+    expect(metadata.source, 'lrclib');
+  });
+
+  test('lrclib lyrics provider retries xu song traditional aliases', () async {
+    var calls = 0;
+    final provider = LrcLibLyricsProvider(
+      httpClient: _FakeResolverHttp(
+        onGet: (uri, _) async {
+          calls += 1;
+          if (calls == 1) {
+            expect(uri.queryParameters['track_name'], '壞孩子');
+            expect(uri.queryParameters['artist_name'], '許嵩');
+            return _json(uri, [
+              {
+                'trackName': '壞孩子',
+                'artistName': '許嵩',
+                'duration': 245,
+                'syncedLyrics': '[00:02.00]坏孩子繁体命中',
+              },
+            ]);
+          }
+          fail('traditional alias query should match before simplified query');
+        },
+      ),
+    );
+
+    final metadata = await provider.find(
+      _cachedTrack(name: '坏孩子', artist: '许嵩', duration: 245),
+    );
+
+    expect(calls, 1);
+    expect(metadata.lyrics.single.text, '坏孩子繁体命中');
+    expect(metadata.source, 'lrclib');
+  });
+
+  test('lrclib lyrics provider continues after one query fails', () async {
+    var calls = 0;
+    final provider = LrcLibLyricsProvider(
+      httpClient: _FakeResolverHttp(
+        onGet: (uri, _) async {
+          calls += 1;
+          if (calls == 1) {
+            throw const SocketException('timeout');
+          }
+          return _json(uri, [
+            {
+              'trackName': '一丝不挂',
+              'artistName': '陈奕迅',
+              'duration': 242,
+              'syncedLyrics': '[00:02.00]第二路命中',
+            },
+          ]);
+        },
+      ),
+    );
+
+    final metadata = await provider.find(
+      _cachedTrack(name: '一丝不挂', artist: '陈奕迅', duration: 242),
+    );
+
+    expect(calls, 2);
+    expect(metadata.lyrics.single.text, '第二路命中');
+  });
+
+  test('lrclib lyrics provider rejects wrong live duration', () async {
+    final provider = LrcLibLyricsProvider(
+      httpClient: _FakeResolverHttp(
+        onGet: (uri, _) async {
+          return _json(uri, [
+            {
+              'trackName': '一絲不掛',
+              'artistName': '陳奕迅',
+              'duration': 284,
+              'syncedLyrics': '[00:02.00]Live 歌词',
+            },
+          ]);
+        },
+      ),
+    );
+
+    final metadata = await provider.find(
+      _cachedTrack(name: '一丝不挂', artist: '陈奕迅', duration: 242),
+    );
+
+    expect(metadata.lyrics, isEmpty);
+  });
+
   test('lrcapi lyrics provider reads single LRC response', () async {
     final provider = LrcApiLyricsProvider(
       httpClient: _FakeResolverHttp(
@@ -674,19 +962,26 @@ CachedTrack _cachedTrack({
   String lyricsPath = '',
   String filePath = '/tmp/song-1.mp3',
   String album = '',
+  String name = '稻香',
+  String artist = '周杰伦',
+  MusicDataSource source = MusicDataSource.buguyy,
+  String platform = 'buguyy',
+  String id = 'song-1',
+  int duration = 0,
 }) {
   final music = ResolvedMusic(
-    query: '周杰伦 稻香',
-    source: MusicDataSource.buguyy,
-    platform: 'buguyy',
-    id: 'song-1',
-    name: '稻香',
-    artist: '周杰伦',
+    query: '$artist $name',
+    source: source,
+    platform: platform,
+    id: id,
+    name: name,
+    artist: artist,
     album: album,
     url: 'https://cdn.example.test/song-1.mp3',
     quality: const MusicQuality(format: 'mp3'),
     coverUrl: coverUrl,
     lyrics: lyrics,
+    duration: duration,
   );
   return CachedTrack(
     cacheId: cacheIdForResolved(music),
@@ -738,6 +1033,31 @@ class _CountingArtworkProvider extends _CountingMetadataProvider
 class _CountingLyricsProvider extends _CountingMetadataProvider
     implements LyricsMetadataProvider, NetworkMetadataProvider {
   _CountingLyricsProvider({super.metadata});
+}
+
+class _PrimaryMissingLyricsProvider
+    implements LyricsMetadataProvider, NetworkMetadataProvider {
+  int calls = 0;
+
+  @override
+  Future<TrackMetadata> find(CachedTrack track) async {
+    calls += 1;
+    return const TrackMetadata();
+  }
+}
+
+class _FallbackLyricsProvider
+    implements LyricsMetadataProvider, NetworkMetadataProvider {
+  int calls = 0;
+
+  @override
+  Future<TrackMetadata> find(CachedTrack track) async {
+    calls += 1;
+    return const TrackMetadata(
+      lyrics: [LyricLine(time: Duration(seconds: 1), text: '兜底歌词')],
+      source: 'fallback',
+    );
+  }
 }
 
 class _FakeResolverHttp implements MusicResolverHttp {

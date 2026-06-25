@@ -135,6 +135,7 @@ class FlacResolver {
           quality: quality,
           coverUrl: coverUrl,
           lyrics: lyrics,
+          duration: candidate.duration,
         );
       }
       final msg = json['msg']?.toString();

@@ -114,6 +114,7 @@ class ResolvedMusic {
     this.coverUrl = '',
     this.lyrics,
     this.panLink = false,
+    this.duration = 0,
   });
 
   final String query;
@@ -128,6 +129,7 @@ class ResolvedMusic {
   final String coverUrl;
   final ResolvedLyrics? lyrics;
   final bool panLink;
+  final int duration;
 
   factory ResolvedMusic.fromJson(Map<String, dynamic> json) {
     return ResolvedMusic(
@@ -143,6 +145,7 @@ class ResolvedMusic {
       coverUrl: json['coverUrl']?.toString() ?? '',
       lyrics: ResolvedLyrics.fromJson(json['lyrics']),
       panLink: json['panLink'] == true,
+      duration: int.tryParse(json['duration']?.toString() ?? '') ?? 0,
     );
   }
 
@@ -160,6 +163,7 @@ class ResolvedMusic {
       'coverUrl': coverUrl,
       'lyrics': lyrics?.toJson(),
       'panLink': panLink,
+      'duration': duration,
     };
   }
 }

@@ -97,6 +97,7 @@ class BuguyyResolver {
         quality: MusicQuality(format: extension.isEmpty ? 'mp3' : extension),
         coverUrl: candidate.coverUrl,
         lyrics: lyrics,
+        duration: candidate.duration,
       );
     }
 
@@ -142,6 +143,7 @@ class BuguyyResolver {
             makeResolvedLyrics(downJson['about'], 'buguyy:getdown:about'),
           ]),
       panLink: true,
+      duration: candidate.duration,
     );
   }
 

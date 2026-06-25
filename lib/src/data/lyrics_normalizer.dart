@@ -9,13 +9,12 @@ ResolvedLyrics? makeResolvedLyrics(Object? rawValue, String source) {
   if (!_isUsableLyricsText(text)) {
     return null;
   }
+  final timed = RegExp(r'\[\d{2}:\d{2}\.\d{2}\]').hasMatch(text);
+  if (!timed) {
+    return null;
+  }
   final lines = text.split('\n').where((line) => line.trim().isNotEmpty).length;
-  return ResolvedLyrics(
-    source: source,
-    text: text,
-    lines: lines,
-    timed: RegExp(r'\[\d{2}:\d{2}\.\d{2}\]').hasMatch(text),
-  );
+  return ResolvedLyrics(source: source, text: text, lines: lines, timed: timed);
 }
 
 ResolvedLyrics? firstResolvedLyrics(List<ResolvedLyrics?> candidates) {
@@ -152,7 +151,24 @@ bool _isUsableLyricsText(String text) {
   if (RegExp(r'<br\s*/?>|<[^>]+>', caseSensitive: false).hasMatch(text)) {
     return false;
   }
+  if (_looksLikeUrlOrAudioResource(text)) {
+    return false;
+  }
   return true;
+}
+
+bool _looksLikeUrlOrAudioResource(String text) {
+  final trimmed = text.trim();
+  if (RegExp(r'^https?://\S+$', caseSensitive: false).hasMatch(trimmed)) {
+    return true;
+  }
+  if (RegExp(
+    r'\.(mp3|flac|m4a|aac|wav|ogg|ape)(\?|#|$)',
+    caseSensitive: false,
+  ).hasMatch(trimmed)) {
+    return true;
+  }
+  return false;
 }
 
 bool _isUsableLyricLines(List<LyricLine> lines) {

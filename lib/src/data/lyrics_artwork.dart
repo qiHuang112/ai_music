@@ -103,7 +103,6 @@ class TrackMetadataRepository {
   final MetadataCacheStore _cacheStore;
   final List<TrackMetadataProvider> _providers;
   final DateTime Function() _now;
-  final Map<String, DateTime> _lyricsMissUntil = {};
   final Map<String, DateTime> _artworkMissUntil = {};
   final Duration _missTtl;
   final Duration _providerTimeout;
@@ -129,42 +128,70 @@ class TrackMetadataRepository {
   }) async {
     var metadata =
         await _cacheStore.read(track.cacheId) ?? const TrackMetadata();
+    _logMetadata(
+      'load start cacheId=${track.cacheId} name="${track.music.name}" '
+      'artist="${track.music.artist}" cachedLyrics=${metadata.lyrics.length} '
+      'cachedArtwork=${metadata.artworkUri != null} bypass=$bypassMissTtl',
+    );
     if (_isComplete(metadata)) {
+      _logMetadata('load complete from cache cacheId=${track.cacheId}');
       return metadata;
     }
-    // 字段级 miss 避免歌词失败挡住封面，也避免空结果覆盖已有成功值。
-    final cachedLyricsMiss = _freshMiss(metadata.lyricsMiss);
+    // 歌词按 provider 记录 miss，避免一个源失败后挡住其它兜底源。
+    final cachedLyricsMisses = _freshLyricsMisses(metadata);
     final cachedArtworkMiss = _freshMiss(metadata.artworkMiss);
-    final lyricsMissActive =
-        !bypassMissTtl &&
-        (cachedLyricsMiss != null ||
-            _hasFreshMiss(_lyricsMissUntil, track.cacheId));
+    final lyricsMissProviders = bypassMissTtl
+        ? <String>{}
+        : {
+            for (final miss in cachedLyricsMisses)
+              if (miss.provider.trim().isNotEmpty) miss.provider,
+          };
     final artworkMissActive =
         !bypassMissTtl &&
         (cachedArtworkMiss != null ||
             _hasFreshMiss(_artworkMissUntil, track.cacheId));
     final hadLyrics = metadata.hasLyrics;
     final hadArtwork = metadata.hasArtwork;
-    String? attemptedLyricsProvider;
+    final attemptedLyricsProviders = <String>{};
     String? attemptedArtworkProvider;
     for (final provider in _providers) {
+      final providerId = _providerId(provider);
       if (_shouldSkipProvider(
         provider,
         metadata,
-        skipNetworkLyrics: lyricsMissActive,
+        skippedLyricsProviders: lyricsMissProviders,
         skipNetworkArtwork: artworkMissActive,
       )) {
+        _logMetadata(
+          'provider skip cacheId=${track.cacheId} '
+          'provider=$providerId '
+          'lyricsMiss=${lyricsMissProviders.contains(providerId)} '
+          'artworkMiss=$artworkMissActive '
+          'hasLyrics=${metadata.hasLyrics} hasArtwork=${metadata.hasArtwork}',
+        );
         continue;
       }
+      final needsLyrics =
+          provider is NetworkMetadataProvider &&
+          provider is LyricsMetadataProvider &&
+          !metadata.hasLyrics;
       if (provider is NetworkMetadataProvider) {
-        if (provider is LyricsMetadataProvider && !metadata.hasLyrics) {
-          attemptedLyricsProvider = _providerId(provider);
+        if (needsLyrics) {
+          attemptedLyricsProviders.add(providerId);
         }
         if (provider is ArtworkMetadataProvider && !metadata.hasArtwork) {
-          attemptedArtworkProvider = _providerId(provider);
+          attemptedArtworkProvider = providerId;
         }
       }
       final next = await _findWithTimeout(provider, track);
+      _logMetadata(
+        'provider result cacheId=${track.cacheId} '
+        'provider=$providerId lyrics=${next.lyrics.length} '
+        'artwork=${next.artworkUri != null}',
+      );
+      if (needsLyrics && next.hasLyrics) {
+        attemptedLyricsProviders.remove(providerId);
+      }
       if (!metadata.hasLyrics && next.hasLyrics) {
         await _writeLyricsSidecar(track, next.lyrics);
       }
@@ -173,18 +200,15 @@ class TrackMetadataRepository {
         break;
       }
     }
-    MetadataFieldMiss? nextLyricsMiss;
+    List<MetadataFieldMiss> nextLyricsProviderMisses = const [];
     MetadataFieldMiss? nextArtworkMiss;
     if (metadata.hasLyrics) {
-      _lyricsMissUntil.remove(track.cacheId);
-    } else if (!hadLyrics && !lyricsMissActive) {
-      nextLyricsMiss = MetadataFieldMiss(
-        until: _now().add(_missTtl),
-        provider: attemptedLyricsProvider ?? 'metadata',
+      nextLyricsProviderMisses = const [];
+    } else if (!hadLyrics) {
+      nextLyricsProviderMisses = _mergeLyricsMisses(
+        bypassMissTtl ? const [] : cachedLyricsMisses,
+        attemptedLyricsProviders,
       );
-      _lyricsMissUntil[track.cacheId] = nextLyricsMiss.until;
-    } else if (!bypassMissTtl) {
-      nextLyricsMiss = cachedLyricsMiss ?? metadata.lyricsMiss;
     }
     if (metadata.hasArtwork) {
       _artworkMissUntil.remove(track.cacheId);
@@ -197,14 +221,26 @@ class TrackMetadataRepository {
     } else if (!bypassMissTtl) {
       nextArtworkMiss = cachedArtworkMiss ?? metadata.artworkMiss;
     }
+    final nextLyricsMiss = nextLyricsProviderMisses.isEmpty
+        ? null
+        : nextLyricsProviderMisses.first;
     metadata = TrackMetadata(
       artworkUri: metadata.artworkUri,
       lyrics: metadata.lyrics,
       source: metadata.source,
       artworkMiss: metadata.hasArtwork ? null : nextArtworkMiss,
       lyricsMiss: metadata.hasLyrics ? null : nextLyricsMiss,
+      lyricsProviderMisses: metadata.hasLyrics
+          ? const []
+          : nextLyricsProviderMisses,
     );
     await _cacheStore.write(track.cacheId, metadata);
+    _logMetadata(
+      'load done cacheId=${track.cacheId} lyrics=${metadata.lyrics.length} '
+      'artwork=${metadata.artworkUri != null} '
+      'lyricsMiss=${metadata.lyricsProviderMisses.map((miss) => miss.provider).join(",")} '
+      'artworkMiss=${metadata.artworkMiss?.provider}',
+    );
     return metadata;
   }
 
@@ -227,10 +263,10 @@ class TrackMetadataRepository {
   bool _shouldSkipProvider(
     TrackMetadataProvider provider,
     TrackMetadata metadata, {
-    required bool skipNetworkLyrics,
+    required Set<String> skippedLyricsProviders,
     required bool skipNetworkArtwork,
   }) {
-    if (skipNetworkLyrics &&
+    if (skippedLyricsProviders.contains(_providerId(provider)) &&
         provider is LyricsMetadataProvider &&
         provider is NetworkMetadataProvider) {
       return true;
@@ -283,6 +319,39 @@ class TrackMetadataRepository {
       return null;
     }
     return miss.isActive(_now()) ? miss : null;
+  }
+
+  List<MetadataFieldMiss> _freshLyricsMisses(TrackMetadata metadata) {
+    final misses = <String, MetadataFieldMiss>{};
+    for (final miss in metadata.lyricsProviderMisses) {
+      final fresh = _freshMiss(miss);
+      if (fresh != null && fresh.provider.trim().isNotEmpty) {
+        misses[fresh.provider] = fresh;
+      }
+    }
+    final legacy = _freshMiss(metadata.lyricsMiss);
+    if (legacy != null && legacy.provider.trim().isNotEmpty) {
+      misses.putIfAbsent(legacy.provider, () => legacy);
+    }
+    return misses.values.toList(growable: false);
+  }
+
+  List<MetadataFieldMiss> _mergeLyricsMisses(
+    List<MetadataFieldMiss> cachedMisses,
+    Set<String> attemptedProviders,
+  ) {
+    final byProvider = <String, MetadataFieldMiss>{
+      for (final miss in cachedMisses)
+        if (miss.provider.trim().isNotEmpty) miss.provider: miss,
+    };
+    final until = _now().add(_missTtl);
+    for (final provider in attemptedProviders) {
+      byProvider[provider] = MetadataFieldMiss(
+        until: until,
+        provider: provider,
+      );
+    }
+    return byProvider.values.toList(growable: false);
   }
 
   Future<void> _writeLyricsSidecar(
@@ -340,6 +409,7 @@ List<TrackMetadataProvider> _defaultProviders(MusicResolverHttp httpClient) {
     const ResolvedLyricsProvider(),
     const CachedLyricsFileProvider(),
     BuguyyLyricsProvider(httpClient: httpClient),
+    FlacPlatformLyricsProvider(httpClient: httpClient),
     ItunesArtworkProvider(httpClient: httpClient),
     LrcLibLyricsProvider(httpClient: httpClient),
     LrcApiLyricsProvider(httpClient: httpClient),
@@ -412,6 +482,103 @@ class BuguyyLyricsProvider
     return asStringMap(
       response.body.isEmpty ? const {} : jsonDecode(response.body),
     );
+  }
+}
+
+class FlacPlatformLyricsProvider
+    implements
+        TrackMetadataProvider,
+        LyricsMetadataProvider,
+        NetworkMetadataProvider {
+  const FlacPlatformLyricsProvider({required MusicResolverHttp httpClient})
+    : _http = httpClient;
+
+  final MusicResolverHttp _http;
+
+  @override
+  Future<TrackMetadata> find(CachedTrack track) async {
+    if (track.music.source != MusicDataSource.flac) {
+      return const TrackMetadata();
+    }
+    final id = track.music.id.trim();
+    if (id.isEmpty || !RegExp(r'^\d+$').hasMatch(id)) {
+      return const TrackMetadata();
+    }
+    final platform = track.music.platform.trim().toLowerCase();
+    return switch (platform) {
+      'wyy' => _findNetEaseLyrics(track, id),
+      'kuwo' => _findKuwoLyrics(track, id),
+      _ => Future.value(const TrackMetadata()),
+    };
+  }
+
+  Future<TrackMetadata> _findNetEaseLyrics(CachedTrack track, String id) async {
+    try {
+      final uri = Uri.parse(
+        'https://music.163.com/api/song/lyric',
+      ).replace(queryParameters: {'id': id, 'lv': '1', 'kv': '1', 'tv': '-1'});
+      final response = await _http.get(
+        uri,
+        headers: {
+          'accept': 'application/json, text/plain, */*',
+          'referer': 'https://music.163.com/',
+          'user-agent': ChallengeClient.userAgent,
+        },
+      );
+      if (!response.ok) {
+        return const TrackMetadata();
+      }
+      final decoded = jsonDecode(response.body);
+      final lyricsText = extractLyricsText(decoded);
+      final lines = parseLrcLines(lyricsText);
+      return lines.isEmpty
+          ? const TrackMetadata()
+          : TrackMetadata(lyrics: lines, source: 'flac:wyy');
+    } catch (_) {
+      return const TrackMetadata();
+    }
+  }
+
+  Future<TrackMetadata> _findKuwoLyrics(CachedTrack track, String id) async {
+    try {
+      final uri = Uri.parse(
+        'https://m.kuwo.cn/newh5/singles/songinfoandlrc',
+      ).replace(queryParameters: {'musicId': id});
+      final response = await _http.get(
+        uri,
+        headers: {
+          'accept': 'application/json, text/plain, */*',
+          'referer': 'https://m.kuwo.cn/',
+          'user-agent': ChallengeClient.userAgent,
+        },
+      );
+      if (!response.ok) {
+        return const TrackMetadata();
+      }
+      final decoded = jsonDecode(response.body);
+      final data = decoded is Map ? decoded['data'] : null;
+      final rawLines = data is Map ? data['lrclist'] : null;
+      if (rawLines is! List) {
+        return const TrackMetadata();
+      }
+      final buffer = StringBuffer();
+      for (final row in rawLines.whereType<Map>()) {
+        final text = row['lineLyric']?.toString().trim() ?? '';
+        final seconds = double.tryParse(row['time']?.toString() ?? '');
+        if (text.isEmpty || seconds == null) {
+          continue;
+        }
+        buffer.writeln(
+          '${_formatLrcTime(Duration(milliseconds: (seconds * 1000).round()))}$text',
+        );
+      }
+      final lines = parseLrcLines(buffer.toString());
+      return lines.isEmpty
+          ? const TrackMetadata()
+          : TrackMetadata(lyrics: lines, source: 'flac:kuwo');
+    } catch (_) {
+      return const TrackMetadata();
+    }
   }
 }
 
@@ -513,55 +680,93 @@ class LrcLibLyricsProvider
     if (title.isEmpty) {
       return const TrackMetadata();
     }
-    try {
-      final response = await _http.get(
-        Uri.parse('$baseUrl/api/search').replace(
-          queryParameters: {
-            'track_name': title,
-            if (track.music.artist.trim().isNotEmpty)
-              'artist_name': track.music.artist.trim(),
-            if (track.music.album.trim().isNotEmpty)
-              'album_name': track.music.album.trim(),
+    for (final query in _lrclibQueries(track)) {
+      try {
+        final response = await _http.get(
+          Uri.parse('$baseUrl/api/search').replace(queryParameters: query),
+          headers: {
+            'accept': 'application/json, text/plain, */*',
+            'user-agent': ChallengeClient.userAgent,
           },
-        ),
-        headers: {
-          'accept': 'application/json, text/plain, */*',
-          'user-agent': ChallengeClient.userAgent,
-        },
-      );
-      if (!response.ok) {
-        return const TrackMetadata();
-      }
-      final decoded = jsonDecode(response.body);
-      if (decoded is! List) {
-        return const TrackMetadata();
-      }
-      Map<String, dynamic>? best;
-      var bestScore = -1;
-      for (final row in decoded.whereType<Map>()) {
-        final json = row.cast<String, dynamic>();
-        final score = _trackMatchScore(track, json);
-        if (score < 0 || score <= bestScore) {
+        );
+        if (!response.ok) {
           continue;
         }
-        best = json;
-        bestScore = score;
-      }
-      if (best != null) {
-        final json = best;
-        final text =
-            json['syncedLyrics']?.toString() ??
-            json['plainLyrics']?.toString() ??
-            '';
+        final decoded = jsonDecode(response.body);
+        if (decoded is! List) {
+          continue;
+        }
+        final best = _bestLyricsMatch(track, decoded);
+        if (best == null) {
+          continue;
+        }
+        final text = best['syncedLyrics']?.toString() ?? '';
         final lines = parseLrcLines(text);
         if (lines.isNotEmpty) {
           return TrackMetadata(lyrics: lines, source: 'lrclib');
         }
+      } catch (_) {
+        continue;
       }
-    } catch (_) {
-      return const TrackMetadata();
     }
     return const TrackMetadata();
+  }
+
+  List<Map<String, String>> _lrclibQueries(CachedTrack track) {
+    final artist = track.music.artist.trim();
+    final album = track.music.album.trim();
+    final queries = <Map<String, String>>[];
+    void add(String title, String artistName) {
+      if (title.trim().isEmpty) {
+        return;
+      }
+      final query = {
+        'track_name': title.trim(),
+        if (artistName.trim().isNotEmpty) 'artist_name': artistName.trim(),
+        if (album.isNotEmpty) 'album_name': album,
+      };
+      if (!queries.any((existing) => _sameQuery(existing, query))) {
+        queries.add(query);
+      }
+    }
+
+    final traditionalTitle = _toTraditionalAlias(_trackTitle(track));
+    final traditionalArtist = _toTraditionalAlias(artist);
+    if (traditionalTitle != _trackTitle(track) || traditionalArtist != artist) {
+      add(traditionalTitle, traditionalArtist);
+    }
+    add(_trackTitle(track), artist);
+    return queries;
+  }
+
+  bool _sameQuery(Map<String, String> a, Map<String, String> b) {
+    if (a.length != b.length) {
+      return false;
+    }
+    for (final entry in a.entries) {
+      if (b[entry.key] != entry.value) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  Map<String, dynamic>? _bestLyricsMatch(CachedTrack track, List decoded) {
+    Map<String, dynamic>? best;
+    var bestScore = -1;
+    for (final row in decoded.whereType<Map>()) {
+      final json = row.cast<String, dynamic>();
+      if ((json['syncedLyrics']?.toString().trim() ?? '').isEmpty) {
+        continue;
+      }
+      final score = _trackMatchScore(track, json);
+      if (score < 0 || score <= bestScore) {
+        continue;
+      }
+      best = json;
+      bestScore = score;
+    }
+    return best;
   }
 }
 
@@ -677,15 +882,76 @@ int _trackMatchScore(CachedTrack track, Map<String, dynamic> json) {
       score -= 40;
     }
   }
+  final durationPenalty = _durationPenalty(track, json);
+  if (durationPenalty >= 80) {
+    return -1;
+  }
+  score -= durationPenalty;
   return score;
 }
 
 String _normalizeMatch(String value) {
-  return value
+  return _toTraditionalAlias(value)
       .toLowerCase()
       .replaceAll(RegExp(r'[\s\-_·.]+'), '')
       .replaceAll(RegExp(r'[（(].*?[）)]'), '')
       .trim();
+}
+
+String _toTraditionalAlias(String value) {
+  return value
+      .replaceAll('丝', '絲')
+      .replaceAll('挂', '掛')
+      .replaceAll('陈', '陳')
+      .replaceAll('坏', '壞')
+      .replaceAll('许', '許');
+}
+
+int _durationPenalty(CachedTrack track, Map<String, dynamic> json) {
+  final trackDuration = track.music.duration;
+  if (trackDuration <= 0) {
+    return 0;
+  }
+  final candidateDuration = _durationSecondsFromJson(json);
+  if (candidateDuration <= 0) {
+    return 0;
+  }
+  final delta = (trackDuration - candidateDuration).abs();
+  if (delta <= 4) {
+    return 0;
+  }
+  if (delta <= 8) {
+    return 15;
+  }
+  if (delta <= 20) {
+    return 45;
+  }
+  return 90;
+}
+
+int _durationSecondsFromJson(Map<String, dynamic> json) {
+  for (final key in const [
+    'duration',
+    'durationSeconds',
+    'duration_seconds',
+    'length',
+  ]) {
+    final value = json[key];
+    final seconds = value is num
+        ? value.round()
+        : int.tryParse(value?.toString() ?? '');
+    if (seconds != null && seconds > 0) {
+      return seconds;
+    }
+  }
+  final millis = json['trackTimeMillis'];
+  final milliseconds = millis is num
+      ? millis.round()
+      : int.tryParse(millis?.toString() ?? '');
+  if (milliseconds != null && milliseconds > 0) {
+    return (milliseconds / 1000).round();
+  }
+  return 0;
 }
 
 String _providerId(TrackMetadataProvider provider) {
@@ -696,6 +962,11 @@ String _providerId(TrackMetadataProvider provider) {
         (match) => '${match.group(1)}_${match.group(2)}',
       )
       .toLowerCase();
+}
+
+void _logMetadata(String message) {
+  // ignore: avoid_print
+  print('[AI Music][metadata] $message');
 }
 
 class MetadataCacheStore {
@@ -793,6 +1064,7 @@ TrackMetadata _metadataFromJson(Map<String, dynamic> json) {
     source: json['source']?.toString() ?? '',
     artworkMiss: _missFromJson(json['artworkMiss']),
     lyricsMiss: _missFromJson(json['lyricsMiss']),
+    lyricsProviderMisses: _missesFromJson(json['lyricsProviderMisses']),
   );
 }
 
@@ -802,11 +1074,24 @@ Map<String, Object?> _metadataToJson(TrackMetadata metadata) {
     'source': metadata.source,
     'artworkMiss': _missToJson(metadata.artworkMiss),
     'lyricsMiss': _missToJson(metadata.lyricsMiss),
+    'lyricsProviderMisses': [
+      for (final miss in metadata.lyricsProviderMisses) _missToJson(miss),
+    ],
     'lyrics': [
       for (final line in metadata.lyrics)
         {'timeMs': line.time.inMilliseconds, 'text': line.text},
     ],
   };
+}
+
+List<MetadataFieldMiss> _missesFromJson(Object? value) {
+  if (value is! List) {
+    return const [];
+  }
+  return value
+      .map(_missFromJson)
+      .whereType<MetadataFieldMiss>()
+      .toList(growable: false);
 }
 
 MetadataFieldMiss? _missFromJson(Object? value) {
