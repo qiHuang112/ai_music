@@ -18,6 +18,30 @@ class HttpMusicResolverClient implements MusicResolverHttp {
   }
 
   @override
+  Future<ResolverHttpResponse> head(
+    Uri uri, {
+    Map<String, String> headers = const {},
+  }) async {
+    return _send('HEAD', uri, headers: headers, retry: false);
+  }
+
+  @override
+  Future<ResolverHttpResponse> range(
+    Uri uri, {
+    int start = 0,
+    int end = 0,
+    Map<String, String> headers = const {},
+  }) async {
+    return _send(
+      'GET',
+      uri,
+      headers: {'range': 'bytes=$start-$end', ...headers},
+      retry: false,
+      maxBodyBytes: 1024,
+    );
+  }
+
+  @override
   Future<ResolverHttpResponse> postForm(
     Uri uri,
     Map<String, String> form, {
@@ -53,14 +77,23 @@ class HttpMusicResolverClient implements MusicResolverHttp {
     Uri uri, {
     Map<String, String> headers = const {},
     List<int>? body,
+    bool retry = true,
+    int? maxBodyBytes,
   }) async {
     Object? lastError;
-    for (var attempt = 0; attempt < 3; attempt += 1) {
+    final attempts = retry ? 3 : 1;
+    for (var attempt = 0; attempt < attempts; attempt += 1) {
       try {
-        return await _sendOnce(method, uri, headers: headers, body: body);
+        return await _sendOnce(
+          method,
+          uri,
+          headers: headers,
+          body: body,
+          maxBodyBytes: maxBodyBytes,
+        );
       } catch (error) {
         lastError = error;
-        if (!_isTransientNetworkError(error) || attempt == 2) {
+        if (!_isTransientNetworkError(error) || attempt == attempts - 1) {
           rethrow;
         }
         await Future<void>.delayed(Duration(milliseconds: 250 * (attempt + 1)));
@@ -74,6 +107,7 @@ class HttpMusicResolverClient implements MusicResolverHttp {
     Uri uri, {
     Map<String, String> headers = const {},
     List<int>? body,
+    int? maxBodyBytes,
   }) async {
     final ownsClient = client == null;
     final httpClient = client ?? HttpClient();
@@ -92,7 +126,7 @@ class HttpMusicResolverClient implements MusicResolverHttp {
       final response = await request.close().timeout(
         const Duration(seconds: 20),
       );
-      final responseBody = await response.transform(utf8.decoder).join();
+      final responseBody = await _readBody(response, maxBodyBytes);
       final headerMap = <String, String>{};
       response.headers.forEach((name, values) {
         if (values.isNotEmpty) {
@@ -114,6 +148,24 @@ class HttpMusicResolverClient implements MusicResolverHttp {
       }
     }
   }
+}
+
+Future<String> _readBody(HttpClientResponse response, int? maxBodyBytes) async {
+  if (maxBodyBytes == null) {
+    return response.transform(utf8.decoder).join();
+  }
+  final chunks = <int>[];
+  await for (final chunk in response) {
+    final available = maxBodyBytes - chunks.length;
+    if (available <= 0) {
+      break;
+    }
+    chunks.addAll(chunk.take(available));
+    if (chunks.length >= maxBodyBytes) {
+      break;
+    }
+  }
+  return utf8.decode(chunks, allowMalformed: true);
 }
 
 bool _isTransientNetworkError(Object error) {

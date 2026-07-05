@@ -259,7 +259,9 @@ bool _shouldShowFloatingStatus(MusicUiMessage message) {
     MusicUiMessageCode.downloadedToCache ||
     MusicUiMessageCode.downloadAlreadyRunning ||
     MusicUiMessageCode.downloadCanceled ||
-    MusicUiMessageCode.playingCachedFile => true,
+    MusicUiMessageCode.playingCachedFile ||
+    MusicUiMessageCode.playingPreviewAudio ||
+    MusicUiMessageCode.previewCannotDownload => true,
     _ => false,
   };
 }
@@ -393,6 +395,8 @@ class _OnlineSearchPanel extends StatelessWidget {
                     final candidate = candidates[index];
                     final isBusy = isCandidateBusy(candidate);
                     final isCached = isCandidateCached(candidate);
+                    final isPreview =
+                        candidate.source == MusicDataSource.itunesPreview;
                     return ListTile(
                       leading: CircleAvatar(
                         backgroundColor: colors.secondaryContainer,
@@ -428,28 +432,31 @@ class _OnlineSearchPanel extends StatelessWidget {
                       trailing: Row(
                         mainAxisSize: MainAxisSize.min,
                         children: [
-                          if (isCached)
+                          if (isCached || isPreview)
                             IconButton(
-                              tooltip: strings.play,
+                              tooltip: isPreview
+                                  ? strings.playPreview
+                                  : strings.play,
                               onPressed: isBusy
                                   ? null
                                   : () => onPlay(candidate),
                               icon: const Icon(Icons.play_arrow),
                             ),
-                          IconButton(
-                            tooltip: isCached
-                                ? strings.downloadAgain
-                                : strings.download,
-                            onPressed: isBusy
-                                ? null
-                                : () => onSelect(candidate),
-                            icon: const Icon(Icons.download_for_offline),
-                          ),
+                          if (!isPreview)
+                            IconButton(
+                              tooltip: isCached
+                                  ? strings.downloadAgain
+                                  : strings.download,
+                              onPressed: isBusy
+                                  ? null
+                                  : () => onSelect(candidate),
+                              icon: const Icon(Icons.download_for_offline),
+                            ),
                         ],
                       ),
                       onTap: isBusy
                           ? null
-                          : () => isCached
+                          : () => isCached || isPreview
                                 ? onPlay(candidate)
                                 : onSelect(candidate),
                     );
@@ -2605,6 +2612,8 @@ String? _localizedMessage(AppStrings strings, MusicUiMessage? message) {
     MusicUiMessageCode.downloadAlreadyRunning => strings.downloadAlreadyRunning,
     MusicUiMessageCode.downloadCanceled => strings.downloadCanceled,
     MusicUiMessageCode.playingCachedFile => strings.playingCachedFile,
+    MusicUiMessageCode.playingPreviewAudio => strings.playingPreviewAudio,
+    MusicUiMessageCode.previewCannotDownload => strings.previewCannotDownload,
   };
 }
 
@@ -2643,6 +2652,8 @@ String _sourceMarker(MusicSearchCandidate candidate) {
   return switch (candidate.source) {
     MusicDataSource.buguyy => '布谷',
     MusicDataSource.flac => 'FLAC',
+    MusicDataSource.source22a5 => '22a5',
+    MusicDataSource.itunesPreview => '试听',
     MusicDataSource.auto => 'AUTO',
   };
 }

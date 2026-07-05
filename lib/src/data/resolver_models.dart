@@ -3,7 +3,9 @@ import 'dart:io';
 enum MusicDataSource {
   auto('auto', 'Auto'),
   buguyy('buguyy', 'BuguYY'),
-  flac('flac', 'FLAC');
+  flac('flac', 'FLAC'),
+  source22a5('source_22a5', '22a5'),
+  itunesPreview('itunes_preview', 'iTunes Preview');
 
   const MusicDataSource(this.storageValue, this.label);
 
@@ -116,6 +118,7 @@ class ResolvedMusic {
     this.panLink = false,
     this.duration = 0,
     this.urlType = MediaUrlType.directAudio,
+    this.canCacheAudio = true,
     this.sourceAttempts = const [],
   });
 
@@ -133,6 +136,7 @@ class ResolvedMusic {
   final bool panLink;
   final int duration;
   final MediaUrlType urlType;
+  final bool canCacheAudio;
   final List<SourceAttempt> sourceAttempts;
 
   factory ResolvedMusic.fromJson(Map<String, dynamic> json) {
@@ -151,6 +155,11 @@ class ResolvedMusic {
       panLink: json['panLink'] == true,
       duration: int.tryParse(json['duration']?.toString() ?? '') ?? 0,
       urlType: MediaUrlType.fromStorage(json['urlType']?.toString()),
+      canCacheAudio: json.containsKey('canCacheAudio')
+          ? json['canCacheAudio'] == true
+          : _defaultCanCacheAudio(
+              MediaUrlType.fromStorage(json['urlType']?.toString()),
+            ),
       sourceAttempts: SourceAttempt.listFromJson(json['sourceAttempts']),
     );
   }
@@ -171,6 +180,7 @@ class ResolvedMusic {
       'panLink': panLink,
       'duration': duration,
       'urlType': urlType.storageValue,
+      'canCacheAudio': canCacheAudio,
       'sourceAttempts': [
         for (final attempt in sourceAttempts) attempt.toJson(),
       ],
@@ -183,6 +193,7 @@ class ResolvedMusic {
     bool? panLink,
     int? duration,
     MediaUrlType? urlType,
+    bool? canCacheAudio,
     List<SourceAttempt>? sourceAttempts,
   }) {
     return ResolvedMusic(
@@ -200,6 +211,7 @@ class ResolvedMusic {
       panLink: panLink ?? this.panLink,
       duration: duration ?? this.duration,
       urlType: urlType ?? this.urlType,
+      canCacheAudio: canCacheAudio ?? this.canCacheAudio,
       sourceAttempts: sourceAttempts ?? this.sourceAttempts,
     );
   }
@@ -207,6 +219,8 @@ class ResolvedMusic {
 
 enum MediaUrlType {
   directAudio('direct_audio'),
+  directAudioCandidate('direct_audio_candidate'),
+  previewAudio('preview_audio'),
   externalPan('external_pan'),
   htmlPage('html_page'),
   unknown('unknown');
@@ -221,6 +235,16 @@ enum MediaUrlType {
       orElse: () => MediaUrlType.unknown,
     );
   }
+}
+
+bool _defaultCanCacheAudio(MediaUrlType urlType) {
+  return switch (urlType) {
+    MediaUrlType.directAudio || MediaUrlType.unknown => true,
+    MediaUrlType.directAudioCandidate => false,
+    MediaUrlType.previewAudio ||
+    MediaUrlType.externalPan ||
+    MediaUrlType.htmlPage => false,
+  };
 }
 
 enum SourceAttemptStatus {
@@ -247,6 +271,7 @@ class SourceAttempt {
     required this.stage,
     required this.status,
     this.failureCode = '',
+    this.reasonCode = '',
     this.candidateId = '',
     this.candidateTitle = '',
     this.candidateArtist = '',
@@ -257,6 +282,12 @@ class SourceAttempt {
     this.mediaContentLength,
     this.lyricsStatus = '',
     this.coverUrl = '',
+    this.browserPlayable = false,
+    this.scriptReproducible = false,
+    this.clientReady = false,
+    this.mediaValidation = '',
+    this.evidenceUrl = '',
+    this.coverStatus = '',
   });
 
   final String query;
@@ -264,6 +295,7 @@ class SourceAttempt {
   final String stage;
   final SourceAttemptStatus status;
   final String failureCode;
+  final String reasonCode;
   final String candidateId;
   final String candidateTitle;
   final String candidateArtist;
@@ -274,6 +306,12 @@ class SourceAttempt {
   final int? mediaContentLength;
   final String lyricsStatus;
   final String coverUrl;
+  final bool browserPlayable;
+  final bool scriptReproducible;
+  final bool clientReady;
+  final String mediaValidation;
+  final String evidenceUrl;
+  final String coverStatus;
 
   factory SourceAttempt.fromJson(Object? value) {
     final json = _asStringMap(value);
@@ -283,6 +321,7 @@ class SourceAttempt {
       stage: json['stage']?.toString() ?? '',
       status: SourceAttemptStatus.fromStorage(json['status']?.toString()),
       failureCode: json['failureCode']?.toString() ?? '',
+      reasonCode: json['reasonCode']?.toString() ?? '',
       candidateId: json['candidateId']?.toString() ?? '',
       candidateTitle: json['candidateTitle']?.toString() ?? '',
       candidateArtist: json['candidateArtist']?.toString() ?? '',
@@ -297,6 +336,12 @@ class SourceAttempt {
           : int.tryParse(json['mediaContentLength']?.toString() ?? ''),
       lyricsStatus: json['lyricsStatus']?.toString() ?? '',
       coverUrl: json['coverUrl']?.toString() ?? '',
+      browserPlayable: json['browserPlayable'] == true,
+      scriptReproducible: json['scriptReproducible'] == true,
+      clientReady: json['clientReady'] == true,
+      mediaValidation: json['mediaValidation']?.toString() ?? '',
+      evidenceUrl: json['evidenceUrl']?.toString() ?? '',
+      coverStatus: json['coverStatus']?.toString() ?? '',
     );
   }
 
@@ -314,6 +359,7 @@ class SourceAttempt {
       'stage': stage,
       'status': status.storageValue,
       'failureCode': failureCode,
+      'reasonCode': reasonCode,
       'candidateId': candidateId,
       'candidateTitle': candidateTitle,
       'candidateArtist': candidateArtist,
@@ -324,6 +370,12 @@ class SourceAttempt {
       'mediaContentLength': mediaContentLength,
       'lyricsStatus': lyricsStatus,
       'coverUrl': coverUrl,
+      'browserPlayable': browserPlayable,
+      'scriptReproducible': scriptReproducible,
+      'clientReady': clientReady,
+      'mediaValidation': mediaValidation,
+      'evidenceUrl': evidenceUrl,
+      'coverStatus': coverStatus,
     };
   }
 }
@@ -438,6 +490,18 @@ class ResolverHttpResponse {
 abstract class MusicResolverHttp {
   Future<ResolverHttpResponse> get(
     Uri uri, {
+    Map<String, String> headers = const {},
+  });
+
+  Future<ResolverHttpResponse> head(
+    Uri uri, {
+    Map<String, String> headers = const {},
+  });
+
+  Future<ResolverHttpResponse> range(
+    Uri uri, {
+    int start = 0,
+    int end = 0,
     Map<String, String> headers = const {},
   });
 
