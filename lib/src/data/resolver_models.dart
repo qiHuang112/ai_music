@@ -5,6 +5,7 @@ enum MusicDataSource {
   buguyy('buguyy', 'BuguYY'),
   flac('flac', 'FLAC'),
   source22a5('source_22a5', '22a5'),
+  kuwoFullAudio('source_kuwo_full_audio', 'Kuwo Full Audio'),
   itunesPreview('itunes_preview', 'iTunes Preview');
 
   const MusicDataSource(this.storageValue, this.label);

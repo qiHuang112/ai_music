@@ -4,6 +4,7 @@ export 'candidate_scorer.dart'
 export 'challenge_client.dart' show ChallengeClient;
 export 'flac_resolver.dart';
 export 'itunes_preview_resolver.dart';
+export 'kuwo_full_audio_resolver.dart';
 export 'resolver_http_client.dart';
 export 'resolver_models.dart';
 export 'source_22a5_resolver.dart';
@@ -16,6 +17,7 @@ import 'candidate_scorer.dart';
 import 'challenge_client.dart';
 import 'flac_resolver.dart';
 import 'itunes_preview_resolver.dart';
+import 'kuwo_full_audio_resolver.dart';
 import 'resolver_http_client.dart';
 import 'resolver_models.dart';
 import 'resolver_utils.dart';
@@ -54,6 +56,7 @@ class RemoteMusicResolver
       prefer: prefer,
     );
     _source22a5 = Source22a5Resolver(httpClient: http, scorer: scorer);
+    _kuwoFullAudio = KuwoFullAudioResolver(httpClient: http, scorer: scorer);
     _itunesPreview = ItunesPreviewResolver(httpClient: http, scorer: scorer);
   }
 
@@ -61,6 +64,7 @@ class RemoteMusicResolver
   late final BuguyyResolver _buguyy;
   late final FlacResolver _flac;
   late final Source22a5Resolver _source22a5;
+  late final KuwoFullAudioResolver _kuwoFullAudio;
   late final ItunesPreviewResolver _itunesPreview;
 
   @override
@@ -80,6 +84,7 @@ class RemoteMusicResolver
       MusicDataSource.buguyy => await _buguyy.search(trimmed),
       MusicDataSource.flac => await _flac.search(trimmed),
       MusicDataSource.source22a5 => await _source22a5.search(trimmed),
+      MusicDataSource.kuwoFullAudio => await _kuwoFullAudio.search(trimmed),
       MusicDataSource.itunesPreview => await _itunesPreview.search(trimmed),
       MusicDataSource.auto => await _searchAuto(trimmed),
     };
@@ -121,7 +126,7 @@ class RemoteMusicResolver
     final stream = StreamController<MusicSearchProgress>();
     final merged = <MusicSearchCandidate>[];
     final errors = <Object>[];
-    var remaining = _enableSource22a5Auto ? 4 : 3;
+    var remaining = _enableSource22a5Auto ? 5 : 4;
 
     void handleResult(_AutoSourceResult result) {
       remaining -= 1;
@@ -179,6 +184,13 @@ class RemoteMusicResolver
     unawaited(
       _searchAutoSource(
         trimmed,
+        MusicDataSource.kuwoFullAudio,
+        _kuwoFullAudio.search,
+      ).then(handleResult),
+    );
+    unawaited(
+      _searchAutoSource(
+        trimmed,
         MusicDataSource.itunesPreview,
         _itunesPreview.search,
       ).then(handleResult),
@@ -206,6 +218,7 @@ class RemoteMusicResolver
         prefer: prefer,
       ),
       MusicDataSource.source22a5 => _source22a5.resolve(candidate),
+      MusicDataSource.kuwoFullAudio => _kuwoFullAudio.resolve(candidate),
       MusicDataSource.itunesPreview => _itunesPreview.resolve(candidate),
       MusicDataSource.auto => throw StateError(
         'Auto candidates must be tagged with their concrete source.',
@@ -310,6 +323,11 @@ class RemoteMusicResolver
       MusicDataSource.flac,
       _flac.search,
     );
+    final kuwoFuture = _searchAutoSource(
+      query,
+      MusicDataSource.kuwoFullAudio,
+      _kuwoFullAudio.search,
+    );
     final Future<_AutoSourceResult> source22a5Future = _enableSource22a5Auto
         ? _searchAutoSource(
             query,
@@ -325,41 +343,48 @@ class RemoteMusicResolver
     final results = await Future.wait([
       buguyyFuture,
       flacFuture,
+      kuwoFuture,
       source22a5Future,
       itunesFuture,
     ]);
     final buguyy = results[0];
     final flac = results[1];
-    final source22a5 = results[2];
-    final itunes = results[3];
+    final kuwo = results[2];
+    final source22a5 = results[3];
+    final itunes = results[4];
     final merged = [
       ...buguyy.candidates,
       ...flac.candidates,
+      ...kuwo.candidates,
       ...source22a5.candidates,
       ...itunes.candidates,
     ]..sort((a, b) => b.score.compareTo(a.score));
     _logResolver(
       '[AI Music][resolver] auto merged query="$query" '
       'buguyy=${buguyy.candidates.length} flac=${flac.candidates.length} '
+      'kuwoFullAudio=${kuwo.candidates.length} '
       'source22a5=${source22a5.candidates.length} '
       'itunesPreview=${itunes.candidates.length} count=${merged.length}',
     );
     if (merged.isNotEmpty) {
       return merged.take(80).toList(growable: false);
     }
-    if (buguyy.error != null &&
-        flac.error != null &&
-        source22a5.error != null &&
-        itunes.error != null) {
-      throw _combinedAutoError([
-        buguyy.error!,
-        flac.error!,
-        source22a5.error!,
-        itunes.error!,
-      ]);
+    final activeResults = [
+      buguyy,
+      flac,
+      kuwo,
+      if (_enableSource22a5Auto) source22a5,
+      itunes,
+    ];
+    if (activeResults.every((result) => result.error != null)) {
+      throw _combinedAutoError(activeResults);
     }
     final error =
-        buguyy.error ?? flac.error ?? source22a5.error ?? itunes.error;
+        buguyy.error ??
+        flac.error ??
+        kuwo.error ??
+        source22a5.error ??
+        itunes.error;
     if (error != null) {
       throw StateError(formatResolverError(error));
     }
@@ -386,18 +411,48 @@ void _appendStableCandidates(
 
 StateError _combinedAutoError(List<Object> errors) {
   if (errors.length <= 1) {
-    return StateError(formatResolverError(errors.single));
+    final error = errors.single;
+    if (error is _AutoSourceResult && error.error != null) {
+      return StateError(formatResolverError(error.error!));
+    }
+    return StateError(formatResolverError(error));
   }
-  return StateError(
-    [
-      'buguyy failed: ${formatResolverError(errors[0])}',
-      'flac failed: ${formatResolverError(errors[1])}',
-      if (errors.length > 2)
-        'source 22a5 failed: ${formatResolverError(errors[2])}',
-      if (errors.length > 3)
-        'itunes preview failed: ${formatResolverError(errors[3])}',
-    ].join('; '),
-  );
+  final messages = <String>[];
+  for (var i = 0; i < errors.length; i += 1) {
+    final error = errors[i];
+    if (error is _AutoSourceResult && error.error != null) {
+      messages.add(
+        '${_autoSourceLabel(error.source)} failed: '
+        '${formatResolverError(error.error!)}',
+      );
+    } else {
+      messages.add(_fallbackCombinedErrorLabel(i, error));
+    }
+  }
+  return StateError(messages.join('; '));
+}
+
+String _autoSourceLabel(MusicDataSource source) {
+  return switch (source) {
+    MusicDataSource.buguyy => 'buguyy',
+    MusicDataSource.flac => 'flac',
+    MusicDataSource.kuwoFullAudio => 'kuwo full audio',
+    MusicDataSource.source22a5 => 'source 22a5',
+    MusicDataSource.itunesPreview => 'itunes preview',
+    MusicDataSource.auto => 'auto',
+  };
+}
+
+String _fallbackCombinedErrorLabel(int index, Object error) {
+  final label = switch (index) {
+    0 => 'buguyy',
+    1 => 'flac',
+    2 => 'kuwo full audio',
+    3 => 'source 22a5',
+    4 => 'itunes preview',
+    _ => 'source ${index + 1}',
+  };
+  return '$label failed: ${formatResolverError(error)}';
 }
 
 void _logResolver(String message) {
@@ -417,19 +472,24 @@ Future<_AutoSourceResult> _searchAutoSource(
       '[AI Music][resolver] auto ${source.storageValue} query="$query" '
       'count=${candidates.length}',
     );
-    return _AutoSourceResult(candidates: candidates);
+    return _AutoSourceResult(source: source, candidates: candidates);
   } catch (error) {
     _logResolver(
       '[AI Music][resolver] auto ${source.storageValue} failed query="$query" '
       'error=${formatResolverError(error)}',
     );
-    return _AutoSourceResult(error: error);
+    return _AutoSourceResult(source: source, error: error);
   }
 }
 
 class _AutoSourceResult {
-  const _AutoSourceResult({this.candidates = const [], this.error});
+  const _AutoSourceResult({
+    this.source = MusicDataSource.auto,
+    this.candidates = const [],
+    this.error,
+  });
 
+  final MusicDataSource source;
   final List<MusicSearchCandidate> candidates;
   final Object? error;
 }

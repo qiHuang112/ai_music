@@ -11,6 +11,7 @@ import 'package:ai_music/src/data/music_playlists.dart';
 import 'package:ai_music/src/data/music_resolver.dart';
 import 'package:ai_music/src/data/music_settings.dart';
 import 'package:ai_music/src/data/playback_state_store.dart';
+import 'package:ai_music/src/data/progressive_audio_cache.dart';
 import 'package:ai_music/src/domain/music_models.dart';
 import 'package:ai_music/src/playback/music_audio_handler.dart';
 import 'package:audio_service/audio_service.dart';
@@ -1291,6 +1292,170 @@ void main() {
     },
   );
 
+  test(
+    'playCandidate streams Kuwo full audio without download task and promotes cache',
+    () async {
+      final root = await Directory.systemTemp.createTemp(
+        'ai_music_controller_kuwo_',
+      );
+      final transientRoot = await Directory.systemTemp.createTemp(
+        'ai_music_controller_kuwo_transient_',
+      );
+      final audioBytes = _controllerValidMp3Bytes(48 * 1024);
+      final handler = _SpyAudioHandler();
+      final cacheStore = CachedTrackStore(rootProvider: () async => root);
+      final logs = <String>[];
+      final streaming = StreamingPlaybackCache(
+        cacheStore: cacheStore,
+        progressiveCache: ProgressiveAudioCache(
+          cacheStore: cacheStore,
+          rootProvider: () async => root,
+          client: _FakeProgressiveHttpClient(audioBytes, chunkSize: 4096),
+          logger: logs.add,
+        ),
+        transientStore: TransientStreamingCacheStore(
+          rootProvider: () async => transientRoot,
+        ),
+      );
+      final controller = MusicController(
+        audioHandler: handler,
+        resolver: _KuwoFullAudioMusicResolver(
+          'https://audio.example.test/song.mp3',
+        ),
+        cacheStore: cacheStore,
+        playlistStore: _FakePlaylistStore(),
+        settingsStore: _FakeSettingsStore(),
+        metadataRepository: _StaticMetadataRepository(),
+        streamingPlaybackCache: streaming,
+      );
+      final candidate = _candidate(
+        id: 'MUSIC_351583919',
+        name: '稻香',
+        artist: '周杰伦',
+        source: MusicDataSource.kuwoFullAudio,
+        platform: 'kuwo',
+      );
+
+      try {
+        await controller.initialize();
+
+        await controller.playCandidate(candidate);
+
+        expect(handler.loadedIds, [
+          'stream:source_kuwo_full_audio:MUSIC_351583919',
+        ]);
+        expect(handler.loadedUris.single.scheme, 'http');
+        expect(handler.playCalls, 1);
+        expect(controller.activeDownloadTasks, isEmpty);
+        expect(controller.recentDownloadTasks, isEmpty);
+        expect(
+          controller.statusMessage?.code,
+          MusicUiMessageCode.playingFullAudioStream,
+        );
+        expect(
+          controller.hotlistPlaybackLogs.any(
+            (log) =>
+                log.contains('full-audio play-started') &&
+                log.contains('not-in-download-list=true'),
+          ),
+          isTrue,
+        );
+
+        List<CachedTrack> cached = const [];
+        for (var i = 0; i < 80; i += 1) {
+          cached = await cacheStore.listCached();
+          if (cached.isNotEmpty) {
+            break;
+          }
+          await Future<void>.delayed(const Duration(milliseconds: 25));
+        }
+
+        expect(cached, hasLength(1));
+        expect(cached.single.music.source, MusicDataSource.kuwoFullAudio);
+        expect(await File(cached.single.filePath).exists(), isTrue);
+        expect(cached.single.filePath.endsWith('.part'), isFalse);
+        expect(
+          controller.hotlistPlaybackLogs.any(
+            (log) => log.contains('full-audio first_byte_ms='),
+          ),
+          isTrue,
+        );
+        expect(
+          controller.hotlistPlaybackLogs.any(
+            (log) => log.contains('full-audio part-growth'),
+          ),
+          isTrue,
+        );
+        expect(
+          controller.hotlistPlaybackLogs.any(
+            (log) =>
+                log.contains('full-audio download-complete') &&
+                log.contains('download_complete_ms='),
+          ),
+          isTrue,
+        );
+        expect(
+          logs.any((log) => log.startsWith('progressive promoted')),
+          isTrue,
+        );
+      } finally {
+        controller.dispose();
+        await handler.dispose();
+        await root.delete(recursive: true);
+        await transientRoot.delete(recursive: true);
+      }
+    },
+  );
+
+  test(
+    'playCandidate keeps Kuwo full audio stream failures out of cache and downloads',
+    () async {
+      final root = await Directory.systemTemp.createTemp(
+        'ai_music_controller_kuwo_fail_',
+      );
+      final handler = _SpyAudioHandler();
+      final cacheStore = CachedTrackStore(rootProvider: () async => root);
+      final controller = MusicController(
+        audioHandler: handler,
+        resolver: _KuwoFullAudioMusicResolver('https://cdn.example.test/a.mp3'),
+        cacheStore: cacheStore,
+        playlistStore: _FakePlaylistStore(),
+        settingsStore: _FakeSettingsStore(),
+        metadataRepository: _StaticMetadataRepository(),
+        streamingPlaybackCache: _FailingStreamingPlayback(),
+      );
+      final candidate = _candidate(
+        id: 'MUSIC_475511188',
+        name: '一丝不挂',
+        artist: '陈奕迅',
+        source: MusicDataSource.kuwoFullAudio,
+        platform: 'kuwo',
+      );
+
+      try {
+        await controller.initialize();
+
+        await controller.playCandidate(candidate);
+
+        expect(handler.loadedIds, isEmpty);
+        expect(controller.activeDownloadTasks, isEmpty);
+        expect(controller.recentDownloadTasks, isEmpty);
+        expect(await cacheStore.listCached(), isEmpty);
+        expect(controller.errorDetail, contains('stream open failed'));
+        expect(
+          controller.hotlistPlaybackLogs.any(
+            (log) => log.contains('full-audio play-failed'),
+          ),
+          isTrue,
+        );
+      } finally {
+        controller.dispose();
+        await handler.dispose();
+        await root.delete(recursive: true);
+      }
+    },
+  );
+
   test('next resumes playback when player is paused', () async {
     final handler = _SpyAudioHandler();
     final controller = MusicController(
@@ -1404,6 +1569,7 @@ void main() {
 
 class _SpyAudioHandler extends MusicAudioHandler {
   List<String> loadedIds = const [];
+  List<Uri> loadedUris = const [];
   AudioServiceShuffleMode? shuffleMode;
   AudioServiceRepeatMode? repeatMode;
   Duration currentPositionOverride = Duration.zero;
@@ -1434,6 +1600,7 @@ class _SpyAudioHandler extends MusicAudioHandler {
     bool playWhenReady = true,
   }) async {
     loadedIds = [for (final item in items) item.mediaItem.id];
+    loadedUris = [for (final item in items) item.uri];
     loadedInitialIndex = initialIndex;
     loadedInitialPosition = initialPosition;
     queue.add(items.map((item) => item.mediaItem).toList(growable: false));
@@ -1775,6 +1942,179 @@ class _PreviewMusicResolver extends _FakeMusicResolver {
   }
 }
 
+class _KuwoFullAudioMusicResolver extends _FakeMusicResolver {
+  _KuwoFullAudioMusicResolver(this.url);
+
+  final String url;
+  final resolveIds = <String>[];
+
+  @override
+  Future<ResolvedMusic> resolve(MusicSearchCandidate candidate) async {
+    resolveIds.add(candidate.id);
+    return ResolvedMusic(
+      query: candidate.query,
+      source: MusicDataSource.kuwoFullAudio,
+      platform: 'kuwo',
+      id: candidate.id,
+      name: candidate.name,
+      artist: candidate.artist,
+      album: candidate.album,
+      url: url,
+      quality: const MusicQuality(format: 'mp3', bitrate: '128'),
+      duration: 187,
+      urlType: MediaUrlType.directAudio,
+      canCacheAudio: true,
+      sourceAttempts: [
+        SourceAttempt(
+          query: candidate.query,
+          source: MusicDataSource.kuwoFullAudio,
+          stage: 'media_validation',
+          status: SourceAttemptStatus.ok,
+          reasonCode: 'direct_audio_ready',
+          candidateId: candidate.id,
+          candidateTitle: candidate.name,
+          candidateArtist: candidate.artist,
+          mediaUrl: url,
+          mediaUrlType: MediaUrlType.directAudio,
+          mediaContentType: 'audio/mpeg',
+          mediaContentLength: 49152,
+          clientReady: true,
+          mediaValidation: 'HEAD 200 audio/mpeg; Range 206 bytes 0-0/49152',
+        ),
+      ],
+    );
+  }
+}
+
+class _FailingStreamingPlayback implements HotlistStreamingPlayback {
+  @override
+  Future<StreamingPlaybackHandle> openHotlistTrack(
+    ResolvedMusic resolved,
+    StreamingPlaybackPolicy policy,
+  ) {
+    throw const SourceDownloadException(
+      'stream open failed',
+      failureCode: 'audio_validation_failed',
+    );
+  }
+
+  @override
+  Future<void> close() async {}
+}
+
+class _FakeProgressiveHttpClient implements HttpClient {
+  _FakeProgressiveHttpClient(this.bytes, {required this.chunkSize});
+
+  final List<int> bytes;
+  final int chunkSize;
+  bool closed = false;
+
+  @override
+  Future<HttpClientRequest> getUrl(Uri url) async {
+    return _FakeProgressiveHttpClientRequest(bytes, chunkSize: chunkSize);
+  }
+
+  @override
+  void close({bool force = false}) {
+    closed = true;
+  }
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+}
+
+class _FakeProgressiveHttpClientRequest implements HttpClientRequest {
+  _FakeProgressiveHttpClientRequest(this.bytes, {required this.chunkSize});
+
+  final List<int> bytes;
+  final int chunkSize;
+  @override
+  final HttpHeaders headers = _FakeHttpHeaders();
+
+  @override
+  Future<HttpClientResponse> close() async {
+    final chunks = <List<int>>[];
+    for (var offset = 0; offset < bytes.length; offset += chunkSize) {
+      final end = offset + chunkSize > bytes.length
+          ? bytes.length
+          : offset + chunkSize;
+      chunks.add(bytes.sublist(offset, end));
+    }
+    return _FakeProgressiveHttpClientResponse(bytes, chunks);
+  }
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+}
+
+class _FakeProgressiveHttpClientResponse extends Stream<List<int>>
+    implements HttpClientResponse {
+  _FakeProgressiveHttpClientResponse(this.bytes, this.chunks);
+
+  final List<int> bytes;
+  final List<List<int>> chunks;
+
+  @override
+  int get statusCode => HttpStatus.partialContent;
+
+  @override
+  int get contentLength => bytes.length;
+
+  @override
+  HttpHeaders get headers => _FakeHttpHeaders(
+    contentType: ContentType('audio', 'mpeg'),
+    values: {
+      HttpHeaders.contentRangeHeader:
+          'bytes 0-${bytes.length - 1}/${bytes.length}',
+      HttpHeaders.acceptRangesHeader: 'bytes',
+    },
+  );
+
+  @override
+  StreamSubscription<List<int>> listen(
+    void Function(List<int> event)? onData, {
+    Function? onError,
+    void Function()? onDone,
+    bool? cancelOnError,
+  }) {
+    return Stream<List<int>>.fromIterable(chunks).listen(
+      onData,
+      onError: onError,
+      onDone: onDone,
+      cancelOnError: cancelOnError,
+    );
+  }
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+}
+
+class _FakeHttpHeaders implements HttpHeaders {
+  _FakeHttpHeaders({this.contentType, Map<String, String> values = const {}})
+    : _values = {
+        for (final entry in values.entries)
+          entry.key.toLowerCase(): entry.value,
+      };
+
+  @override
+  ContentType? contentType;
+  final Map<String, String> _values;
+  final Map<String, String> _setValues = {};
+
+  @override
+  void set(String name, Object value, {bool preserveHeaderCase = false}) {
+    _setValues[name.toLowerCase()] = value.toString();
+  }
+
+  @override
+  String? value(String name) {
+    return _setValues[name.toLowerCase()] ?? _values[name.toLowerCase()];
+  }
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+}
+
 class _CompletingSearchResolver extends _FakeMusicResolver {
   final _searchCompleter = Completer<List<MusicSearchCandidate>>();
 
@@ -1862,6 +2202,7 @@ class _DownloadCacheStore extends CachedTrackStore {
 MusicSearchCandidate _candidate({
   required String id,
   required String name,
+  String artist = 'artist',
   String coverUrl = '',
   MusicDataSource source = MusicDataSource.buguyy,
   String platform = 'buguyy',
@@ -1874,7 +2215,7 @@ MusicSearchCandidate _candidate({
     page: 1,
     id: id,
     name: name,
-    artist: 'artist',
+    artist: artist,
     album: '',
     duration: 200,
     link: '',
@@ -1913,4 +2254,17 @@ CachedTrack _cachedTrack({
 
 Future<Directory> _unusedRootProvider() async {
   return Directory.systemTemp.createTemp('ai_music_unused_');
+}
+
+List<int> _controllerValidMp3Bytes(int size) {
+  final payload = size < 16 * 1024 ? 16 * 1024 : size;
+  return [
+    0x49,
+    0x44,
+    0x33,
+    0x04,
+    0x00,
+    0x00,
+    ...List<int>.filled(payload - 6, 0),
+  ];
 }

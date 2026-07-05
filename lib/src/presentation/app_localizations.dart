@@ -93,6 +93,8 @@ class AppStrings {
   String get playPreview => isZh ? '播放试听' : 'Play preview';
   String get download => isZh ? '下载' : 'Download';
   String get downloadAgain => isZh ? '重新下载' : 'Download again';
+  String get playingFullAudioStream =>
+      isZh ? '正在边下边播完整歌曲' : 'Streaming full track';
   String get playingPreviewAudio => isZh ? '正在播放试听片段' : 'Playing preview';
   String get previewCannotDownload => isZh
       ? '当前仅支持试听，无法缓存为完整歌曲。'

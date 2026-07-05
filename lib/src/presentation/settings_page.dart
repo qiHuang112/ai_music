@@ -209,6 +209,7 @@ String _sourceTitle(AppStrings strings, MusicDataSource source) {
     MusicDataSource.buguyy => strings.buguyy,
     MusicDataSource.flac => strings.flacSource,
     MusicDataSource.source22a5 => '22a5',
+    MusicDataSource.kuwoFullAudio => 'Kuwo Full Audio',
     MusicDataSource.itunesPreview => strings.itunesPreviewSource,
   };
 }

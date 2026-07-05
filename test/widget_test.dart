@@ -371,6 +371,32 @@ void main() {
     expect(find.byTooltip('重新下载'), findsOneWidget);
   });
 
+  testWidgets('Kuwo full audio result exposes play before caching', (
+    tester,
+  ) async {
+    final resolver = _FakeMusicResolver(
+      candidates: [
+        _candidate(
+          name: '一丝不挂',
+          artist: '陈奕迅',
+          source: MusicDataSource.kuwoFullAudio,
+          platform: 'kuwo',
+        ),
+      ],
+    );
+    await tester.pumpWidget(_app(resolver: resolver));
+    await tester.pumpAndSettle();
+
+    await tester.enterText(find.byType(TextField), '一丝不挂');
+    await tester.tap(find.byTooltip('在线搜索'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('一丝不挂'), findsAtLeastNWidgets(1));
+    expect(find.text('完整'), findsOneWidget);
+    expect(find.byTooltip('播放'), findsOneWidget);
+    expect(find.byTooltip('下载'), findsAtLeastNWidgets(1));
+  });
+
   testWidgets('download completion exposes play before metadata refresh', (
     tester,
   ) async {
