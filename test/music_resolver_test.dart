@@ -99,6 +99,163 @@ void main() {
     expect(resolved.lyrics, isNull);
   });
 
+  test(
+    'buguyy Quark links are classified as external pan and flac defender HTML is logged',
+    () async {
+      final http = _FakeResolverHttp(
+        onGet: (uri, _) async {
+          if (uri.path == '/api/geturl') {
+            return _json(uri, {'success': false});
+          }
+          if (uri.path == '/api/getdown') {
+            return _json(uri, {
+              'success': true,
+              'kuakedownurl': 'flac#https://pan.quark.cn/s/example',
+              'lrc': '[00:01]BuguYY 歌词',
+            });
+          }
+          fail('Unexpected GET $uri');
+        },
+        onPostForm: (uri, _, _) async {
+          expect(uri.queryParameters['act'], 'search');
+          return ResolverHttpResponse(
+            statusCode: HttpStatus.ok,
+            body: '<html><title>SafeLine</title></html>',
+            finalUrl: uri,
+          );
+        },
+      );
+      final resolver = RemoteMusicResolver(
+        httpClient: http,
+        initialFlacCookie: 'sl-session=test',
+        platforms: const ['kuwo'],
+      );
+
+      await expectLater(
+        resolver.resolve(
+          MusicSearchCandidate(
+            query: '陈奕迅 一丝不挂',
+            source: MusicDataSource.buguyy,
+            platform: 'buguyy',
+            keyword: '一丝不挂',
+            page: 1,
+            id: 'buguyy-1',
+            name: '一丝不挂',
+            artist: '陈奕迅',
+            album: '',
+            duration: 240,
+            link: '',
+            coverUrl: 'https://img.example.test/cover.jpg',
+            qualities: const [MusicQuality(format: 'flac')],
+            score: 150,
+            raw: const {},
+          ),
+        ),
+        throwsA(
+          isA<SourceDownloadException>()
+              .having(
+                (error) => error.failureCode,
+                'failureCode',
+                'external_pan_link',
+              )
+              .having(
+                (error) => error.sourceAttempts.first.mediaUrlType,
+                'buguyy urlType',
+                MediaUrlType.externalPan,
+              )
+              .having(
+                (error) => error.sourceAttempts.last.failureCode,
+                'flac failure',
+                'defender_challenge',
+              ),
+        ),
+      );
+    },
+  );
+
+  test(
+    'buguyy external pan fallback skips untrusted flac title artist matches',
+    () async {
+      var getUrlRequests = 0;
+      final http = _FakeResolverHttp(
+        onGet: (uri, _) async {
+          if (uri.path == '/api/geturl') {
+            return _json(uri, {'success': false});
+          }
+          if (uri.path == '/api/getdown') {
+            return _json(uri, {
+              'success': true,
+              'kuakedownurl': 'mp3#https://pan.quark.cn/s/fukua',
+            });
+          }
+          fail('Unexpected GET $uri');
+        },
+        onPostForm: (uri, form, _) async {
+          final act = uri.queryParameters['act'];
+          if (act == 'search') {
+            return _json(uri, {
+              'data': {
+                'list': [
+                  {
+                    'id': 'wrong',
+                    'name': '浮夸 (DJ版)',
+                    'artist': '王心凌',
+                    'duration': 200,
+                    'minfo': [
+                      {'format': 'flac', 'bitrate': '900'},
+                    ],
+                  },
+                ],
+              },
+            });
+          }
+          if (act == 'getUrl') {
+            getUrlRequests += 1;
+            return _json(uri, {
+              'data': {'url': 'https://cdn.example.test/wrong.flac'},
+            });
+          }
+          fail('Unexpected POST $uri $form');
+        },
+      );
+      final resolver = RemoteMusicResolver(
+        httpClient: http,
+        initialFlacCookie: 'sl-session=test',
+        platforms: const ['kuwo'],
+      );
+
+      await expectLater(
+        resolver.resolve(
+          MusicSearchCandidate(
+            query: '陈奕迅 浮夸',
+            source: MusicDataSource.buguyy,
+            platform: 'buguyy',
+            keyword: '浮夸',
+            page: 1,
+            id: 'buguyy-fukua',
+            name: '浮夸',
+            artist: '陈奕迅',
+            album: '',
+            duration: 240,
+            link: '',
+            coverUrl: '',
+            qualities: const [MusicQuality(format: 'mp3')],
+            score: 150,
+            raw: const {},
+          ),
+        ),
+        throwsA(
+          isA<SourceDownloadException>().having(
+            (error) => error.sourceAttempts.last.failureCode,
+            'flac fallback failure',
+            'no_trusted_artist_title_match',
+          ),
+        ),
+      );
+      expect(getUrlRequests, 0);
+    },
+  );
+
   test('buguyy transient network errors retry the same request', () async {
     var attempts = 0;
     final retryHeaders = <Map<String, String>>[];
@@ -243,6 +400,37 @@ void main() {
       expect(getUrlForms.single['format'], 'flac');
       expect(resolved.lyrics?.text, '[00:03.50]FLAC 歌词');
       expect(resolved.lyrics?.source, 'flac:getUrl:lyrics');
+    },
+  );
+
+  test(
+    'flac plain HTML ajax responses are classified as anti-CC non JSON',
+    () async {
+      final resolver = RemoteMusicResolver(
+        httpClient: _FakeResolverHttp(
+          onPostForm: (uri, _, _) async {
+            expect(uri.queryParameters['act'], 'search');
+            return ResolverHttpResponse(
+              statusCode: HttpStatus.ok,
+              body: '<html><title>anti cc</title></html>',
+              finalUrl: uri,
+            );
+          },
+        ),
+        initialFlacCookie: 'sl-session=test',
+        platforms: const ['kuwo'],
+      );
+
+      await expectLater(
+        resolver.search('陈奕迅 浮夸', MusicDataSource.flac),
+        throwsA(
+          isA<SourceDownloadException>().having(
+            (error) => error.failureCode,
+            'failureCode',
+            'anticc_non_json',
+          ),
+        ),
+      );
     },
   );
 

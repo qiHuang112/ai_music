@@ -83,6 +83,7 @@ class BuguyyResolver {
 
     if (directUrl.isNotEmpty) {
       final extension = urlExtension(directUrl).replaceFirst('.', '');
+      final urlType = classifyMediaUrl(directUrl);
       return ResolvedMusic(
         query: candidate.query,
         source: MusicDataSource.buguyy,
@@ -98,6 +99,20 @@ class BuguyyResolver {
         coverUrl: candidate.coverUrl,
         lyrics: lyrics,
         duration: candidate.duration,
+        urlType: urlType,
+        sourceAttempts: [
+          _attempt(
+            candidate,
+            stage: 'resolve',
+            status: urlType == MediaUrlType.directAudio
+                ? SourceAttemptStatus.ok
+                : SourceAttemptStatus.failed,
+            failureCode: failureCodeForUrlType(urlType),
+            mediaUrl: directUrl,
+            mediaUrlType: urlType,
+            lyricsStatus: lyrics == null ? 'missing' : 'ok',
+          ),
+        ],
       );
     }
 
@@ -119,6 +134,14 @@ class BuguyyResolver {
     if (chosen == null) {
       throw StateError('buguyy no downloadable URL returned');
     }
+    final chosenUrlType = classifyMediaUrl(chosen.value);
+    final resolvedLyrics =
+        lyrics ??
+        firstResolvedLyrics([
+          makeResolvedLyrics(downJson['lrc'], 'buguyy:getdown:lrc'),
+          makeResolvedLyrics(downJson['lyric'], 'buguyy:getdown:lyric'),
+          makeResolvedLyrics(downJson['about'], 'buguyy:getdown:about'),
+        ]);
 
     return ResolvedMusic(
       query: candidate.query,
@@ -135,15 +158,23 @@ class BuguyyResolver {
       url: chosen.value,
       quality: MusicQuality(format: chosen.key),
       coverUrl: candidate.coverUrl,
-      lyrics:
-          lyrics ??
-          firstResolvedLyrics([
-            makeResolvedLyrics(downJson['lrc'], 'buguyy:getdown:lrc'),
-            makeResolvedLyrics(downJson['lyric'], 'buguyy:getdown:lyric'),
-            makeResolvedLyrics(downJson['about'], 'buguyy:getdown:about'),
-          ]),
-      panLink: true,
+      lyrics: resolvedLyrics,
+      panLink: chosenUrlType == MediaUrlType.externalPan,
       duration: candidate.duration,
+      urlType: chosenUrlType,
+      sourceAttempts: [
+        _attempt(
+          candidate,
+          stage: 'resolve',
+          status: chosenUrlType == MediaUrlType.directAudio
+              ? SourceAttemptStatus.ok
+              : SourceAttemptStatus.skipped,
+          failureCode: failureCodeForUrlType(chosenUrlType),
+          mediaUrl: chosen.value,
+          mediaUrlType: chosenUrlType,
+          lyricsStatus: resolvedLyrics == null ? 'missing' : 'ok',
+        ),
+      ],
     );
   }
 
@@ -222,6 +253,36 @@ class BuguyyResolver {
       );
     }
   }
+}
+
+SourceAttempt _attempt(
+  MusicSearchCandidate candidate, {
+  required String stage,
+  required SourceAttemptStatus status,
+  String failureCode = '',
+  String mediaUrl = '',
+  MediaUrlType mediaUrlType = MediaUrlType.unknown,
+  String mediaContentType = '',
+  int? mediaContentLength,
+  String lyricsStatus = '',
+}) {
+  return SourceAttempt(
+    query: candidate.query,
+    source: MusicDataSource.buguyy,
+    stage: stage,
+    status: status,
+    failureCode: failureCode,
+    candidateId: candidate.id,
+    candidateTitle: candidate.name,
+    candidateArtist: candidate.artist,
+    matchConfidence: candidate.score,
+    mediaUrl: mediaUrl,
+    mediaUrlType: mediaUrlType,
+    mediaContentType: mediaContentType,
+    mediaContentLength: mediaContentLength,
+    lyricsStatus: lyricsStatus,
+    coverUrl: candidate.coverUrl,
+  );
 }
 
 Future<ResolverHttpResponse> getBuguyyWithRetry(

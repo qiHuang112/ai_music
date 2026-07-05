@@ -30,6 +30,9 @@ class ChallengeClient {
     try {
       return await _postFlacApi(cookie, act, form);
     } catch (error) {
+      if (error is SourceDownloadException) {
+        rethrow;
+      }
       if (!looksLikeChallengeError(error)) {
         rethrow;
       }
@@ -213,7 +216,17 @@ class ChallengeClient {
       } catch (_) {
         final redirect = parseAntiCcRedirect(response.body);
         if (redirect.isEmpty) {
-          rethrow;
+          final body = response.body.toLowerCase();
+          final failureCode =
+              body.contains('safeline') || body.contains('challenge')
+              ? 'defender_challenge'
+              : 'anticc_non_json';
+          throw SourceDownloadException(
+            failureCode == 'defender_challenge'
+                ? '源站防护拦截，暂时无法解析直链。'
+                : '源站返回防护页面，不是可解析的歌曲数据。',
+            failureCode: failureCode,
+          );
         }
         final defended = await _fetchHomeThroughDefenders(
           cookie: currentCookie,
@@ -245,10 +258,7 @@ class ChallengeClient {
 
 bool looksLikeChallengeError(Object error) {
   final text = formatResolverError(error);
-  return RegExp(
-    r'challenge|SafeLine|Non-JSON',
-    caseSensitive: false,
-  ).hasMatch(text);
+  return RegExp(r'challenge|SafeLine', caseSensitive: false).hasMatch(text);
 }
 
 String parseAntiCcRedirect(String html) {

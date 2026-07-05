@@ -1,5 +1,7 @@
 // ignore_for_file: prefer_initializing_formals
 
+import 'dart:async';
+
 import 'candidate_scorer.dart';
 import 'challenge_client.dart';
 import 'lyrics_normalizer.dart';
@@ -14,6 +16,7 @@ class FlacResolver {
     this.pages = 8,
     this.platforms = const ['kuwo', 'wyy'],
     this.prefer = 'flac',
+    this.apiTimeout = const Duration(seconds: 6),
   }) : _challenge = challengeClient,
        _scorer = scorer;
 
@@ -22,6 +25,7 @@ class FlacResolver {
   final int pages;
   final List<String> platforms;
   final String prefer;
+  final Duration apiTimeout;
 
   Future<List<MusicSearchCandidate>> search(String query) async {
     final rawKeyword = query.trim();
@@ -97,7 +101,7 @@ class FlacResolver {
 
     final errors = <String>[];
     for (final quality in qualities) {
-      final json = await _challenge.postFlacApi('getUrl', {
+      final json = await _postFlacApiWithTimeout('getUrl', {
         'platform': candidate.platform,
         'songid': candidate.id,
         'format': quality.format,
@@ -108,6 +112,7 @@ class FlacResolver {
       final data = asStringMap(json['data']);
       final url = data['url']?.toString() ?? '';
       if (url.isNotEmpty) {
+        final urlType = classifyMediaUrl(url);
         final lyrics = firstResolvedLyrics([
           ..._lyricsFromPayload(data, 'flac:getUrl'),
           ..._lyricsFromPayload(candidate.raw, 'flac:search'),
@@ -136,6 +141,20 @@ class FlacResolver {
           coverUrl: coverUrl,
           lyrics: lyrics,
           duration: candidate.duration,
+          urlType: urlType,
+          sourceAttempts: [
+            _attempt(
+              candidate,
+              stage: 'resolve',
+              status: urlType == MediaUrlType.directAudio
+                  ? SourceAttemptStatus.ok
+                  : SourceAttemptStatus.failed,
+              failureCode: failureCodeForUrlType(urlType),
+              mediaUrl: url,
+              mediaUrlType: urlType,
+              lyricsStatus: lyrics == null ? 'missing' : 'ok',
+            ),
+          ],
         );
       }
       final msg = json['msg']?.toString();
@@ -144,7 +163,18 @@ class FlacResolver {
       }
     }
 
-    throw StateError(errors.firstOrNull ?? 'No URL returned');
+    throw SourceDownloadException(
+      errors.firstOrNull ?? 'No URL returned',
+      failureCode: 'play_url_unavailable',
+      sourceAttempts: [
+        _attempt(
+          candidate,
+          stage: 'resolve',
+          status: SourceAttemptStatus.failed,
+          failureCode: 'play_url_unavailable',
+        ),
+      ],
+    );
   }
 
   List<ResolvedLyrics?> _lyricsFromPayload(
@@ -187,7 +217,7 @@ class FlacResolver {
     String keyword,
     int page,
   ) async {
-    final json = await _challenge.postFlacApi('search', {
+    final json = await _postFlacApiWithTimeout('search', {
       'platform': platform,
       'keyword': keyword,
       'page': '$page',
@@ -217,6 +247,39 @@ class FlacResolver {
         })
         .toList(growable: false);
   }
+
+  Future<Map<String, dynamic>> _postFlacApiWithTimeout(
+    String act,
+    Map<String, String> form,
+  ) {
+    return _challenge.postFlacApi(act, form).timeout(apiTimeout);
+  }
+}
+
+SourceAttempt _attempt(
+  MusicSearchCandidate candidate, {
+  required String stage,
+  required SourceAttemptStatus status,
+  String failureCode = '',
+  String mediaUrl = '',
+  MediaUrlType mediaUrlType = MediaUrlType.unknown,
+  String lyricsStatus = '',
+}) {
+  return SourceAttempt(
+    query: candidate.query,
+    source: MusicDataSource.flac,
+    stage: stage,
+    status: status,
+    failureCode: failureCode,
+    candidateId: candidate.id,
+    candidateTitle: candidate.name,
+    candidateArtist: candidate.artist,
+    matchConfidence: candidate.score,
+    mediaUrl: mediaUrl,
+    mediaUrlType: mediaUrlType,
+    lyricsStatus: lyricsStatus,
+    coverUrl: candidate.coverUrl,
+  );
 }
 
 String _firstText(List<Object?> values) {

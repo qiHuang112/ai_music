@@ -42,6 +42,61 @@ String formatResolverError(Object error) {
   return error.toString();
 }
 
+MediaUrlType classifyMediaUrl(String url) {
+  final trimmed = url.trim();
+  if (trimmed.isEmpty) {
+    return MediaUrlType.unknown;
+  }
+  Uri uri;
+  try {
+    uri = Uri.parse(trimmed);
+  } catch (_) {
+    return MediaUrlType.unknown;
+  }
+  final host = uri.host.toLowerCase();
+  if (host.contains('pan.quark.cn') ||
+      host.contains('pan.baidu.com') ||
+      host.contains('aliyundrive.com') ||
+      host.contains('alipan.com') ||
+      host.contains('cloud.189.cn') ||
+      host.contains('drive.uc.cn')) {
+    return MediaUrlType.externalPan;
+  }
+  final path = uri.path.toLowerCase();
+  if (path.endsWith('.html') ||
+      path.endsWith('.htm') ||
+      path.endsWith('.php') ||
+      path.endsWith('/')) {
+    return MediaUrlType.htmlPage;
+  }
+  final extension = urlExtension(trimmed);
+  if ({
+    '.mp3',
+    '.flac',
+    '.wav',
+    '.m4a',
+    '.mp4',
+    '.aac',
+    '.ogg',
+    '.ape',
+  }.contains(extension)) {
+    return MediaUrlType.directAudio;
+  }
+  if (uri.scheme == 'http' || uri.scheme == 'https') {
+    return MediaUrlType.unknown;
+  }
+  return MediaUrlType.unknown;
+}
+
+String failureCodeForUrlType(MediaUrlType type) {
+  return switch (type) {
+    MediaUrlType.directAudio => '',
+    MediaUrlType.externalPan => 'external_pan_link',
+    MediaUrlType.htmlPage => 'non_audio_content',
+    MediaUrlType.unknown => 'play_url_unavailable',
+  };
+}
+
 MusicQuality? bestQuality(List<MusicQuality> qualities, String prefer) {
   if (qualities.isEmpty) {
     return null;

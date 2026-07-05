@@ -115,6 +115,8 @@ class ResolvedMusic {
     this.lyrics,
     this.panLink = false,
     this.duration = 0,
+    this.urlType = MediaUrlType.directAudio,
+    this.sourceAttempts = const [],
   });
 
   final String query;
@@ -130,6 +132,8 @@ class ResolvedMusic {
   final ResolvedLyrics? lyrics;
   final bool panLink;
   final int duration;
+  final MediaUrlType urlType;
+  final List<SourceAttempt> sourceAttempts;
 
   factory ResolvedMusic.fromJson(Map<String, dynamic> json) {
     return ResolvedMusic(
@@ -146,6 +150,8 @@ class ResolvedMusic {
       lyrics: ResolvedLyrics.fromJson(json['lyrics']),
       panLink: json['panLink'] == true,
       duration: int.tryParse(json['duration']?.toString() ?? '') ?? 0,
+      urlType: MediaUrlType.fromStorage(json['urlType']?.toString()),
+      sourceAttempts: SourceAttempt.listFromJson(json['sourceAttempts']),
     );
   }
 
@@ -164,7 +170,181 @@ class ResolvedMusic {
       'lyrics': lyrics?.toJson(),
       'panLink': panLink,
       'duration': duration,
+      'urlType': urlType.storageValue,
+      'sourceAttempts': [
+        for (final attempt in sourceAttempts) attempt.toJson(),
+      ],
     };
+  }
+
+  ResolvedMusic copyWith({
+    String? url,
+    MusicQuality? quality,
+    bool? panLink,
+    int? duration,
+    MediaUrlType? urlType,
+    List<SourceAttempt>? sourceAttempts,
+  }) {
+    return ResolvedMusic(
+      query: query,
+      source: source,
+      platform: platform,
+      id: id,
+      name: name,
+      artist: artist,
+      album: album,
+      url: url ?? this.url,
+      quality: quality ?? this.quality,
+      coverUrl: coverUrl,
+      lyrics: lyrics,
+      panLink: panLink ?? this.panLink,
+      duration: duration ?? this.duration,
+      urlType: urlType ?? this.urlType,
+      sourceAttempts: sourceAttempts ?? this.sourceAttempts,
+    );
+  }
+}
+
+enum MediaUrlType {
+  directAudio('direct_audio'),
+  externalPan('external_pan'),
+  htmlPage('html_page'),
+  unknown('unknown');
+
+  const MediaUrlType(this.storageValue);
+
+  final String storageValue;
+
+  static MediaUrlType fromStorage(String? value) {
+    return MediaUrlType.values.firstWhere(
+      (type) => type.storageValue == value,
+      orElse: () => MediaUrlType.unknown,
+    );
+  }
+}
+
+enum SourceAttemptStatus {
+  ok('ok'),
+  failed('failed'),
+  skipped('skipped');
+
+  const SourceAttemptStatus(this.storageValue);
+
+  final String storageValue;
+
+  static SourceAttemptStatus fromStorage(String? value) {
+    return SourceAttemptStatus.values.firstWhere(
+      (status) => status.storageValue == value,
+      orElse: () => SourceAttemptStatus.failed,
+    );
+  }
+}
+
+class SourceAttempt {
+  const SourceAttempt({
+    required this.query,
+    required this.source,
+    required this.stage,
+    required this.status,
+    this.failureCode = '',
+    this.candidateId = '',
+    this.candidateTitle = '',
+    this.candidateArtist = '',
+    this.matchConfidence,
+    this.mediaUrl = '',
+    this.mediaUrlType = MediaUrlType.unknown,
+    this.mediaContentType = '',
+    this.mediaContentLength,
+    this.lyricsStatus = '',
+    this.coverUrl = '',
+  });
+
+  final String query;
+  final MusicDataSource source;
+  final String stage;
+  final SourceAttemptStatus status;
+  final String failureCode;
+  final String candidateId;
+  final String candidateTitle;
+  final String candidateArtist;
+  final double? matchConfidence;
+  final String mediaUrl;
+  final MediaUrlType mediaUrlType;
+  final String mediaContentType;
+  final int? mediaContentLength;
+  final String lyricsStatus;
+  final String coverUrl;
+
+  factory SourceAttempt.fromJson(Object? value) {
+    final json = _asStringMap(value);
+    return SourceAttempt(
+      query: json['query']?.toString() ?? '',
+      source: MusicDataSource.fromStorage(json['source']?.toString()),
+      stage: json['stage']?.toString() ?? '',
+      status: SourceAttemptStatus.fromStorage(json['status']?.toString()),
+      failureCode: json['failureCode']?.toString() ?? '',
+      candidateId: json['candidateId']?.toString() ?? '',
+      candidateTitle: json['candidateTitle']?.toString() ?? '',
+      candidateArtist: json['candidateArtist']?.toString() ?? '',
+      matchConfidence: json['matchConfidence'] is num
+          ? (json['matchConfidence'] as num).toDouble()
+          : double.tryParse(json['matchConfidence']?.toString() ?? ''),
+      mediaUrl: json['mediaUrl']?.toString() ?? '',
+      mediaUrlType: MediaUrlType.fromStorage(json['mediaUrlType']?.toString()),
+      mediaContentType: json['mediaContentType']?.toString() ?? '',
+      mediaContentLength: json['mediaContentLength'] is num
+          ? (json['mediaContentLength'] as num).toInt()
+          : int.tryParse(json['mediaContentLength']?.toString() ?? ''),
+      lyricsStatus: json['lyricsStatus']?.toString() ?? '',
+      coverUrl: json['coverUrl']?.toString() ?? '',
+    );
+  }
+
+  static List<SourceAttempt> listFromJson(Object? value) {
+    if (value is! List) {
+      return const [];
+    }
+    return value.map(SourceAttempt.fromJson).toList(growable: false);
+  }
+
+  Map<String, Object?> toJson() {
+    return {
+      'query': query,
+      'source': source.storageValue,
+      'stage': stage,
+      'status': status.storageValue,
+      'failureCode': failureCode,
+      'candidateId': candidateId,
+      'candidateTitle': candidateTitle,
+      'candidateArtist': candidateArtist,
+      'matchConfidence': matchConfidence,
+      'mediaUrl': mediaUrl,
+      'mediaUrlType': mediaUrlType.storageValue,
+      'mediaContentType': mediaContentType,
+      'mediaContentLength': mediaContentLength,
+      'lyricsStatus': lyricsStatus,
+      'coverUrl': coverUrl,
+    };
+  }
+}
+
+class SourceDownloadException implements Exception {
+  const SourceDownloadException(
+    this.message, {
+    this.failureCode = '',
+    this.sourceAttempts = const [],
+  });
+
+  final String message;
+  final String failureCode;
+  final List<SourceAttempt> sourceAttempts;
+
+  @override
+  String toString() {
+    if (failureCode.isEmpty) {
+      return message;
+    }
+    return '$message ($failureCode)';
   }
 }
 

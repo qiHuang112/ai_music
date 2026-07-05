@@ -7,6 +7,7 @@ import 'package:crypto/crypto.dart';
 
 import 'json_file_store.dart';
 import 'music_resolver.dart';
+import 'resolver_utils.dart';
 import '../platform/app_storage.dart';
 
 class CachedTrack {
@@ -190,6 +191,8 @@ class HttpAudioDownloader implements AudioDownloader {
     final httpClient = client ?? HttpClient();
     try {
       cancelToken?.throwIfCanceled();
+      await _validateRemoteAudio(url, httpClient, cancelToken);
+      cancelToken?.throwIfCanceled();
       final request = await httpClient
           .getUrl(url)
           .timeout(const Duration(seconds: 12));
@@ -203,8 +206,9 @@ class HttpAudioDownloader implements AudioDownloader {
       }
       final mimeType = response.headers.contentType?.mimeType.toLowerCase();
       if (_isRejectedAudioContentType(mimeType)) {
-        throw AudioValidationException(
-          'download returned $mimeType instead of audio',
+        throw SourceDownloadException(
+          '下载链接返回的不是音频内容。',
+          failureCode: 'non_audio_content',
         );
       }
 
@@ -212,7 +216,10 @@ class HttpAudioDownloader implements AudioDownloader {
           ? response.contentLength
           : null;
       if (totalBytes != null && totalBytes < _minimumAudioBytes) {
-        throw AudioValidationException('download is too small to be audio');
+        throw const SourceDownloadException(
+          '下载链接返回的不是音频内容。',
+          failureCode: 'non_audio_content',
+        );
       }
       final sink = target.openWrite();
       var bytes = 0;
@@ -235,10 +242,72 @@ class HttpAudioDownloader implements AudioDownloader {
         await sink.close();
       }
       return bytes;
+    } on TimeoutException {
+      throw const SourceDownloadException(
+        '源站响应超时，请稍后再试。',
+        failureCode: 'network_timeout',
+      );
+    } on AudioValidationException {
+      throw const SourceDownloadException(
+        '下载链接返回的不是音频内容。',
+        failureCode: 'non_audio_content',
+      );
     } finally {
       if (ownsClient) {
         httpClient.close(force: true);
       }
+    }
+  }
+
+  Future<void> _validateRemoteAudio(
+    Uri url,
+    HttpClient httpClient,
+    DownloadCancelToken? cancelToken,
+  ) async {
+    try {
+      final request = await httpClient
+          .openUrl('HEAD', url)
+          .timeout(const Duration(seconds: 6));
+      request.headers.set(HttpHeaders.userAgentHeader, _userAgent);
+      cancelToken?.throwIfCanceled();
+      final response = await request.close().timeout(
+        const Duration(seconds: 6),
+      );
+      final statusCode = response.statusCode;
+      if (statusCode == HttpStatus.methodNotAllowed ||
+          statusCode == HttpStatus.notImplemented ||
+          statusCode == HttpStatus.forbidden) {
+        await response.drain<void>();
+        return;
+      }
+      if (statusCode < 200 || statusCode >= 300) {
+        await response.drain<void>();
+        throw HttpException('download HEAD HTTP $statusCode', uri: url);
+      }
+      final mimeType = response.headers.contentType?.mimeType.toLowerCase();
+      if (_isRejectedAudioContentType(mimeType)) {
+        await response.drain<void>();
+        throw SourceDownloadException(
+          '下载链接返回的不是音频内容。',
+          failureCode: 'non_audio_content',
+        );
+      }
+      final totalBytes = response.contentLength > 0
+          ? response.contentLength
+          : null;
+      if (totalBytes != null && totalBytes < _minimumAudioBytes) {
+        await response.drain<void>();
+        throw const SourceDownloadException(
+          '下载链接返回的不是音频内容。',
+          failureCode: 'non_audio_content',
+        );
+      }
+      await response.drain<void>();
+    } on TimeoutException {
+      throw const SourceDownloadException(
+        '源站响应超时，请稍后再试。',
+        failureCode: 'network_timeout',
+      );
     }
   }
 }
@@ -260,8 +329,21 @@ class CachedTrackStore {
     DownloadCancelToken? cancelToken,
   }) async {
     cancelToken?.throwIfCanceled();
+    if (result.urlType == MediaUrlType.externalPan ||
+        result.urlType == MediaUrlType.htmlPage) {
+      final failureCode = failureCodeForUrlType(result.urlType);
+      throw SourceDownloadException(
+        _messageForFailureCode(failureCode),
+        failureCode: failureCode,
+        sourceAttempts: result.sourceAttempts,
+      );
+    }
     if (result.panLink) {
-      throw UnsupportedError('Cloud-drive links cannot be cached as audio.');
+      throw SourceDownloadException(
+        '源站只提供网盘链接，已跳过音频下载。',
+        failureCode: 'external_pan_link',
+        sourceAttempts: result.sourceAttempts,
+      );
     }
     final root = await _rootProvider();
     if (!await root.exists()) {
@@ -332,7 +414,15 @@ class CachedTrackStore {
         cancelToken: cancelToken,
       );
       cancelToken?.throwIfCanceled();
-      await _validateAudioFile(temp, result);
+      try {
+        await _validateAudioFile(temp, result);
+      } on AudioValidationException {
+        throw SourceDownloadException(
+          '下载链接返回的不是音频内容。',
+          failureCode: 'non_audio_content',
+          sourceAttempts: result.sourceAttempts,
+        );
+      }
       if (await target.exists()) {
         await temp.delete();
         await _validateAudioFile(target, result);
@@ -759,6 +849,15 @@ const _knownAudioExtensions = {
   '.ogg',
   '.ape',
 };
+
+String _messageForFailureCode(String failureCode) {
+  return switch (failureCode) {
+    'external_pan_link' => '源站只提供网盘链接，已跳过音频下载。',
+    'non_audio_content' => '下载链接返回的不是音频内容。',
+    'network_timeout' => '源站响应超时，请稍后再试。',
+    _ => '暂时没有可下载的音频直链。',
+  };
+}
 
 Future<void> _deleteIfExists(File file) async {
   try {

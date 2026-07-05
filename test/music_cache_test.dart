@@ -176,7 +176,13 @@ void main() {
       try {
         await expectLater(
           store.downloadOrReuse(_resolvedMusic(id: entry.key)),
-          throwsA(isA<AudioValidationException>()),
+          throwsA(
+            isA<SourceDownloadException>().having(
+              (error) => error.failureCode,
+              'failureCode',
+              'non_audio_content',
+            ),
+          ),
         );
         final files = root.listSync().whereType<File>().toList();
         expect(files, isEmpty);
@@ -184,6 +190,127 @@ void main() {
       } finally {
         await root.delete(recursive: true);
       }
+    }
+  });
+
+  test('downloadOrReuse skips external pan links before downloader', () async {
+    final root = await Directory.systemTemp.createTemp('ai_music_cache_pan_');
+    final downloader = _FakeDownloader();
+    final store = CachedTrackStore(
+      rootProvider: () async => root,
+      downloader: downloader,
+    );
+
+    try {
+      await expectLater(
+        store.downloadOrReuse(
+          _resolvedMusic(
+            url: 'https://pan.quark.cn/s/example',
+            urlType: MediaUrlType.externalPan,
+            panLink: true,
+          ),
+        ),
+        throwsA(
+          isA<SourceDownloadException>().having(
+            (error) => error.failureCode,
+            'failureCode',
+            'external_pan_link',
+          ),
+        ),
+      );
+      expect(downloader.calls, 0);
+      expect(root.listSync().whereType<File>(), isEmpty);
+      expect(await store.listCached(), isEmpty);
+    } finally {
+      await root.delete(recursive: true);
+    }
+  });
+
+  test(
+    'downloadOrReuse lets unknown extensionless audio pass HEAD and GET',
+    () async {
+      final audioBytes = _validMp3Bytes();
+      final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+      final requests = <String>[];
+      final serving = server.listen((request) async {
+        requests.add('${request.method} ${request.uri.path}');
+        request.response.headers.contentType = ContentType('audio', 'mpeg');
+        request.response.contentLength = audioBytes.length;
+        if (request.method != 'HEAD') {
+          request.response.add(audioBytes);
+        }
+        await request.response.close();
+      });
+      final root = await Directory.systemTemp.createTemp(
+        'ai_music_cache_unknown_audio_',
+      );
+      final store = CachedTrackStore(
+        rootProvider: () async => root,
+        downloader: HttpAudioDownloader(requireHttps: false),
+      );
+
+      try {
+        final cached = await store.downloadOrReuse(
+          _resolvedMusic(
+            url: 'http://${server.address.host}:${server.port}/stream',
+            urlType: MediaUrlType.unknown,
+          ),
+        );
+
+        expect(cached.fromCache, isFalse);
+        expect(await File(cached.filePath).exists(), isTrue);
+        expect(await File(cached.filePath).readAsBytes(), audioBytes);
+        expect(requests, ['HEAD /stream', 'GET /stream']);
+        expect(await store.listCached(), hasLength(1));
+      } finally {
+        await serving.cancel();
+        await server.close(force: true);
+        await root.delete(recursive: true);
+      }
+    },
+  );
+
+  test('downloadOrReuse maps GET html response to non_audio_content', () async {
+    final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+    final serving = server.listen((request) async {
+      if (request.method == 'HEAD') {
+        request.response.statusCode = HttpStatus.methodNotAllowed;
+      } else {
+        request.response.headers.contentType = ContentType.html;
+        request.response.write('<html>{"error":"captcha"}</html>');
+      }
+      await request.response.close();
+    });
+    final root = await Directory.systemTemp.createTemp(
+      'ai_music_cache_get_html_',
+    );
+    final store = CachedTrackStore(
+      rootProvider: () async => root,
+      downloader: HttpAudioDownloader(requireHttps: false),
+    );
+
+    try {
+      await expectLater(
+        store.downloadOrReuse(
+          _resolvedMusic(
+            url: 'http://${server.address.host}:${server.port}/stream',
+            urlType: MediaUrlType.unknown,
+          ),
+        ),
+        throwsA(
+          isA<SourceDownloadException>().having(
+            (error) => error.failureCode,
+            'failureCode',
+            'non_audio_content',
+          ),
+        ),
+      );
+      expect(root.listSync().whereType<File>(), isEmpty);
+      expect(await store.listCached(), isEmpty);
+    } finally {
+      await serving.cancel();
+      await server.close(force: true);
+      await root.delete(recursive: true);
     }
   });
 
@@ -281,7 +408,12 @@ void main() {
   );
 }
 
-ResolvedMusic _resolvedMusic({String id = 'song-1'}) {
+ResolvedMusic _resolvedMusic({
+  String id = 'song-1',
+  String? url,
+  MediaUrlType urlType = MediaUrlType.directAudio,
+  bool panLink = false,
+}) {
   return ResolvedMusic(
     query: '周杰伦 稻香',
     source: MusicDataSource.buguyy,
@@ -290,8 +422,10 @@ ResolvedMusic _resolvedMusic({String id = 'song-1'}) {
     name: '稻香',
     artist: '周杰伦',
     album: '',
-    url: 'https://cdn.example.test/$id.mp3',
+    url: url ?? 'https://cdn.example.test/$id.mp3',
     quality: const MusicQuality(format: 'mp3'),
+    panLink: panLink,
+    urlType: urlType,
   );
 }
 

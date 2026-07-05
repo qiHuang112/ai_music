@@ -157,7 +157,7 @@ class RemoteMusicResolver implements MusicResolver, ProgressiveMusicResolver {
   @override
   Future<ResolvedMusic> resolve(MusicSearchCandidate candidate) async {
     final resolved = await switch (candidate.source) {
-      MusicDataSource.buguyy => _buguyy.resolve(candidate),
+      MusicDataSource.buguyy => _resolveBuguyyWithFallback(candidate),
       MusicDataSource.flac => _flac.resolve(candidate),
       MusicDataSource.auto => throw StateError(
         'Auto candidates must be tagged with their concrete source.',
@@ -171,6 +171,80 @@ class RemoteMusicResolver implements MusicResolver, ProgressiveMusicResolver {
       'hasLyrics=${resolved.lyrics?.text.trim().isNotEmpty ?? false}',
     );
     return resolved;
+  }
+
+  Future<ResolvedMusic> _resolveBuguyyWithFallback(
+    MusicSearchCandidate candidate,
+  ) async {
+    final buguyy = await _buguyy.resolve(candidate);
+    if (buguyy.urlType == MediaUrlType.directAudio) {
+      return buguyy;
+    }
+
+    Object? flacError;
+    final flacAttempts = <SourceAttempt>[];
+    try {
+      final flacCandidates = await _flac.search(candidate.query);
+      for (final flacCandidate in flacCandidates.take(3)) {
+        if (!_isTrustedFallbackCandidate(flacCandidate, candidate)) {
+          flacAttempts.add(
+            _fallbackAttempt(
+              flacCandidate,
+              candidate,
+              status: SourceAttemptStatus.skipped,
+              failureCode: 'no_trusted_artist_title_match',
+            ),
+          );
+          continue;
+        }
+        final resolved = await _flac.resolve(flacCandidate);
+        if (resolved.urlType == MediaUrlType.directAudio) {
+          return resolved.copyWith(
+            sourceAttempts: [
+              ...buguyy.sourceAttempts,
+              ...flacAttempts,
+              ...resolved.sourceAttempts,
+            ],
+          );
+        }
+      }
+      if (flacAttempts.isNotEmpty) {
+        flacError = SourceDownloadException(
+          '未找到可信的同名同歌手 FLAC fallback 候选。',
+          failureCode: 'no_trusted_artist_title_match',
+          sourceAttempts: flacAttempts,
+        );
+      }
+    } catch (error) {
+      flacError = error;
+    }
+
+    final buguyyCode = buguyy.sourceAttempts
+        .map((attempt) => attempt.failureCode)
+        .firstWhere((code) => code.isNotEmpty, orElse: () => '');
+    final flacCode = _failureCodeForResolverError(flacError);
+    throw SourceDownloadException(
+      _messageForFailureCode(buguyyCode.isNotEmpty ? buguyyCode : flacCode),
+      failureCode: buguyyCode.isNotEmpty ? buguyyCode : flacCode,
+      sourceAttempts: [
+        ...buguyy.sourceAttempts,
+        if (flacError is SourceDownloadException &&
+            flacError.sourceAttempts.isNotEmpty)
+          ...flacError.sourceAttempts
+        else if (flacError != null)
+          SourceAttempt(
+            query: candidate.query,
+            source: MusicDataSource.flac,
+            stage: 'search',
+            status: SourceAttemptStatus.failed,
+            failureCode: flacCode,
+            candidateId: candidate.id,
+            candidateTitle: candidate.name,
+            candidateArtist: candidate.artist,
+            matchConfidence: candidate.score,
+          ),
+      ],
+    );
   }
 
   Future<List<MusicSearchCandidate>> _searchAuto(String query) async {
@@ -267,4 +341,85 @@ class _AutoSourceResult {
 
   final List<MusicSearchCandidate> candidates;
   final Object? error;
+}
+
+bool _isTrustedFallbackCandidate(
+  MusicSearchCandidate flacCandidate,
+  MusicSearchCandidate buguyyCandidate,
+) {
+  if (flacCandidate.score < 120) {
+    return false;
+  }
+  final query = _fallbackMatchQuery(buguyyCandidate);
+  return isLooseArtistTitleCandidate(flacCandidate, query);
+}
+
+String _fallbackMatchQuery(MusicSearchCandidate candidate) {
+  final artist = candidate.artist.trim();
+  final name = candidate.name.trim();
+  if (artist.isNotEmpty && name.isNotEmpty) {
+    return '$artist $name';
+  }
+  return candidate.query;
+}
+
+SourceAttempt _fallbackAttempt(
+  MusicSearchCandidate flacCandidate,
+  MusicSearchCandidate buguyyCandidate, {
+  required SourceAttemptStatus status,
+  required String failureCode,
+}) {
+  return SourceAttempt(
+    query: buguyyCandidate.query,
+    source: MusicDataSource.flac,
+    stage: 'match',
+    status: status,
+    failureCode: failureCode,
+    candidateId: flacCandidate.id,
+    candidateTitle: flacCandidate.name,
+    candidateArtist: flacCandidate.artist,
+    matchConfidence: flacCandidate.score,
+    mediaUrlType: MediaUrlType.unknown,
+    coverUrl: flacCandidate.coverUrl,
+  );
+}
+
+String _failureCodeForResolverError(Object? error) {
+  if (error == null) {
+    return 'play_url_unavailable';
+  }
+  if (error is TimeoutException) {
+    return 'network_timeout';
+  }
+  if (error is SourceDownloadException && error.failureCode.isNotEmpty) {
+    return error.failureCode;
+  }
+  final text = formatResolverError(error).toLowerCase();
+  if (text.contains('safeline') || text.contains('challenge')) {
+    return 'defender_challenge';
+  }
+  if (text.contains('html') ||
+      text.contains('format') ||
+      text.contains('non-json') ||
+      (text.contains('non') && text.contains('json'))) {
+    return 'anticc_non_json';
+  }
+  if (text.contains('timed out') || text.contains('timeout')) {
+    return 'network_timeout';
+  }
+  return 'play_url_unavailable';
+}
+
+String _messageForFailureCode(String failureCode) {
+  return switch (failureCode) {
+    'search_no_result' => '未找到可下载的歌曲结果。',
+    'external_pan_link' => '源站只提供网盘链接，已跳过音频下载。',
+    'defender_challenge' => '源站防护拦截，暂时无法解析直链。',
+    'anticc_non_json' => '源站返回防护页面，不是可解析的歌曲数据。',
+    'no_trusted_artist_title_match' => '未找到可信的同名同歌手下载候选。',
+    'non_audio_content' => '下载链接返回的不是音频内容。',
+    'network_timeout' => '源站响应超时，请稍后再试。',
+    'direct_url_expired' => '音频直链已失效，请重新搜索。',
+    _ => '暂时没有可下载的音频直链。',
+  };
 }
