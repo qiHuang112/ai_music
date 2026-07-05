@@ -20,6 +20,35 @@ import 'package:flutter_test/flutter_test.dart';
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
+  test(
+    'initialize migrates unavailable product sources back to auto',
+    () async {
+      final handler = _SpyAudioHandler();
+      final settingsStore = _FakeSettingsStore(
+        settings: const MusicAppSettings(source: MusicDataSource.source2t58),
+      );
+      final controller = MusicController(
+        audioHandler: handler,
+        resolver: _FakeMusicResolver(),
+        cacheStore: _FakeCacheStore(cached: const []),
+        playlistStore: _FakePlaylistStore(),
+        settingsStore: settingsStore,
+        metadataRepository: _StaticMetadataRepository(),
+      );
+
+      try {
+        await controller.initialize();
+        await Future<void>.delayed(Duration.zero);
+
+        expect(controller.source, MusicDataSource.auto);
+        expect(settingsStore.savedSettings?.source, MusicDataSource.auto);
+      } finally {
+        controller.dispose();
+        await handler.dispose();
+      }
+    },
+  );
+
   test('playTrack uses the explicit queue and applies shuffle mode', () async {
     final handler = _SpyAudioHandler();
     final tracks = [
@@ -1770,21 +1799,31 @@ class _MemoryPlaylistStore extends PlaylistStore {
 }
 
 class _FakeSettingsStore implements MusicSettingsStore {
+  _FakeSettingsStore({this.settings = const MusicAppSettings()});
+
+  MusicAppSettings settings;
+  MusicAppSettings? savedSettings;
+
   @override
   Future<MusicAppSettings> loadSettings() async {
-    return const MusicAppSettings();
+    return settings;
   }
 
   @override
-  Future<void> saveSettings(MusicAppSettings settings) async {}
+  Future<void> saveSettings(MusicAppSettings settings) async {
+    savedSettings = settings;
+    this.settings = settings;
+  }
 
   @override
   Future<MusicDataSource> loadSource() async {
-    return MusicDataSource.buguyy;
+    return settings.source;
   }
 
   @override
-  Future<void> saveSource(MusicDataSource source) async {}
+  Future<void> saveSource(MusicDataSource source) async {
+    settings = settings.copyWith(source: source);
+  }
 }
 
 class _MemoryPlaybackStateStore extends PlaybackStateStore {

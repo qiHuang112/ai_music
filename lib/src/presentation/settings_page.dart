@@ -197,21 +197,25 @@ class SourceSettingsPage extends StatelessWidget {
                     value: MusicDataSource.source2t58,
                     title: Text(strings.source2t58),
                     subtitle: Text(strings.source2t58Description),
+                    enabled: false,
                   ),
                   RadioListTile<MusicDataSource>(
                     value: MusicDataSource.source22a5,
                     title: Text(strings.source22a5),
                     subtitle: Text(strings.source22a5Description),
+                    enabled: false,
                   ),
                   RadioListTile<MusicDataSource>(
                     value: MusicDataSource.gequhai,
                     title: Text(strings.gequhaiSource),
                     subtitle: Text(strings.gequhaiDescription),
+                    enabled: false,
                   ),
                   RadioListTile<MusicDataSource>(
                     value: MusicDataSource.gequbao,
                     title: Text(strings.gequbaoSource),
                     subtitle: Text(strings.gequbaoDescription),
+                    enabled: false,
                   ),
                   RadioListTile<MusicDataSource>(
                     value: MusicDataSource.kuwoFullAudio,

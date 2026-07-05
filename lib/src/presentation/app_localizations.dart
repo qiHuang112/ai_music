@@ -119,6 +119,9 @@ class AppStrings {
   String get previewCannotDownload => isZh
       ? '当前仅支持试听，无法缓存为完整歌曲。'
       : 'Only preview playback is available; full-track caching is unavailable.';
+  String get candidateUnavailableForDownload => isZh
+      ? '未通过完整音频校验，不能下载'
+      : 'Full-audio validation unavailable; cannot download';
   String get repairLegacy => isZh ? '修复老资源' : 'Repair old cache';
   String get refresh => isZh ? '刷新' : 'Refresh';
   String get sort => isZh ? '排序' : 'Sort';

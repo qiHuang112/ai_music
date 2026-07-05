@@ -178,9 +178,12 @@ class MusicController extends ChangeNotifier {
   Future<void> initialize() async {
     final settings = await settingsController.load();
     final savedPlayback = await _playbackStateStore.load();
-    source = settings.source;
+    source = _selectableSearchSource(settings.source);
     language = settings.language;
     themePreference = settings.theme;
+    if (source != settings.source) {
+      unawaited(_saveSettings());
+    }
     if (savedPlayback != null) {
       playbackMode = savedPlayback.playbackMode;
     }
@@ -373,7 +376,7 @@ class MusicController extends ChangeNotifier {
   }
 
   Future<void> saveSource(MusicDataSource nextSource) async {
-    source = nextSource;
+    source = _selectableSearchSource(nextSource);
     notifyListeners();
     await _saveSettings();
   }
@@ -415,7 +418,7 @@ class MusicController extends ChangeNotifier {
           if (request != _searchRequest) {
             return;
           }
-          candidates = _fullDownloadCandidates(progress.candidates);
+          candidates = _visibleSearchCandidates(progress.candidates);
           if (progress.isComplete) {
             if (progress.error != null) {
               errorDetail = friendlyError(progress.error!);
@@ -432,7 +435,7 @@ class MusicController extends ChangeNotifier {
         if (request != _searchRequest) {
           return;
         }
-        candidates = _fullDownloadCandidates(result);
+        candidates = _visibleSearchCandidates(result);
         if (candidates.isEmpty) {
           errorMessage = const MusicUiMessage(
             MusicUiMessageCode.noOnlineMatchesFound,
@@ -463,12 +466,32 @@ class MusicController extends ChangeNotifier {
     notifyListeners();
   }
 
-  List<MusicSearchCandidate> _fullDownloadCandidates(
+  List<MusicSearchCandidate> _visibleSearchCandidates(
     List<MusicSearchCandidate> sourceCandidates,
   ) {
-    return sourceCandidates
+    final visible = sourceCandidates
         .where((candidate) => candidate.source != MusicDataSource.itunesPreview)
         .toList(growable: false);
+    visible.sort((a, b) {
+      final priority = _searchCandidatePriority(
+        a,
+      ).compareTo(_searchCandidatePriority(b));
+      if (priority != 0) {
+        return priority;
+      }
+      return b.score.compareTo(a.score);
+    });
+    return visible;
+  }
+
+  int _searchCandidatePriority(MusicSearchCandidate candidate) {
+    if (_cachedRecordForCandidate(candidate) != null) {
+      return 0;
+    }
+    if (candidate.source == MusicDataSource.kuwoFullAudio) {
+      return 1;
+    }
+    return 2;
   }
 
   Future<void> downloadCandidate(MusicSearchCandidate candidate) async {
@@ -1722,4 +1745,14 @@ class MusicController extends ChangeNotifier {
     unawaited(_streamingPlaybackCache.close());
     super.dispose();
   }
+}
+
+MusicDataSource _selectableSearchSource(MusicDataSource source) {
+  return switch (source) {
+    MusicDataSource.source2t58 ||
+    MusicDataSource.source22a5 ||
+    MusicDataSource.gequhai ||
+    MusicDataSource.gequbao => MusicDataSource.auto,
+    _ => source,
+  };
 }

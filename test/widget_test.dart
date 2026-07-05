@@ -633,6 +633,12 @@ void main() {
     expect(find.text('Gequbao'), findsOneWidget);
     expect(find.text('Kuwo Full Audio'), findsOneWidget);
 
+    await tester.tap(find.text('2t58.com'));
+    await tester.pumpAndSettle();
+
+    expect(settings.savedSource, isNull);
+    expect(settings.settings.source, MusicDataSource.auto);
+
     await tester.tap(find.text('FLAC'));
     await tester.pumpAndSettle();
 
@@ -667,6 +673,53 @@ void main() {
     expect(find.byTooltip('播放试听'), findsNothing);
     expect(find.text('没有找到在线结果'), findsOneWidget);
   });
+
+  testWidgets(
+    'full audio results stay playable above unavailable ordinary candidates',
+    (tester) async {
+      final resolver = _FakeMusicResolver(
+        candidates: [
+          _candidate(
+            id: 'buguyy-1',
+            name: '稻香',
+            artist: '周杰伦',
+            quality: const MusicQuality(format: 'mp3'),
+          ),
+          _candidate(
+            id: 'kuwo-full-1',
+            name: '稻香',
+            artist: '周杰伦',
+            source: MusicDataSource.kuwoFullAudio,
+            platform: 'kuwo',
+            quality: const MusicQuality(format: 'mp3'),
+          ),
+          _candidate(
+            id: 'flac-1',
+            name: '稻香',
+            artist: '周杰伦',
+            source: MusicDataSource.flac,
+            platform: 'kuwo',
+            quality: const MusicQuality(format: 'flac', size: '30MB'),
+          ),
+        ],
+      );
+      await tester.pumpWidget(_app(resolver: resolver));
+      await tester.pumpAndSettle();
+
+      await tester.enterText(find.byType(TextField), '稻香');
+      await tester.tap(find.byTooltip('在线搜索'));
+      await tester.pumpAndSettle();
+
+      final fullMarker = tester.getTopLeft(find.text('完整'));
+      final buguyyMarker = tester.getTopLeft(find.text('布谷'));
+      final flacMarker = tester.getTopLeft(find.text('FLAC'));
+      expect(fullMarker.dy, lessThan(buguyyMarker.dy));
+      expect(fullMarker.dy, lessThan(flacMarker.dy));
+      expect(find.byTooltip('播放'), findsOneWidget);
+      expect(find.byIcon(Icons.download_for_offline), findsOneWidget);
+      expect(find.textContaining('未通过完整音频校验'), findsNWidgets(2));
+    },
+  );
 
   testWidgets('home back clears search then asks before exiting', (
     tester,
