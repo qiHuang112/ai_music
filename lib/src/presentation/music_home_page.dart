@@ -398,6 +398,8 @@ class _OnlineSearchPanel extends StatelessWidget {
                     final isCached = isCandidateCached(candidate);
                     final isPreview =
                         candidate.source == MusicDataSource.itunesPreview;
+                    final isFullAudio =
+                        candidate.source == MusicDataSource.kuwoFullAudio;
                     return ListTile(
                       leading: CircleAvatar(
                         backgroundColor: colors.secondaryContainer,
@@ -433,7 +435,7 @@ class _OnlineSearchPanel extends StatelessWidget {
                       trailing: Row(
                         mainAxisSize: MainAxisSize.min,
                         children: [
-                          if (isCached || isPreview)
+                          if (isCached || isPreview || isFullAudio)
                             IconButton(
                               tooltip: isPreview
                                   ? strings.playPreview
@@ -457,7 +459,7 @@ class _OnlineSearchPanel extends StatelessWidget {
                       ),
                       onTap: isBusy
                           ? null
-                          : () => isCached || isPreview
+                          : () => isCached || isPreview || isFullAudio
                                 ? onPlay(candidate)
                                 : onSelect(candidate),
                     );
