@@ -6,6 +6,7 @@ import 'package:flutter/services.dart';
 
 import '../application/music_controller.dart';
 import '../application/music_ui_message.dart';
+import '../data/hotlist.dart';
 import '../data/music_playlists.dart';
 import '../data/playback_state_store.dart';
 import '../data/music_resolver.dart';
@@ -120,6 +121,7 @@ class _MusicHomePageState extends State<MusicHomePage> {
                             .trim()
                             .isEmpty,
                         onOpenLibrary: _openLibrary,
+                        onHotlistSearch: _searchFromHotlist,
                       ),
                     ),
                 ],
@@ -238,6 +240,15 @@ class _MusicHomePageState extends State<MusicHomePage> {
         builder: (context) => _LibraryPage(controller: controller),
       ),
     );
+  }
+
+  void _searchFromHotlist(String query) {
+    _searchController.text = query;
+    _searchController.selection = TextSelection.collapsed(
+      offset: _searchController.text.length,
+    );
+    controller.search(query);
+    setState(() {});
   }
 }
 
@@ -456,11 +467,13 @@ class _SearchBody extends StatelessWidget {
     required this.controller,
     required this.showDefaultLibrary,
     required this.onOpenLibrary,
+    required this.onHotlistSearch,
   });
 
   final MusicController controller;
   final bool showDefaultLibrary;
   final VoidCallback onOpenLibrary;
+  final ValueChanged<String> onHotlistSearch;
 
   @override
   Widget build(BuildContext context) {
@@ -479,6 +492,11 @@ class _SearchBody extends StatelessWidget {
         _HomeLibrarySection(
           controller: controller,
           onOpenLibrary: onOpenLibrary,
+        ),
+        const SizedBox(height: 24),
+        _HotlistDiscoverySection(
+          controller: controller,
+          onSearch: onHotlistSearch,
         ),
       ],
     );
@@ -653,6 +671,346 @@ String _librarySubtitle(
   }
   final preview = tracks.take(3).map((track) => track.title).join(' / ');
   return '${strings.songCount(tracks.length)} · $preview';
+}
+
+class _HotlistDiscoverySection extends StatelessWidget {
+  const _HotlistDiscoverySection({
+    required this.controller,
+    required this.onSearch,
+  });
+
+  final MusicController controller;
+  final ValueChanged<String> onSearch;
+
+  @override
+  Widget build(BuildContext context) {
+    final strings = AppStringsScope.of(context);
+    final colors = Theme.of(context).colorScheme;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Row(
+          children: [
+            Expanded(
+              child: Text(
+                strings.hotlistDiscovery,
+                style: Theme.of(context).textTheme.titleMedium,
+              ),
+            ),
+            IconButton(
+              tooltip: strings.refresh,
+              onPressed: controller.isLoadingHotlists
+                  ? null
+                  : () => controller.loadHotlists(forceRefresh: true),
+              icon: controller.isLoadingHotlists
+                  ? const SizedBox.square(
+                      dimension: 18,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Icon(Icons.refresh),
+            ),
+          ],
+        ),
+        const SizedBox(height: 8),
+        if (controller.hotlistCharts.isEmpty)
+          _HotlistUnavailable(
+            isLoading: controller.isLoadingHotlists,
+            message: controller.hotlistError ?? strings.hotlistUnavailable,
+          )
+        else
+          SizedBox(
+            height: 168,
+            child: ListView.separated(
+              scrollDirection: Axis.horizontal,
+              itemCount: controller.hotlistCharts.length,
+              separatorBuilder: (_, _) => const SizedBox(width: 12),
+              itemBuilder: (context, index) => _HotlistChartCard(
+                chart: controller.hotlistCharts[index],
+                onTap: () => _openHotlistDetail(
+                  context,
+                  controller.hotlistCharts[index],
+                  onSearch,
+                ),
+              ),
+            ),
+          ),
+        const SizedBox(height: 8),
+        Text(
+          strings.hotlistMetadataNotice,
+          style: Theme.of(
+            context,
+          ).textTheme.bodySmall?.copyWith(color: colors.onSurfaceVariant),
+        ),
+      ],
+    );
+  }
+
+  Future<void> _openHotlistDetail(
+    BuildContext context,
+    HotlistChart chart,
+    ValueChanged<String> onSearch,
+  ) {
+    return Navigator.of(context).push<void>(
+      MaterialPageRoute(
+        builder: (context) =>
+            _HotlistDetailPage(chart: chart, onSearch: onSearch),
+      ),
+    );
+  }
+}
+
+class _HotlistUnavailable extends StatelessWidget {
+  const _HotlistUnavailable({required this.isLoading, required this.message});
+
+  final bool isLoading;
+  final String message;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+    return Container(
+      height: 104,
+      alignment: Alignment.center,
+      decoration: BoxDecoration(
+        border: Border.all(color: colors.outlineVariant),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: isLoading
+          ? const CircularProgressIndicator()
+          : ListTile(
+              leading: Icon(Icons.wifi_off, color: colors.onSurfaceVariant),
+              title: Text(
+                message,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+    );
+  }
+}
+
+class _HotlistChartCard extends StatelessWidget {
+  const _HotlistChartCard({required this.chart, required this.onTap});
+
+  final HotlistChart chart;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+    final strings = AppStringsScope.of(context);
+    return SizedBox(
+      width: 260,
+      child: Card(
+        margin: EdgeInsets.zero,
+        clipBehavior: Clip.antiAlias,
+        child: InkWell(
+          onTap: onTap,
+          child: Padding(
+            padding: const EdgeInsets.all(14),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    _HotlistArtwork(url: chart.coverUrl, size: 48),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            chart.title,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: Theme.of(context).textTheme.titleSmall,
+                          ),
+                          const SizedBox(height: 2),
+                          Text(
+                            _chartSubtitle(strings, chart),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: Theme.of(context).textTheme.bodySmall
+                                ?.copyWith(color: colors.onSurfaceVariant),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 12),
+                for (final item in chart.items.take(3))
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 4),
+                    child: Text(
+                      '${item.rank}. ${item.title}',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: Theme.of(context).textTheme.bodySmall,
+                    ),
+                  ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _HotlistDetailPage extends StatelessWidget {
+  const _HotlistDetailPage({required this.chart, required this.onSearch});
+
+  final HotlistChart chart;
+  final ValueChanged<String> onSearch;
+
+  @override
+  Widget build(BuildContext context) {
+    final strings = AppStringsScope.of(context);
+    final colors = Theme.of(context).colorScheme;
+    return Scaffold(
+      appBar: AppBar(title: Text(chart.title)),
+      body: SafeArea(
+        child: ListView.separated(
+          padding: const EdgeInsets.fromLTRB(16, 12, 16, 96),
+          itemCount: chart.items.length + 1,
+          separatorBuilder: (_, index) =>
+              index == 0 ? const SizedBox(height: 8) : const Divider(height: 1),
+          itemBuilder: (context, index) {
+            if (index == 0) {
+              return Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      _HotlistArtwork(url: chart.coverUrl, size: 72),
+                      const SizedBox(width: 14),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              chart.title,
+                              style: Theme.of(context).textTheme.titleLarge,
+                            ),
+                            const SizedBox(height: 4),
+                            Text(
+                              _chartSubtitle(strings, chart),
+                              style: Theme.of(context).textTheme.bodyMedium
+                                  ?.copyWith(color: colors.onSurfaceVariant),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  Text(
+                    strings.hotlistMetadataNotice,
+                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                      color: colors.onSurfaceVariant,
+                    ),
+                  ),
+                ],
+              );
+            }
+            final item = chart.items[index - 1];
+            return ListTile(
+              contentPadding: EdgeInsets.zero,
+              leading: SizedBox(
+                width: 52,
+                child: Row(
+                  children: [
+                    SizedBox(
+                      width: 24,
+                      child: Text(
+                        '${item.rank}',
+                        textAlign: TextAlign.center,
+                        style: Theme.of(context).textTheme.titleSmall,
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    _HotlistArtwork(url: item.coverUrl, size: 20),
+                  ],
+                ),
+              ),
+              title: Text(
+                item.title,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
+              subtitle: Text(
+                item.artist,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
+              trailing: IconButton(
+                tooltip: strings.searchAndPlay,
+                onPressed: () => _search(context, item),
+                icon: const Icon(Icons.travel_explore),
+              ),
+              onTap: () => _search(context, item),
+            );
+          },
+        ),
+      ),
+    );
+  }
+
+  void _search(BuildContext context, HotlistItem item) {
+    onSearch(item.searchQuery);
+    Navigator.of(context).pop();
+  }
+}
+
+class _HotlistArtwork extends StatelessWidget {
+  const _HotlistArtwork({required this.url, required this.size});
+
+  final String url;
+  final double size;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+    final placeholder = Container(
+      width: size,
+      height: size,
+      color: colors.secondaryContainer,
+      alignment: Alignment.center,
+      child: Icon(Icons.music_note, size: size * 0.45),
+    );
+    if (url.trim().isEmpty) {
+      return ClipRRect(
+        borderRadius: BorderRadius.circular(6),
+        child: placeholder,
+      );
+    }
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(6),
+      child: Image.network(
+        url,
+        width: size,
+        height: size,
+        fit: BoxFit.cover,
+        errorBuilder: (_, _, _) => placeholder,
+      ),
+    );
+  }
+}
+
+String _chartSubtitle(AppStrings strings, HotlistChart chart) {
+  final updated = chart.period.isNotEmpty
+      ? chart.period
+      : chart.updatedAt?.toIso8601String().split('T').first;
+  final source = switch (chart.source) {
+    HotlistSource.qq => strings.hotlistSourceQq,
+  };
+  final stale = chart.isStale ? ' · cache' : '';
+  if (updated == null || updated.isEmpty) {
+    return '$source$stale';
+  }
+  return '$source · ${strings.hotlistUpdated(updated)}$stale';
 }
 
 class _LibraryPage extends StatelessWidget {
