@@ -656,7 +656,7 @@ class MusicController extends ChangeNotifier {
     var lastLoggedBytes = 0;
     final promoteFuture = handle.session.promoteWhenComplete();
     try {
-      await for (final _ in handle.progress) {
+      while (true) {
         final bytes = handle.session.downloadedBytes;
         final elapsed = DateTime.now().difference(startedAt).inMilliseconds;
         if (!firstByteLogged && bytes > 0) {
@@ -681,6 +681,13 @@ class MusicController extends ChangeNotifier {
         }
         if (handle.session.isComplete || handle.session.fetchError != null) {
           break;
+        }
+        try {
+          await handle.progress.first.timeout(
+            const Duration(milliseconds: 500),
+          );
+        } on TimeoutException {
+          // Poll again so a fast completed download cannot strand promotion.
         }
       }
       if (handle.session.fetchError != null) {
