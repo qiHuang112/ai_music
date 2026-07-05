@@ -423,6 +423,34 @@ void main() {
     expect(find.byTooltip('下载'), findsAtLeastNWidgets(1));
   });
 
+  testWidgets('Gequhai player audio result exposes play before caching', (
+    tester,
+  ) async {
+    final resolver = _FakeMusicResolver(
+      candidates: [
+        _candidate(
+          id: '38173',
+          name: '哎呀',
+          artist: '王蓉',
+          source: MusicDataSource.gequhai,
+          platform: 'gequhai',
+        ),
+      ],
+    );
+    await tester.pumpWidget(_app(resolver: resolver));
+    await tester.pumpAndSettle();
+
+    await tester.enterText(find.byType(TextField), '哎呀');
+    await tester.tap(find.byTooltip('在线搜索'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('哎呀'), findsAtLeastNWidgets(1));
+    expect(find.text('歌海'), findsOneWidget);
+    expect(find.byTooltip('播放'), findsOneWidget);
+    expect(find.byTooltip('下载'), findsAtLeastNWidgets(1));
+    expect(find.textContaining('未通过完整音频校验'), findsNothing);
+  });
+
   testWidgets('download completion exposes play before metadata refresh', (
     tester,
   ) async {
@@ -638,6 +666,12 @@ void main() {
 
     expect(settings.savedSource, isNull);
     expect(settings.settings.source, MusicDataSource.auto);
+
+    await tester.tap(find.text('Gequhai'));
+    await tester.pumpAndSettle();
+
+    expect(settings.savedSource, MusicDataSource.gequhai);
+    expect(settings.settings.source, MusicDataSource.gequhai);
 
     await tester.tap(find.text('FLAC'));
     await tester.pumpAndSettle();

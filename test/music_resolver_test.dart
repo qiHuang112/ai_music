@@ -761,37 +761,197 @@ void main() {
     },
   );
 
-  test('product sources fail closed with current source status', () async {
-    final resolver = RemoteMusicResolver(httpClient: _FakeResolverHttp());
+  test(
+    'product sources fail closed except scoped gequhai player audio',
+    () async {
+      final resolver = RemoteMusicResolver(httpClient: _FakeResolverHttp());
+
+      await expectLater(
+        resolver.search('稻香', MusicDataSource.source2t58),
+        throwsA(
+          isA<SourceDownloadException>().having(
+            (error) => error.failureCode,
+            'failureCode',
+            'security_verification',
+          ),
+        ),
+      );
+      final gequhai = await resolver.search('稻香', MusicDataSource.gequhai);
+      expect(gequhai, isEmpty);
+      await expectLater(
+        resolver.search('稻香', MusicDataSource.gequbao),
+        throwsA(
+          isA<SourceDownloadException>().having(
+            (error) => error.failureCode,
+            'failureCode',
+            'security_verification',
+          ),
+        ),
+      );
+    },
+  );
+
+  test(
+    'gequhai player audio resolves page api and validated CDN media',
+    () async {
+      const audioUrl = 'https://cdn.gequhai.test/audio/38173.mp3';
+      final calls = <String>[];
+      late Map<String, String> apiHeaders;
+      late Map<String, String> headHeaders;
+      late Map<String, String> rangeHeaders;
+      final http = _FakeResolverHttp(
+        onGet: (uri, headers) async {
+          calls.add('GET ${uri.path}');
+          expect(uri.toString(), 'https://www.gequhai.com/play/38173');
+          return _response(
+            uri,
+            HttpStatus.ok,
+            body: '''
+            <script>
+              window.play_id = '38173';
+              window.mp3_title = '哎呀';
+              window.mp3_author = '王蓉';
+              window.mp3_cover = 'https://img2.kuwo.cn/star/albumcover/120/cover.jpg';
+            </script>
+            <div id="content-lrc2">[00:01.00]哎呀\n[00:02.00]王蓉</div>
+            <a href="https://pan.quark.cn/s/ignore">夸克网盘</a>
+          ''',
+            headers: const {'content-type': 'text/html; charset=utf-8'},
+            cookies: [Cookie('PHPSESSID', 'abc')],
+          );
+        },
+        onPostForm: (uri, form, headers) async {
+          calls.add('POST ${uri.path}');
+          apiHeaders = headers;
+          expect(uri.toString(), 'https://www.gequhai.com/api/music');
+          expect(form, {'id': '38173', 'type': '0'});
+          return _json(uri, {
+            'code': 200,
+            'data': {'url': audioUrl},
+          });
+        },
+        onHead: (uri, headers) async {
+          calls.add('HEAD ${uri.host}');
+          headHeaders = headers;
+          expect(uri.toString(), audioUrl);
+          return _response(
+            uri,
+            HttpStatus.ok,
+            headers: const {
+              'content-type': 'audio/mpeg',
+              'content-length': '3468831',
+            },
+          );
+        },
+        onRange: (uri, start, end, headers) async {
+          calls.add('RANGE $start-$end');
+          rangeHeaders = headers;
+          expect(uri.toString(), audioUrl);
+          expect(start, 0);
+          expect(end, 8191);
+          return _response(
+            uri,
+            HttpStatus.partialContent,
+            headers: const {
+              'content-type': 'audio/mpeg',
+              'content-range': 'bytes 0-8191/3468831',
+            },
+          );
+        },
+      );
+      final resolver = RemoteMusicResolver(httpClient: http);
+
+      final candidates = await resolver.search('哎呀', MusicDataSource.gequhai);
+      expect(candidates, hasLength(1));
+      expect(candidates.single.source, MusicDataSource.gequhai);
+
+      final resolved = await resolver.resolve(candidates.single);
+
+      expect(calls, [
+        'GET /play/38173',
+        'POST /api/music',
+        'HEAD cdn.gequhai.test',
+        'RANGE 0-8191',
+      ]);
+      expect(apiHeaders['referer'], 'https://www.gequhai.com/play/38173');
+      expect(apiHeaders['cookie'], contains('PHPSESSID=abc'));
+      expect(apiHeaders['x-requested-with'], 'Http');
+      expect(apiHeaders['x-custom-header'], 'Key');
+      expect(headHeaders.containsKey('referer'), isFalse);
+      expect(rangeHeaders.containsKey('referer'), isFalse);
+      expect(resolved.source, MusicDataSource.gequhai);
+      expect(resolved.name, '哎呀');
+      expect(resolved.artist, '王蓉');
+      expect(resolved.url, audioUrl);
+      expect(resolved.urlType, MediaUrlType.directAudio);
+      expect(resolved.canCacheAudio, isTrue);
+      expect(resolved.lyrics?.lines, 2);
+      expect(resolved.coverUrl, contains('albumcover'));
+      expect(resolved.sourceAttempts.map((attempt) => attempt.stage), [
+        'page',
+        'api',
+        'media_validation',
+      ]);
+      expect(
+        resolved.sourceAttempts.last.reasonCode,
+        'direct_full_audio_ready',
+      );
+      expect(resolved.sourceAttempts.last.mediaContentLength, 3468831);
+      expect(resolved.sourceAttempts.last.clientReady, isTrue);
+    },
+  );
+
+  test('gequhai player audio fails closed for invalid range total', () async {
+    const audioUrl = 'https://cdn.gequhai.test/audio/38173.mp3';
+    final http = _FakeResolverHttp(
+      onGet: (uri, _) async => _response(
+        uri,
+        HttpStatus.ok,
+        body: '''
+          <script>
+            window.play_id = '38173';
+            window.mp3_title = '哎呀';
+            window.mp3_author = '王蓉';
+          </script>
+          <div id="content-lrc2">[00:01.00]哎呀</div>
+        ''',
+        headers: const {'content-type': 'text/html'},
+      ),
+      onPostForm: (uri, _, _) async => _json(uri, {
+        'code': 200,
+        'data': {'url': audioUrl},
+      }),
+      onHead: (uri, _) async => _response(
+        uri,
+        HttpStatus.ok,
+        headers: const {'content-type': 'audio/mpeg'},
+      ),
+      onRange: (uri, _, _, _) async => _response(
+        uri,
+        HttpStatus.partialContent,
+        headers: const {
+          'content-type': 'audio/mpeg',
+          'content-range': 'bytes 0-8191/*',
+        },
+      ),
+    );
+    final resolver = RemoteMusicResolver(httpClient: http);
+    final candidates = await resolver.search('哎呀', MusicDataSource.gequhai);
 
     await expectLater(
-      resolver.search('稻香', MusicDataSource.source2t58),
+      resolver.resolve(candidates.single),
       throwsA(
-        isA<SourceDownloadException>().having(
-          (error) => error.failureCode,
-          'failureCode',
-          'security_verification',
-        ),
-      ),
-    );
-    await expectLater(
-      resolver.search('稻香', MusicDataSource.gequhai),
-      throwsA(
-        isA<SourceDownloadException>().having(
-          (error) => error.failureCode,
-          'failureCode',
-          'security_or_forbidden',
-        ),
-      ),
-    );
-    await expectLater(
-      resolver.search('稻香', MusicDataSource.gequbao),
-      throwsA(
-        isA<SourceDownloadException>().having(
-          (error) => error.failureCode,
-          'failureCode',
-          'security_verification',
-        ),
+        isA<SourceDownloadException>()
+            .having(
+              (error) => error.failureCode,
+              'failureCode',
+              'range_not_supported',
+            )
+            .having(
+              (error) => error.sourceAttempts.last.clientReady,
+              'clientReady',
+              isFalse,
+            ),
       ),
     );
   });
@@ -1480,12 +1640,14 @@ ResolverHttpResponse _response(
   int statusCode, {
   String body = '',
   Map<String, String> headers = const {},
+  List<Cookie> cookies = const [],
 }) {
   return ResolverHttpResponse(
     statusCode: statusCode,
     body: body,
     finalUrl: uri,
     headers: headers,
+    cookies: cookies,
   );
 }
 

@@ -3,6 +3,7 @@ export 'candidate_scorer.dart'
     show CandidateScorer, isLooseArtistTitleCandidate, isStrictArtistCandidate;
 export 'challenge_client.dart' show ChallengeClient;
 export 'flac_resolver.dart';
+export 'gequhai_player_audio_resolver.dart';
 export 'itunes_preview_resolver.dart';
 export 'kuwo_full_audio_resolver.dart';
 export 'resolver_http_client.dart';
@@ -16,6 +17,7 @@ import 'buguyy_resolver.dart';
 import 'candidate_scorer.dart';
 import 'challenge_client.dart';
 import 'flac_resolver.dart';
+import 'gequhai_player_audio_resolver.dart';
 import 'itunes_preview_resolver.dart';
 import 'kuwo_full_audio_resolver.dart';
 import 'resolver_http_client.dart';
@@ -56,6 +58,7 @@ class RemoteMusicResolver
       prefer: prefer,
     );
     _source22a5 = Source22a5Resolver(httpClient: http, scorer: scorer);
+    _gequhai = GequhaiPlayerAudioResolver(httpClient: http);
     _kuwoFullAudio = KuwoFullAudioResolver(httpClient: http, scorer: scorer);
     _itunesPreview = ItunesPreviewResolver(httpClient: http, scorer: scorer);
   }
@@ -64,6 +67,7 @@ class RemoteMusicResolver
   late final BuguyyResolver _buguyy;
   late final FlacResolver _flac;
   late final Source22a5Resolver _source22a5;
+  late final GequhaiPlayerAudioResolver _gequhai;
   late final KuwoFullAudioResolver _kuwoFullAudio;
   late final ItunesPreviewResolver _itunesPreview;
 
@@ -89,11 +93,7 @@ class RemoteMusicResolver
         failureCode: 'security_verification',
       ),
       MusicDataSource.source22a5 => await _source22a5.search(trimmed),
-      MusicDataSource.gequhai => await _unsupportedFullAudioSource(
-        trimmed,
-        MusicDataSource.gequhai,
-        failureCode: 'security_or_forbidden',
-      ),
+      MusicDataSource.gequhai => await _gequhai.search(trimmed),
       MusicDataSource.gequbao => await _unsupportedFullAudioSource(
         trimmed,
         MusicDataSource.gequbao,
@@ -141,7 +141,7 @@ class RemoteMusicResolver
     final stream = StreamController<MusicSearchProgress>();
     final merged = <MusicSearchCandidate>[];
     final errors = <Object>[];
-    var remaining = _enableSource22a5Auto ? 4 : 3;
+    var remaining = _enableSource22a5Auto ? 5 : 4;
 
     void handleResult(_AutoSourceResult result) {
       remaining -= 1;
@@ -187,6 +187,13 @@ class RemoteMusicResolver
         _flac.search,
       ).then(handleResult),
     );
+    unawaited(
+      _searchAutoSource(
+        trimmed,
+        MusicDataSource.gequhai,
+        _gequhai.search,
+      ).then(handleResult),
+    );
     if (_enableSource22a5Auto) {
       unawaited(
         _searchAutoSource(
@@ -227,7 +234,7 @@ class RemoteMusicResolver
       ),
       MusicDataSource.source2t58 => _unsupportedResolve(candidate),
       MusicDataSource.source22a5 => _source22a5.resolve(candidate),
-      MusicDataSource.gequhai => _unsupportedResolve(candidate),
+      MusicDataSource.gequhai => _gequhai.resolve(candidate),
       MusicDataSource.gequbao => _unsupportedResolve(candidate),
       MusicDataSource.kuwoFullAudio => _kuwoFullAudio.resolve(candidate),
       MusicDataSource.itunesPreview => _itunesPreview.resolve(candidate),
@@ -339,6 +346,11 @@ class RemoteMusicResolver
       MusicDataSource.kuwoFullAudio,
       _kuwoFullAudio.search,
     );
+    final gequhaiFuture = _searchAutoSource(
+      query,
+      MusicDataSource.gequhai,
+      _gequhai.search,
+    );
     final Future<_AutoSourceResult> source22a5Future = _enableSource22a5Auto
         ? _searchAutoSource(
             query,
@@ -350,22 +362,26 @@ class RemoteMusicResolver
       buguyyFuture,
       flacFuture,
       kuwoFuture,
+      gequhaiFuture,
       source22a5Future,
     ]);
     final buguyy = results[0];
     final flac = results[1];
     final kuwo = results[2];
-    final source22a5 = results[3];
+    final gequhai = results[3];
+    final source22a5 = results[4];
     final merged = [
       ...buguyy.candidates,
       ...flac.candidates,
       ...kuwo.candidates,
+      ...gequhai.candidates,
       ...source22a5.candidates,
     ]..sort((a, b) => b.score.compareTo(a.score));
     _logResolver(
       '[AI Music][resolver] auto merged query="$query" '
       'buguyy=${buguyy.candidates.length} flac=${flac.candidates.length} '
       'kuwoFullAudio=${kuwo.candidates.length} '
+      'gequhai=${gequhai.candidates.length} '
       'source22a5=${source22a5.candidates.length} '
       'itunesPreview=0 count=${merged.length}',
     );
@@ -376,12 +392,18 @@ class RemoteMusicResolver
       buguyy,
       flac,
       kuwo,
+      if (gequhai.error != null) gequhai,
       if (_enableSource22a5Auto) source22a5,
     ];
     if (activeResults.every((result) => result.error != null)) {
       throw _combinedAutoError(activeResults);
     }
-    final error = buguyy.error ?? flac.error ?? kuwo.error ?? source22a5.error;
+    final error =
+        buguyy.error ??
+        flac.error ??
+        kuwo.error ??
+        gequhai.error ??
+        source22a5.error;
     if (error != null) {
       throw StateError(formatResolverError(error));
     }
@@ -499,8 +521,9 @@ String _fallbackCombinedErrorLabel(int index, Object error) {
     0 => 'buguyy',
     1 => 'flac',
     2 => 'kuwo full audio',
-    3 => 'source 22a5',
-    4 => 'itunes preview',
+    3 => 'gequhai',
+    4 => 'source 22a5',
+    5 => 'itunes preview',
     _ => 'source ${index + 1}',
   };
   return '$label failed: ${formatResolverError(error)}';

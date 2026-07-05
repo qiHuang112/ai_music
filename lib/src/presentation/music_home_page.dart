@@ -397,7 +397,8 @@ class _OnlineSearchPanel extends StatelessWidget {
                     final isBusy = isCandidateBusy(candidate);
                     final isCached = isCandidateCached(candidate);
                     final isFullAudio =
-                        candidate.source == MusicDataSource.kuwoFullAudio;
+                        candidate.source == MusicDataSource.kuwoFullAudio ||
+                        candidate.source == MusicDataSource.gequhai;
                     final canPlay = isCached || isFullAudio;
                     final canDownload = isFullAudio;
                     return ListTile(

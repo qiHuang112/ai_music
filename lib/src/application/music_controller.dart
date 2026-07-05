@@ -488,7 +488,7 @@ class MusicController extends ChangeNotifier {
     if (_cachedRecordForCandidate(candidate) != null) {
       return 0;
     }
-    if (candidate.source == MusicDataSource.kuwoFullAudio) {
+    if (_isFullAudioSource(candidate.source)) {
       return 1;
     }
     return 2;
@@ -556,7 +556,7 @@ class MusicController extends ChangeNotifier {
       notifyListeners();
       return;
     }
-    if (candidate.source == MusicDataSource.kuwoFullAudio) {
+    if (_isFullAudioSource(candidate.source)) {
       await _playFullAudioStreamingCandidate(candidate);
       return;
     }
@@ -1751,8 +1751,12 @@ MusicDataSource _selectableSearchSource(MusicDataSource source) {
   return switch (source) {
     MusicDataSource.source2t58 ||
     MusicDataSource.source22a5 ||
-    MusicDataSource.gequhai ||
     MusicDataSource.gequbao => MusicDataSource.auto,
     _ => source,
   };
+}
+
+bool _isFullAudioSource(MusicDataSource source) {
+  return source == MusicDataSource.kuwoFullAudio ||
+      source == MusicDataSource.gequhai;
 }

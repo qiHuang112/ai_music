@@ -209,7 +209,6 @@ class SourceSettingsPage extends StatelessWidget {
                     value: MusicDataSource.gequhai,
                     title: Text(strings.gequhaiSource),
                     subtitle: Text(strings.gequhaiDescription),
-                    enabled: false,
                   ),
                   RadioListTile<MusicDataSource>(
                     value: MusicDataSource.gequbao,

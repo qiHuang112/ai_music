@@ -1434,6 +1434,93 @@ void main() {
   );
 
   test(
+    'playCandidate streams Gequhai player audio without download task',
+    () async {
+      final root = await Directory.systemTemp.createTemp(
+        'ai_music_controller_gequhai_',
+      );
+      final transientRoot = await Directory.systemTemp.createTemp(
+        'ai_music_controller_gequhai_transient_',
+      );
+      final handler = _SpyAudioHandler();
+      final cacheStore = CachedTrackStore(rootProvider: () async => root);
+      final streaming = StreamingPlaybackCache(
+        cacheStore: cacheStore,
+        progressiveCache: ProgressiveAudioCache(
+          cacheStore: cacheStore,
+          rootProvider: () async => root,
+          client: _FakeProgressiveHttpClient(
+            _controllerValidMp3Bytes(32 * 1024),
+            chunkSize: 4096,
+          ),
+        ),
+        transientStore: TransientStreamingCacheStore(
+          rootProvider: () async => transientRoot,
+        ),
+      );
+      final controller = MusicController(
+        audioHandler: handler,
+        resolver: _KuwoFullAudioMusicResolver(
+          'https://cdn.gequhai.test/audio/38173.mp3',
+        ),
+        cacheStore: cacheStore,
+        playlistStore: _FakePlaylistStore(),
+        settingsStore: _FakeSettingsStore(),
+        metadataRepository: _StaticMetadataRepository(),
+        streamingPlaybackCache: streaming,
+      );
+      final candidate = _candidate(
+        id: '38173',
+        name: '哎呀',
+        artist: '王蓉',
+        source: MusicDataSource.gequhai,
+        platform: 'gequhai',
+      );
+
+      try {
+        await controller.initialize();
+
+        await controller.playCandidate(candidate);
+
+        expect(handler.loadedIds, ['stream:source_gequhai:38173']);
+        expect(handler.playCalls, 1);
+        expect(controller.activeDownloadTasks, isEmpty);
+        expect(controller.recentDownloadTasks, isEmpty);
+        expect(
+          controller.statusMessage?.code,
+          MusicUiMessageCode.playingFullAudioStream,
+        );
+
+        List<CachedTrack> cached = const [];
+        for (var i = 0; i < 80; i += 1) {
+          cached = await cacheStore.listCached();
+          if (cached.isNotEmpty) {
+            break;
+          }
+          await Future<void>.delayed(const Duration(milliseconds: 25));
+        }
+
+        expect(cached, hasLength(1));
+        expect(cached.single.music.source, MusicDataSource.gequhai);
+        expect(await File(cached.single.filePath).exists(), isTrue);
+        expect(
+          controller.hotlistPlaybackLogs.any(
+            (log) =>
+                log.contains('full-audio play-started') &&
+                log.contains('not-in-download-list=true'),
+          ),
+          isTrue,
+        );
+      } finally {
+        controller.dispose();
+        await handler.dispose();
+        await root.delete(recursive: true);
+        await transientRoot.delete(recursive: true);
+      }
+    },
+  );
+
+  test(
     'playCandidate keeps Kuwo full audio stream failures out of cache and downloads',
     () async {
       final root = await Directory.systemTemp.createTemp(
@@ -1989,8 +2076,8 @@ class _KuwoFullAudioMusicResolver extends _FakeMusicResolver {
     resolveIds.add(candidate.id);
     return ResolvedMusic(
       query: candidate.query,
-      source: MusicDataSource.kuwoFullAudio,
-      platform: 'kuwo',
+      source: candidate.source,
+      platform: candidate.platform,
       id: candidate.id,
       name: candidate.name,
       artist: candidate.artist,
@@ -2003,7 +2090,7 @@ class _KuwoFullAudioMusicResolver extends _FakeMusicResolver {
       sourceAttempts: [
         SourceAttempt(
           query: candidate.query,
-          source: MusicDataSource.kuwoFullAudio,
+          source: candidate.source,
           stage: 'media_validation',
           status: SourceAttemptStatus.ok,
           reasonCode: 'direct_audio_ready',

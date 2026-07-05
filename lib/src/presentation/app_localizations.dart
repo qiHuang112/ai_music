@@ -92,8 +92,8 @@ class AppStrings {
       ? '当前为安全验证页，旧媒体 URL 已过期，不自动下载。'
       : 'Currently gated; old media URLs expired, no auto download.';
   String get gequhaiDescription => isZh
-      ? '当前三条入口均 HTTP 403，未暴露完整音频直链。'
-      : 'Current entry points return HTTP 403; no full-audio URL.';
+      ? '播放器音频 PoC，需通过完整音频校验后才可下载。'
+      : 'Player-audio PoC; downloads only after full-audio validation.';
   String get gequbaoDescription => isZh
       ? '当前为 403 / Just a moment 防护页，旧媒体 URL 已过期。'
       : 'Currently blocked by 403 / Just a moment; old media URLs expired.';
