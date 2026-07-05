@@ -391,6 +391,13 @@ abstract class MusicResolver {
   Future<ResolvedMusic> resolve(MusicSearchCandidate candidate);
 }
 
+abstract class PreferredMusicResolver {
+  Future<ResolvedMusic> resolveWithPrefer(
+    MusicSearchCandidate candidate, {
+    required String prefer,
+  });
+}
+
 class MusicSearchProgress {
   const MusicSearchProgress({
     required this.candidates,

@@ -75,6 +75,13 @@ class BuguyyResolver {
   }
 
   Future<ResolvedMusic> resolve(MusicSearchCandidate candidate) async {
+    return resolveWithPrefer(candidate, prefer: prefer);
+  }
+
+  Future<ResolvedMusic> resolveWithPrefer(
+    MusicSearchCandidate candidate, {
+    required String prefer,
+  }) async {
     final playJson = await _json('/api/geturl', {'id': candidate.id});
     final directUrl = playJson['success'] == true
         ? playJson['url']?.toString() ?? ''
@@ -84,36 +91,21 @@ class BuguyyResolver {
     if (directUrl.isNotEmpty) {
       final extension = urlExtension(directUrl).replaceFirst('.', '');
       final urlType = classifyMediaUrl(directUrl);
-      return ResolvedMusic(
-        query: candidate.query,
-        source: MusicDataSource.buguyy,
-        platform: 'buguyy',
-        id: candidate.id,
-        name: playJson['name']?.toString().trim().isNotEmpty == true
-            ? playJson['name'].toString()
-            : candidate.name,
-        artist: candidate.artist,
-        album: '',
-        url: directUrl,
-        quality: MusicQuality(format: extension.isEmpty ? 'mp3' : extension),
-        coverUrl: candidate.coverUrl,
-        lyrics: lyrics,
-        duration: candidate.duration,
-        urlType: urlType,
-        sourceAttempts: [
-          _attempt(
-            candidate,
-            stage: 'resolve',
-            status: urlType == MediaUrlType.directAudio
-                ? SourceAttemptStatus.ok
-                : SourceAttemptStatus.failed,
-            failureCode: failureCodeForUrlType(urlType),
-            mediaUrl: directUrl,
-            mediaUrlType: urlType,
-            lyricsStatus: lyrics == null ? 'missing' : 'ok',
-          ),
-        ],
+      final directQuality = MusicQuality(
+        format: extension.isEmpty ? 'mp3' : extension,
       );
+      if (prefer.toLowerCase() != 'mp3' ||
+          (urlType == MediaUrlType.directAudio &&
+              _isOrdinaryQuality(directQuality))) {
+        return _resolvedFromDirectUrl(
+          candidate: candidate,
+          playJson: playJson,
+          directUrl: directUrl,
+          quality: directQuality,
+          urlType: urlType,
+          lyrics: lyrics,
+        );
+      }
     }
 
     final downJson = await _json('/api/getdown', {'id': candidate.id});
@@ -347,6 +339,56 @@ ResolvedLyrics? _chooseLyrics(
     ),
     makeResolvedLyrics(item['about'], 'buguyy:search:about'),
   ]);
+}
+
+ResolvedMusic _resolvedFromDirectUrl({
+  required MusicSearchCandidate candidate,
+  required Map<String, dynamic> playJson,
+  required String directUrl,
+  required MusicQuality quality,
+  required MediaUrlType urlType,
+  required ResolvedLyrics? lyrics,
+}) {
+  return ResolvedMusic(
+    query: candidate.query,
+    source: MusicDataSource.buguyy,
+    platform: 'buguyy',
+    id: candidate.id,
+    name: playJson['name']?.toString().trim().isNotEmpty == true
+        ? playJson['name'].toString()
+        : candidate.name,
+    artist: candidate.artist,
+    album: '',
+    url: directUrl,
+    quality: quality,
+    coverUrl: candidate.coverUrl,
+    lyrics: lyrics,
+    duration: candidate.duration,
+    urlType: urlType,
+    sourceAttempts: [
+      _attempt(
+        candidate,
+        stage: 'resolve',
+        status: urlType == MediaUrlType.directAudio
+            ? SourceAttemptStatus.ok
+            : SourceAttemptStatus.failed,
+        failureCode: failureCodeForUrlType(urlType),
+        mediaUrl: directUrl,
+        mediaUrlType: urlType,
+        lyricsStatus: lyrics == null ? 'missing' : 'ok',
+      ),
+    ],
+  );
+}
+
+bool _isOrdinaryQuality(MusicQuality quality) {
+  final format = quality.format.toLowerCase();
+  final bitrate = quality.bitrate.toLowerCase();
+  final label = '$format $bitrate'.trim();
+  return format.contains('mp3') ||
+      bitrate.contains('128') ||
+      bitrate.contains('320') ||
+      label.contains('mp3');
 }
 
 Map<String, String> _parseDownloadUrls(Object? value) {

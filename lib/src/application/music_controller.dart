@@ -3,14 +3,16 @@ import 'dart:async';
 import 'package:audio_service/audio_service.dart';
 import 'package:flutter/foundation.dart';
 
-import '../data/hotlist.dart';
 import '../data/lyrics_artwork.dart';
 import '../data/legacy_cache_repairer.dart';
+import '../data/hotlist.dart';
+import '../data/hotlist_playlists.dart';
 import '../data/music_cache.dart';
 import '../data/music_playlists.dart';
 import '../data/music_resolver.dart';
 import '../data/music_settings.dart';
 import '../data/playback_state_store.dart';
+import '../data/progressive_audio_cache.dart';
 import '../domain/music_models.dart';
 import '../playback/music_audio_handler.dart';
 import 'download_queue_controller.dart';
@@ -38,6 +40,8 @@ class MusicController extends ChangeNotifier {
     TrackMetadataRepository? metadataRepository,
     LegacyCacheRepairer? legacyRepairer,
     HotlistRepository? hotlistRepository,
+    HotlistPlaylistStore? hotlistPlaylistStore,
+    HotlistStreamingPlayback? streamingPlaybackCache,
   }) : _resolver = resolver ?? RemoteMusicResolver(),
        _cacheStore = cacheStore ?? CachedTrackStore(),
        _playlistStore = playlistStore ?? PlaylistStore(),
@@ -45,7 +49,14 @@ class MusicController extends ChangeNotifier {
        _playbackStateStore = playbackStateStore ?? PlaybackStateStore(),
        _metadataRepository = metadataRepository ?? TrackMetadataRepository(),
        _legacyRepairerOverride = legacyRepairer,
-       _hotlistRepository = hotlistRepository ?? HotlistRepository() {
+       _hotlistRepository = hotlistRepository ?? HotlistRepository(),
+       _hotlistPlaylistStore = hotlistPlaylistStore ?? HotlistPlaylistStore() {
+    _streamingPlaybackCache =
+        streamingPlaybackCache ??
+        StreamingPlaybackCache(
+          cacheStore: _cacheStore,
+          logger: _logHotlistPlayback,
+        );
     settingsController = SettingsController(settingsStore: _settingsStore);
     libraryUseCase = LibraryUseCase(
       cacheStore: _cacheStore,
@@ -78,6 +89,8 @@ class MusicController extends ChangeNotifier {
   final TrackMetadataRepository _metadataRepository;
   final LegacyCacheRepairer? _legacyRepairerOverride;
   final HotlistRepository _hotlistRepository;
+  final HotlistPlaylistStore _hotlistPlaylistStore;
+  late final HotlistStreamingPlayback _streamingPlaybackCache;
   final LibraryController libraryController = const LibraryController();
   final DownloadQueueController downloadQueue = DownloadQueueController();
   late final SettingsController settingsController;
@@ -99,6 +112,7 @@ class MusicController extends ChangeNotifier {
   bool _legacyRepairRunning = false;
   bool _isDisposed = false;
   int _hotlistLogCursor = 0;
+  final List<String> _hotlistPlaybackLogs = <String>[];
 
   MusicDataSource source = MusicDataSource.buguyy;
   List<MusicSearchCandidate> candidates = const [];
@@ -113,9 +127,12 @@ class MusicController extends ChangeNotifier {
   AppThemePreference themePreference = AppThemePreference.dark;
   TrackMetadata currentMetadata = const TrackMetadata();
   List<HotlistChart> hotlistCharts = const [];
+  List<HotlistPlaylist> hotlistPlaylists = const [];
   bool isSearching = false;
   bool isLoadingCache = false;
   bool isLoadingHotlists = false;
+  bool isSavingHotlistPlaylist = false;
+  bool isPlayingHotlist = false;
   bool isLoadingMetadata = false;
   bool isRepairingLegacyCache = false;
   String? errorDetail;
@@ -123,8 +140,12 @@ class MusicController extends ChangeNotifier {
   MusicUiMessage? statusMessage;
   String? metadataError;
   String? hotlistError;
+  String? hotlistPlaylistError;
+  String? hotlistStatus;
   List<String> get hotlistLogs =>
       List<String>.unmodifiable(_hotlistRepository.logs);
+  List<String> get hotlistPlaybackLogs =>
+      List<String>.unmodifiable(_hotlistPlaybackLogs);
 
   Stream<PlaybackState> get playbackStateStream => audioHandler.playbackState;
   Stream<MediaItem?> get mediaItemStream => audioHandler.mediaItem;
@@ -166,6 +187,7 @@ class MusicController extends ChangeNotifier {
     await _cacheStore.cleanupTemporaryFiles();
     await loadCache();
     await _restorePlaybackState(savedPlayback);
+    await loadHotlistPlaylists();
     unawaited(loadHotlists());
     notifyListeners();
   }
@@ -224,12 +246,130 @@ class MusicController extends ChangeNotifier {
     }
   }
 
+  Future<void> loadHotlistPlaylists() async {
+    if (_isDisposed) {
+      return;
+    }
+    try {
+      hotlistPlaylists = await _hotlistPlaylistStore.load();
+      hotlistPlaylistError = null;
+    } catch (exception) {
+      hotlistPlaylistError = friendlyError(exception);
+      hotlistPlaylists = const [];
+    }
+    if (!_isDisposed) {
+      notifyListeners();
+    }
+  }
+
+  Future<HotlistPlaylistSaveResult?> saveHotlistChartAsPlaylist(
+    HotlistChart chart,
+  ) async {
+    if (_isDisposed || chart.items.isEmpty) {
+      return null;
+    }
+    isSavingHotlistPlaylist = true;
+    hotlistStatus = null;
+    hotlistPlaylistError = null;
+    notifyListeners();
+    try {
+      final result = await _hotlistPlaylistStore.saveChart(chart);
+      hotlistPlaylists = await _hotlistPlaylistStore.load();
+      hotlistStatus =
+          'hotlist playlist saved added=${result.addedCount} skipped=${result.skippedCount}';
+      _logHotlistPlayback(hotlistStatus!);
+      return result;
+    } catch (exception) {
+      hotlistPlaylistError = friendlyError(exception);
+      return null;
+    } finally {
+      if (!_isDisposed) {
+        isSavingHotlistPlaylist = false;
+        notifyListeners();
+      }
+    }
+  }
+
+  Future<void> playHotlistPlaylistEntry(
+    HotlistPlaylist playlist,
+    HotlistPlaylistEntry entry,
+  ) async {
+    if (_isDisposed) {
+      return;
+    }
+    isPlayingHotlist = true;
+    hotlistPlaylistError = null;
+    notifyListeners();
+    try {
+      _logHotlistPlayback(
+        'resolve-start playlist=${playlist.id} rank=${entry.rank} query="${entry.searchQuery}"',
+      );
+      final candidates = await _resolver.search(
+        entry.searchQuery,
+        MusicDataSource.buguyy,
+      );
+      if (candidates.isEmpty) {
+        throw StateError('No playable search result for ${entry.searchQuery}');
+      }
+      final resolved = await _resolveHotlistOrdinaryFromCandidates(candidates);
+      final handle = await _streamingPlaybackCache.openHotlistTrack(
+        resolved,
+        const StreamingPlaybackPolicy(),
+      );
+      _logHotlistPlayback(
+        'transient-open playlist=${playlist.id} rank=${entry.rank} '
+        'proxy=${handle.proxyUri} quality=${resolved.quality.label}',
+      );
+      final track = Track(
+        id: 'hotlist:${playlist.id}:${entry.id}',
+        title: resolved.name.trim().isNotEmpty ? resolved.name : entry.title,
+        artist: resolved.artist.trim().isNotEmpty
+            ? resolved.artist
+            : entry.artist,
+        album: resolved.album.trim().isNotEmpty ? resolved.album : entry.album,
+        source: handle.proxyUri.toString(),
+        artworkUri: artworkUriFromText(
+          resolved.coverUrl.trim().isNotEmpty
+              ? resolved.coverUrl
+              : entry.coverUrl,
+        ),
+        duration: resolved.duration > 0
+            ? Duration(seconds: resolved.duration)
+            : null,
+      );
+      await playbackUseCase.playTrack(
+        track,
+        index: 0,
+        fallbackQueue: [track],
+        queueTracks: [track],
+      );
+      await playbackUseCase.applyPlaybackMode(playbackMode);
+      _logHotlistPlayback(
+        'play-started playlist=${playlist.id} rank=${entry.rank} '
+        'not-in-download-list=true',
+      );
+    } catch (exception) {
+      hotlistPlaylistError = friendlyError(exception);
+      _logHotlistPlayback('play-failed ${friendlyError(exception)}');
+    } finally {
+      if (!_isDisposed) {
+        isPlayingHotlist = false;
+        notifyListeners();
+      }
+    }
+  }
+
   void _debugPrintHotlistLogs() {
     final logs = _hotlistRepository.logs;
     for (final entry in logs.skip(_hotlistLogCursor)) {
       debugPrint('hotlist:$entry');
     }
     _hotlistLogCursor = logs.length;
+  }
+
+  void _logHotlistPlayback(String message) {
+    _hotlistPlaybackLogs.add(message);
+    debugPrint('hotlist-playback:$message');
   }
 
   Future<void> saveSource(MusicDataSource nextSource) async {
@@ -1034,6 +1174,79 @@ class MusicController extends ChangeNotifier {
     );
   }
 
+  Future<ResolvedMusic> _resolveHotlistOrdinaryFromCandidates(
+    List<MusicSearchCandidate> candidates,
+  ) async {
+    SourceDownloadException? lastFailure;
+    for (final candidate in _ordinaryFirst(candidates)) {
+      try {
+        final resolved = await _resolveHotlistOrdinary(candidate);
+        if (!_isOrdinaryQuality(resolved.quality)) {
+          lastFailure = SourceDownloadException(
+            '热榜条目未解析到普通音质音频。',
+            failureCode: 'hotlist_requires_ordinary_quality',
+            sourceAttempts: resolved.sourceAttempts,
+          );
+          continue;
+        }
+        if (resolved.panLink || resolved.urlType != MediaUrlType.directAudio) {
+          lastFailure = SourceDownloadException(
+            '热榜条目没有可播放音频。',
+            failureCode: resolved.urlType.storageValue,
+            sourceAttempts: resolved.sourceAttempts,
+          );
+          continue;
+        }
+        return resolved;
+      } on SourceDownloadException catch (exception) {
+        lastFailure = exception;
+      }
+    }
+    throw lastFailure ??
+        SourceDownloadException(
+          '热榜条目未解析到普通音质音频。',
+          failureCode: 'hotlist_requires_ordinary_quality',
+        );
+  }
+
+  List<MusicSearchCandidate> _ordinaryFirst(
+    List<MusicSearchCandidate> candidates,
+  ) {
+    final ordinary = <MusicSearchCandidate>[];
+    final fallback = <MusicSearchCandidate>[];
+    for (final candidate in candidates) {
+      if (candidate.qualities.any(_isOrdinaryQuality)) {
+        ordinary.add(candidate);
+      } else {
+        fallback.add(candidate);
+      }
+    }
+    return [...ordinary, ...fallback];
+  }
+
+  Future<ResolvedMusic> _resolveHotlistOrdinary(
+    MusicSearchCandidate candidate,
+  ) {
+    final resolver = _resolver;
+    if (resolver is PreferredMusicResolver) {
+      return (resolver as PreferredMusicResolver).resolveWithPrefer(
+        candidate,
+        prefer: 'mp3',
+      );
+    }
+    return resolver.resolve(candidate);
+  }
+
+  bool _isOrdinaryQuality(MusicQuality quality) {
+    final format = quality.format.toLowerCase();
+    final bitrate = quality.bitrate.toLowerCase();
+    final label = '$format $bitrate'.trim();
+    return format.contains('mp3') ||
+        bitrate.contains('128') ||
+        bitrate.contains('320') ||
+        label.contains('mp3');
+  }
+
   ResolvedMusic _mergeResolvedMetadata(
     ResolvedMusic current,
     ResolvedMusic resolved,
@@ -1320,6 +1533,7 @@ class MusicController extends ChangeNotifier {
     audioHandler.onOhosToggleFavoriteRequested = null;
     audioHandler.onToggleFavoriteRequested = null;
     unawaited(_mediaItemSubscription.cancel());
+    unawaited(_streamingPlaybackCache.close());
     super.dispose();
   }
 }

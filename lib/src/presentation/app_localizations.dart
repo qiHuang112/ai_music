@@ -35,19 +35,24 @@ class AppStrings {
   String get searchEmptyBody => isZh
       ? '输入歌手或歌曲名，下载后会保存在本机缓存里。'
       : 'Enter an artist or song name. Downloaded tracks stay in local cache.';
-  String get pressBackAgainToExit =>
-      isZh ? '再按一次返回桌面' : 'Press back again to exit';
-  String get searchOnline => isZh ? '在线搜索' : 'Search online';
   String get hotlistDiscovery => isZh ? '热榜发现' : 'Hot Charts';
-  String get hotlistUnavailable => isZh
-      ? '热榜暂不可用，不影响本地音乐播放。'
-      : 'Charts are unavailable. Local music still works.';
+  String get hotlistPlaylists => isZh ? '热榜歌单' : 'Hot Chart Playlists';
+  String get hotlistUnavailable =>
+      isZh ? '暂时无法获取热榜，稍后再试。' : 'Hot charts are unavailable. Try again later.';
   String get hotlistSourceQq => isZh ? 'QQ 音乐' : 'QQ Music';
   String get hotlistMetadataNotice => isZh
       ? '榜单仅用于发现，播放需通过 AI Music 搜索匹配。'
-      : 'Charts are metadata only. Playback uses AI Music search.';
-  String get searchAndPlay => isZh ? '搜索并播放' : 'Search and play';
+      : 'Charts are for discovery. Playback uses AI Music search matching.';
+  String get addHotlistToPlaylist => isZh ? '加入歌单' : 'Add playlist';
+  String get playFromTransientCache => isZh ? '临时播放' : 'Stream temporarily';
+  String hotlistSaved(int added, int skipped) => isZh
+      ? '已加入 $added 首，跳过 $skipped 首重复歌曲'
+      : 'Added $added, skipped $skipped duplicates';
   String hotlistUpdated(String value) => isZh ? '更新 $value' : 'Updated $value';
+  String get pressBackAgainToExit =>
+      isZh ? '再按一次返回桌面' : 'Press back again to exit';
+  String get searchOnline => isZh ? '在线搜索' : 'Search online';
+  String get searchAndPlay => isZh ? '搜索并播放' : 'Search and play';
   String get listSearchHint => isZh ? '搜索当前列表' : 'Search this list';
   String get noMatchingTracks => isZh ? '没有匹配的歌曲' : 'No matching songs';
   String get retrySearch => isZh ? '重新搜索' : 'Retry search';

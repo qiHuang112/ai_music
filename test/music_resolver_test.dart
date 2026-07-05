@@ -60,6 +60,118 @@ void main() {
     },
   );
 
+  test(
+    'buguyy preferred resolve chooses mp3 over default flac direct URL',
+    () async {
+      final http = _FakeResolverHttp(
+        onGet: (uri, _) async {
+          if (uri.path == '/api/geturl') {
+            return _json(uri, {
+              'success': true,
+              'name': '稻香',
+              'url': 'https://cdn.example.test/daoxiang.flac',
+            });
+          }
+          if (uri.path == '/api/getdown') {
+            return _json(uri, {
+              'success': true,
+              'kuakedownurl': {
+                'flac': 'https://cdn.example.test/daoxiang.flac',
+                'mp3': 'https://cdn.example.test/daoxiang.mp3',
+              },
+            });
+          }
+          fail('Unexpected GET $uri');
+        },
+      );
+      final resolver = RemoteMusicResolver(httpClient: http);
+      const candidate = MusicSearchCandidate(
+        query: '稻香 周杰伦',
+        source: MusicDataSource.buguyy,
+        platform: 'buguyy',
+        keyword: '稻香 周杰伦',
+        page: 1,
+        id: 'song-1',
+        name: '稻香',
+        artist: '周杰伦',
+        album: '',
+        duration: 180,
+        link: '',
+        coverUrl: '',
+        qualities: [
+          MusicQuality(format: 'flac'),
+          MusicQuality(format: 'mp3', bitrate: '128'),
+        ],
+        score: 100,
+        raw: {},
+      );
+
+      final defaultResolved = await resolver.resolve(candidate);
+      final preferredResolved = await resolver.resolveWithPrefer(
+        candidate,
+        prefer: 'mp3',
+      );
+
+      expect(defaultResolved.quality.format, 'flac');
+      expect(defaultResolved.url, endsWith('.flac'));
+      expect(preferredResolved.quality.format, 'mp3');
+      expect(preferredResolved.url, endsWith('.mp3'));
+    },
+  );
+
+  test(
+    'buguyy preferred resolve keeps mp3 direct URL when getdown fails',
+    () async {
+      var getdownRequests = 0;
+      final http = _FakeResolverHttp(
+        onGet: (uri, _) async {
+          if (uri.path == '/api/geturl') {
+            return _json(uri, {
+              'success': true,
+              'name': '稻香',
+              'url': 'https://cdn.example.test/daoxiang.mp3',
+            });
+          }
+          if (uri.path == '/api/getdown') {
+            getdownRequests += 1;
+            return _json(uri, {
+              'success': false,
+              'message': 'getdown unavailable',
+            });
+          }
+          fail('Unexpected GET $uri');
+        },
+      );
+      final resolver = RemoteMusicResolver(httpClient: http);
+      const candidate = MusicSearchCandidate(
+        query: '稻香 周杰伦',
+        source: MusicDataSource.buguyy,
+        platform: 'buguyy',
+        keyword: '稻香 周杰伦',
+        page: 1,
+        id: 'song-1',
+        name: '稻香',
+        artist: '周杰伦',
+        album: '',
+        duration: 180,
+        link: '',
+        coverUrl: '',
+        qualities: [MusicQuality(format: 'mp3', bitrate: '128')],
+        score: 100,
+        raw: {},
+      );
+
+      final resolved = await resolver.resolveWithPrefer(
+        candidate,
+        prefer: 'mp3',
+      );
+
+      expect(resolved.url, 'https://cdn.example.test/daoxiang.mp3');
+      expect(resolved.quality.format, 'mp3');
+      expect(getdownRequests, 0);
+    },
+  );
+
   test('buguyy resolve ignores placeholder lyrics', () async {
     final http = _FakeResolverHttp(
       onGet: (uri, _) async {
