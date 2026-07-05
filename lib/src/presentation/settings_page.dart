@@ -193,6 +193,31 @@ class SourceSettingsPage extends StatelessWidget {
                     title: Text(strings.flacSource),
                     subtitle: Text(strings.flacSourceDescription),
                   ),
+                  RadioListTile<MusicDataSource>(
+                    value: MusicDataSource.source2t58,
+                    title: Text(strings.source2t58),
+                    subtitle: Text(strings.source2t58Description),
+                  ),
+                  RadioListTile<MusicDataSource>(
+                    value: MusicDataSource.source22a5,
+                    title: Text(strings.source22a5),
+                    subtitle: Text(strings.source22a5Description),
+                  ),
+                  RadioListTile<MusicDataSource>(
+                    value: MusicDataSource.gequhai,
+                    title: Text(strings.gequhaiSource),
+                    subtitle: Text(strings.gequhaiDescription),
+                  ),
+                  RadioListTile<MusicDataSource>(
+                    value: MusicDataSource.gequbao,
+                    title: Text(strings.gequbaoSource),
+                    subtitle: Text(strings.gequbaoDescription),
+                  ),
+                  RadioListTile<MusicDataSource>(
+                    value: MusicDataSource.kuwoFullAudio,
+                    title: Text(strings.kuwoFullAudioSource),
+                    subtitle: Text(strings.kuwoFullAudioDescription),
+                  ),
                 ],
               ),
             ),
@@ -208,8 +233,11 @@ String _sourceTitle(AppStrings strings, MusicDataSource source) {
     MusicDataSource.auto => strings.autoSource,
     MusicDataSource.buguyy => strings.buguyy,
     MusicDataSource.flac => strings.flacSource,
+    MusicDataSource.source2t58 => strings.source2t58,
     MusicDataSource.source22a5 => '22a5',
-    MusicDataSource.kuwoFullAudio => 'Kuwo Full Audio',
+    MusicDataSource.gequhai => strings.gequhaiSource,
+    MusicDataSource.gequbao => strings.gequbaoSource,
+    MusicDataSource.kuwoFullAudio => strings.kuwoFullAudioSource,
     MusicDataSource.itunesPreview => strings.itunesPreviewSource,
   };
 }

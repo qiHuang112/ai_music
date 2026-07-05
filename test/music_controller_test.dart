@@ -1249,48 +1249,45 @@ void main() {
     }
   });
 
-  test(
-    'playCandidate plays itunes preview without downloading cache',
-    () async {
-      final handler = _SpyAudioHandler();
-      final resolver = _PreviewMusicResolver();
-      final cacheStore = _DownloadCacheStore();
-      final controller = MusicController(
-        audioHandler: handler,
-        resolver: resolver,
-        cacheStore: cacheStore,
-        playlistStore: _FakePlaylistStore(),
-        settingsStore: _FakeSettingsStore(),
-        metadataRepository: _StaticMetadataRepository(),
+  test('playCandidate blocks itunes preview from playback and cache', () async {
+    final handler = _SpyAudioHandler();
+    final resolver = _PreviewMusicResolver();
+    final cacheStore = _DownloadCacheStore();
+    final controller = MusicController(
+      audioHandler: handler,
+      resolver: resolver,
+      cacheStore: cacheStore,
+      playlistStore: _FakePlaylistStore(),
+      settingsStore: _FakeSettingsStore(),
+      metadataRepository: _StaticMetadataRepository(),
+    );
+    final candidate = _candidate(
+      id: 'preview-1',
+      name: '稻香',
+      source: MusicDataSource.itunesPreview,
+      platform: 'itunes',
+    );
+
+    try {
+      await controller.initialize();
+
+      await controller.playCandidate(candidate);
+
+      expect(resolver.resolveIds, isEmpty);
+      expect(cacheStore.downloadIds, isEmpty);
+      expect(controller.cachedTracks, isEmpty);
+      expect(handler.loadedIds, isEmpty);
+      expect(handler.playCalls, 0);
+      expect(
+        controller.statusMessage?.code,
+        MusicUiMessageCode.previewCannotDownload,
       );
-      final candidate = _candidate(
-        id: 'preview-1',
-        name: '稻香',
-        source: MusicDataSource.itunesPreview,
-        platform: 'itunes',
-      );
-
-      try {
-        await controller.initialize();
-
-        await controller.playCandidate(candidate);
-
-        expect(resolver.resolveIds, ['preview-1']);
-        expect(cacheStore.downloadIds, isEmpty);
-        expect(controller.cachedTracks, isEmpty);
-        expect(handler.loadedIds, ['preview:itunes_preview:preview-1']);
-        expect(handler.playCalls, 1);
-        expect(
-          controller.statusMessage?.code,
-          MusicUiMessageCode.playingPreviewAudio,
-        );
-        expect(controller.currentLyrics.single.text, '试听歌词');
-      } finally {
-        controller.dispose();
-        await handler.dispose();
-      }
-    },
-  );
+      expect(controller.currentLyrics, isEmpty);
+    } finally {
+      controller.dispose();
+      await handler.dispose();
+    }
+  });
 
   test(
     'playCandidate streams Kuwo full audio without download task and promotes cache',

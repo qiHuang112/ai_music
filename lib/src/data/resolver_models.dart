@@ -4,7 +4,10 @@ enum MusicDataSource {
   auto('auto', 'Auto'),
   buguyy('buguyy', 'BuguYY'),
   flac('flac', 'FLAC'),
+  source2t58('source_2t58', '2t58'),
   source22a5('source_22a5', '22a5'),
+  gequhai('source_gequhai', '歌曲海'),
+  gequbao('source_gequbao', '歌曲宝'),
   kuwoFullAudio('source_kuwo_full_audio', 'Kuwo Full Audio'),
   itunesPreview('itunes_preview', 'iTunes Preview');
 

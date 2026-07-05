@@ -83,7 +83,22 @@ class RemoteMusicResolver
     final result = switch (source) {
       MusicDataSource.buguyy => await _buguyy.search(trimmed),
       MusicDataSource.flac => await _flac.search(trimmed),
+      MusicDataSource.source2t58 => await _unsupportedFullAudioSource(
+        trimmed,
+        MusicDataSource.source2t58,
+        failureCode: 'security_verification',
+      ),
       MusicDataSource.source22a5 => await _source22a5.search(trimmed),
+      MusicDataSource.gequhai => await _unsupportedFullAudioSource(
+        trimmed,
+        MusicDataSource.gequhai,
+        failureCode: 'security_or_forbidden',
+      ),
+      MusicDataSource.gequbao => await _unsupportedFullAudioSource(
+        trimmed,
+        MusicDataSource.gequbao,
+        failureCode: 'security_verification',
+      ),
       MusicDataSource.kuwoFullAudio => await _kuwoFullAudio.search(trimmed),
       MusicDataSource.itunesPreview => await _itunesPreview.search(trimmed),
       MusicDataSource.auto => await _searchAuto(trimmed),
@@ -126,7 +141,7 @@ class RemoteMusicResolver
     final stream = StreamController<MusicSearchProgress>();
     final merged = <MusicSearchCandidate>[];
     final errors = <Object>[];
-    var remaining = _enableSource22a5Auto ? 5 : 4;
+    var remaining = _enableSource22a5Auto ? 4 : 3;
 
     void handleResult(_AutoSourceResult result) {
       remaining -= 1;
@@ -188,13 +203,6 @@ class RemoteMusicResolver
         _kuwoFullAudio.search,
       ).then(handleResult),
     );
-    unawaited(
-      _searchAutoSource(
-        trimmed,
-        MusicDataSource.itunesPreview,
-        _itunesPreview.search,
-      ).then(handleResult),
-    );
     yield* stream.stream;
   }
 
@@ -217,7 +225,10 @@ class RemoteMusicResolver
         candidate,
         prefer: prefer,
       ),
+      MusicDataSource.source2t58 => _unsupportedResolve(candidate),
       MusicDataSource.source22a5 => _source22a5.resolve(candidate),
+      MusicDataSource.gequhai => _unsupportedResolve(candidate),
+      MusicDataSource.gequbao => _unsupportedResolve(candidate),
       MusicDataSource.kuwoFullAudio => _kuwoFullAudio.resolve(candidate),
       MusicDataSource.itunesPreview => _itunesPreview.resolve(candidate),
       MusicDataSource.auto => throw StateError(
@@ -335,36 +346,28 @@ class RemoteMusicResolver
             _source22a5.search,
           )
         : Future.value(const _AutoSourceResult());
-    final itunesFuture = _searchAutoSource(
-      query,
-      MusicDataSource.itunesPreview,
-      _itunesPreview.search,
-    );
     final results = await Future.wait([
       buguyyFuture,
       flacFuture,
       kuwoFuture,
       source22a5Future,
-      itunesFuture,
     ]);
     final buguyy = results[0];
     final flac = results[1];
     final kuwo = results[2];
     final source22a5 = results[3];
-    final itunes = results[4];
     final merged = [
       ...buguyy.candidates,
       ...flac.candidates,
       ...kuwo.candidates,
       ...source22a5.candidates,
-      ...itunes.candidates,
     ]..sort((a, b) => b.score.compareTo(a.score));
     _logResolver(
       '[AI Music][resolver] auto merged query="$query" '
       'buguyy=${buguyy.candidates.length} flac=${flac.candidates.length} '
       'kuwoFullAudio=${kuwo.candidates.length} '
       'source22a5=${source22a5.candidates.length} '
-      'itunesPreview=${itunes.candidates.length} count=${merged.length}',
+      'itunesPreview=0 count=${merged.length}',
     );
     if (merged.isNotEmpty) {
       return merged.take(80).toList(growable: false);
@@ -374,22 +377,67 @@ class RemoteMusicResolver
       flac,
       kuwo,
       if (_enableSource22a5Auto) source22a5,
-      itunes,
     ];
     if (activeResults.every((result) => result.error != null)) {
       throw _combinedAutoError(activeResults);
     }
-    final error =
-        buguyy.error ??
-        flac.error ??
-        kuwo.error ??
-        source22a5.error ??
-        itunes.error;
+    final error = buguyy.error ?? flac.error ?? kuwo.error ?? source22a5.error;
     if (error != null) {
       throw StateError(formatResolverError(error));
     }
     return const [];
   }
+}
+
+Future<List<MusicSearchCandidate>> _unsupportedFullAudioSource(
+  String query,
+  MusicDataSource source, {
+  required String failureCode,
+}) {
+  return Future.error(
+    SourceDownloadException(
+      _messageForFailureCode(failureCode),
+      failureCode: failureCode,
+      sourceAttempts: [
+        SourceAttempt(
+          query: query,
+          source: source,
+          stage: 'search',
+          status: SourceAttemptStatus.failed,
+          failureCode: failureCode,
+          reasonCode: 'full_audio_unavailable',
+          mediaUrlType: MediaUrlType.htmlPage,
+          clientReady: false,
+          mediaValidation: 'no client-ready direct audio for full download',
+        ),
+      ],
+    ),
+  );
+}
+
+Future<ResolvedMusic> _unsupportedResolve(MusicSearchCandidate candidate) {
+  return Future.error(
+    SourceDownloadException(
+      _messageForFailureCode('full_audio_unavailable'),
+      failureCode: 'full_audio_unavailable',
+      sourceAttempts: [
+        SourceAttempt(
+          query: candidate.query,
+          source: candidate.source,
+          stage: 'resolve',
+          status: SourceAttemptStatus.failed,
+          failureCode: 'full_audio_unavailable',
+          reasonCode: 'full_audio_unavailable',
+          candidateId: candidate.id,
+          candidateTitle: candidate.name,
+          candidateArtist: candidate.artist,
+          matchConfidence: candidate.score,
+          clientReady: false,
+          mediaValidation: 'no client-ready direct audio for full download',
+        ),
+      ],
+    ),
+  );
 }
 
 void _appendStableCandidates(
@@ -436,8 +484,11 @@ String _autoSourceLabel(MusicDataSource source) {
   return switch (source) {
     MusicDataSource.buguyy => 'buguyy',
     MusicDataSource.flac => 'flac',
+    MusicDataSource.source2t58 => '2t58',
     MusicDataSource.kuwoFullAudio => 'kuwo full audio',
     MusicDataSource.source22a5 => 'source 22a5',
+    MusicDataSource.gequhai => 'gequhai',
+    MusicDataSource.gequbao => 'gequbao',
     MusicDataSource.itunesPreview => 'itunes preview',
     MusicDataSource.auto => 'auto',
   };
@@ -565,11 +616,14 @@ String _messageForFailureCode(String failureCode) {
   return switch (failureCode) {
     'search_no_result' => '未找到可下载的歌曲结果。',
     'external_pan_link' => '源站只提供网盘链接，已跳过音频下载。',
+    'security_verification' => '源站进入安全验证页，暂时不能自动下载完整音频。',
+    'security_or_forbidden' => '源站返回 403 或安全防护页，未暴露完整音频直链。',
     'defender_challenge' => '源站防护拦截，暂时无法解析直链。',
     'anticc_non_json' => '源站返回防护页面，不是可解析的歌曲数据。',
     'no_trusted_artist_title_match' => '未找到可信的同名同歌手下载候选。',
     'non_audio_content' => '下载链接返回的不是音频内容。',
     'preview_audio_available' => '当前仅支持试听，无法缓存为完整歌曲。',
+    'full_audio_unavailable' => '当前源没有可下载的完整音频直链。',
     'network_timeout' => '源站响应超时，请稍后再试。',
     'direct_url_expired' => '音频直链已失效，请重新搜索。',
     _ => '暂时没有可下载的音频直链。',

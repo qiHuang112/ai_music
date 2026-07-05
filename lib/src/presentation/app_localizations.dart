@@ -70,16 +70,36 @@ class AppStrings {
   String get autoSource => isZh ? '自动 / Auto' : 'Auto';
   String get buguyy => isZh ? '布谷歪歪 / BuguYY' : 'BuguYY';
   String get flacSource => isZh ? 'FLAC / flac.music.hi.cn' : 'FLAC';
+  String get source2t58 => isZh ? '2t58.com' : '2t58.com';
+  String get source22a5 => isZh ? '22a5.com' : '22a5.com';
+  String get gequhaiSource => isZh ? '歌曲海 / gequhai.com' : 'Gequhai';
+  String get gequbaoSource => isZh ? '歌曲宝 / gequbao.com' : 'Gequbao';
+  String get kuwoFullAudioSource => isZh ? 'Kuwo 完整音频' : 'Kuwo Full Audio';
   String get itunesPreviewSource =>
       isZh ? 'iTunes 试听 / Preview' : 'iTunes Preview';
   String get autoSourceDescription => isZh
-      ? '同时搜索布谷歪歪和 FLAC，合并展示可用结果。'
-      : 'Search BuguYY and FLAC together, then show the merged results.';
+      ? '优先展示可下载的完整音频；不会用试听作为替代结果。'
+      : 'Prioritizes downloadable full tracks; previews are hidden.';
   String get buguyyDescription =>
       isZh ? '只使用布谷歪歪搜索和下载。' : 'Search and download with BuguYY only.';
   String get flacSourceDescription => isZh
       ? '只使用 flac.music.hi.cn 搜索和下载。'
       : 'Search and download with flac.music.hi.cn only.';
+  String get source2t58Description => isZh
+      ? '当前为防护页，未开放客户端完整音频直链。'
+      : 'Currently gated; no client-ready full-audio URL.';
+  String get source22a5Description => isZh
+      ? '当前为安全验证页，旧媒体 URL 已过期，不自动下载。'
+      : 'Currently gated; old media URLs expired, no auto download.';
+  String get gequhaiDescription => isZh
+      ? '当前三条入口均 HTTP 403，未暴露完整音频直链。'
+      : 'Current entry points return HTTP 403; no full-audio URL.';
+  String get gequbaoDescription => isZh
+      ? '当前为 403 / Just a moment 防护页，旧媒体 URL 已过期。'
+      : 'Currently blocked by 403 / Just a moment; old media URLs expired.';
+  String get kuwoFullAudioDescription => isZh
+      ? '当前可用的完整音频 PoC，支持边下边播与正式缓存。'
+      : 'Current full-track PoC with progressive playback and cache.';
   String get activeDownloads => isZh ? '正在下载' : 'Active Downloads';
   String get recentDownloads => isZh ? '最近任务' : 'Recent Tasks';
   String get cachedMusic => isZh ? '已缓存音乐' : 'Cached Music';
