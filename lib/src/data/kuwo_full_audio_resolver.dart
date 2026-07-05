@@ -247,7 +247,7 @@ class KuwoFullAudioResolver {
   Future<_MediaValidation> _validateMedia(Uri mediaUri) async {
     final head = await _http.head(mediaUri, headers: _mediaHeaders);
     final headType = _header(head, 'content-type').toLowerCase();
-    final headLength = int.tryParse(_header(head, 'content-length'));
+    final headLength = _parsePositiveIntHeader(_header(head, 'content-length'));
     if (head.statusCode == 403 || head.statusCode == 410) {
       return _MediaValidation.failed(
         'browser_only',
@@ -272,21 +272,24 @@ class KuwoFullAudioResolver {
         'HEAD ${head.statusCode} $headType',
       );
     }
-    if (headLength != null && headLength <= 0) {
+    final rawHeadLength = _header(head, 'content-length').trim();
+    if (rawHeadLength.isNotEmpty && headLength == null) {
       return _MediaValidation.failed(
         'audio_validation_failed',
         headType,
         headLength,
-        'HEAD empty content-length',
+        'HEAD invalid content-length',
       );
     }
 
     final range = await _http.range(mediaUri, headers: _mediaHeaders);
     final rangeType = _header(range, 'content-type').toLowerCase();
     final contentRange = _header(range, 'content-range');
+    final rangeTotal = _parseRangeTotal(contentRange);
     if (range.statusCode != 206 ||
         !rangeType.startsWith('audio/') ||
-        !contentRange.startsWith('bytes 0-0/')) {
+        !contentRange.startsWith('bytes 0-0/') ||
+        rangeTotal == null) {
       return _MediaValidation.failed(
         rangeType.startsWith('audio/')
             ? 'audio_validation_failed'
@@ -300,11 +303,27 @@ class KuwoFullAudioResolver {
       clientReady: true,
       failureCode: '',
       contentType: rangeType,
-      contentLength: headLength,
+      contentLength: headLength ?? rangeTotal,
       summary:
-          'HEAD ${head.statusCode} $headType length=${headLength ?? 0}; '
+          'HEAD ${head.statusCode} $headType length=${headLength ?? rangeTotal}; '
           'Range ${range.statusCode} $contentRange',
     );
+  }
+
+  int? _parsePositiveIntHeader(String value) {
+    final parsed = int.tryParse(value.trim());
+    if (parsed == null || parsed <= 0) {
+      return null;
+    }
+    return parsed;
+  }
+
+  int? _parseRangeTotal(String contentRange) {
+    final slash = contentRange.lastIndexOf('/');
+    if (slash == -1 || slash == contentRange.length - 1) {
+      return null;
+    }
+    return _parsePositiveIntHeader(contentRange.substring(slash + 1));
   }
 
   bool _isTrustedFullAudioCandidate(MusicSearchCandidate candidate) {

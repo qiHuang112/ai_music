@@ -1088,6 +1088,149 @@ void main() {
   );
 
   test(
+    'kuwo full audio provider accepts missing HEAD length only with positive Range total',
+    () async {
+      const audioUrl = 'https://kuwo.example.test/yisibugua.mp3';
+      final http = _FakeResolverHttp(
+        onGet: (uri, _) async {
+          if (uri.host == 'antiserver.kuwo.cn') {
+            return _json(uri, {'url': audioUrl});
+          }
+          fail('Unexpected GET $uri');
+        },
+        onHead: (uri, _) async => _response(
+          uri,
+          HttpStatus.ok,
+          headers: const {'content-type': 'audio/mpeg'},
+        ),
+        onRange: (uri, start, end, _) async {
+          expect((start, end), (0, 0));
+          return _response(
+            uri,
+            HttpStatus.partialContent,
+            body: 'x',
+            headers: const {
+              'content-type': 'audio/mpeg',
+              'content-range': 'bytes 0-0/3078864',
+            },
+          );
+        },
+      );
+      final resolver = RemoteMusicResolver(httpClient: http);
+
+      final resolved = await resolver.resolve(_kuwoFullAudioCandidate());
+
+      expect(resolved.canCacheAudio, isTrue);
+      expect(resolved.sourceAttempts.single.clientReady, isTrue);
+      expect(resolved.sourceAttempts.single.mediaContentLength, 3078864);
+      expect(
+        resolved.sourceAttempts.single.mediaValidation,
+        contains('HEAD 200 audio/mpeg length=3078864'),
+      );
+    },
+  );
+
+  for (final scenario in const [
+    ('missing HEAD length and unknown Range total', 'bytes 0-0/*'),
+    ('missing HEAD length and non numeric Range total', 'bytes 0-0/unknown'),
+    ('missing HEAD length and zero Range total', 'bytes 0-0/0'),
+  ]) {
+    test('kuwo full audio provider fails closed on ${scenario.$1}', () async {
+      const audioUrl = 'https://kuwo.example.test/yisibugua.mp3';
+      final http = _FakeResolverHttp(
+        onGet: (uri, _) async {
+          if (uri.host == 'antiserver.kuwo.cn') {
+            return _json(uri, {'url': audioUrl});
+          }
+          fail('Unexpected GET $uri');
+        },
+        onHead: (uri, _) async => _response(
+          uri,
+          HttpStatus.ok,
+          headers: const {'content-type': 'audio/mpeg'},
+        ),
+        onRange: (uri, start, end, _) async => _response(
+          uri,
+          HttpStatus.partialContent,
+          body: 'x',
+          headers: {'content-type': 'audio/mpeg', 'content-range': scenario.$2},
+        ),
+      );
+      final resolver = RemoteMusicResolver(httpClient: http);
+
+      await expectLater(
+        resolver.resolve(_kuwoFullAudioCandidate()),
+        throwsA(
+          isA<SourceDownloadException>()
+              .having(
+                (error) => error.failureCode,
+                'failureCode',
+                'audio_validation_failed',
+              )
+              .having(
+                (error) => error.sourceAttempts.single.clientReady,
+                'clientReady',
+                isFalse,
+              )
+              .having(
+                (error) => error.sourceAttempts.single.mediaValidation,
+                'mediaValidation',
+                contains(scenario.$2),
+              ),
+        ),
+      );
+    });
+  }
+
+  for (final scenario in const [
+    ('non numeric HEAD content length', 'unknown'),
+    ('zero HEAD content length', '0'),
+  ]) {
+    test('kuwo full audio provider fails closed on ${scenario.$1}', () async {
+      const audioUrl = 'https://kuwo.example.test/yisibugua.mp3';
+      final http = _FakeResolverHttp(
+        onGet: (uri, _) async {
+          if (uri.host == 'antiserver.kuwo.cn') {
+            return _json(uri, {'url': audioUrl});
+          }
+          fail('Unexpected GET $uri');
+        },
+        onHead: (uri, _) async => _response(
+          uri,
+          HttpStatus.ok,
+          headers: {
+            'content-type': 'audio/mpeg',
+            'content-length': scenario.$2,
+          },
+        ),
+      );
+      final resolver = RemoteMusicResolver(httpClient: http);
+
+      await expectLater(
+        resolver.resolve(_kuwoFullAudioCandidate()),
+        throwsA(
+          isA<SourceDownloadException>()
+              .having(
+                (error) => error.failureCode,
+                'failureCode',
+                'audio_validation_failed',
+              )
+              .having(
+                (error) => error.sourceAttempts.single.clientReady,
+                'clientReady',
+                isFalse,
+              )
+              .having(
+                (error) => error.sourceAttempts.single.mediaValidation,
+                'mediaValidation',
+                contains('HEAD invalid content-length'),
+              ),
+        ),
+      );
+    });
+  }
+
+  test(
     'kuwo full audio provider filters songs outside the two-song PoC scope',
     () async {
       final http = _FakeResolverHttp(
@@ -1322,6 +1465,26 @@ ResolverHttpResponse _response(
     body: body,
     finalUrl: uri,
     headers: headers,
+  );
+}
+
+MusicSearchCandidate _kuwoFullAudioCandidate() {
+  return MusicSearchCandidate(
+    query: '一丝不挂',
+    source: MusicDataSource.kuwoFullAudio,
+    platform: 'kuwo',
+    keyword: '一丝不挂',
+    page: 0,
+    id: 'MUSIC_475511188',
+    name: '一丝不挂',
+    artist: '陈奕迅',
+    album: '',
+    duration: 192,
+    link: 'MUSIC_475511188',
+    coverUrl: '',
+    qualities: const [MusicQuality(format: 'mp3', bitrate: '128')],
+    score: 300,
+    raw: const {},
   );
 }
 
