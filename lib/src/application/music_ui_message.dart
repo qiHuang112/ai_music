@@ -9,6 +9,8 @@ enum MusicUiMessageCode {
   downloadAlreadyRunning,
   downloadCanceled,
   playingCachedFile,
+  playingPreviewAudio,
+  previewCannotDownload,
 }
 
 class MusicUiMessage {

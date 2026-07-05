@@ -3,6 +3,7 @@ export 'candidate_scorer.dart'
     show CandidateScorer, isLooseArtistTitleCandidate, isStrictArtistCandidate;
 export 'challenge_client.dart' show ChallengeClient;
 export 'flac_resolver.dart';
+export 'itunes_preview_resolver.dart';
 export 'resolver_http_client.dart';
 export 'resolver_models.dart';
 
@@ -13,6 +14,7 @@ import 'buguyy_resolver.dart';
 import 'candidate_scorer.dart';
 import 'challenge_client.dart';
 import 'flac_resolver.dart';
+import 'itunes_preview_resolver.dart';
 import 'resolver_http_client.dart';
 import 'resolver_models.dart';
 import 'resolver_utils.dart';
@@ -44,10 +46,12 @@ class RemoteMusicResolver implements MusicResolver, ProgressiveMusicResolver {
       platforms: platforms,
       prefer: prefer,
     );
+    _itunesPreview = ItunesPreviewResolver(httpClient: http, scorer: scorer);
   }
 
   late final BuguyyResolver _buguyy;
   late final FlacResolver _flac;
+  late final ItunesPreviewResolver _itunesPreview;
 
   @override
   Future<List<MusicSearchCandidate>> search(
@@ -65,6 +69,7 @@ class RemoteMusicResolver implements MusicResolver, ProgressiveMusicResolver {
     final result = switch (source) {
       MusicDataSource.buguyy => await _buguyy.search(trimmed),
       MusicDataSource.flac => await _flac.search(trimmed),
+      MusicDataSource.itunesPreview => await _itunesPreview.search(trimmed),
       MusicDataSource.auto => await _searchAuto(trimmed),
     };
     _logResolver(
@@ -105,7 +110,7 @@ class RemoteMusicResolver implements MusicResolver, ProgressiveMusicResolver {
     final stream = StreamController<MusicSearchProgress>();
     final merged = <MusicSearchCandidate>[];
     final errors = <Object>[];
-    var remaining = 2;
+    var remaining = 3;
 
     void handleResult(_AutoSourceResult result) {
       remaining -= 1;
@@ -151,6 +156,13 @@ class RemoteMusicResolver implements MusicResolver, ProgressiveMusicResolver {
         _flac.search,
       ).then(handleResult),
     );
+    unawaited(
+      _searchAutoSource(
+        trimmed,
+        MusicDataSource.itunesPreview,
+        _itunesPreview.search,
+      ).then(handleResult),
+    );
     yield* stream.stream;
   }
 
@@ -159,6 +171,7 @@ class RemoteMusicResolver implements MusicResolver, ProgressiveMusicResolver {
     final resolved = await switch (candidate.source) {
       MusicDataSource.buguyy => _resolveBuguyyWithFallback(candidate),
       MusicDataSource.flac => _flac.resolve(candidate),
+      MusicDataSource.itunesPreview => _itunesPreview.resolve(candidate),
       MusicDataSource.auto => throw StateError(
         'Auto candidates must be tagged with their concrete source.',
       ),
@@ -258,23 +271,32 @@ class RemoteMusicResolver implements MusicResolver, ProgressiveMusicResolver {
       MusicDataSource.flac,
       _flac.search,
     );
-    final results = await Future.wait([buguyyFuture, flacFuture]);
+    final itunesFuture = _searchAutoSource(
+      query,
+      MusicDataSource.itunesPreview,
+      _itunesPreview.search,
+    );
+    final results = await Future.wait([buguyyFuture, flacFuture, itunesFuture]);
     final buguyy = results[0];
     final flac = results[1];
-    final merged = [...buguyy.candidates, ...flac.candidates]
-      ..sort((a, b) => b.score.compareTo(a.score));
+    final itunes = results[2];
+    final merged = [
+      ...buguyy.candidates,
+      ...flac.candidates,
+      ...itunes.candidates,
+    ]..sort((a, b) => b.score.compareTo(a.score));
     _logResolver(
       '[AI Music][resolver] auto merged query="$query" '
       'buguyy=${buguyy.candidates.length} flac=${flac.candidates.length} '
-      'count=${merged.length}',
+      'itunesPreview=${itunes.candidates.length} count=${merged.length}',
     );
     if (merged.isNotEmpty) {
       return merged.take(80).toList(growable: false);
     }
-    if (buguyy.error != null && flac.error != null) {
-      throw _combinedAutoError([buguyy.error!, flac.error!]);
+    if (buguyy.error != null && flac.error != null && itunes.error != null) {
+      throw _combinedAutoError([buguyy.error!, flac.error!, itunes.error!]);
     }
-    final error = buguyy.error ?? flac.error;
+    final error = buguyy.error ?? flac.error ?? itunes.error;
     if (error != null) {
       throw StateError(formatResolverError(error));
     }
@@ -304,8 +326,12 @@ StateError _combinedAutoError(List<Object> errors) {
     return StateError(formatResolverError(errors.single));
   }
   return StateError(
-    'buguyy failed: ${formatResolverError(errors[0])}; '
-    'flac failed: ${formatResolverError(errors[1])}',
+    [
+      'buguyy failed: ${formatResolverError(errors[0])}',
+      'flac failed: ${formatResolverError(errors[1])}',
+      if (errors.length > 2)
+        'itunes preview failed: ${formatResolverError(errors[2])}',
+    ].join('; '),
   );
 }
 
@@ -418,6 +444,7 @@ String _messageForFailureCode(String failureCode) {
     'anticc_non_json' => '源站返回防护页面，不是可解析的歌曲数据。',
     'no_trusted_artist_title_match' => '未找到可信的同名同歌手下载候选。',
     'non_audio_content' => '下载链接返回的不是音频内容。',
+    'preview_audio_available' => '当前仅支持试听，无法缓存为完整歌曲。',
     'network_timeout' => '源站响应超时，请稍后再试。',
     'direct_url_expired' => '音频直链已失效，请重新搜索。',
     _ => '暂时没有可下载的音频直链。',
