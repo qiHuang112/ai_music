@@ -162,14 +162,17 @@ class GequhaiPlayerAudioResolver {
     Uri detailUri,
     MusicSearchCandidate candidate,
   ) async {
+    final cookies = <String, Cookie>{};
     var response = await _http.get(detailUri, headers: _pageHeaders);
+    _mergeCookies(cookies, response.cookies);
     if (response.statusCode == HttpStatus.forbidden &&
         _looksLikeDefender(response.body)) {
       await Future<void>.delayed(const Duration(milliseconds: 800));
       response = await _http.get(
         detailUri,
-        headers: {..._pageHeaders, ..._cookieHeader(response.cookies)},
+        headers: {..._pageHeaders, ..._cookieHeaderFromJar(cookies)},
       );
+      _mergeCookies(cookies, response.cookies);
     }
     final contentType = _header(response, HttpHeaders.contentTypeHeader);
     if (response.statusCode == HttpStatus.forbidden ||
@@ -219,7 +222,7 @@ class GequhaiPlayerAudioResolver {
         'gequhai:page:#content-lrc2',
       ),
       durationSeconds: _parseDurationSeconds(_extractDuration(html)),
-      cookieHeader: _cookieHeader(response.cookies),
+      cookieHeader: _cookieHeaderFromJar(cookies),
     );
   }
 
@@ -504,7 +507,26 @@ String _extractExternalPan(String html) {
     r'''https?://pan\.quark\.cn/[^\s"'<>]+''',
     caseSensitive: false,
   ).firstMatch(html);
-  return match?.group(0) ?? '';
+  if (match != null) {
+    return match.group(0) ?? '';
+  }
+  final extraUrl = _extractJsString(html, 'mp3_extra_url');
+  if (extraUrl.isEmpty) {
+    return '';
+  }
+  String decoded = extraUrl;
+  for (var i = 0; i < 2; i += 1) {
+    final next = Uri.decodeComponent(decoded);
+    if (next == decoded) {
+      break;
+    }
+    decoded = next;
+  }
+  return RegExp(
+        r'''https?://pan\.quark\.cn/[^\s"'<>]+''',
+        caseSensitive: false,
+      ).firstMatch(decoded)?.group(0) ??
+      '';
 }
 
 String _absoluteUrl(String url, Uri base) {
@@ -523,6 +545,16 @@ Map<String, String> _cookieHeader(List<Cookie> cookies) {
         .map((cookie) => '${cookie.name}=${cookie.value}')
         .join('; '),
   };
+}
+
+void _mergeCookies(Map<String, Cookie> jar, List<Cookie> cookies) {
+  for (final cookie in cookies) {
+    jar[cookie.name] = cookie;
+  }
+}
+
+Map<String, String> _cookieHeaderFromJar(Map<String, Cookie> jar) {
+  return _cookieHeader(jar.values.toList(growable: false));
 }
 
 String _header(ResolverHttpResponse response, String name) {

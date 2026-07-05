@@ -901,6 +901,95 @@ void main() {
     },
   );
 
+  test(
+    'gequhai retry carries merged page cookies to api but not CDN media',
+    () async {
+      const audioUrl = 'https://cdn.gequhai.test/audio/38173.mp3';
+      var getCount = 0;
+      late Map<String, String> retryHeaders;
+      late Map<String, String> apiHeaders;
+      late Map<String, String> headHeaders;
+      late Map<String, String> rangeHeaders;
+      final http = _FakeResolverHttp(
+        onGet: (uri, headers) async {
+          getCount += 1;
+          if (getCount == 1) {
+            return _response(
+              uri,
+              HttpStatus.forbidden,
+              body: '<html>安全验证</html>',
+              headers: const {'content-type': 'text/html'},
+              cookies: [Cookie('guard', 'a')],
+            );
+          }
+          retryHeaders = headers;
+          expect(headers['cookie'], contains('guard=a'));
+          return _response(
+            uri,
+            HttpStatus.ok,
+            body: '''
+              <script>
+                window.play_id = '38173';
+                window.mp3_title = '哎呀';
+                window.mp3_author = '王蓉';
+                window.mp3_cover = 'https://img2.kuwo.cn/star/albumcover/120/cover.jpg';
+                window.mp3_extra_url = 'https%3A%2F%2Fpan.quark.cn%2Fs%2Fencoded';
+              </script>
+              <div id="content-lrc2">[00:01.00]哎呀</div>
+            ''',
+            headers: const {'content-type': 'text/html; charset=utf-8'},
+            cookies: [Cookie('session', 'b')],
+          );
+        },
+        onPostForm: (uri, form, headers) async {
+          apiHeaders = headers;
+          expect(form, {'id': '38173', 'type': '0'});
+          return _json(uri, {
+            'code': 200,
+            'data': {'url': audioUrl},
+          });
+        },
+        onHead: (uri, headers) async {
+          headHeaders = headers;
+          return _response(
+            uri,
+            HttpStatus.ok,
+            headers: const {
+              'content-type': 'audio/mpeg',
+              'content-length': '3468831',
+            },
+          );
+        },
+        onRange: (uri, start, end, headers) async {
+          rangeHeaders = headers;
+          return _response(
+            uri,
+            HttpStatus.partialContent,
+            headers: const {
+              'content-type': 'audio/mpeg',
+              'content-range': 'bytes 0-8191/3468831',
+            },
+          );
+        },
+      );
+      final resolver = RemoteMusicResolver(httpClient: http);
+      final candidates = await resolver.search('哎呀', MusicDataSource.gequhai);
+
+      final resolved = await resolver.resolve(candidates.single);
+
+      expect(getCount, 2);
+      expect(retryHeaders['cookie'], contains('guard=a'));
+      expect(apiHeaders['cookie'], contains('guard=a'));
+      expect(apiHeaders['cookie'], contains('session=b'));
+      expect(apiHeaders['referer'], 'https://www.gequhai.com/play/38173');
+      expect(headHeaders.containsKey('referer'), isFalse);
+      expect(rangeHeaders.containsKey('referer'), isFalse);
+      expect(resolved.source, MusicDataSource.gequhai);
+      expect(resolved.urlType, MediaUrlType.directAudio);
+      expect(resolved.canCacheAudio, isTrue);
+    },
+  );
+
   test('gequhai player audio fails closed for invalid range total', () async {
     const audioUrl = 'https://cdn.gequhai.test/audio/38173.mp3';
     final http = _FakeResolverHttp(
