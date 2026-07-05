@@ -462,6 +462,49 @@ class CachedTrackStore {
     }
   }
 
+  Future<CachedTrack> adoptCompleteDownload(
+    ResolvedMusic result,
+    File completeFile,
+  ) async {
+    if (result.panLink) {
+      throw UnsupportedError('Cloud-drive links cannot be cached as audio.');
+    }
+    if (!await completeFile.exists()) {
+      throw FileSystemException('Progressive audio missing', completeFile.path);
+    }
+    await _validateAudioFile(completeFile, result);
+
+    final root = await _rootProvider();
+    if (!await root.exists()) {
+      await root.create(recursive: true);
+    }
+    final cacheId = cacheIdForResolved(result);
+    final target = File(_targetPath(root, result));
+    if (completeFile.path != target.path) {
+      if (await target.exists()) {
+        await _validateAudioFile(target, result);
+        await completeFile.delete();
+      } else {
+        await completeFile.rename(target.path);
+      }
+    }
+    final audioFile = File(target.path);
+    await _validateAudioFile(audioFile, result);
+    final stat = await audioFile.stat();
+    final lyricsPath = await _writeLyricsIfNeeded(result, audioFile);
+    final cached = CachedTrack(
+      cacheId: cacheId,
+      music: result,
+      filePath: audioFile.path,
+      sizeBytes: stat.size,
+      fromCache: false,
+      lyricsPath: lyricsPath,
+      cachedAt: DateTime.now(),
+    );
+    await _upsert(cached);
+    return cached;
+  }
+
   Future<void> cleanupTemporaryFiles() async {
     final root = await _rootProvider();
     if (!await root.exists()) {
