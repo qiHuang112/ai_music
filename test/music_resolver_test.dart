@@ -1159,6 +1159,89 @@ void main() {
     },
   );
 
+  test(
+    'kuwo full audio provider seeds exact scoped musicrid when live search drifts',
+    () async {
+      const audioUrl = 'https://kuwo.example.test/yisibugua.mp3';
+      final http = _FakeResolverHttp(
+        onGet: (uri, _) async {
+          if (uri.host == 'search.kuwo.cn') {
+            expect(uri.queryParameters['all'], '一丝不挂');
+            return _json(uri, {
+              'abslist': [
+                {
+                  'name': '一丝不挂',
+                  'artist': '岁月无痕',
+                  'album': '',
+                  'duration': '180',
+                  'musicRid': 'MUSIC_WRONG',
+                  'formats': 'MP3128',
+                  'minfo': 'level:h,bitrate:128,format:mp3,size:2.93Mb',
+                  'online': '1',
+                  'pay': '0',
+                  'copyright': '0',
+                },
+              ],
+            });
+          }
+          if (uri.host == 'antiserver.kuwo.cn') {
+            expect(uri.queryParameters['rid'], 'MUSIC_475511188');
+            return _json(uri, {'url': audioUrl});
+          }
+          fail('Unexpected GET $uri');
+        },
+        onHead: (uri, _) async {
+          expect(uri.toString(), audioUrl);
+          return _response(
+            uri,
+            HttpStatus.ok,
+            headers: const {
+              'content-type': 'audio/mpeg',
+              'content-length': '3078864',
+              'accept-ranges': 'bytes',
+            },
+          );
+        },
+        onRange: (uri, start, end, _) async {
+          expect(uri.toString(), audioUrl);
+          expect((start, end), (0, 0));
+          return _response(
+            uri,
+            HttpStatus.partialContent,
+            body: 'x',
+            headers: const {
+              'content-type': 'audio/mpeg',
+              'content-length': '1',
+              'content-range': 'bytes 0-0/3078864',
+            },
+          );
+        },
+      );
+      final resolver = RemoteMusicResolver(httpClient: http);
+
+      final candidates = await resolver.search(
+        '一丝不挂',
+        MusicDataSource.kuwoFullAudio,
+      );
+
+      expect(candidates, hasLength(1));
+      expect(candidates.single.id, 'MUSIC_475511188');
+      expect(candidates.single.name, '一丝不挂');
+      expect(candidates.single.artist, '陈奕迅');
+      expect(candidates.single.raw['seed'], 'scoped_musicrid');
+
+      final resolved = await resolver.resolve(candidates.single);
+      expect(resolved.url, audioUrl);
+      expect(resolved.urlType, MediaUrlType.directAudio);
+      expect(resolved.canCacheAudio, isTrue);
+      expect(resolved.sourceAttempts.single.clientReady, isTrue);
+      expect(
+        resolved.sourceAttempts.single.mediaValidation,
+        contains('Range 206 bytes 0-0/3078864'),
+      );
+    },
+  );
+
   test('kuwo full audio provider fails closed on browser-only media', () async {
     const audioUrl = 'https://kuwo.example.test/blocked.mp3';
     final http = _FakeResolverHttp(

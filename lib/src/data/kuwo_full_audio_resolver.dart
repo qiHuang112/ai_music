@@ -27,7 +27,8 @@ class KuwoFullAudioResolver {
     if (trimmed.isEmpty) {
       return const [];
     }
-    final searchTerm = _scopedSongFor(trimmed)?.title ?? trimmed;
+    final scopedSong = _scopedSongFor(trimmed);
+    final searchTerm = scopedSong?.title ?? trimmed;
     final uri = Uri.http('search.kuwo.cn', '/r.s', {
       'all': searchTerm,
       'ft': 'music',
@@ -61,6 +62,9 @@ class KuwoFullAudioResolver {
             .where(_isTrustedFullAudioCandidate)
             .toList(growable: false)
           ..sort((a, b) => b.score.compareTo(a.score));
+    if (candidates.isEmpty && scopedSong != null) {
+      return [_seedCandidate(scopedSong, trimmed)];
+    }
     return candidates.take(20).toList(growable: false);
   }
 
@@ -186,6 +190,26 @@ class KuwoFullAudioResolver {
       qualities: qualities,
       score: score,
       raw: item,
+    );
+  }
+
+  MusicSearchCandidate _seedCandidate(_ScopedSong song, String query) {
+    return MusicSearchCandidate(
+      query: query,
+      source: _source,
+      platform: _platform,
+      keyword: query,
+      page: 0,
+      id: song.musicRid,
+      name: song.title,
+      artist: song.artist,
+      album: '',
+      duration: 180,
+      link: song.musicRid,
+      coverUrl: '',
+      qualities: const [MusicQuality(format: 'mp3', bitrate: '128')],
+      score: _minimumMatchScore + 1,
+      raw: const {'seed': 'scoped_musicrid'},
     );
   }
 
