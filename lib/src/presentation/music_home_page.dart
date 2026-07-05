@@ -260,6 +260,7 @@ bool _shouldShowFloatingStatus(MusicUiMessage message) {
     MusicUiMessageCode.downloadAlreadyRunning ||
     MusicUiMessageCode.downloadCanceled ||
     MusicUiMessageCode.playingCachedFile ||
+    MusicUiMessageCode.playingFullAudioStream ||
     MusicUiMessageCode.playingPreviewAudio ||
     MusicUiMessageCode.previewCannotDownload => true,
     _ => false,
@@ -2612,6 +2613,7 @@ String? _localizedMessage(AppStrings strings, MusicUiMessage? message) {
     MusicUiMessageCode.downloadAlreadyRunning => strings.downloadAlreadyRunning,
     MusicUiMessageCode.downloadCanceled => strings.downloadCanceled,
     MusicUiMessageCode.playingCachedFile => strings.playingCachedFile,
+    MusicUiMessageCode.playingFullAudioStream => strings.playingFullAudioStream,
     MusicUiMessageCode.playingPreviewAudio => strings.playingPreviewAudio,
     MusicUiMessageCode.previewCannotDownload => strings.previewCannotDownload,
   };
@@ -2653,6 +2655,7 @@ String _sourceMarker(MusicSearchCandidate candidate) {
     MusicDataSource.buguyy => '布谷',
     MusicDataSource.flac => 'FLAC',
     MusicDataSource.source22a5 => '22a5',
+    MusicDataSource.kuwoFullAudio => '完整',
     MusicDataSource.itunesPreview => '试听',
     MusicDataSource.auto => 'AUTO',
   };

@@ -954,6 +954,213 @@ void main() {
       ),
     );
   });
+
+  test(
+    'kuwo full audio provider resolves exact scoped songs with HEAD and Range gate',
+    () async {
+      const audioUrl = 'https://kuwo.example.test/daoxiang.mp3';
+      final http = _FakeResolverHttp(
+        onGet: (uri, _) async {
+          if (uri.host == 'search.kuwo.cn') {
+            expect(uri.queryParameters['all'], '稻香');
+            return _json(uri, {
+              'abslist': [
+                {
+                  'name': '稻香',
+                  'artist': '周杰伦',
+                  'album': '魔杰座',
+                  'duration': '187',
+                  'musicRid': 'MUSIC_351583919',
+                  'formats': 'MP3128',
+                  'minfo': 'level:h,bitrate:128,format:mp3,size:2.86Mb',
+                  'online': '1',
+                  'pay': '0',
+                  'copyright': '0',
+                },
+              ],
+            });
+          }
+          if (uri.host == 'antiserver.kuwo.cn') {
+            expect(uri.queryParameters['type'], 'convert_url3');
+            expect(uri.queryParameters['rid'], 'MUSIC_351583919');
+            return _json(uri, {'url': audioUrl});
+          }
+          fail('Unexpected GET $uri');
+        },
+        onHead: (uri, _) async {
+          expect(uri.toString(), audioUrl);
+          return _response(
+            uri,
+            HttpStatus.ok,
+            headers: const {
+              'content-type': 'audio/mpeg',
+              'content-length': '2860000',
+              'accept-ranges': 'bytes',
+            },
+          );
+        },
+        onRange: (uri, start, end, _) async {
+          expect(uri.toString(), audioUrl);
+          expect((start, end), (0, 0));
+          return _response(
+            uri,
+            HttpStatus.partialContent,
+            body: 'x',
+            headers: const {
+              'content-type': 'audio/mpeg',
+              'content-length': '1',
+              'content-range': 'bytes 0-0/2860000',
+            },
+          );
+        },
+      );
+      final resolver = RemoteMusicResolver(httpClient: http);
+
+      final candidates = await resolver.search(
+        '周杰伦 稻香',
+        MusicDataSource.kuwoFullAudio,
+      );
+      expect(candidates, hasLength(1));
+      expect(candidates.single.source, MusicDataSource.kuwoFullAudio);
+      expect(candidates.single.name, '稻香');
+      expect(candidates.single.artist, '周杰伦');
+
+      final resolved = await resolver.resolve(candidates.single);
+      expect(resolved.source, MusicDataSource.kuwoFullAudio);
+      expect(resolved.url, audioUrl);
+      expect(resolved.urlType, MediaUrlType.directAudio);
+      expect(resolved.canCacheAudio, isTrue);
+      expect(resolved.sourceAttempts.single.reasonCode, 'direct_audio_ready');
+      expect(resolved.sourceAttempts.single.clientReady, isTrue);
+      expect(
+        resolved.sourceAttempts.single.mediaValidation,
+        contains('Range 206 bytes 0-0/2860000'),
+      );
+    },
+  );
+
+  test(
+    'kuwo full audio provider filters songs outside the two-song PoC scope',
+    () async {
+      final http = _FakeResolverHttp(
+        onGet: (uri, _) async {
+          if (uri.host == 'search.kuwo.cn') {
+            return _json(uri, {
+              'abslist': [
+                {
+                  'name': '浮夸',
+                  'artist': '陈奕迅',
+                  'album': 'U87',
+                  'duration': '286',
+                  'musicRid': 'MUSIC_123',
+                  'formats': 'MP3128',
+                  'minfo': 'level:h,bitrate:128,format:mp3,size:4.3Mb',
+                  'online': '1',
+                  'pay': '0',
+                  'copyright': '0',
+                },
+              ],
+            });
+          }
+          fail('Unexpected GET $uri');
+        },
+      );
+      final resolver = RemoteMusicResolver(httpClient: http);
+
+      final candidates = await resolver.search(
+        '浮夸',
+        MusicDataSource.kuwoFullAudio,
+      );
+
+      expect(candidates, isEmpty);
+    },
+  );
+
+  test(
+    'kuwo full audio provider parses legacy single-quoted abslist',
+    () async {
+      final http = _FakeResolverHttp(
+        onGet: (uri, _) async {
+          if (uri.host == 'search.kuwo.cn') {
+            return _response(
+              uri,
+              HttpStatus.ok,
+              body:
+                  "{'TOTAL':'1','abslist':[{'ALBUM':'U87','ARTIST':'陈奕迅',"
+                  "'COPYRIGHT':'0','DURATION':'192','FORMATS':'MP3128',"
+                  "'MINFO':'level:h,bitrate:128,format:mp3,size:2.93Mb',"
+                  "'MUSICRID':'MUSIC_475511188','NAME':'一丝不挂',"
+                  "'ONLINE':'1','PAY':'0'}],'PN':'0'}",
+              headers: const {'content-type': 'text/plain; charset=utf-8'},
+            );
+          }
+          fail('Unexpected GET $uri');
+        },
+      );
+      final resolver = RemoteMusicResolver(httpClient: http);
+
+      final candidates = await resolver.search(
+        '陈奕迅 一丝不挂',
+        MusicDataSource.kuwoFullAudio,
+      );
+
+      expect(candidates, hasLength(1));
+      expect(candidates.single.id, 'MUSIC_475511188');
+      expect(candidates.single.name, '一丝不挂');
+      expect(candidates.single.artist, '陈奕迅');
+    },
+  );
+
+  test('kuwo full audio provider fails closed on browser-only media', () async {
+    const audioUrl = 'https://kuwo.example.test/blocked.mp3';
+    final http = _FakeResolverHttp(
+      onGet: (uri, _) async {
+        if (uri.host == 'antiserver.kuwo.cn') {
+          return _json(uri, {'url': audioUrl});
+        }
+        fail('Unexpected GET $uri');
+      },
+      onHead: (uri, _) async => _response(uri, HttpStatus.gone),
+      onRange: (uri, start, end, _) async => _response(uri, HttpStatus.gone),
+    );
+    final resolver = RemoteMusicResolver(httpClient: http);
+
+    await expectLater(
+      resolver.resolve(
+        MusicSearchCandidate(
+          query: '一丝不挂',
+          source: MusicDataSource.kuwoFullAudio,
+          platform: 'kuwo',
+          keyword: '一丝不挂',
+          page: 0,
+          id: 'MUSIC_475511188',
+          name: '一丝不挂',
+          artist: '陈奕迅',
+          album: '',
+          duration: 192,
+          link: 'MUSIC_475511188',
+          coverUrl: '',
+          qualities: const [MusicQuality(format: 'mp3', bitrate: '128')],
+          score: 300,
+          raw: const {},
+        ),
+      ),
+      throwsA(
+        isA<SourceDownloadException>()
+            .having((error) => error.failureCode, 'failureCode', 'browser_only')
+            .having(
+              (error) => error.sourceAttempts.single.mediaUrlType,
+              'urlType',
+              MediaUrlType.directAudioCandidate,
+            )
+            .having(
+              (error) => error.sourceAttempts.single.clientReady,
+              'clientReady',
+              isFalse,
+            ),
+      ),
+    );
+  });
 }
 
 ResolverHttpResponse _json(Uri uri, Object body) {

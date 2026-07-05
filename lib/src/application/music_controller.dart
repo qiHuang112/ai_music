@@ -522,6 +522,10 @@ class MusicController extends ChangeNotifier {
       await _playPreviewCandidate(candidate);
       return;
     }
+    if (candidate.source == MusicDataSource.kuwoFullAudio) {
+      await _playFullAudioStreamingCandidate(candidate);
+      return;
+    }
     var record = _cachedRecordForCandidate(candidate);
     if (record == null) {
       await downloadCandidate(candidate);
@@ -552,6 +556,159 @@ class MusicController extends ChangeNotifier {
     }
     statusMessage = const MusicUiMessage(MusicUiMessageCode.playingCachedFile);
     notifyListeners();
+  }
+
+  Future<void> _playFullAudioStreamingCandidate(
+    MusicSearchCandidate candidate,
+  ) async {
+    final startedAt = DateTime.now();
+    errorDetail = null;
+    errorMessage = null;
+    statusMessage = MusicUiMessage(
+      MusicUiMessageCode.resolving,
+      subject: candidate.name,
+    );
+    notifyListeners();
+    try {
+      _logHotlistPlayback(
+        'full-audio resolve-start source=${candidate.source.storageValue} '
+        'query="${candidate.query}" name="${candidate.name}" '
+        'artist="${candidate.artist}"',
+      );
+      final resolved = await _resolver.resolve(candidate);
+      if (resolved.urlType != MediaUrlType.directAudio ||
+          !resolved.canCacheAudio ||
+          resolved.url.trim().isEmpty) {
+        throw SourceDownloadException(
+          '完整音频地址未通过客户端校验。',
+          failureCode: 'audio_validation_failed',
+          sourceAttempts: resolved.sourceAttempts,
+        );
+      }
+      final handle = await _streamingPlaybackCache.openHotlistTrack(
+        resolved,
+        const StreamingPlaybackPolicy(),
+      );
+      _logHotlistPlayback(
+        'full-audio transient-open source=${resolved.source.storageValue} '
+        'cacheId=${cacheIdForResolved(resolved)} proxy=${handle.proxyUri} '
+        'part=${handle.session.partFile.path}',
+      );
+      final track = Track(
+        id: 'stream:${resolved.source.storageValue}:${resolved.id}',
+        title: resolved.name.isEmpty ? resolved.query : resolved.name,
+        artist: resolved.artist,
+        album: resolved.album,
+        source: handle.proxyUri.toString(),
+        artworkUri: artworkUriFromText(resolved.coverUrl),
+        duration: resolved.duration > 0
+            ? Duration(seconds: resolved.duration)
+            : null,
+      );
+      final loaded = await playbackUseCase.playTrack(
+        track,
+        index: 0,
+        fallbackQueue: [track],
+        queueTracks: [track],
+      );
+      if (!loaded) {
+        await handle.session.cancel(deletePartFile: true);
+        throw const SourceDownloadException(
+          '播放器未能加载完整音频。',
+          failureCode: 'playback_load_failed',
+        );
+      }
+      _activeQueueSource = const PlaybackQueueSource.searchCache();
+      _activeQueueTrackIds = [track.id];
+      await _savePlaybackState(currentTrackId: track.id);
+      await playbackUseCase.applyPlaybackMode(playbackMode);
+      final lyrics = resolved.lyrics;
+      _metadataTrackId = track.id;
+      currentMetadata = TrackMetadata(
+        artworkUri: track.artworkUri,
+        lyrics: lyrics == null ? const [] : parseLrcLines(lyrics.text),
+        source: lyrics?.source ?? resolved.source.storageValue,
+      );
+      statusMessage = const MusicUiMessage(
+        MusicUiMessageCode.playingFullAudioStream,
+      );
+      _logHotlistPlayback(
+        'full-audio play-started source=${resolved.source.storageValue} '
+        'name="${resolved.name}" artist="${resolved.artist}" '
+        'playback_started_ms=${DateTime.now().difference(startedAt).inMilliseconds} '
+        'not-in-download-list=true',
+      );
+      unawaited(_watchFullAudioStreaming(handle, startedAt));
+    } catch (exception) {
+      errorDetail = friendlyError(exception);
+      statusMessage = null;
+      _logHotlistPlayback('full-audio play-failed ${friendlyError(exception)}');
+    } finally {
+      notifyListeners();
+    }
+  }
+
+  Future<void> _watchFullAudioStreaming(
+    StreamingPlaybackHandle handle,
+    DateTime startedAt,
+  ) async {
+    var firstByteLogged = false;
+    var lastLoggedBytes = 0;
+    try {
+      await for (final _ in handle.progress) {
+        final bytes = handle.session.downloadedBytes;
+        final elapsed = DateTime.now().difference(startedAt).inMilliseconds;
+        if (!firstByteLogged && bytes > 0) {
+          firstByteLogged = true;
+          _logHotlistPlayback(
+            'full-audio first_byte_ms=$elapsed part_bytes=$bytes '
+            'part=${handle.session.partFile.path}',
+          );
+        }
+        final shouldLogProgress =
+            bytes > 0 &&
+            (bytes - lastLoggedBytes >= 256 * 1024 ||
+                handle.session.isComplete ||
+                handle.session.fetchError != null);
+        if (shouldLogProgress) {
+          lastLoggedBytes = bytes;
+          _logHotlistPlayback(
+            'full-audio part-growth elapsed_ms=$elapsed bytes=$bytes '
+            'total=${handle.session.totalBytes ?? -1} '
+            'part=${handle.session.partFile.path}',
+          );
+        }
+        if (handle.session.isComplete || handle.session.fetchError != null) {
+          break;
+        }
+      }
+      if (handle.session.fetchError != null) {
+        _logHotlistPlayback(
+          'full-audio transient-failed '
+          '${friendlyError(handle.session.fetchError!)}',
+        );
+        return;
+      }
+      if (!handle.session.isComplete) {
+        return;
+      }
+      final cached = await handle.session.promoteWhenComplete();
+      final elapsed = DateTime.now().difference(startedAt).inMilliseconds;
+      _upsertCachedRecord(cached);
+      _logHotlistPlayback(
+        'full-audio download-complete download_complete_ms=$elapsed '
+        'cacheId=${cached.cacheId} bytes=${cached.sizeBytes} '
+        'file=${cached.filePath}',
+      );
+      if (!_isDisposed) {
+        notifyListeners();
+        unawaited(_primeMetadataAndReloadCache(cached));
+      }
+    } catch (exception) {
+      _logHotlistPlayback(
+        'full-audio promote-failed ${friendlyError(exception)}',
+      );
+    }
   }
 
   Future<void> _playPreviewCandidate(MusicSearchCandidate candidate) async {
