@@ -428,8 +428,13 @@ class _OnlineSearchPanel extends StatelessWidget {
                         overflow: TextOverflow.ellipsis,
                       ),
                       subtitle: Text(
-                        _candidateSubtitle(candidate),
-                        maxLines: 1,
+                        _candidateSubtitle(
+                          strings,
+                          candidate,
+                          isCached: isCached,
+                          isFullAudio: isFullAudio,
+                        ),
+                        maxLines: 2,
                         overflow: TextOverflow.ellipsis,
                       ),
                       trailing: Row(
@@ -2619,11 +2624,17 @@ String? _localizedMessage(AppStrings strings, MusicUiMessage? message) {
   };
 }
 
-String _candidateSubtitle(MusicSearchCandidate candidate) {
+String _candidateSubtitle(
+  AppStrings strings,
+  MusicSearchCandidate candidate, {
+  required bool isCached,
+  required bool isFullAudio,
+}) {
   final parts = [
     if (candidate.artist.isNotEmpty) candidate.artist,
     if (candidate.album.isNotEmpty) candidate.album,
     if (_qualityAndSize(candidate).isNotEmpty) _qualityAndSize(candidate),
+    if (!isCached && !isFullAudio) strings.candidateUnavailableForDownload,
   ];
   return parts.join(' - ');
 }
