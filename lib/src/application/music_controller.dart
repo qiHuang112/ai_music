@@ -605,12 +605,14 @@ class MusicController extends ChangeNotifier {
             ? Duration(seconds: resolved.duration)
             : null,
       );
-      final loaded = await playbackUseCase.playTrack(
+      final playFuture = playbackUseCase.playTrack(
         track,
         index: 0,
         fallbackQueue: [track],
         queueTracks: [track],
       );
+      unawaited(_watchFullAudioStreaming(handle, startedAt));
+      final loaded = await playFuture;
       if (!loaded) {
         await handle.session.cancel(deletePartFile: true);
         throw const SourceDownloadException(
@@ -638,7 +640,6 @@ class MusicController extends ChangeNotifier {
         'playback_started_ms=${DateTime.now().difference(startedAt).inMilliseconds} '
         'not-in-download-list=true',
       );
-      unawaited(_watchFullAudioStreaming(handle, startedAt));
     } catch (exception) {
       errorDetail = friendlyError(exception);
       statusMessage = null;
