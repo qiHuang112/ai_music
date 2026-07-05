@@ -208,5 +208,6 @@ String _sourceTitle(AppStrings strings, MusicDataSource source) {
     MusicDataSource.auto => strings.autoSource,
     MusicDataSource.buguyy => strings.buguyy,
     MusicDataSource.flac => strings.flacSource,
+    MusicDataSource.itunesPreview => strings.itunesPreviewSource,
   };
 }

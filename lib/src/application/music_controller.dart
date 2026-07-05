@@ -332,6 +332,10 @@ class MusicController extends ChangeNotifier {
   }
 
   Future<void> playCandidate(MusicSearchCandidate candidate) async {
+    if (candidate.source == MusicDataSource.itunesPreview) {
+      await _playPreviewCandidate(candidate);
+      return;
+    }
     var record = _cachedRecordForCandidate(candidate);
     if (record == null) {
       await downloadCandidate(candidate);
@@ -362,6 +366,63 @@ class MusicController extends ChangeNotifier {
     }
     statusMessage = const MusicUiMessage(MusicUiMessageCode.playingCachedFile);
     notifyListeners();
+  }
+
+  Future<void> _playPreviewCandidate(MusicSearchCandidate candidate) async {
+    errorDetail = null;
+    errorMessage = null;
+    statusMessage = MusicUiMessage(
+      MusicUiMessageCode.resolving,
+      subject: candidate.name,
+    );
+    notifyListeners();
+    try {
+      final resolved = await _resolver.resolve(candidate);
+      if (resolved.urlType != MediaUrlType.previewAudio ||
+          resolved.url.trim().isEmpty) {
+        errorDetail = friendlyError(
+          const SourceDownloadException(
+            '暂时没有可播放的试听链接。',
+            failureCode: 'play_url_unavailable',
+          ),
+        );
+        statusMessage = null;
+        notifyListeners();
+        return;
+      }
+      final track = Track(
+        id: 'preview:${resolved.source.storageValue}:${resolved.id}',
+        title: resolved.name.isEmpty ? resolved.query : resolved.name,
+        artist: resolved.artist,
+        album: resolved.album,
+        source: resolved.url,
+        artworkUri: artworkUriFromText(resolved.coverUrl),
+        duration: resolved.duration > 0
+            ? Duration(seconds: resolved.duration)
+            : null,
+      );
+      final loaded = await playbackUseCase.playTrack(
+        track,
+        fallbackQueue: [track],
+      );
+      if (loaded) {
+        final lyrics = resolved.lyrics;
+        currentMetadata = TrackMetadata(
+          artworkUri: track.artworkUri,
+          lyrics: lyrics == null ? const [] : parseLrcLines(lyrics.text),
+          source: lyrics?.source ?? 'itunes',
+        );
+        statusMessage = const MusicUiMessage(
+          MusicUiMessageCode.playingPreviewAudio,
+        );
+        await playbackUseCase.applyPlaybackMode(playbackMode);
+      }
+    } catch (exception) {
+      errorDetail = friendlyError(exception);
+      statusMessage = null;
+    } finally {
+      notifyListeners();
+    }
   }
 
   Future<void> playTrack(

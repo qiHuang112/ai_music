@@ -1248,6 +1248,49 @@ void main() {
     }
   });
 
+  test(
+    'playCandidate plays itunes preview without downloading cache',
+    () async {
+      final handler = _SpyAudioHandler();
+      final resolver = _PreviewMusicResolver();
+      final cacheStore = _DownloadCacheStore();
+      final controller = MusicController(
+        audioHandler: handler,
+        resolver: resolver,
+        cacheStore: cacheStore,
+        playlistStore: _FakePlaylistStore(),
+        settingsStore: _FakeSettingsStore(),
+        metadataRepository: _StaticMetadataRepository(),
+      );
+      final candidate = _candidate(
+        id: 'preview-1',
+        name: '稻香',
+        source: MusicDataSource.itunesPreview,
+        platform: 'itunes',
+      );
+
+      try {
+        await controller.initialize();
+
+        await controller.playCandidate(candidate);
+
+        expect(resolver.resolveIds, ['preview-1']);
+        expect(cacheStore.downloadIds, isEmpty);
+        expect(controller.cachedTracks, isEmpty);
+        expect(handler.loadedIds, ['preview:itunes_preview:preview-1']);
+        expect(handler.playCalls, 1);
+        expect(
+          controller.statusMessage?.code,
+          MusicUiMessageCode.playingPreviewAudio,
+        );
+        expect(controller.currentLyrics.single.text, '试听歌词');
+      } finally {
+        controller.dispose();
+        await handler.dispose();
+      }
+    },
+  );
+
   test('next resumes playback when player is paused', () async {
     final handler = _SpyAudioHandler();
     final controller = MusicController(
@@ -1704,6 +1747,34 @@ class _LyricsResolvingMusicResolver extends _FakeMusicResolver {
   }
 }
 
+class _PreviewMusicResolver extends _FakeMusicResolver {
+  final resolveIds = <String>[];
+
+  @override
+  Future<ResolvedMusic> resolve(MusicSearchCandidate candidate) async {
+    resolveIds.add(candidate.id);
+    return ResolvedMusic(
+      query: candidate.query,
+      source: MusicDataSource.itunesPreview,
+      platform: 'itunes',
+      id: candidate.id,
+      name: candidate.name,
+      artist: candidate.artist,
+      album: candidate.album,
+      url: 'https://audio-ssl.itunes.apple.com/preview.m4a',
+      quality: const MusicQuality(format: 'preview'),
+      urlType: MediaUrlType.previewAudio,
+      canCacheAudio: false,
+      lyrics: const ResolvedLyrics(
+        source: 'lrclib:syncedLyrics',
+        text: '[00:01.00]试听歌词',
+        lines: 1,
+        timed: true,
+      ),
+    );
+  }
+}
+
 class _CompletingSearchResolver extends _FakeMusicResolver {
   final _searchCompleter = Completer<List<MusicSearchCandidate>>();
 
@@ -1792,11 +1863,13 @@ MusicSearchCandidate _candidate({
   required String id,
   required String name,
   String coverUrl = '',
+  MusicDataSource source = MusicDataSource.buguyy,
+  String platform = 'buguyy',
 }) {
   return MusicSearchCandidate(
     query: name,
-    source: MusicDataSource.buguyy,
-    platform: 'buguyy',
+    source: source,
+    platform: platform,
     keyword: name,
     page: 1,
     id: id,

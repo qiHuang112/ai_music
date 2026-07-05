@@ -561,6 +561,107 @@ void main() {
     expect(buguyyRequests, greaterThan(0));
     expect(flacRequests, greaterThan(0));
   });
+
+  test(
+    'itunes preview search resolves preview audio with lrclib lyrics',
+    () async {
+      final http = _FakeResolverHttp(
+        onGet: (uri, _) async {
+          if (uri.host == 'itunes.apple.com') {
+            expect(uri.queryParameters['media'], 'music');
+            expect(uri.queryParameters['entity'], 'song');
+            return _json(uri, {
+              'resultCount': 1,
+              'results': [
+                {
+                  'trackId': 1001,
+                  'trackName': '稻香',
+                  'artistName': '周杰伦',
+                  'collectionName': '魔杰座',
+                  'trackTimeMillis': 30000,
+                  'artworkUrl100':
+                      'https://is1-ssl.mzstatic.com/image/100x100bb.jpg',
+                  'previewUrl':
+                      'https://audio-ssl.itunes.apple.com/itunes-assets/MusicPreview.m4a',
+                },
+              ],
+            });
+          }
+          if (uri.host == 'lrclib.net') {
+            return _json(uri, [
+              {'syncedLyrics': '[00:01.00]对这个世界如果你有太多的抱怨'},
+            ]);
+          }
+          fail('Unexpected GET $uri');
+        },
+      );
+      final resolver = RemoteMusicResolver(httpClient: http);
+
+      final candidates = await resolver.search(
+        '周杰伦 稻香',
+        MusicDataSource.itunesPreview,
+      );
+      expect(candidates, hasLength(1));
+      expect(candidates.single.source, MusicDataSource.itunesPreview);
+      expect(candidates.single.coverUrl, contains('600x600bb'));
+      expect(candidates.single.qualityLabel, 'PREVIEW AAC 30s');
+
+      final resolved = await resolver.resolve(candidates.single);
+      expect(resolved.urlType, MediaUrlType.previewAudio);
+      expect(resolved.canCacheAudio, isFalse);
+      expect(resolved.sourceAttempts.single.status, SourceAttemptStatus.ok);
+      expect(resolved.sourceAttempts.single.failureCode, isEmpty);
+      expect(
+        resolved.sourceAttempts.single.reasonCode,
+        'preview_audio_available',
+      );
+      expect(resolved.lyrics?.source, 'lrclib:syncedLyrics');
+    },
+  );
+
+  test(
+    'auto includes itunes preview candidates when legacy sources fail',
+    () async {
+      final http = _FakeResolverHttp(
+        onGet: (uri, _) async {
+          if (uri.host == 'buguyy.top') {
+            return _json(uri, {'data': const []});
+          }
+          if (uri.host == 'itunes.apple.com') {
+            return _json(uri, {
+              'results': [
+                {
+                  'trackId': 2001,
+                  'trackName': '龙的传人',
+                  'artistName': '王力宏',
+                  'trackTimeMillis': 30000,
+                  'previewUrl':
+                      'https://audio-ssl.itunes.apple.com/itunes-assets/long.m4a',
+                },
+              ],
+            });
+          }
+          fail('Unexpected GET $uri');
+        },
+        onPostForm: (_, _, _) async {
+          throw const HttpException('SafeLine challenge');
+        },
+      );
+      final resolver = RemoteMusicResolver(
+        httpClient: http,
+        initialFlacCookie: 'sl-session=test',
+        platforms: const ['kuwo'],
+      );
+
+      final candidates = await resolver.search(
+        '王力宏 龙的传人',
+        MusicDataSource.auto,
+      );
+
+      expect(candidates, hasLength(1));
+      expect(candidates.single.source, MusicDataSource.itunesPreview);
+    },
+  );
 }
 
 ResolverHttpResponse _json(Uri uri, Object body) {

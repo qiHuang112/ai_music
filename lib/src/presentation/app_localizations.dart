@@ -55,6 +55,8 @@ class AppStrings {
   String get autoSource => isZh ? '自动 / Auto' : 'Auto';
   String get buguyy => isZh ? '布谷歪歪 / BuguYY' : 'BuguYY';
   String get flacSource => isZh ? 'FLAC / flac.music.hi.cn' : 'FLAC';
+  String get itunesPreviewSource =>
+      isZh ? 'iTunes 试听 / Preview' : 'iTunes Preview';
   String get autoSourceDescription => isZh
       ? '同时搜索布谷歪歪和 FLAC，合并展示可用结果。'
       : 'Search BuguYY and FLAC together, then show the merged results.';
@@ -73,8 +75,13 @@ class AppStrings {
   String get clear => isZh ? '清除' : 'Clear';
   String get delete => isZh ? '删除' : 'Delete';
   String get play => isZh ? '播放' : 'Play';
+  String get playPreview => isZh ? '播放试听' : 'Play preview';
   String get download => isZh ? '下载' : 'Download';
   String get downloadAgain => isZh ? '重新下载' : 'Download again';
+  String get playingPreviewAudio => isZh ? '正在播放试听片段' : 'Playing preview';
+  String get previewCannotDownload => isZh
+      ? '当前仅支持试听，无法缓存为完整歌曲。'
+      : 'Only preview playback is available; full-track caching is unavailable.';
   String get repairLegacy => isZh ? '修复老资源' : 'Repair old cache';
   String get refresh => isZh ? '刷新' : 'Refresh';
   String get sort => isZh ? '排序' : 'Sort';

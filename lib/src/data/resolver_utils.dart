@@ -69,6 +69,10 @@ MediaUrlType classifyMediaUrl(String url) {
       path.endsWith('/')) {
     return MediaUrlType.htmlPage;
   }
+  if (host.contains('audio-ssl.itunes.apple.com') ||
+      host.contains('audio.itunes.apple.com')) {
+    return MediaUrlType.previewAudio;
+  }
   final extension = urlExtension(trimmed);
   if ({
     '.mp3',
@@ -91,6 +95,7 @@ MediaUrlType classifyMediaUrl(String url) {
 String failureCodeForUrlType(MediaUrlType type) {
   return switch (type) {
     MediaUrlType.directAudio => '',
+    MediaUrlType.previewAudio => 'preview_audio_available',
     MediaUrlType.externalPan => 'external_pan_link',
     MediaUrlType.htmlPage => 'non_audio_content',
     MediaUrlType.unknown => 'play_url_unavailable',

@@ -48,6 +48,23 @@ class DownloadUseCase {
     try {
       final resolved = await resolver.resolve(candidate);
       token.throwIfCanceled();
+      if (resolved.urlType == MediaUrlType.previewAudio ||
+          !resolved.canCacheAudio) {
+        _updateTask(
+          taskId,
+          (task) => task.copyWith(
+            status: DownloadTaskStatus.failed,
+            error: '当前仅支持试听，无法缓存为完整歌曲。',
+          ),
+          onChanged,
+        );
+        return const DownloadUseCaseResult(
+          statusMessage: MusicUiMessage(
+            MusicUiMessageCode.previewCannotDownload,
+          ),
+          errorDetail: '当前仅支持试听，无法缓存为完整歌曲。',
+        );
+      }
       onStatus(
         MusicUiMessage(MusicUiMessageCode.downloading, subject: resolved.name),
       );
