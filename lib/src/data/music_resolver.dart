@@ -17,7 +17,8 @@ import 'resolver_http_client.dart';
 import 'resolver_models.dart';
 import 'resolver_utils.dart';
 
-class RemoteMusicResolver implements MusicResolver, ProgressiveMusicResolver {
+class RemoteMusicResolver
+    implements MusicResolver, PreferredMusicResolver, ProgressiveMusicResolver {
   RemoteMusicResolver({
     MusicResolverHttp? httpClient,
     String? initialFlacCookie,
@@ -25,7 +26,7 @@ class RemoteMusicResolver implements MusicResolver, ProgressiveMusicResolver {
     List<String> platforms = const ['kuwo', 'wyy'],
     String prefer = 'flac',
     bool? useAppleBuguyyEndpoint,
-  }) {
+  }) : _prefer = prefer {
     final http = httpClient ?? HttpMusicResolverClient();
     const scorer = CandidateScorer();
     _buguyy = BuguyyResolver(
@@ -46,6 +47,7 @@ class RemoteMusicResolver implements MusicResolver, ProgressiveMusicResolver {
     );
   }
 
+  final String _prefer;
   late final BuguyyResolver _buguyy;
   late final FlacResolver _flac;
 
@@ -156,9 +158,23 @@ class RemoteMusicResolver implements MusicResolver, ProgressiveMusicResolver {
 
   @override
   Future<ResolvedMusic> resolve(MusicSearchCandidate candidate) async {
+    return resolveWithPrefer(candidate, prefer: _prefer);
+  }
+
+  @override
+  Future<ResolvedMusic> resolveWithPrefer(
+    MusicSearchCandidate candidate, {
+    required String prefer,
+  }) async {
     final resolved = await switch (candidate.source) {
-      MusicDataSource.buguyy => _resolveBuguyyWithFallback(candidate),
-      MusicDataSource.flac => _flac.resolve(candidate),
+      MusicDataSource.buguyy => _resolveBuguyyWithFallback(
+        candidate,
+        prefer: prefer,
+      ),
+      MusicDataSource.flac => _flac.resolveWithPrefer(
+        candidate,
+        prefer: prefer,
+      ),
       MusicDataSource.auto => throw StateError(
         'Auto candidates must be tagged with their concrete source.',
       ),
@@ -174,9 +190,10 @@ class RemoteMusicResolver implements MusicResolver, ProgressiveMusicResolver {
   }
 
   Future<ResolvedMusic> _resolveBuguyyWithFallback(
-    MusicSearchCandidate candidate,
-  ) async {
-    final buguyy = await _buguyy.resolve(candidate);
+    MusicSearchCandidate candidate, {
+    required String prefer,
+  }) async {
+    final buguyy = await _buguyy.resolveWithPrefer(candidate, prefer: prefer);
     if (buguyy.urlType == MediaUrlType.directAudio) {
       return buguyy;
     }
@@ -197,7 +214,10 @@ class RemoteMusicResolver implements MusicResolver, ProgressiveMusicResolver {
           );
           continue;
         }
-        final resolved = await _flac.resolve(flacCandidate);
+        final resolved = await _flac.resolveWithPrefer(
+          flacCandidate,
+          prefer: prefer,
+        );
         if (resolved.urlType == MediaUrlType.directAudio) {
           return resolved.copyWith(
             sourceAttempts: [

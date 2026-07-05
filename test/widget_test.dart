@@ -3,12 +3,14 @@ import 'dart:io';
 
 import 'package:ai_music/src/application/music_controller.dart';
 import 'package:ai_music/src/data/hotlist.dart';
+import 'package:ai_music/src/data/hotlist_playlists.dart';
 import 'package:ai_music/src/data/lyrics_artwork.dart';
 import 'package:ai_music/src/data/music_cache.dart';
 import 'package:ai_music/src/data/music_playlists.dart';
 import 'package:ai_music/src/data/music_resolver.dart';
 import 'package:ai_music/src/data/music_settings.dart';
 import 'package:ai_music/src/data/playback_state_store.dart';
+import 'package:ai_music/src/data/progressive_audio_cache.dart';
 import 'package:ai_music/src/domain/music_models.dart';
 import 'package:ai_music/src/presentation/app_localizations.dart';
 import 'package:ai_music/src/presentation/music_home_page.dart';
@@ -147,38 +149,6 @@ void main() {
 
     expect(find.text('Road'), findsOneWidget);
     expect(find.text('Beta'), findsOneWidget);
-  });
-
-  testWidgets('hotlist entry opens detail and searches existing source', (
-    tester,
-  ) async {
-    final resolver = _FakeMusicResolver(
-      candidates: [_candidate(name: '第一首', artist: '歌手 A')],
-    );
-    await tester.pumpWidget(
-      _app(
-        resolver: resolver,
-        hotlistRepository: _StaticHotlistRepository([_hotlistChart()]),
-      ),
-    );
-    await tester.pumpAndSettle();
-
-    expect(find.text('我的音乐'), findsOneWidget);
-    expect(find.text('热榜发现'), findsOneWidget);
-    expect(find.text('QQ 热歌榜'), findsOneWidget);
-
-    await tester.tap(find.text('QQ 热歌榜'));
-    await tester.pumpAndSettle();
-
-    expect(find.text('榜单仅用于发现，播放需通过 AI Music 搜索匹配。'), findsOneWidget);
-    expect(find.text('第一首'), findsOneWidget);
-
-    await tester.tap(find.text('第一首'));
-    await tester.pumpAndSettle();
-
-    expect(resolver.lastQuery, '第一首 歌手 A');
-    expect(find.text('第一首'), findsOneWidget);
-    expect(find.byIcon(Icons.download_for_offline), findsOneWidget);
   });
 
   testWidgets('search results hide home default library summaries', (
@@ -1569,6 +1539,8 @@ Widget _app({
   MusicAudioHandler? audioHandler,
   PlaybackStateStore? playbackStateStore,
   HotlistRepository? hotlistRepository,
+  HotlistPlaylistStore? hotlistPlaylistStore,
+  HotlistStreamingPlayback? streamingPlaybackCache,
 }) {
   final controller = MusicController(
     audioHandler: audioHandler ?? MusicAudioHandler(),
@@ -1579,6 +1551,8 @@ Widget _app({
     playbackStateStore: playbackStateStore ?? _FakePlaybackStateStore(),
     metadataRepository: metadataRepository ?? _FakeMetadataRepository(),
     hotlistRepository: hotlistRepository ?? _StaticHotlistRepository(const []),
+    hotlistPlaylistStore: hotlistPlaylistStore ?? HotlistPlaylistStore(),
+    streamingPlaybackCache: streamingPlaybackCache ?? _FakeStreamingPlayback(),
   );
   return AnimatedBuilder(
     animation: controller,
@@ -1597,49 +1571,6 @@ Widget _app({
       );
     },
   );
-}
-
-HotlistChart _hotlistChart() {
-  return HotlistChart(
-    source: HotlistSource.qq,
-    chartId: '26',
-    title: 'QQ 热歌榜',
-    description: 'QQ 音乐热歌榜元数据',
-    coverUrl: '',
-    period: '2026-07-05',
-    updatedAt: DateTime(2026, 7, 5),
-    items: const [
-      HotlistItem(
-        rank: 1,
-        title: '第一首',
-        artist: '歌手 A',
-        album: '专辑一',
-        coverUrl: '',
-        sourceTrackId: '1001',
-        durationMs: 213000,
-        rankChange: '',
-      ),
-    ],
-  );
-}
-
-class _StaticHotlistRepository extends HotlistRepository {
-  _StaticHotlistRepository(this.charts)
-    : super(provider: _NeverHotlistProvider());
-
-  final List<HotlistChart> charts;
-
-  @override
-  Future<List<HotlistChart>> loadCharts({bool forceRefresh = false}) async {
-    return charts;
-  }
-}
-
-class _NeverHotlistProvider implements HotlistProvider {
-  @override
-  Future<HotlistChart> fetchQqHotChart() {
-    throw StateError('unused');
-  }
 }
 
 class _FakeMetadataRepository extends TrackMetadataRepository {
@@ -1831,6 +1762,39 @@ class _ProgressiveMusicResolver extends _FakeMusicResolver
       _controller.close();
     }
   }
+}
+
+class _StaticHotlistRepository extends HotlistRepository {
+  _StaticHotlistRepository(this.charts);
+
+  final List<HotlistChart> charts;
+
+  @override
+  Future<List<HotlistChart>> loadCharts({bool forceRefresh = false}) async {
+    return charts;
+  }
+}
+
+class _FakeStreamingPlayback implements HotlistStreamingPlayback {
+  int openCount = 0;
+
+  @override
+  Future<StreamingPlaybackHandle> openHotlistTrack(
+    ResolvedMusic resolved,
+    StreamingPlaybackPolicy policy,
+  ) async {
+    openCount += 1;
+    final session = await ProgressiveAudioCache(
+      cacheStore: _FakeCacheStore(),
+    ).open(resolved.copyWith(url: 'http://127.0.0.1/audio.mp3'));
+    return StreamingPlaybackHandle(
+      proxyUri: session.proxyUri,
+      session: session,
+    );
+  }
+
+  @override
+  Future<void> close() async {}
 }
 
 class _FakeSettingsStore implements MusicSettingsStore {

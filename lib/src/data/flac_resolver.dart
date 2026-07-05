@@ -94,6 +94,13 @@ class FlacResolver {
   }
 
   Future<ResolvedMusic> resolve(MusicSearchCandidate candidate) async {
+    return resolveWithPrefer(candidate, prefer: prefer);
+  }
+
+  Future<ResolvedMusic> resolveWithPrefer(
+    MusicSearchCandidate candidate, {
+    required String prefer,
+  }) async {
     final qualities = qualityOrder(candidate.qualities, prefer);
     if (qualities.isEmpty) {
       throw StateError('No downloadable quality found');

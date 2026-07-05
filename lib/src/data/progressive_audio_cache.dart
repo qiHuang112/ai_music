@@ -2,9 +2,354 @@ import 'dart:async';
 import 'dart:io';
 import 'dart:math';
 
+import 'json_file_store.dart';
 import 'music_cache.dart';
 import 'music_resolver.dart';
 import '../platform/app_storage.dart';
+
+enum TransientStreamingState { active, complete, failed, canceled }
+
+class TransientStreamingCacheEntry {
+  const TransientStreamingCacheEntry({
+    required this.cacheKey,
+    required this.filePath,
+    required this.downloadedBytes,
+    required this.state,
+    required this.createdAt,
+    required this.lastAccessed,
+    required this.playCount,
+    required this.source,
+    required this.quality,
+    this.totalBytes,
+  });
+
+  final String cacheKey;
+  final String filePath;
+  final int downloadedBytes;
+  final int? totalBytes;
+  final TransientStreamingState state;
+  final DateTime createdAt;
+  final DateTime lastAccessed;
+  final int playCount;
+  final String source;
+  final String quality;
+
+  TransientStreamingCacheEntry copyWith({
+    int? downloadedBytes,
+    int? totalBytes,
+    TransientStreamingState? state,
+    DateTime? lastAccessed,
+    int? playCount,
+  }) {
+    return TransientStreamingCacheEntry(
+      cacheKey: cacheKey,
+      filePath: filePath,
+      downloadedBytes: downloadedBytes ?? this.downloadedBytes,
+      totalBytes: totalBytes ?? this.totalBytes,
+      state: state ?? this.state,
+      createdAt: createdAt,
+      lastAccessed: lastAccessed ?? this.lastAccessed,
+      playCount: playCount ?? this.playCount,
+      source: source,
+      quality: quality,
+    );
+  }
+
+  Map<String, Object?> toJson() {
+    return {
+      'cacheKey': cacheKey,
+      'filePath': filePath,
+      'downloadedBytes': downloadedBytes,
+      'totalBytes': totalBytes,
+      'state': state.name,
+      'createdAt': createdAt.toIso8601String(),
+      'lastAccessed': lastAccessed.toIso8601String(),
+      'playCount': playCount,
+      'source': source,
+      'quality': quality,
+    };
+  }
+
+  static TransientStreamingCacheEntry? fromJson(Object? value) {
+    if (value is! Map) {
+      return null;
+    }
+    final json = value.cast<String, dynamic>();
+    final cacheKey = json['cacheKey']?.toString().trim() ?? '';
+    final filePath = json['filePath']?.toString().trim() ?? '';
+    if (cacheKey.isEmpty || filePath.isEmpty) {
+      return null;
+    }
+    return TransientStreamingCacheEntry(
+      cacheKey: cacheKey,
+      filePath: filePath,
+      downloadedBytes: _int(json['downloadedBytes']),
+      totalBytes: _nullableInt(json['totalBytes']),
+      state: TransientStreamingState.values.byName(
+        json['state']?.toString() ?? TransientStreamingState.active.name,
+      ),
+      createdAt:
+          DateTime.tryParse(json['createdAt']?.toString() ?? '') ??
+          DateTime.now(),
+      lastAccessed:
+          DateTime.tryParse(json['lastAccessed']?.toString() ?? '') ??
+          DateTime.now(),
+      playCount: _int(json['playCount']),
+      source: json['source']?.toString() ?? '',
+      quality: json['quality']?.toString() ?? '',
+    );
+  }
+}
+
+class TransientStreamingCacheStore {
+  TransientStreamingCacheStore({
+    Future<Directory> Function()? rootProvider,
+    JsonFileStore store = const JsonFileStore(),
+    DateTime Function()? now,
+  }) : _rootProvider =
+           rootProvider ??
+           (() => getAiMusicSupportSubdirectory('hotlist_transient_cache')),
+       _store = store,
+       _now = now ?? DateTime.now;
+
+  static const _indexName = 'transient_streaming_cache.json';
+
+  final Future<Directory> Function() _rootProvider;
+  final JsonFileStore _store;
+  final DateTime Function() _now;
+  Future<void> _writeTail = Future.value();
+
+  Future<File> createPartFile(String cacheKey) async {
+    final root = await _root();
+    return File(
+      '${root.path}${Platform.pathSeparator}$cacheKey'
+      '.transient-${_now().microsecondsSinceEpoch}.part',
+    );
+  }
+
+  Future<TransientStreamingCacheEntry> markStarted({
+    required ResolvedMusic music,
+    required File file,
+  }) async {
+    final now = _now();
+    final entry = TransientStreamingCacheEntry(
+      cacheKey: cacheIdForResolved(music),
+      filePath: file.path,
+      downloadedBytes: 0,
+      state: TransientStreamingState.active,
+      createdAt: now,
+      lastAccessed: now,
+      playCount: 1,
+      source: music.source.storageValue,
+      quality: music.quality.label,
+    );
+    await upsert(entry);
+    return entry;
+  }
+
+  Future<void> updateProgress(
+    String cacheKey, {
+    required int downloadedBytes,
+    int? totalBytes,
+    required TransientStreamingState state,
+  }) async {
+    await _withWriteLock(() async {
+      final entries = await _read();
+      final index = entries.indexWhere((entry) => entry.cacheKey == cacheKey);
+      if (index == -1) {
+        return;
+      }
+      entries[index] = entries[index].copyWith(
+        downloadedBytes: downloadedBytes,
+        totalBytes: totalBytes,
+        state: state,
+        lastAccessed: _now(),
+      );
+      await _write(entries);
+    });
+  }
+
+  Future<void> touch(String cacheKey) async {
+    await _withWriteLock(() async {
+      final entries = await _read();
+      final index = entries.indexWhere((entry) => entry.cacheKey == cacheKey);
+      if (index == -1) {
+        return;
+      }
+      final current = entries[index];
+      entries[index] = current.copyWith(
+        lastAccessed: _now(),
+        playCount: current.playCount + 1,
+      );
+      await _write(entries);
+    });
+  }
+
+  Future<void> upsert(TransientStreamingCacheEntry entry) async {
+    await _withWriteLock(() async {
+      final entries = await _read();
+      final index = entries.indexWhere(
+        (item) => item.cacheKey == entry.cacheKey,
+      );
+      if (index == -1) {
+        entries.add(entry);
+      } else {
+        await _deleteTransientFileIfUnused(entries[index], replacement: entry);
+        entries[index] = entry;
+      }
+      await _write(entries);
+    });
+  }
+
+  Future<List<TransientStreamingCacheEntry>> list() async {
+    return _read();
+  }
+
+  Future<int> sweep({required int maxBytes}) async {
+    return _withWriteLock(() async {
+      final entries = await _read();
+      var total = 0;
+      final existing = <TransientStreamingCacheEntry>[];
+      for (final entry in entries) {
+        final file = File(entry.filePath);
+        if (!await file.exists()) {
+          continue;
+        }
+        final stat = await file.stat();
+        total += stat.size;
+        existing.add(entry.copyWith(downloadedBytes: stat.size));
+      }
+      existing.sort((a, b) => a.lastAccessed.compareTo(b.lastAccessed));
+      var removed = 0;
+      while (total > maxBytes && existing.isNotEmpty) {
+        final victim = existing.removeAt(0);
+        final file = File(victim.filePath);
+        if (await file.exists()) {
+          final size = await file.length();
+          await file.delete();
+          total -= size;
+          removed += 1;
+        }
+      }
+      await _write(existing);
+      return removed;
+    });
+  }
+
+  Future<Directory> _root() async {
+    final root = await _rootProvider();
+    if (!await root.exists()) {
+      await root.create(recursive: true);
+    }
+    return root;
+  }
+
+  Future<List<TransientStreamingCacheEntry>> _read() async {
+    final value = await _store.read(await _indexFile());
+    if (value is! Map) {
+      return <TransientStreamingCacheEntry>[];
+    }
+    final rows = value['entries'] is List ? value['entries'] as List : [];
+    return [
+      for (final row in rows) ?TransientStreamingCacheEntry.fromJson(row),
+    ];
+  }
+
+  Future<void> _write(List<TransientStreamingCacheEntry> entries) async {
+    await _store.write(await _indexFile(), {
+      'entries': [for (final entry in entries) entry.toJson()],
+    });
+  }
+
+  Future<File> _indexFile() async {
+    final root = await _root();
+    return File('${root.path}${Platform.pathSeparator}$_indexName');
+  }
+
+  Future<void> _deleteTransientFileIfUnused(
+    TransientStreamingCacheEntry oldEntry, {
+    required TransientStreamingCacheEntry replacement,
+  }) async {
+    if (oldEntry.filePath == replacement.filePath) {
+      return;
+    }
+    final root = await _root();
+    final transientPrefix = '${root.path}${Platform.pathSeparator}';
+    if (!oldEntry.filePath.startsWith(transientPrefix)) {
+      return;
+    }
+    final file = File(oldEntry.filePath);
+    if (await file.exists()) {
+      await file.delete();
+    }
+  }
+
+  Future<T> _withWriteLock<T>(Future<T> Function() action) {
+    final run = _writeTail.then((_) => action());
+    _writeTail = run.then<void>((_) {}, onError: (_) {});
+    return run;
+  }
+}
+
+class StreamingPlaybackPolicy {
+  const StreamingPlaybackPolicy({this.maxTransientBytes = 256 * 1024 * 1024});
+
+  final int maxTransientBytes;
+}
+
+class StreamingPlaybackHandle {
+  const StreamingPlaybackHandle({
+    required this.proxyUri,
+    required this.session,
+  });
+
+  final Uri proxyUri;
+  final ProgressiveAudioSession session;
+  Stream<void> get progress => session.changes;
+}
+
+abstract interface class HotlistStreamingPlayback {
+  Future<StreamingPlaybackHandle> openHotlistTrack(
+    ResolvedMusic resolved,
+    StreamingPlaybackPolicy policy,
+  );
+
+  Future<void> close();
+}
+
+class StreamingPlaybackCache implements HotlistStreamingPlayback {
+  StreamingPlaybackCache({
+    required CachedTrackStore cacheStore,
+    ProgressiveAudioCache? progressiveCache,
+    TransientStreamingCacheStore? transientStore,
+    void Function(String message)? logger,
+  }) : transientStore = transientStore ?? TransientStreamingCacheStore(),
+       _progressiveCache =
+           progressiveCache ??
+           ProgressiveAudioCache(cacheStore: cacheStore, logger: logger);
+
+  final ProgressiveAudioCache _progressiveCache;
+  final TransientStreamingCacheStore transientStore;
+
+  @override
+  Future<StreamingPlaybackHandle> openHotlistTrack(
+    ResolvedMusic resolved,
+    StreamingPlaybackPolicy policy,
+  ) async {
+    await transientStore.sweep(maxBytes: policy.maxTransientBytes);
+    final session = await _progressiveCache.openHotlistTrack(
+      resolved,
+      transientStore: transientStore,
+    );
+    return StreamingPlaybackHandle(
+      proxyUri: session.proxyUri,
+      session: session,
+    );
+  }
+
+  @override
+  Future<void> close() => _progressiveCache.close();
+}
 
 class ProgressiveAudioCache {
   ProgressiveAudioCache({
@@ -31,6 +376,32 @@ class ProgressiveAudioCache {
   String? _activeToken;
 
   Future<ProgressiveAudioSession> open(ResolvedMusic music) async {
+    return _open(music);
+  }
+
+  Future<ProgressiveAudioSession> openHotlistTrack(
+    ResolvedMusic music, {
+    required TransientStreamingCacheStore transientStore,
+  }) async {
+    final cacheKey = cacheIdForResolved(music);
+    final partFile = await transientStore.createPartFile(cacheKey);
+    final session = await _open(
+      music,
+      partFile: partFile,
+      transientStore: transientStore,
+      transientCacheKey: cacheKey,
+    );
+    await transientStore.markStarted(music: music, file: partFile);
+    _logger?.call('hotlist streaming transient-start cacheKey=$cacheKey');
+    return session;
+  }
+
+  Future<ProgressiveAudioSession> _open(
+    ResolvedMusic music, {
+    File? partFile,
+    TransientStreamingCacheStore? transientStore,
+    String? transientCacheKey,
+  }) async {
     final root = await _rootProvider();
     if (!await root.exists()) {
       await root.create(recursive: true);
@@ -41,10 +412,12 @@ class ProgressiveAudioCache {
       _server = server;
       unawaited(_serve(server));
     }
-    final partFile = File(
-      '${root.path}${Platform.pathSeparator}${cacheIdForResolved(music)}'
-      '.progressive-${DateTime.now().microsecondsSinceEpoch}.part',
-    );
+    final nextPartFile =
+        partFile ??
+        File(
+          '${root.path}${Platform.pathSeparator}${cacheIdForResolved(music)}'
+          '.progressive-${DateTime.now().microsecondsSinceEpoch}.part',
+        );
     final token = _newSessionToken();
     final oldToken = _activeToken;
     if (oldToken != null) {
@@ -60,11 +433,13 @@ class ProgressiveAudioCache {
         port: server.port,
         path: '/audio/$token',
       ),
-      partFile: partFile,
+      partFile: nextPartFile,
       cacheStore: cacheStore,
       client: _client,
       firstByteTimeout: _firstByteTimeout,
       logger: _logger,
+      transientStore: transientStore,
+      transientCacheKey: transientCacheKey,
     );
     _activeToken = token;
     _sessions[token] = session;
@@ -139,10 +514,14 @@ class ProgressiveAudioSession {
     required HttpClient client,
     required Duration firstByteTimeout,
     void Function(String message)? logger,
+    TransientStreamingCacheStore? transientStore,
+    String? transientCacheKey,
   }) : _cacheStore = cacheStore,
        _client = client,
        _firstByteTimeout = firstByteTimeout,
-       _logger = logger;
+       _logger = logger,
+       _transientStore = transientStore,
+       _transientCacheKey = transientCacheKey;
 
   static const _userAgent =
       'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 '
@@ -155,6 +534,8 @@ class ProgressiveAudioSession {
   final HttpClient _client;
   final Duration _firstByteTimeout;
   final void Function(String message)? _logger;
+  final TransientStreamingCacheStore? _transientStore;
+  final String? _transientCacheKey;
   final _changed = StreamController<void>.broadcast();
   final _cancelToken = DownloadCancelToken();
   Future<void>? _fetchFuture;
@@ -258,6 +639,7 @@ class ProgressiveAudioSession {
 
   Future<void> cancel({bool deletePartFile = false}) async {
     _cancelToken.cancel();
+    await _updateTransient(TransientStreamingState.canceled);
     _logger?.call(
       'progressive canceled bytes=$_downloadedBytes part=${partFile.path}',
     );
@@ -301,11 +683,13 @@ class ProgressiveAudioSession {
         sink.add(chunk);
         await sink.flush();
         _downloadedBytes += chunk.length;
+        unawaited(_updateTransient(TransientStreamingState.active));
         _notifyChanged();
       }
       await sink.flush();
       _complete = true;
       _totalBytes ??= _downloadedBytes;
+      await _updateTransient(TransientStreamingState.complete);
       _logger?.call(
         'progressive complete bytes=$_downloadedBytes part=${partFile.path}',
       );
@@ -315,6 +699,7 @@ class ProgressiveAudioSession {
         return;
       }
       _fetchError = error;
+      await _updateTransient(TransientStreamingState.failed);
       _notifyChanged();
     } finally {
       await sink?.close();
@@ -423,6 +808,20 @@ class ProgressiveAudioSession {
     }
   }
 
+  Future<void> _updateTransient(TransientStreamingState state) async {
+    final store = _transientStore;
+    final cacheKey = _transientCacheKey;
+    if (store == null || cacheKey == null) {
+      return;
+    }
+    await store.updateProgress(
+      cacheKey,
+      downloadedBytes: _downloadedBytes,
+      totalBytes: _totalBytes,
+      state: state,
+    );
+  }
+
   bool _validateResponseContentType(HttpClientResponse response) {
     final mimeType = response.headers.contentType?.mimeType.toLowerCase();
     if (mimeType == null || mimeType.trim().isEmpty) {
@@ -516,4 +915,21 @@ bool _looksLikeTextResponse(List<int> bytes) {
       ascii.contains('cloudflare') ||
       ascii.contains('challenge') ||
       ascii.contains('waf');
+}
+
+int _int(Object? value) {
+  if (value is num) {
+    return value.toInt();
+  }
+  return int.tryParse(value?.toString() ?? '') ?? 0;
+}
+
+int? _nullableInt(Object? value) {
+  if (value == null) {
+    return null;
+  }
+  if (value is num) {
+    return value.toInt();
+  }
+  return int.tryParse(value.toString());
 }

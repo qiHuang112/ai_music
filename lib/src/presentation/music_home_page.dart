@@ -7,6 +7,7 @@ import 'package:flutter/services.dart';
 import '../application/music_controller.dart';
 import '../application/music_ui_message.dart';
 import '../data/hotlist.dart';
+import '../data/hotlist_playlists.dart';
 import '../data/music_playlists.dart';
 import '../data/playback_state_store.dart';
 import '../data/music_resolver.dart';
@@ -182,6 +183,15 @@ class _MusicHomePageState extends State<MusicHomePage> {
     setState(() {});
   }
 
+  void _searchFromHotlist(String query) {
+    _searchController.text = query;
+    _searchController.selection = TextSelection.collapsed(
+      offset: _searchController.text.length,
+    );
+    controller.search(query);
+    setState(() {});
+  }
+
   void _maybeShowStatusSnack(AppStrings strings) {
     final message = controller.statusMessage;
     if (message == null) {
@@ -240,15 +250,6 @@ class _MusicHomePageState extends State<MusicHomePage> {
         builder: (context) => _LibraryPage(controller: controller),
       ),
     );
-  }
-
-  void _searchFromHotlist(String query) {
-    _searchController.text = query;
-    _searchController.selection = TextSelection.collapsed(
-      offset: _searchController.text.length,
-    );
-    controller.search(query);
-    setState(() {});
   }
 }
 
@@ -618,6 +619,24 @@ class _HomeLibrarySection extends StatelessWidget {
               label: Text(strings.managePlaylists),
             ),
           ),
+        if (controller.hotlistPlaylists.isNotEmpty) ...[
+          const SizedBox(height: 20),
+          Text(
+            strings.hotlistPlaylists,
+            style: Theme.of(context).textTheme.titleMedium,
+          ),
+          const SizedBox(height: 8),
+          for (final playlist in controller.hotlistPlaylists.take(3)) ...[
+            _HomeLibraryTile(
+              key: ValueKey('home-hotlist-playlist-${playlist.id}'),
+              icon: Icons.local_fire_department,
+              title: playlist.name,
+              subtitle: strings.songCount(playlist.entries.length),
+              onTap: () => _openHotlistPlaylist(context, playlist),
+            ),
+            const SizedBox(height: 8),
+          ],
+        ],
       ],
     );
   }
@@ -627,6 +646,18 @@ class _HomeLibrarySection extends StatelessWidget {
       MaterialPageRoute(
         builder: (context) =>
             _PlaylistDetailPage(controller: controller, selection: selection),
+      ),
+    );
+  }
+
+  Future<void> _openHotlistPlaylist(
+    BuildContext context,
+    HotlistPlaylist playlist,
+  ) {
+    return Navigator.of(context).push<void>(
+      MaterialPageRoute(
+        builder: (context) =>
+            _HotlistPlaylistPage(controller: controller, playlist: playlist),
       ),
     );
   }
@@ -752,8 +783,11 @@ class _HotlistDiscoverySection extends StatelessWidget {
   ) {
     return Navigator.of(context).push<void>(
       MaterialPageRoute(
-        builder: (context) =>
-            _HotlistDetailPage(chart: chart, onSearch: onSearch),
+        builder: (context) => _HotlistDetailPage(
+          controller: controller,
+          chart: chart,
+          onSearch: onSearch,
+        ),
       ),
     );
   }
@@ -859,8 +893,13 @@ class _HotlistChartCard extends StatelessWidget {
 }
 
 class _HotlistDetailPage extends StatelessWidget {
-  const _HotlistDetailPage({required this.chart, required this.onSearch});
+  const _HotlistDetailPage({
+    required this.controller,
+    required this.chart,
+    required this.onSearch,
+  });
 
+  final MusicController controller;
   final HotlistChart chart;
   final ValueChanged<String> onSearch;
 
@@ -868,99 +907,237 @@ class _HotlistDetailPage extends StatelessWidget {
   Widget build(BuildContext context) {
     final strings = AppStringsScope.of(context);
     final colors = Theme.of(context).colorScheme;
-    return Scaffold(
-      appBar: AppBar(title: Text(chart.title)),
-      body: SafeArea(
-        child: ListView.separated(
-          padding: const EdgeInsets.fromLTRB(16, 12, 16, 96),
-          itemCount: chart.items.length + 1,
-          separatorBuilder: (_, index) =>
-              index == 0 ? const SizedBox(height: 8) : const Divider(height: 1),
-          itemBuilder: (context, index) {
-            if (index == 0) {
-              return Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
+    return AnimatedBuilder(
+      animation: controller,
+      builder: (context, _) {
+        return Scaffold(
+          appBar: AppBar(title: Text(chart.title)),
+          body: SafeArea(
+            child: ListView.separated(
+              padding: const EdgeInsets.fromLTRB(16, 12, 16, 96),
+              itemCount: chart.items.length + 1,
+              separatorBuilder: (_, index) =>
+                  index == 0 ? const SizedBox(height: 8) : const Divider(),
+              itemBuilder: (context, index) {
+                if (index == 0) {
+                  return Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
-                      _HotlistArtwork(url: chart.coverUrl, size: 72),
-                      const SizedBox(width: 14),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              chart.title,
-                              style: Theme.of(context).textTheme.titleLarge,
+                      Row(
+                        children: [
+                          _HotlistArtwork(url: chart.coverUrl, size: 86),
+                          const SizedBox(width: 16),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  chart.title,
+                                  style: Theme.of(
+                                    context,
+                                  ).textTheme.headlineSmall,
+                                ),
+                                const SizedBox(height: 6),
+                                Text(
+                                  _chartSubtitle(strings, chart),
+                                  style: Theme.of(context).textTheme.bodyMedium
+                                      ?.copyWith(
+                                        color: colors.onSurfaceVariant,
+                                      ),
+                                ),
+                              ],
                             ),
-                            const SizedBox(height: 4),
-                            Text(
-                              _chartSubtitle(strings, chart),
-                              style: Theme.of(context).textTheme.bodyMedium
-                                  ?.copyWith(color: colors.onSurfaceVariant),
-                            ),
-                          ],
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 14),
+                      FilledButton.icon(
+                        key: const ValueKey('hotlist-add-playlist'),
+                        onPressed: controller.isSavingHotlistPlaylist
+                            ? null
+                            : () async {
+                                final result = await controller
+                                    .saveHotlistChartAsPlaylist(chart);
+                                if (!context.mounted || result == null) {
+                                  return;
+                                }
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  SnackBar(
+                                    content: Text(
+                                      strings.hotlistSaved(
+                                        result.addedCount,
+                                        result.skippedCount,
+                                      ),
+                                    ),
+                                  ),
+                                );
+                              },
+                        icon: controller.isSavingHotlistPlaylist
+                            ? const SizedBox.square(
+                                dimension: 18,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                ),
+                              )
+                            : const Icon(Icons.playlist_add),
+                        label: Text(strings.addHotlistToPlaylist),
+                      ),
+                      const SizedBox(height: 12),
+                      Text(
+                        strings.hotlistMetadataNotice,
+                        style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                          color: colors.onSurfaceVariant,
                         ),
                       ),
                     ],
-                  ),
-                  const SizedBox(height: 12),
-                  Text(
-                    strings.hotlistMetadataNotice,
-                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                      color: colors.onSurfaceVariant,
-                    ),
-                  ),
-                ],
-              );
-            }
-            final item = chart.items[index - 1];
-            return ListTile(
-              contentPadding: EdgeInsets.zero,
-              leading: SizedBox(
-                width: 52,
-                child: Row(
-                  children: [
-                    SizedBox(
-                      width: 24,
-                      child: Text(
-                        '${item.rank}',
-                        textAlign: TextAlign.center,
-                        style: Theme.of(context).textTheme.titleSmall,
-                      ),
-                    ),
-                    const SizedBox(width: 8),
-                    _HotlistArtwork(url: item.coverUrl, size: 20),
-                  ],
-                ),
-              ),
-              title: Text(
-                item.title,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-              ),
-              subtitle: Text(
-                item.artist,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-              ),
-              trailing: IconButton(
-                tooltip: strings.searchAndPlay,
-                onPressed: () => _search(context, item),
-                icon: const Icon(Icons.travel_explore),
-              ),
-              onTap: () => _search(context, item),
-            );
-          },
-        ),
-      ),
+                  );
+                }
+                final item = chart.items[index - 1];
+                return _HotlistItemTile(
+                  item: item,
+                  onSearch: () {
+                    Navigator.of(context).pop();
+                    onSearch(item.searchQuery);
+                  },
+                );
+              },
+            ),
+          ),
+        );
+      },
     );
   }
+}
 
-  void _search(BuildContext context, HotlistItem item) {
-    onSearch(item.searchQuery);
-    Navigator.of(context).pop();
+class _HotlistPlaylistPage extends StatelessWidget {
+  const _HotlistPlaylistPage({
+    required this.controller,
+    required this.playlist,
+  });
+
+  final MusicController controller;
+  final HotlistPlaylist playlist;
+
+  @override
+  Widget build(BuildContext context) {
+    final strings = AppStringsScope.of(context);
+    return AnimatedBuilder(
+      animation: controller,
+      builder: (context, _) {
+        final current = controller.hotlistPlaylists.firstWhere(
+          (item) => item.id == playlist.id,
+          orElse: () => playlist,
+        );
+        return Scaffold(
+          appBar: AppBar(title: Text(current.name)),
+          body: SafeArea(
+            child: ListView.separated(
+              padding: const EdgeInsets.fromLTRB(16, 12, 16, 96),
+              itemCount: current.entries.length + 1,
+              separatorBuilder: (_, index) =>
+                  index == 0 ? const SizedBox(height: 8) : const Divider(),
+              itemBuilder: (context, index) {
+                if (index == 0) {
+                  return Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        strings.hotlistMetadataNotice,
+                        style: Theme.of(context).textTheme.bodyMedium,
+                      ),
+                      if (controller.hotlistPlaylistError != null) ...[
+                        const SizedBox(height: 8),
+                        Text(
+                          controller.hotlistPlaylistError!,
+                          style: TextStyle(
+                            color: Theme.of(context).colorScheme.error,
+                          ),
+                        ),
+                      ],
+                    ],
+                  );
+                }
+                final entry = current.entries[index - 1];
+                return ListTile(
+                  key: ValueKey('hotlist-playlist-entry-${entry.id}'),
+                  leading: _HotlistArtwork(url: entry.coverUrl, size: 42),
+                  title: Text(
+                    entry.title,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  subtitle: Text(
+                    entry.artist,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  trailing: IconButton(
+                    tooltip: strings.playFromTransientCache,
+                    onPressed: controller.isPlayingHotlist
+                        ? null
+                        : () => controller.playHotlistPlaylistEntry(
+                            current,
+                            entry,
+                          ),
+                    icon: controller.isPlayingHotlist
+                        ? const SizedBox.square(
+                            dimension: 18,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : const Icon(Icons.play_circle),
+                  ),
+                  onTap: controller.isPlayingHotlist
+                      ? null
+                      : () =>
+                            controller.playHotlistPlaylistEntry(current, entry),
+                );
+              },
+            ),
+          ),
+          bottomNavigationBar: _MiniPlayer(controller: controller),
+        );
+      },
+    );
+  }
+}
+
+class _HotlistItemTile extends StatelessWidget {
+  const _HotlistItemTile({required this.item, required this.onSearch});
+
+  final HotlistItem item;
+  final VoidCallback onSearch;
+
+  @override
+  Widget build(BuildContext context) {
+    final strings = AppStringsScope.of(context);
+    return ListTile(
+      contentPadding: EdgeInsets.zero,
+      leading: SizedBox(
+        width: 56,
+        height: 32,
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.center,
+          children: [
+            SizedBox(
+              width: 28,
+              child: Text(
+                '${item.rank}',
+                style: Theme.of(context).textTheme.titleMedium,
+              ),
+            ),
+            _HotlistArtwork(url: item.coverUrl, size: 32),
+          ],
+        ),
+      ),
+      title: Text(item.title, maxLines: 1, overflow: TextOverflow.ellipsis),
+      subtitle: Text(item.artist, maxLines: 1, overflow: TextOverflow.ellipsis),
+      trailing: IconButton(
+        tooltip: strings.searchOnline,
+        icon: const Icon(Icons.manage_search),
+        onPressed: onSearch,
+      ),
+      onTap: onSearch,
+    );
   }
 }
 
@@ -973,43 +1150,43 @@ class _HotlistArtwork extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final colors = Theme.of(context).colorScheme;
-    final placeholder = Container(
-      width: size,
-      height: size,
-      color: colors.secondaryContainer,
-      alignment: Alignment.center,
-      child: Icon(Icons.music_note, size: size * 0.45),
-    );
-    if (url.trim().isEmpty) {
-      return ClipRRect(
-        borderRadius: BorderRadius.circular(6),
-        child: placeholder,
-      );
-    }
+    final uri = Uri.tryParse(url);
     return ClipRRect(
-      borderRadius: BorderRadius.circular(6),
-      child: Image.network(
-        url,
-        width: size,
-        height: size,
-        fit: BoxFit.cover,
-        errorBuilder: (_, _, _) => placeholder,
-      ),
+      borderRadius: BorderRadius.circular(8),
+      child: uri == null || !uri.hasScheme
+          ? Container(
+              width: size,
+              height: size,
+              color: colors.surfaceContainerHighest,
+              child: Icon(Icons.local_fire_department, color: colors.primary),
+            )
+          : Image.network(
+              url,
+              width: size,
+              height: size,
+              fit: BoxFit.cover,
+              errorBuilder: (_, _, _) => Container(
+                width: size,
+                height: size,
+                color: colors.surfaceContainerHighest,
+                child: Icon(Icons.local_fire_department, color: colors.primary),
+              ),
+            ),
     );
   }
 }
 
 String _chartSubtitle(AppStrings strings, HotlistChart chart) {
-  final updated = chart.period.isNotEmpty
-      ? chart.period
-      : chart.updatedAt?.toIso8601String().split('T').first;
   final source = switch (chart.source) {
     HotlistSource.qq => strings.hotlistSourceQq,
   };
-  final stale = chart.isStale ? ' · cache' : '';
-  if (updated == null || updated.isEmpty) {
-    return '$source$stale';
+  final updated =
+      chart.updatedAt?.toIso8601String().split('T').first ??
+      (chart.period.isEmpty ? '' : chart.period);
+  if (updated.isEmpty) {
+    return source;
   }
+  final stale = chart.isStale ? ' · stale' : '';
   return '$source · ${strings.hotlistUpdated(updated)}$stale';
 }
 
