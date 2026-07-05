@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:audio_service/audio_service.dart';
 import 'package:flutter/foundation.dart';
 
+import '../data/hotlist.dart';
 import '../data/lyrics_artwork.dart';
 import '../data/legacy_cache_repairer.dart';
 import '../data/music_cache.dart';
@@ -36,13 +37,15 @@ class MusicController extends ChangeNotifier {
     PlaybackStateStore? playbackStateStore,
     TrackMetadataRepository? metadataRepository,
     LegacyCacheRepairer? legacyRepairer,
+    HotlistRepository? hotlistRepository,
   }) : _resolver = resolver ?? RemoteMusicResolver(),
        _cacheStore = cacheStore ?? CachedTrackStore(),
        _playlistStore = playlistStore ?? PlaylistStore(),
        _settingsStore = settingsStore ?? MusicSettingsStore(),
        _playbackStateStore = playbackStateStore ?? PlaybackStateStore(),
        _metadataRepository = metadataRepository ?? TrackMetadataRepository(),
-       _legacyRepairerOverride = legacyRepairer {
+       _legacyRepairerOverride = legacyRepairer,
+       _hotlistRepository = hotlistRepository ?? HotlistRepository() {
     settingsController = SettingsController(settingsStore: _settingsStore);
     libraryUseCase = LibraryUseCase(
       cacheStore: _cacheStore,
@@ -74,6 +77,7 @@ class MusicController extends ChangeNotifier {
   final PlaybackStateStore _playbackStateStore;
   final TrackMetadataRepository _metadataRepository;
   final LegacyCacheRepairer? _legacyRepairerOverride;
+  final HotlistRepository _hotlistRepository;
   final LibraryController libraryController = const LibraryController();
   final DownloadQueueController downloadQueue = DownloadQueueController();
   late final SettingsController settingsController;
@@ -94,6 +98,7 @@ class MusicController extends ChangeNotifier {
   List<String> _activeQueueTrackIds = const [];
   bool _legacyRepairRunning = false;
   bool _isDisposed = false;
+  int _hotlistLogCursor = 0;
 
   MusicDataSource source = MusicDataSource.buguyy;
   List<MusicSearchCandidate> candidates = const [];
@@ -107,14 +112,19 @@ class MusicController extends ChangeNotifier {
   AppLanguage language = AppLanguage.zh;
   AppThemePreference themePreference = AppThemePreference.dark;
   TrackMetadata currentMetadata = const TrackMetadata();
+  List<HotlistChart> hotlistCharts = const [];
   bool isSearching = false;
   bool isLoadingCache = false;
+  bool isLoadingHotlists = false;
   bool isLoadingMetadata = false;
   bool isRepairingLegacyCache = false;
   String? errorDetail;
   MusicUiMessage? errorMessage;
   MusicUiMessage? statusMessage;
   String? metadataError;
+  String? hotlistError;
+  List<String> get hotlistLogs =>
+      List<String>.unmodifiable(_hotlistRepository.logs);
 
   Stream<PlaybackState> get playbackStateStream => audioHandler.playbackState;
   Stream<MediaItem?> get mediaItemStream => audioHandler.mediaItem;
@@ -156,6 +166,7 @@ class MusicController extends ChangeNotifier {
     await _cacheStore.cleanupTemporaryFiles();
     await loadCache();
     await _restorePlaybackState(savedPlayback);
+    unawaited(loadHotlists());
     notifyListeners();
   }
 
@@ -184,6 +195,41 @@ class MusicController extends ChangeNotifier {
         notifyListeners();
       }
     }
+  }
+
+  Future<void> loadHotlists({bool forceRefresh = false}) async {
+    if (_isDisposed) {
+      return;
+    }
+    isLoadingHotlists = true;
+    hotlistError = null;
+    notifyListeners();
+    try {
+      hotlistCharts = await _hotlistRepository.loadCharts(
+        forceRefresh: forceRefresh,
+      );
+      _debugPrintHotlistLogs();
+    } catch (exception) {
+      if (_isDisposed) {
+        return;
+      }
+      hotlistError = friendlyError(exception);
+      hotlistCharts = const [];
+      _debugPrintHotlistLogs();
+    } finally {
+      if (!_isDisposed) {
+        isLoadingHotlists = false;
+        notifyListeners();
+      }
+    }
+  }
+
+  void _debugPrintHotlistLogs() {
+    final logs = _hotlistRepository.logs;
+    for (final entry in logs.skip(_hotlistLogCursor)) {
+      debugPrint('hotlist:$entry');
+    }
+    _hotlistLogCursor = logs.length;
   }
 
   Future<void> saveSource(MusicDataSource nextSource) async {

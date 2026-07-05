@@ -38,6 +38,16 @@ class AppStrings {
   String get pressBackAgainToExit =>
       isZh ? '再按一次返回桌面' : 'Press back again to exit';
   String get searchOnline => isZh ? '在线搜索' : 'Search online';
+  String get hotlistDiscovery => isZh ? '热榜发现' : 'Hot Charts';
+  String get hotlistUnavailable => isZh
+      ? '热榜暂不可用，不影响本地音乐播放。'
+      : 'Charts are unavailable. Local music still works.';
+  String get hotlistSourceQq => isZh ? 'QQ 音乐' : 'QQ Music';
+  String get hotlistMetadataNotice => isZh
+      ? '榜单仅用于发现，播放需通过 AI Music 搜索匹配。'
+      : 'Charts are metadata only. Playback uses AI Music search.';
+  String get searchAndPlay => isZh ? '搜索并播放' : 'Search and play';
+  String hotlistUpdated(String value) => isZh ? '更新 $value' : 'Updated $value';
   String get listSearchHint => isZh ? '搜索当前列表' : 'Search this list';
   String get noMatchingTracks => isZh ? '没有匹配的歌曲' : 'No matching songs';
   String get retrySearch => isZh ? '重新搜索' : 'Retry search';
