@@ -775,6 +775,54 @@ void main() {
     },
   );
 
+  test('auto combined errors keep source labels aligned', () async {
+    final http = _FakeResolverHttp(
+      onGet: (uri, _) async {
+        throw HttpException('GET failed ${uri.host}', uri: uri);
+      },
+      onPostForm: (uri, _, _) async {
+        throw HttpException('POST failed ${uri.host}', uri: uri);
+      },
+    );
+    final resolver = RemoteMusicResolver(
+      httpClient: http,
+      initialFlacCookie: 'sl-session=test',
+      platforms: const ['kuwo'],
+    );
+
+    await expectLater(
+      resolver.search('全部失败', MusicDataSource.auto),
+      throwsA(
+        isA<StateError>()
+            .having(
+              (error) => error.message,
+              'message',
+              contains('buguyy failed:'),
+            )
+            .having(
+              (error) => error.message,
+              'message',
+              contains('flac failed:'),
+            )
+            .having(
+              (error) => error.message,
+              'message',
+              contains('kuwo full audio failed:'),
+            )
+            .having(
+              (error) => error.message,
+              'message',
+              contains('itunes preview failed:'),
+            )
+            .having(
+              (error) => error.message,
+              'message',
+              isNot(contains('source 22a5 failed:')),
+            ),
+      ),
+    );
+  });
+
   test(
     '22a5 guarded provider resolves only client ready direct audio',
     () async {

@@ -296,6 +296,7 @@ class KuwoFullAudioResolver {
     return scopedSong != null &&
         title == scopedSong.title &&
         artist.contains(scopedSong.artist) &&
+        candidate.id == scopedSong.musicRid &&
         candidate.score >= _minimumMatchScore;
   }
 
@@ -318,8 +319,9 @@ class KuwoFullAudioResolver {
   _ScopedSong? _scopedSongFor(String query) {
     final normalized = _normalizeTitle(query);
     const scoped = [
-      _ScopedSong(title: '一丝不挂', artist: '陈奕迅'),
-      _ScopedSong(title: '稻香', artist: '周杰伦'),
+      _ScopedSong(title: '一丝不挂', artist: '陈奕迅', musicRid: 'MUSIC_475511188'),
+      _ScopedSong(title: '稻香', artist: '周杰伦', musicRid: 'MUSIC_351583919'),
+      _ScopedSong(title: '外婆', artist: '周杰伦', musicRid: 'MUSIC_477808701'),
     ];
     for (final song in scoped) {
       if (normalized == song.title ||
@@ -525,10 +527,15 @@ class _ConvertResult {
 }
 
 class _ScopedSong {
-  const _ScopedSong({required this.title, required this.artist});
+  const _ScopedSong({
+    required this.title,
+    required this.artist,
+    required this.musicRid,
+  });
 
   final String title;
   final String artist;
+  final String musicRid;
 }
 
 class _MediaValidation {

@@ -369,18 +369,15 @@ class RemoteMusicResolver
     if (merged.isNotEmpty) {
       return merged.take(80).toList(growable: false);
     }
-    if (buguyy.error != null &&
-        flac.error != null &&
-        kuwo.error != null &&
-        source22a5.error != null &&
-        itunes.error != null) {
-      throw _combinedAutoError([
-        buguyy.error!,
-        flac.error!,
-        kuwo.error!,
-        source22a5.error!,
-        itunes.error!,
-      ]);
+    final activeResults = [
+      buguyy,
+      flac,
+      kuwo,
+      if (_enableSource22a5Auto) source22a5,
+      itunes,
+    ];
+    if (activeResults.every((result) => result.error != null)) {
+      throw _combinedAutoError(activeResults);
     }
     final error =
         buguyy.error ??
@@ -414,18 +411,48 @@ void _appendStableCandidates(
 
 StateError _combinedAutoError(List<Object> errors) {
   if (errors.length <= 1) {
-    return StateError(formatResolverError(errors.single));
+    final error = errors.single;
+    if (error is _AutoSourceResult && error.error != null) {
+      return StateError(formatResolverError(error.error!));
+    }
+    return StateError(formatResolverError(error));
   }
-  return StateError(
-    [
-      'buguyy failed: ${formatResolverError(errors[0])}',
-      'flac failed: ${formatResolverError(errors[1])}',
-      if (errors.length > 2)
-        'source 22a5 failed: ${formatResolverError(errors[2])}',
-      if (errors.length > 3)
-        'itunes preview failed: ${formatResolverError(errors[3])}',
-    ].join('; '),
-  );
+  final messages = <String>[];
+  for (var i = 0; i < errors.length; i += 1) {
+    final error = errors[i];
+    if (error is _AutoSourceResult && error.error != null) {
+      messages.add(
+        '${_autoSourceLabel(error.source)} failed: '
+        '${formatResolverError(error.error!)}',
+      );
+    } else {
+      messages.add(_fallbackCombinedErrorLabel(i, error));
+    }
+  }
+  return StateError(messages.join('; '));
+}
+
+String _autoSourceLabel(MusicDataSource source) {
+  return switch (source) {
+    MusicDataSource.buguyy => 'buguyy',
+    MusicDataSource.flac => 'flac',
+    MusicDataSource.kuwoFullAudio => 'kuwo full audio',
+    MusicDataSource.source22a5 => 'source 22a5',
+    MusicDataSource.itunesPreview => 'itunes preview',
+    MusicDataSource.auto => 'auto',
+  };
+}
+
+String _fallbackCombinedErrorLabel(int index, Object error) {
+  final label = switch (index) {
+    0 => 'buguyy',
+    1 => 'flac',
+    2 => 'kuwo full audio',
+    3 => 'source 22a5',
+    4 => 'itunes preview',
+    _ => 'source ${index + 1}',
+  };
+  return '$label failed: ${formatResolverError(error)}';
 }
 
 void _logResolver(String message) {
@@ -445,19 +472,24 @@ Future<_AutoSourceResult> _searchAutoSource(
       '[AI Music][resolver] auto ${source.storageValue} query="$query" '
       'count=${candidates.length}',
     );
-    return _AutoSourceResult(candidates: candidates);
+    return _AutoSourceResult(source: source, candidates: candidates);
   } catch (error) {
     _logResolver(
       '[AI Music][resolver] auto ${source.storageValue} failed query="$query" '
       'error=${formatResolverError(error)}',
     );
-    return _AutoSourceResult(error: error);
+    return _AutoSourceResult(source: source, error: error);
   }
 }
 
 class _AutoSourceResult {
-  const _AutoSourceResult({this.candidates = const [], this.error});
+  const _AutoSourceResult({
+    this.source = MusicDataSource.auto,
+    this.candidates = const [],
+    this.error,
+  });
 
+  final MusicDataSource source;
   final List<MusicSearchCandidate> candidates;
   final Object? error;
 }

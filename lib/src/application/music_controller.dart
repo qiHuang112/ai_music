@@ -654,6 +654,7 @@ class MusicController extends ChangeNotifier {
   ) async {
     var firstByteLogged = false;
     var lastLoggedBytes = 0;
+    final promoteFuture = handle.session.promoteWhenComplete();
     try {
       await for (final _ in handle.progress) {
         final bytes = handle.session.downloadedBytes;
@@ -683,6 +684,11 @@ class MusicController extends ChangeNotifier {
         }
       }
       if (handle.session.fetchError != null) {
+        try {
+          await promoteFuture;
+        } catch (_) {
+          // The failure is already recorded on the session and logged below.
+        }
         _logHotlistPlayback(
           'full-audio transient-failed '
           '${friendlyError(handle.session.fetchError!)}',
@@ -692,7 +698,7 @@ class MusicController extends ChangeNotifier {
       if (!handle.session.isComplete) {
         return;
       }
-      final cached = await handle.session.promoteWhenComplete();
+      final cached = await promoteFuture;
       final elapsed = DateTime.now().difference(startedAt).inMilliseconds;
       _upsertCachedRecord(cached);
       _logHotlistPlayback(
