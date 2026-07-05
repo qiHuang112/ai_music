@@ -732,26 +732,15 @@ void main() {
   );
 
   test(
-    'auto includes itunes preview candidates when legacy sources fail',
+    'auto hides itunes preview candidates when full audio sources fail',
     () async {
       final http = _FakeResolverHttp(
         onGet: (uri, _) async {
           if (uri.host == 'buguyy.top') {
             return _json(uri, {'data': const []});
           }
-          if (uri.host == 'itunes.apple.com') {
-            return _json(uri, {
-              'results': [
-                {
-                  'trackId': 2001,
-                  'trackName': '龙的传人',
-                  'artistName': '王力宏',
-                  'trackTimeMillis': 30000,
-                  'previewUrl':
-                      'https://audio-ssl.itunes.apple.com/itunes-assets/long.m4a',
-                },
-              ],
-            });
+          if (uri.host == 'search.kuwo.cn') {
+            return _json(uri, {'abslist': const []});
           }
           fail('Unexpected GET $uri');
         },
@@ -765,15 +754,47 @@ void main() {
         platforms: const ['kuwo'],
       );
 
-      final candidates = await resolver.search(
-        '王力宏 龙的传人',
-        MusicDataSource.auto,
+      expect(
+        () => resolver.search('王力宏 龙的传人', MusicDataSource.auto),
+        throwsA(isA<StateError>()),
       );
-
-      expect(candidates, hasLength(1));
-      expect(candidates.single.source, MusicDataSource.itunesPreview);
     },
   );
+
+  test('product sources fail closed with current source status', () async {
+    final resolver = RemoteMusicResolver(httpClient: _FakeResolverHttp());
+
+    await expectLater(
+      resolver.search('稻香', MusicDataSource.source2t58),
+      throwsA(
+        isA<SourceDownloadException>().having(
+          (error) => error.failureCode,
+          'failureCode',
+          'security_verification',
+        ),
+      ),
+    );
+    await expectLater(
+      resolver.search('稻香', MusicDataSource.gequhai),
+      throwsA(
+        isA<SourceDownloadException>().having(
+          (error) => error.failureCode,
+          'failureCode',
+          'security_or_forbidden',
+        ),
+      ),
+    );
+    await expectLater(
+      resolver.search('稻香', MusicDataSource.gequbao),
+      throwsA(
+        isA<SourceDownloadException>().having(
+          (error) => error.failureCode,
+          'failureCode',
+          'security_verification',
+        ),
+      ),
+    );
+  });
 
   test('auto combined errors keep source labels aligned', () async {
     final http = _FakeResolverHttp(
@@ -812,7 +833,7 @@ void main() {
             .having(
               (error) => error.message,
               'message',
-              contains('itunes preview failed:'),
+              isNot(contains('itunes preview failed:')),
             )
             .having(
               (error) => error.message,

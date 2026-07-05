@@ -396,10 +396,10 @@ class _OnlineSearchPanel extends StatelessWidget {
                     final candidate = candidates[index];
                     final isBusy = isCandidateBusy(candidate);
                     final isCached = isCandidateCached(candidate);
-                    final isPreview =
-                        candidate.source == MusicDataSource.itunesPreview;
                     final isFullAudio =
                         candidate.source == MusicDataSource.kuwoFullAudio;
+                    final canPlay = isCached || isFullAudio;
+                    final canDownload = isFullAudio;
                     return ListTile(
                       leading: CircleAvatar(
                         backgroundColor: colors.secondaryContainer,
@@ -435,17 +435,15 @@ class _OnlineSearchPanel extends StatelessWidget {
                       trailing: Row(
                         mainAxisSize: MainAxisSize.min,
                         children: [
-                          if (isCached || isPreview || isFullAudio)
+                          if (canPlay)
                             IconButton(
-                              tooltip: isPreview
-                                  ? strings.playPreview
-                                  : strings.play,
+                              tooltip: strings.play,
                               onPressed: isBusy
                                   ? null
                                   : () => onPlay(candidate),
                               icon: const Icon(Icons.play_arrow),
                             ),
-                          if (!isPreview)
+                          if (canDownload)
                             IconButton(
                               tooltip: isCached
                                   ? strings.downloadAgain
@@ -459,9 +457,9 @@ class _OnlineSearchPanel extends StatelessWidget {
                       ),
                       onTap: isBusy
                           ? null
-                          : () => isCached || isPreview || isFullAudio
-                                ? onPlay(candidate)
-                                : onSelect(candidate),
+                          : canPlay
+                          ? () => onPlay(candidate)
+                          : null,
                     );
                   },
                 ),
@@ -2656,7 +2654,10 @@ String _sourceMarker(MusicSearchCandidate candidate) {
   return switch (candidate.source) {
     MusicDataSource.buguyy => '布谷',
     MusicDataSource.flac => 'FLAC',
+    MusicDataSource.source2t58 => '2t58',
     MusicDataSource.source22a5 => '22a5',
+    MusicDataSource.gequhai => '歌海',
+    MusicDataSource.gequbao => '歌宝',
     MusicDataSource.kuwoFullAudio => '完整',
     MusicDataSource.itunesPreview => '试听',
     MusicDataSource.auto => 'AUTO',

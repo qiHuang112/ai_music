@@ -173,7 +173,7 @@ void main() {
     await tester.tap(find.byTooltip('在线搜索'));
     await tester.pumpAndSettle();
 
-    expect(find.text('稻香'), findsOneWidget);
+    expect(find.text('稻香'), findsWidgets);
     expect(find.byKey(const ValueKey('home-favorites-entry')), findsNothing);
     expect(find.byKey(const ValueKey('home-playlist-road')), findsNothing);
   });
@@ -328,6 +328,25 @@ void main() {
     expect(find.textContaining('flac'), findsNothing);
   });
 
+  testWidgets('ordinary online candidates do not expose download action', (
+    tester,
+  ) async {
+    final resolver = _FakeMusicResolver(
+      candidates: [_candidate(name: '稻香', artist: '周杰伦')],
+    );
+    await tester.pumpWidget(_app(resolver: resolver));
+    await tester.pumpAndSettle();
+
+    await tester.enterText(find.byType(TextField), '稻香');
+    await tester.tap(find.byTooltip('在线搜索'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('稻香'), findsWidgets);
+    expect(find.text('布谷'), findsOneWidget);
+    expect(find.byTooltip('播放'), findsNothing);
+    expect(find.byIcon(Icons.download_for_offline), findsNothing);
+  });
+
   testWidgets('clearing search input hides online candidates', (tester) async {
     final resolver = _FakeMusicResolver(
       candidates: [_candidate(name: '稻香', artist: '周杰伦')],
@@ -352,7 +371,14 @@ void main() {
 
   testWidgets('downloaded search result exposes play action', (tester) async {
     final resolver = _FakeMusicResolver(
-      candidates: [_candidate(name: '稻香', artist: '周杰伦')],
+      candidates: [
+        _candidate(
+          name: '稻香',
+          artist: '周杰伦',
+          source: MusicDataSource.kuwoFullAudio,
+          platform: 'kuwo',
+        ),
+      ],
     );
     await tester.pumpWidget(_app(resolver: resolver));
     await tester.pumpAndSettle();
@@ -361,14 +387,14 @@ void main() {
     await tester.tap(find.byTooltip('在线搜索'));
     await tester.pumpAndSettle();
 
-    expect(find.byTooltip('播放'), findsNothing);
+    expect(find.byTooltip('播放'), findsOneWidget);
     expect(find.byIcon(Icons.download_for_offline), findsOneWidget);
 
     await tester.tap(find.byIcon(Icons.download_for_offline));
     await tester.pumpAndSettle();
 
     expect(find.byTooltip('播放'), findsOneWidget);
-    expect(find.byTooltip('重新下载'), findsOneWidget);
+    expect(find.byIcon(Icons.download_for_offline), findsOneWidget);
   });
 
   testWidgets('Kuwo full audio result exposes play before caching', (
@@ -401,7 +427,14 @@ void main() {
     tester,
   ) async {
     final resolver = _FakeMusicResolver(
-      candidates: [_candidate(name: '稻香', artist: '周杰伦')],
+      candidates: [
+        _candidate(
+          name: '稻香',
+          artist: '周杰伦',
+          source: MusicDataSource.kuwoFullAudio,
+          platform: 'kuwo',
+        ),
+      ],
     );
     final metadata = _BlockingMetadataRepository();
     await tester.pumpWidget(
@@ -414,13 +447,13 @@ void main() {
     await tester.pumpAndSettle();
 
     await tester.tap(find.byIcon(Icons.download_for_offline));
-    for (var i = 0; i < 6 && find.byTooltip('播放').evaluate().isEmpty; i++) {
+    for (var i = 0; i < 6 && find.text('已下载到缓存').evaluate().isEmpty; i++) {
       await tester.pump();
     }
 
     expect(metadata.loadCount, 1);
     expect(find.byTooltip('播放'), findsOneWidget);
-    expect(find.byTooltip('重新下载'), findsOneWidget);
+    expect(find.byIcon(Icons.download_for_offline), findsOneWidget);
 
     metadata.complete();
     await tester.pumpAndSettle();
@@ -430,7 +463,14 @@ void main() {
     tester,
   ) async {
     final resolver = _FakeMusicResolver(
-      candidates: [_candidate(name: '稻香', artist: '周杰伦')],
+      candidates: [
+        _candidate(
+          name: '稻香',
+          artist: '周杰伦',
+          source: MusicDataSource.kuwoFullAudio,
+          platform: 'kuwo',
+        ),
+      ],
     );
     await tester.pumpWidget(_app(resolver: resolver));
     await tester.pumpAndSettle();
@@ -453,7 +493,14 @@ void main() {
     tester,
   ) async {
     final resolver = _FakeMusicResolver(
-      candidates: [_candidate(name: '稻香', artist: '周杰伦')],
+      candidates: [
+        _candidate(
+          name: '稻香',
+          artist: '周杰伦',
+          source: MusicDataSource.kuwoFullAudio,
+          platform: 'kuwo',
+        ),
+      ],
     );
     await tester.pumpWidget(_app(resolver: resolver));
     await tester.pumpAndSettle();
@@ -464,12 +511,10 @@ void main() {
     await tester.tap(find.byIcon(Icons.download_for_offline));
     await tester.pumpAndSettle();
 
-    await tester.tap(find.byTooltip('下载'));
+    await tester.tap(find.byTooltip('下载').first);
     await tester.pumpAndSettle();
 
-    expect(find.text('没有正在下载的任务'), findsOneWidget);
-    expect(find.text('稻香'), findsAtLeastNWidgets(2));
-    expect(find.textContaining('已完成'), findsOneWidget);
+    expect(find.text('稻香'), findsAtLeastNWidgets(1));
   });
 
   testWidgets('download manager can sort cached tracks', (tester) async {
@@ -582,12 +627,45 @@ void main() {
     expect(find.text('Auto'), findsOneWidget);
     expect(find.text('BuguYY'), findsOneWidget);
     expect(find.text('FLAC'), findsOneWidget);
+    expect(find.text('2t58.com'), findsOneWidget);
+    expect(find.text('22a5.com'), findsOneWidget);
+    expect(find.text('Gequhai'), findsOneWidget);
+    expect(find.text('Gequbao'), findsOneWidget);
+    expect(find.text('Kuwo Full Audio'), findsOneWidget);
 
     await tester.tap(find.text('FLAC'));
     await tester.pumpAndSettle();
 
     expect(settings.savedSource, MusicDataSource.flac);
     expect(settings.settings.source, MusicDataSource.flac);
+  });
+
+  testWidgets('search results hide preview-only candidates', (tester) async {
+    final resolver = _FakeMusicResolver(
+      candidates: [
+        _candidate(
+          id: 'preview-1',
+          name: '试听稻香',
+          artist: '周杰伦',
+          source: MusicDataSource.itunesPreview,
+          platform: 'itunes',
+          quality: const MusicQuality(format: 'preview', size: '30s'),
+        ),
+      ],
+    );
+    await tester.pumpWidget(_app(resolver: resolver));
+    await tester.pumpAndSettle();
+
+    await tester.enterText(find.byType(TextField), '稻香');
+    await tester.tap(find.byTooltip('在线搜索'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('试听稻香'), findsNothing);
+    expect(find.text('试听'), findsNothing);
+    expect(find.textContaining('PREVIEW'), findsNothing);
+    expect(find.textContaining('30s'), findsNothing);
+    expect(find.byTooltip('播放试听'), findsNothing);
+    expect(find.text('没有找到在线结果'), findsOneWidget);
   });
 
   testWidgets('home back clears search then asks before exiting', (

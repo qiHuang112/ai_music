@@ -415,11 +415,11 @@ class MusicController extends ChangeNotifier {
           if (request != _searchRequest) {
             return;
           }
-          candidates = progress.candidates;
+          candidates = _fullDownloadCandidates(progress.candidates);
           if (progress.isComplete) {
             if (progress.error != null) {
               errorDetail = friendlyError(progress.error!);
-            } else if (progress.candidates.isEmpty) {
+            } else if (candidates.isEmpty) {
               errorMessage = const MusicUiMessage(
                 MusicUiMessageCode.noOnlineMatchesFound,
               );
@@ -432,8 +432,8 @@ class MusicController extends ChangeNotifier {
         if (request != _searchRequest) {
           return;
         }
-        candidates = result;
-        if (result.isEmpty) {
+        candidates = _fullDownloadCandidates(result);
+        if (candidates.isEmpty) {
           errorMessage = const MusicUiMessage(
             MusicUiMessageCode.noOnlineMatchesFound,
           );
@@ -461,6 +461,14 @@ class MusicController extends ChangeNotifier {
     errorMessage = null;
     statusMessage = null;
     notifyListeners();
+  }
+
+  List<MusicSearchCandidate> _fullDownloadCandidates(
+    List<MusicSearchCandidate> sourceCandidates,
+  ) {
+    return sourceCandidates
+        .where((candidate) => candidate.source != MusicDataSource.itunesPreview)
+        .toList(growable: false);
   }
 
   Future<void> downloadCandidate(MusicSearchCandidate candidate) async {
@@ -519,7 +527,10 @@ class MusicController extends ChangeNotifier {
 
   Future<void> playCandidate(MusicSearchCandidate candidate) async {
     if (candidate.source == MusicDataSource.itunesPreview) {
-      await _playPreviewCandidate(candidate);
+      statusMessage = const MusicUiMessage(
+        MusicUiMessageCode.previewCannotDownload,
+      );
+      notifyListeners();
       return;
     }
     if (candidate.source == MusicDataSource.kuwoFullAudio) {
@@ -722,63 +733,6 @@ class MusicController extends ChangeNotifier {
       _logHotlistPlayback(
         'full-audio promote-failed ${friendlyError(exception)}',
       );
-    }
-  }
-
-  Future<void> _playPreviewCandidate(MusicSearchCandidate candidate) async {
-    errorDetail = null;
-    errorMessage = null;
-    statusMessage = MusicUiMessage(
-      MusicUiMessageCode.resolving,
-      subject: candidate.name,
-    );
-    notifyListeners();
-    try {
-      final resolved = await _resolver.resolve(candidate);
-      if (resolved.urlType != MediaUrlType.previewAudio ||
-          resolved.url.trim().isEmpty) {
-        errorDetail = friendlyError(
-          const SourceDownloadException(
-            '暂时没有可播放的试听链接。',
-            failureCode: 'play_url_unavailable',
-          ),
-        );
-        statusMessage = null;
-        notifyListeners();
-        return;
-      }
-      final track = Track(
-        id: 'preview:${resolved.source.storageValue}:${resolved.id}',
-        title: resolved.name.isEmpty ? resolved.query : resolved.name,
-        artist: resolved.artist,
-        album: resolved.album,
-        source: resolved.url,
-        artworkUri: artworkUriFromText(resolved.coverUrl),
-        duration: resolved.duration > 0
-            ? Duration(seconds: resolved.duration)
-            : null,
-      );
-      final loaded = await playbackUseCase.playTrack(
-        track,
-        fallbackQueue: [track],
-      );
-      if (loaded) {
-        final lyrics = resolved.lyrics;
-        currentMetadata = TrackMetadata(
-          artworkUri: track.artworkUri,
-          lyrics: lyrics == null ? const [] : parseLrcLines(lyrics.text),
-          source: lyrics?.source ?? 'itunes',
-        );
-        statusMessage = const MusicUiMessage(
-          MusicUiMessageCode.playingPreviewAudio,
-        );
-        await playbackUseCase.applyPlaybackMode(playbackMode);
-      }
-    } catch (exception) {
-      errorDetail = friendlyError(exception);
-      statusMessage = null;
-    } finally {
-      notifyListeners();
     }
   }
 
