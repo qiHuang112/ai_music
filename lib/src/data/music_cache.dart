@@ -329,6 +329,13 @@ class CachedTrackStore {
     DownloadCancelToken? cancelToken,
   }) async {
     cancelToken?.throwIfCanceled();
+    if (result.urlType == MediaUrlType.directAudioCandidate) {
+      throw SourceDownloadException(
+        '音频地址未通过客户端校验。',
+        failureCode: 'audio_validation_failed',
+        sourceAttempts: result.sourceAttempts,
+      );
+    }
     if (result.urlType == MediaUrlType.previewAudio || !result.canCacheAudio) {
       throw SourceDownloadException(
         '当前仅支持试听，无法缓存为完整歌曲。',

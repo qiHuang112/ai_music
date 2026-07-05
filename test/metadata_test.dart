@@ -1082,6 +1082,24 @@ class _FakeResolverHttp implements MusicResolverHttp {
   }
 
   @override
+  Future<ResolverHttpResponse> head(
+    Uri uri, {
+    Map<String, String> headers = const {},
+  }) {
+    fail('Unexpected HEAD $uri');
+  }
+
+  @override
+  Future<ResolverHttpResponse> range(
+    Uri uri, {
+    int start = 0,
+    int end = 0,
+    Map<String, String> headers = const {},
+  }) {
+    fail('Unexpected range GET $uri');
+  }
+
+  @override
   Future<ResolverHttpResponse> postForm(
     Uri uri,
     Map<String, String> form, {

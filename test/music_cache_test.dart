@@ -265,6 +265,45 @@ void main() {
   );
 
   test(
+    'downloadOrReuse rejects direct audio candidates before downloader and index',
+    () async {
+      final root = await Directory.systemTemp.createTemp(
+        'ai_music_cache_22a5_candidate_',
+      );
+      final downloader = _FakeDownloader();
+      final store = CachedTrackStore(
+        rootProvider: () async => root,
+        downloader: downloader,
+      );
+
+      try {
+        await expectLater(
+          store.downloadOrReuse(
+            _resolvedMusic(
+              source: MusicDataSource.source22a5,
+              url: 'https://car-er.kuwo.cn/path/blocked.m4a?from=vip',
+              urlType: MediaUrlType.directAudioCandidate,
+              canCacheAudio: false,
+            ),
+          ),
+          throwsA(
+            isA<SourceDownloadException>().having(
+              (error) => error.failureCode,
+              'failureCode',
+              'audio_validation_failed',
+            ),
+          ),
+        );
+        expect(downloader.calls, 0);
+        expect(root.listSync().whereType<File>(), isEmpty);
+        expect(await store.listCached(), isEmpty);
+      } finally {
+        await root.delete(recursive: true);
+      }
+    },
+  );
+
+  test(
     'downloadOrReuse lets unknown extensionless audio pass HEAD and GET',
     () async {
       final audioBytes = _validMp3Bytes();
@@ -452,11 +491,12 @@ ResolvedMusic _resolvedMusic({
   MediaUrlType urlType = MediaUrlType.directAudio,
   bool panLink = false,
   bool canCacheAudio = true,
+  MusicDataSource source = MusicDataSource.buguyy,
 }) {
   return ResolvedMusic(
     query: '周杰伦 稻香',
-    source: MusicDataSource.buguyy,
-    platform: 'buguyy',
+    source: source,
+    platform: source.storageValue,
     id: id,
     name: '稻香',
     artist: '周杰伦',

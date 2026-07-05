@@ -2117,6 +2117,7 @@ String _sourceMarker(MusicSearchCandidate candidate) {
   return switch (candidate.source) {
     MusicDataSource.buguyy => '布谷',
     MusicDataSource.flac => 'FLAC',
+    MusicDataSource.source22a5 => '22a5',
     MusicDataSource.itunesPreview => '试听',
     MusicDataSource.auto => 'AUTO',
   };

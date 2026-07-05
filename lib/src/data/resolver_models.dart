@@ -4,6 +4,7 @@ enum MusicDataSource {
   auto('auto', 'Auto'),
   buguyy('buguyy', 'BuguYY'),
   flac('flac', 'FLAC'),
+  source22a5('source_22a5', '22a5'),
   itunesPreview('itunes_preview', 'iTunes Preview');
 
   const MusicDataSource(this.storageValue, this.label);
@@ -218,6 +219,7 @@ class ResolvedMusic {
 
 enum MediaUrlType {
   directAudio('direct_audio'),
+  directAudioCandidate('direct_audio_candidate'),
   previewAudio('preview_audio'),
   externalPan('external_pan'),
   htmlPage('html_page'),
@@ -238,6 +240,7 @@ enum MediaUrlType {
 bool _defaultCanCacheAudio(MediaUrlType urlType) {
   return switch (urlType) {
     MediaUrlType.directAudio || MediaUrlType.unknown => true,
+    MediaUrlType.directAudioCandidate => false,
     MediaUrlType.previewAudio ||
     MediaUrlType.externalPan ||
     MediaUrlType.htmlPage => false,
@@ -279,6 +282,12 @@ class SourceAttempt {
     this.mediaContentLength,
     this.lyricsStatus = '',
     this.coverUrl = '',
+    this.browserPlayable = false,
+    this.scriptReproducible = false,
+    this.clientReady = false,
+    this.mediaValidation = '',
+    this.evidenceUrl = '',
+    this.coverStatus = '',
   });
 
   final String query;
@@ -297,6 +306,12 @@ class SourceAttempt {
   final int? mediaContentLength;
   final String lyricsStatus;
   final String coverUrl;
+  final bool browserPlayable;
+  final bool scriptReproducible;
+  final bool clientReady;
+  final String mediaValidation;
+  final String evidenceUrl;
+  final String coverStatus;
 
   factory SourceAttempt.fromJson(Object? value) {
     final json = _asStringMap(value);
@@ -321,6 +336,12 @@ class SourceAttempt {
           : int.tryParse(json['mediaContentLength']?.toString() ?? ''),
       lyricsStatus: json['lyricsStatus']?.toString() ?? '',
       coverUrl: json['coverUrl']?.toString() ?? '',
+      browserPlayable: json['browserPlayable'] == true,
+      scriptReproducible: json['scriptReproducible'] == true,
+      clientReady: json['clientReady'] == true,
+      mediaValidation: json['mediaValidation']?.toString() ?? '',
+      evidenceUrl: json['evidenceUrl']?.toString() ?? '',
+      coverStatus: json['coverStatus']?.toString() ?? '',
     );
   }
 
@@ -349,6 +370,12 @@ class SourceAttempt {
       'mediaContentLength': mediaContentLength,
       'lyricsStatus': lyricsStatus,
       'coverUrl': coverUrl,
+      'browserPlayable': browserPlayable,
+      'scriptReproducible': scriptReproducible,
+      'clientReady': clientReady,
+      'mediaValidation': mediaValidation,
+      'evidenceUrl': evidenceUrl,
+      'coverStatus': coverStatus,
     };
   }
 }
@@ -456,6 +483,18 @@ class ResolverHttpResponse {
 abstract class MusicResolverHttp {
   Future<ResolverHttpResponse> get(
     Uri uri, {
+    Map<String, String> headers = const {},
+  });
+
+  Future<ResolverHttpResponse> head(
+    Uri uri, {
+    Map<String, String> headers = const {},
+  });
+
+  Future<ResolverHttpResponse> range(
+    Uri uri, {
+    int start = 0,
+    int end = 0,
     Map<String, String> headers = const {},
   });
 

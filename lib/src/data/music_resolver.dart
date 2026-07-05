@@ -6,6 +6,7 @@ export 'flac_resolver.dart';
 export 'itunes_preview_resolver.dart';
 export 'resolver_http_client.dart';
 export 'resolver_models.dart';
+export 'source_22a5_resolver.dart';
 
 import 'dart:async';
 import 'dart:developer' as developer;
@@ -18,6 +19,11 @@ import 'itunes_preview_resolver.dart';
 import 'resolver_http_client.dart';
 import 'resolver_models.dart';
 import 'resolver_utils.dart';
+import 'source_22a5_resolver.dart';
+
+const bool _enableSource22a5Auto = bool.fromEnvironment(
+  'AI_MUSIC_ENABLE_22A5_AUTO',
+);
 
 class RemoteMusicResolver implements MusicResolver, ProgressiveMusicResolver {
   RemoteMusicResolver({
@@ -46,11 +52,13 @@ class RemoteMusicResolver implements MusicResolver, ProgressiveMusicResolver {
       platforms: platforms,
       prefer: prefer,
     );
+    _source22a5 = Source22a5Resolver(httpClient: http, scorer: scorer);
     _itunesPreview = ItunesPreviewResolver(httpClient: http, scorer: scorer);
   }
 
   late final BuguyyResolver _buguyy;
   late final FlacResolver _flac;
+  late final Source22a5Resolver _source22a5;
   late final ItunesPreviewResolver _itunesPreview;
 
   @override
@@ -69,6 +77,7 @@ class RemoteMusicResolver implements MusicResolver, ProgressiveMusicResolver {
     final result = switch (source) {
       MusicDataSource.buguyy => await _buguyy.search(trimmed),
       MusicDataSource.flac => await _flac.search(trimmed),
+      MusicDataSource.source22a5 => await _source22a5.search(trimmed),
       MusicDataSource.itunesPreview => await _itunesPreview.search(trimmed),
       MusicDataSource.auto => await _searchAuto(trimmed),
     };
@@ -110,7 +119,7 @@ class RemoteMusicResolver implements MusicResolver, ProgressiveMusicResolver {
     final stream = StreamController<MusicSearchProgress>();
     final merged = <MusicSearchCandidate>[];
     final errors = <Object>[];
-    var remaining = 3;
+    var remaining = _enableSource22a5Auto ? 4 : 3;
 
     void handleResult(_AutoSourceResult result) {
       remaining -= 1;
@@ -156,6 +165,15 @@ class RemoteMusicResolver implements MusicResolver, ProgressiveMusicResolver {
         _flac.search,
       ).then(handleResult),
     );
+    if (_enableSource22a5Auto) {
+      unawaited(
+        _searchAutoSource(
+          trimmed,
+          MusicDataSource.source22a5,
+          _source22a5.search,
+        ).then(handleResult),
+      );
+    }
     unawaited(
       _searchAutoSource(
         trimmed,
@@ -171,6 +189,7 @@ class RemoteMusicResolver implements MusicResolver, ProgressiveMusicResolver {
     final resolved = await switch (candidate.source) {
       MusicDataSource.buguyy => _resolveBuguyyWithFallback(candidate),
       MusicDataSource.flac => _flac.resolve(candidate),
+      MusicDataSource.source22a5 => _source22a5.resolve(candidate),
       MusicDataSource.itunesPreview => _itunesPreview.resolve(candidate),
       MusicDataSource.auto => throw StateError(
         'Auto candidates must be tagged with their concrete source.',
@@ -271,32 +290,56 @@ class RemoteMusicResolver implements MusicResolver, ProgressiveMusicResolver {
       MusicDataSource.flac,
       _flac.search,
     );
+    final Future<_AutoSourceResult> source22a5Future = _enableSource22a5Auto
+        ? _searchAutoSource(
+            query,
+            MusicDataSource.source22a5,
+            _source22a5.search,
+          )
+        : Future.value(const _AutoSourceResult());
     final itunesFuture = _searchAutoSource(
       query,
       MusicDataSource.itunesPreview,
       _itunesPreview.search,
     );
-    final results = await Future.wait([buguyyFuture, flacFuture, itunesFuture]);
+    final results = await Future.wait([
+      buguyyFuture,
+      flacFuture,
+      source22a5Future,
+      itunesFuture,
+    ]);
     final buguyy = results[0];
     final flac = results[1];
-    final itunes = results[2];
+    final source22a5 = results[2];
+    final itunes = results[3];
     final merged = [
       ...buguyy.candidates,
       ...flac.candidates,
+      ...source22a5.candidates,
       ...itunes.candidates,
     ]..sort((a, b) => b.score.compareTo(a.score));
     _logResolver(
       '[AI Music][resolver] auto merged query="$query" '
       'buguyy=${buguyy.candidates.length} flac=${flac.candidates.length} '
+      'source22a5=${source22a5.candidates.length} '
       'itunesPreview=${itunes.candidates.length} count=${merged.length}',
     );
     if (merged.isNotEmpty) {
       return merged.take(80).toList(growable: false);
     }
-    if (buguyy.error != null && flac.error != null && itunes.error != null) {
-      throw _combinedAutoError([buguyy.error!, flac.error!, itunes.error!]);
+    if (buguyy.error != null &&
+        flac.error != null &&
+        source22a5.error != null &&
+        itunes.error != null) {
+      throw _combinedAutoError([
+        buguyy.error!,
+        flac.error!,
+        source22a5.error!,
+        itunes.error!,
+      ]);
     }
-    final error = buguyy.error ?? flac.error ?? itunes.error;
+    final error =
+        buguyy.error ?? flac.error ?? source22a5.error ?? itunes.error;
     if (error != null) {
       throw StateError(formatResolverError(error));
     }
@@ -330,7 +373,9 @@ StateError _combinedAutoError(List<Object> errors) {
       'buguyy failed: ${formatResolverError(errors[0])}',
       'flac failed: ${formatResolverError(errors[1])}',
       if (errors.length > 2)
-        'itunes preview failed: ${formatResolverError(errors[2])}',
+        'source 22a5 failed: ${formatResolverError(errors[2])}',
+      if (errors.length > 3)
+        'itunes preview failed: ${formatResolverError(errors[3])}',
     ].join('; '),
   );
 }

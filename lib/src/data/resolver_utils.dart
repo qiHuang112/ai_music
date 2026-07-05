@@ -95,6 +95,7 @@ MediaUrlType classifyMediaUrl(String url) {
 String failureCodeForUrlType(MediaUrlType type) {
   return switch (type) {
     MediaUrlType.directAudio => '',
+    MediaUrlType.directAudioCandidate => 'audio_validation_failed',
     MediaUrlType.previewAudio => 'preview_audio_available',
     MediaUrlType.externalPan => 'external_pan_link',
     MediaUrlType.htmlPage => 'non_audio_content',

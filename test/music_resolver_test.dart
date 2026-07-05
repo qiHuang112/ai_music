@@ -662,6 +662,186 @@ void main() {
       expect(candidates.single.source, MusicDataSource.itunesPreview);
     },
   );
+
+  test(
+    '22a5 guarded provider resolves only client ready direct audio',
+    () async {
+      const audioUrl = 'https://car-lv.kuwo.cn/path/song.m4a?from=vip';
+      final http = _FakeResolverHttp(
+        onGet: (uri, _) async {
+          if (Uri.decodeComponent(uri.path) == '/so/黑夜传说.html') {
+            return _html(
+              uri,
+              '<a href="/mp3/gslelxsl.html">麻园诗人《黑夜传说》[MP3_LRC]</a>',
+            );
+          }
+          if (uri.path == '/mp3/gslelxsl.html') {
+            return _html(uri, '''
+              <html>
+                <img src="http://img2.kuwo.cn/star/albumcover/500/cover.jpg">
+                <script>var media = "$audioUrl";</script>
+                <a href="/plug/down.php?ac=music&lk=lrc&id=gslelxsl">LRC动态歌词免费下载</a>
+              </html>
+            ''');
+          }
+          if (uri.path == '/plug/down.php') {
+            return _html(uri, '[00:01.00]黑夜传说 - 麻园诗人');
+          }
+          fail('Unexpected GET $uri');
+        },
+        onHead: (uri, _) async {
+          expect(uri.toString(), audioUrl);
+          return _response(
+            uri,
+            HttpStatus.ok,
+            headers: const {
+              'content-type': 'audio/mp4',
+              'content-length': '1658856',
+              'accept-ranges': 'bytes',
+            },
+          );
+        },
+        onRange: (uri, start, end, _) async {
+          expect(uri.toString(), audioUrl);
+          expect((start, end), (0, 0));
+          return _response(
+            uri,
+            HttpStatus.partialContent,
+            headers: const {
+              'content-type': 'audio/mp4',
+              'content-length': '1',
+              'content-range': 'bytes 0-0/1658856',
+            },
+          );
+        },
+      );
+      final resolver = RemoteMusicResolver(httpClient: http);
+
+      final candidates = await resolver.search(
+        '黑夜传说',
+        MusicDataSource.source22a5,
+      );
+      expect(candidates, hasLength(1));
+      expect(candidates.single.name, '黑夜传说');
+      expect(candidates.single.artist, '麻园诗人');
+
+      final resolved = await resolver.resolve(candidates.single);
+      expect(resolved.url, audioUrl);
+      expect(resolved.urlType, MediaUrlType.directAudio);
+      expect(resolved.canCacheAudio, isTrue);
+      expect(resolved.lyrics?.source, '22a5:lrc');
+      expect(resolved.sourceAttempts.single.reasonCode, 'direct_audio_ready');
+      expect(resolved.sourceAttempts.single.clientReady, isTrue);
+      expect(
+        resolved.sourceAttempts.single.mediaValidation,
+        contains('range=206'),
+      );
+    },
+  );
+
+  test('22a5 guarded provider fails closed on media validation 403', () async {
+    const audioUrl = 'https://car-er.kuwo.cn/path/blocked.m4a?from=vip';
+    final http = _FakeResolverHttp(
+      onGet: (uri, _) async {
+        if (uri.path == '/mp3/eexmdc.html') {
+          return _html(uri, '<script>let url = "$audioUrl";</script>');
+        }
+        fail('Unexpected GET $uri');
+      },
+      onHead: (uri, _) async => _response(
+        uri,
+        HttpStatus.forbidden,
+        headers: const {'content-length': '0'},
+      ),
+      onRange: (uri, start, end, _) async => _response(
+        uri,
+        HttpStatus.forbidden,
+        headers: const {'content-length': '0'},
+      ),
+    );
+    final resolver = RemoteMusicResolver(httpClient: http);
+
+    await expectLater(
+      resolver.resolve(
+        MusicSearchCandidate(
+          query: '浮夸',
+          source: MusicDataSource.source22a5,
+          platform: '22a5',
+          keyword: '浮夸',
+          page: 1,
+          id: 'eexmdc',
+          name: '浮夸',
+          artist: '陈奕迅',
+          album: '',
+          duration: 0,
+          link: 'https://www.22a5.com/mp3/eexmdc.html',
+          coverUrl: '',
+          qualities: const [MusicQuality(format: 'guarded')],
+          score: 100,
+          raw: const {},
+        ),
+      ),
+      throwsA(
+        isA<SourceDownloadException>()
+            .having(
+              (error) => error.failureCode,
+              'failureCode',
+              'audio_validation_failed',
+            )
+            .having(
+              (error) => error.sourceAttempts.single.mediaUrlType,
+              'urlType',
+              MediaUrlType.directAudioCandidate,
+            )
+            .having(
+              (error) => error.sourceAttempts.single.clientReady,
+              'clientReady',
+              isFalse,
+            ),
+      ),
+    );
+  });
+
+  test('22a5 guarded provider fails closed when detail has no audio URL', () {
+    final http = _FakeResolverHttp(
+      onGet: (uri, _) async {
+        if (uri.path == '/mp3/ddxleg.html') {
+          return _html(uri, '<html><img src="/cover.jpg"></html>');
+        }
+        fail('Unexpected GET $uri');
+      },
+    );
+    final resolver = RemoteMusicResolver(httpClient: http);
+
+    expect(
+      resolver.resolve(
+        MusicSearchCandidate(
+          query: '稻香',
+          source: MusicDataSource.source22a5,
+          platform: '22a5',
+          keyword: '稻香',
+          page: 1,
+          id: 'ddxleg',
+          name: '稻香',
+          artist: '周杰伦',
+          album: '',
+          duration: 0,
+          link: 'https://www.22a5.com/mp3/ddxleg.html',
+          coverUrl: '',
+          qualities: const [MusicQuality(format: 'guarded')],
+          score: 100,
+          raw: const {},
+        ),
+      ),
+      throwsA(
+        isA<SourceDownloadException>().having(
+          (error) => error.failureCode,
+          'failureCode',
+          'no_audio_url',
+        ),
+      ),
+    );
+  });
 }
 
 ResolverHttpResponse _json(Uri uri, Object body) {
@@ -672,9 +852,31 @@ ResolverHttpResponse _json(Uri uri, Object body) {
   );
 }
 
+ResolverHttpResponse _html(Uri uri, String body) {
+  return _response(
+    uri,
+    HttpStatus.ok,
+    body: body,
+    headers: const {'content-type': 'text/html; charset=UTF-8'},
+  );
+}
+
+ResolverHttpResponse _response(
+  Uri uri,
+  int statusCode, {
+  String body = '',
+  Map<String, String> headers = const {},
+}) {
+  return ResolverHttpResponse(
+    statusCode: statusCode,
+    body: body,
+    finalUrl: uri,
+    headers: headers,
+  );
+}
+
 class _FakeResolverHttp implements MusicResolverHttp {
-  // ignore: unused_element_parameter
-  _FakeResolverHttp({this.onGet, this.onPostForm, this.onPostJson});
+  _FakeResolverHttp({this.onGet, this.onHead, this.onRange, this.onPostForm});
 
   final Future<ResolverHttpResponse> Function(
     Uri uri,
@@ -683,17 +885,22 @@ class _FakeResolverHttp implements MusicResolverHttp {
   onGet;
   final Future<ResolverHttpResponse> Function(
     Uri uri,
+    Map<String, String> headers,
+  )?
+  onHead;
+  final Future<ResolverHttpResponse> Function(
+    Uri uri,
+    int start,
+    int end,
+    Map<String, String> headers,
+  )?
+  onRange;
+  final Future<ResolverHttpResponse> Function(
+    Uri uri,
     Map<String, String> form,
     Map<String, String> headers,
   )?
   onPostForm;
-  final Future<ResolverHttpResponse> Function(
-    Uri uri,
-    Object body,
-    Map<String, String> headers,
-  )?
-  onPostJson;
-
   @override
   Future<ResolverHttpResponse> get(
     Uri uri, {
@@ -704,6 +911,32 @@ class _FakeResolverHttp implements MusicResolverHttp {
       fail('Unexpected GET $uri');
     }
     return handler(uri, headers);
+  }
+
+  @override
+  Future<ResolverHttpResponse> head(
+    Uri uri, {
+    Map<String, String> headers = const {},
+  }) {
+    final handler = onHead;
+    if (handler == null) {
+      fail('Unexpected HEAD $uri');
+    }
+    return handler(uri, headers);
+  }
+
+  @override
+  Future<ResolverHttpResponse> range(
+    Uri uri, {
+    int start = 0,
+    int end = 0,
+    Map<String, String> headers = const {},
+  }) {
+    final handler = onRange;
+    if (handler == null) {
+      fail('Unexpected range GET $uri');
+    }
+    return handler(uri, start, end, headers);
   }
 
   @override
@@ -725,10 +958,6 @@ class _FakeResolverHttp implements MusicResolverHttp {
     Object body, {
     Map<String, String> headers = const {},
   }) {
-    final handler = onPostJson;
-    if (handler == null) {
-      fail('Unexpected JSON POST $uri');
-    }
-    return handler(uri, body, headers);
+    fail('Unexpected JSON POST $uri');
   }
 }
