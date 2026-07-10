@@ -1,6 +1,6 @@
 # AM-20260711-001 基于 Superpowers 重构团队工作流
 
-Status: accepted_pending_merge
+Status: pushed
 Owner Lane: architect
 Source Thread: 019ee910-8747-71e3-9293-720273f9e61f
 Target Version: process
@@ -20,22 +20,22 @@ Required Skills: using-superpowers, writing-plans, test-driven-development, veri
 TDD Mode: required
 TDD Exception: none
 Baseline Commit: f988dc0a0ce52cee82667bea88751c67344aaf0b
-Head Commit: f988dc0a0ce52cee82667bea88751c67344aaf0b
+Head Commit: aadb2b837d1e865ab9bf39d5033fe7740a86ed2f
 Root Cause Evidence: docs/superpowers/specs/2026-07-11-ai-music-team-workflow-design.md
 Red Evidence: 初始门禁测试得到 3 failures/9 errors；兼容回改得到 2 failures/2 errors；requestId 与文件名绑定测试分别先失败，证明错误任务单或伪装标题可绕过门禁
 Green Evidence: python3 -m unittest docs.codex_collab.tools.test_team_ops -v 运行 16 tests，结果 OK
 Targeted Tests: python3 -m unittest docs.codex_collab.tools.test_team_ops -v，16 passed
 Self Test Evidence: validate-request、validate-workflow review gate、legacy/new message context 均返回 OK；ai-music-team-ops quick_validate 返回 Skill is valid；~/.codex/config.toml 已解析确认 multi_agent=true
 Product Main Path Evidence: not_applicable
-Baseline Freshness Evidence: 当前主目录 HEAD=f988dc0a，origin/main=f7d28a15；本任务是 process-only 工作区 diff，不修改业务代码或 release 分支
-Scope Diff Evidence: 新增设计、计划、request、team_ops 测试；修改 team_ops、操作系统、README、lanes、request 模板和本机 ai-music-team-ops skill；未提交且未混入业务代码
+Baseline Freshness Evidence: 干净合入目录 /Users/huangqi/AIHome/projects/ai_music_AM-20260711-001_merge 基于 origin/main=f7d28a15 重放 280ff3b，生成 aadb2b8
+Scope Diff Evidence: aadb2b8 仅包含 Superpowers 设计/计划/request、team_ops 与测试、操作系统、README、lanes、request 模板和 QA gate 资产；未混入业务代码
 Spec Review Result: accepted
 Code Quality Review Result: accepted
 Full Verification Evidence: python3 -m unittest docs.codex_collab.tools.test_team_ops -v 运行 16 tests，结果 OK；py_compile、validate-request、validate-workflow --gate review、skill quick_validate、TOML 解析和 git diff --check 均通过
 Blocking Findings: none
-Merge Evidence: pending
-Push Evidence: pending
-Product Notification Evidence: pending
+Merge Evidence: aadb2b837d1e865ab9bf39d5033fe7740a86ed2f 已在干净合入目录基于 origin/main=f7d28a15 cherry-pick，并解决 README 规则段冲突
+Push Evidence: git push origin main 成功，远端 main 从 f7d28a1 推进到 aadb2b8
+Product Notification Evidence: architect 在当前 thread 019ee4b7-e7d2-7751-a4c4-150ede83c350 回 product/owner，带提交、推送和验证证据
 Knowledge Evidence: docs/superpowers/specs/2026-07-11-ai-music-team-workflow-design.md; docs/codex_collab/knowledge/qa-researcher/2026-07-11-superpowers-qa-evidence-gate.md
 
 ## 目标
@@ -65,14 +65,14 @@ Knowledge Evidence: docs/superpowers/specs/2026-07-11-ai-music-team-workflow-des
 
 ## 相关提交
 
-- pending
+- aadb2b837d1e865ab9bf39d5033fe7740a86ed2f
 
 ## 版本与发布
 
 - Target Version: process
 - Release Tag: not_applicable
 - Android APK: not_applicable
-- Push Status: not_ready
+- Push Status: pushed
 
 ## Review 结果
 
