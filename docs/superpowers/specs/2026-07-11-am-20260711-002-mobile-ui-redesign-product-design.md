@@ -35,7 +35,7 @@ Android 侧曾创建 `AM-20260711-002-android-current-product-screenshots.md`、
 当前截图采集 blocker：
 
 - Android：小米 10 Pro 无线调试不可达，`adb devices -l` 和 `adb mdns services` 无可用 target；Android 已停止旧 32d183c/AM-016 包，改用 b306932 debug APK。
-- OHOS：无线 HDC `tconn 192.168.31.53:6666` 可连接但 `hdc list targets -v` 为空，缺 connect-key target，暂不能安装 HAP 或截图。
+- OHOS：Mac 到 `192.168.31.53:6666` 端口可达，`hdc tconn` 返回 `Connect OK`，client/server 版本均为 `3.2.0c`，server log 显示 RSA 授权成功；但设备握手返回空 `connectKey`、`devname=localhost` 后 `CMD_KERNEL_CHANNEL_CLOSE`，`hdc list targets -v` 仍为空，暂不能安装 HAP、shell、uitest 或截图。设备侧需重新关闭再开启无线调试和调试授权，必要时重新配对或重启手机端调试服务。
 
 ## 必审路径
 
