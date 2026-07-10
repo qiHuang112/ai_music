@@ -73,6 +73,7 @@ Knowledge Evidence: docs/codex_collab/knowledge/qa-researcher/2026-07-11-ui-prod
 - 2026-07-11 type=status lane=architect summary=Product 静态审计 P1 已写入 canonical design/plan/QA：当前播放队列无入口、mini player 跨页中断、完整音频边播缺收藏/加歌单；选定视觉方向前只作为设计约束，不派 UI 代码。
 - 2026-07-11 type=status lane=architect summary=跨端硬约束已写入 canonical design/plan/QA：边缘返回区、48px 触控、搜索键盘、大字号、滚动 sheet/长列表、SafeArea/系统手势区和 OHOS foreground-only/启动首帧风险；分别标公共 Dart 与 OHOS owner。
 - 2026-07-11 type=blocker lane=ohos summary=OHOS 二次排查确认 Mac 到 `192.168.31.53:6666` 端口可达、`hdc tconn` 为 Connect OK、client/server 版本均为 3.2.0c、server log 显示 RSA 授权成功；但设备握手返回空 `connectKey`、`devname=localhost` 后 `CMD_KERNEL_CHANNEL_CLOSE`，所以 install/shell/uitest 仍不可执行。下一步需要设备侧关闭再开启无线调试和调试授权，必要时重新配对或重启手机端调试服务。
+- 2026-07-11 type=blocker lane=ohos summary=OHOS 按 Product 确认地址 `192.168.31.53:6666` 完成新会话复连验证：`hdc kill -r` 成功，`hdc tconn 192.168.31.53:6666` 返回 Connect OK，但 `hdc list targets -v` 仍为 `[Empty]`，`hdc shell echo ok` 返回 `[Fail]ExecuteCommand need connect-key? please confirm a device by help info`。按约定停止重复探测；截图仍 blocked，最新证据追加到 `/Users/huangqi/.codex/visualizations/2026/06/21/019ee7db-7cfc-7c41-9827-6b851ce89548/AM-20260711-002-ohos-design-facts/manifest.md`。
 
 ## 相关提交
 
