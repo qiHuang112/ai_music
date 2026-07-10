@@ -23,18 +23,18 @@ TDD Exception Review: not_applicable
 Baseline Commit: b306932d03e1eedbe96fd50dafe0f95805b0eab4
 Head Commit: pending
 Root Cause Evidence: not_applicable
-Research Evidence: pending
+Research Evidence: docs/codex_collab/knowledge/ui/2026-07-11-am002-real-screenshot-product-design-audit.md
 Red Evidence: not_applicable
 Green Evidence: not_applicable
 Targeted Tests: pending
-Self Test Evidence: pending
+Self Test Evidence: UI lane 已基于 Android b306932 小米 10 Pro 当前截图和 OHOS 真机截图完成四条路径 Product Design audit；本轮未生成新图、未改业务代码；三套 390x844 ImageGen 提示词为 Library First、Now Playing Hero、Discovery Mix
 Product Main Path Evidence: Android 当前截图目录 `/Users/huangqi/AIHome/output/AM-20260711-002-b306932-xiaomi10/screens/`；OHOS 当前截图目录 `/Users/huangqi/.codex/visualizations/2026/06/21/019ee7db-7cfc-7c41-9827-6b851ce89548/AM-20260711-002-ohos-design-facts/screenshots`；OHOS 约束清单 `/Users/huangqi/.codex/visualizations/2026/06/21/019ee7db-7cfc-7c41-9827-6b851ce89548/AM-20260711-002-ohos-design-facts/ohos-platform-constraints.md`
 Baseline Freshness Evidence: origin/release/1.0.2=b306932d03e1eedbe96fd50dafe0f95805b0eab4 作为真实页面审计基线；Android 截图采集包为同 commit debug APK sha256=ae5da6fbeacbef9876062d6220b7d627987bf04a99a1280649be8bda734266f3；Product 已检查首页、搜索、下载管理、播放/歌词、歌单 sheet 等关键截图有效
 Scope Diff Evidence: pending
 Spec Review Result: pending
 Code Quality Review Result: pending
 Full Verification Evidence: pending
-Blocking Findings: none for device screenshot collection; Android/OHOS current screenshots are available. Remaining work is UI audit and exactly three Product Design directions.
+Blocking Findings: none for Product ideation; Android/OHOS current screenshots and UI audit are available. Current audit findings are design/implementation handoff constraints, not blockers to Product generating exactly three direction images.
 Merge Evidence: pending
 Push Evidence: pending
 Product Notification Evidence: pending
@@ -76,6 +76,8 @@ Knowledge Evidence: docs/codex_collab/knowledge/qa-researcher/2026-07-11-ui-prod
 - 2026-07-11 type=blocker lane=ohos summary=OHOS 按 Product 确认地址 `192.168.31.53:6666` 完成新会话复连验证：`hdc kill -r` 成功，`hdc tconn 192.168.31.53:6666` 返回 Connect OK，但 `hdc list targets -v` 仍为 `[Empty]`，`hdc shell echo ok` 返回 `[Fail]ExecuteCommand need connect-key? please confirm a device by help info`。按约定停止重复探测；截图仍 blocked，最新证据追加到 `/Users/huangqi/.codex/visualizations/2026/06/21/019ee7db-7cfc-7c41-9827-6b851ce89548/AM-20260711-002-ohos-design-facts/manifest.md`。
 - 2026-07-11 type=status lane=architect summary=AM-002 设备截图 blocker 已解除：Android b306932 / 小米 10 Pro 当前截图在 `/Users/huangqi/AIHome/output/AM-20260711-002-b306932-xiaomi10/screens/`，包 sha256 `ae5da6fbeacbef9876062d6220b7d627987bf04a99a1280649be8bda734266f3`；OHOS HAP 真机截图在 `/Users/huangqi/.codex/visualizations/2026/06/21/019ee7db-7cfc-7c41-9827-6b851ce89548/AM-20260711-002-ohos-design-facts/`，约束清单为 `ohos-platform-constraints.md`。Product 已检查首页、搜索、下载管理、播放/歌词、歌单 sheet 等关键图有效；UI 正在基于当前证据重做 audit 和三套视觉提示词。
 - 2026-07-11 type=review_result lane=android summary=Architect 复核 Android b306932 / 小米 10 Pro 截图包 accepted as UI audit input：`summary.md` 记录设备、包、安装、media session 和已知限制；截图目录包含首页、搜索、下载管理、缓存播放、mini player、播放详情/歌词、队列相关误触/限制、收藏、热榜、设置、音乐源等 20 个文件。中文搜索干净结果页、下载中瞬间态和独立队列 sheet 未完全捕获，作为 UI audit evidence limits 记录，不阻塞 UI 进入 audit/ideate。
+- 2026-07-11 type=status lane=ui summary=UI 已基于 Android b306932 小米 10 Pro 当前截图和 OHOS 真机截图完成真实截图 Product Design audit，文档已并入 canonical path `docs/codex_collab/knowledge/ui/2026-07-11-am002-real-screenshot-product-design-audit.md`；本轮未生成新图、未改业务代码；三套 390x844 ImageGen 提示词为 Library First、Now Playing Hero、Discovery Mix。
+- 2026-07-11 type=review_result lane=architect summary=Spec Review Result: accepted，UI audit 已并入 canonical path，Product 可基于文档中三套提示词独立生成恰好 3 张图并选择方向；Code Quality Review Result: accepted，本轮仅账本和设计文档更新，无 UI 代码改动。`release/1.0.2@b306932` 代码包含 AM-010 `_HotlistItemTile` leading `height: 32` 修复，因此当前热榜详情 overflow 截图按“仍需 Android/android-discovery 复现或补无 overflow 截图”的 P1 视觉证据项处理；真正队列 sheet 截图缺失不阻塞 ideation，但在 image-to-code/开发 handoff 前 Android 需补采真正队列入口/sheet 或确认当前版本无可达队列 UI；键盘常驻搜索层级不足归 public Dart/UI implementation，进入 1.1.0 设计约束。
 
 ## 相关提交
 
@@ -95,5 +97,5 @@ Knowledge Evidence: docs/codex_collab/knowledge/qa-researcher/2026-07-11-ui-prod
 - Android Findings: pending
 - iOS Findings: not_applicable
 - HarmonyOS Findings: pending
-- Architect Findings: pending
-- Notes: 设计阶段 canonical 账本已建立；Android/OHOS 当前截图已可用，UI 继续 Product Design audit 和三套方向；本任务不改业务代码。
+- Architect Findings: accepted_for_product_ideation；P1/P2 owner 已记录，Product 选定视觉方向前不派 UI 代码
+- Notes: 设计阶段 canonical 账本已建立；Android/OHOS 当前截图和 UI audit 已可用，Product 可按 UI 文档中的 Library First、Now Playing Hero、Discovery Mix 三套提示词生成恰好 3 张图并选择方向；本任务不改业务代码。

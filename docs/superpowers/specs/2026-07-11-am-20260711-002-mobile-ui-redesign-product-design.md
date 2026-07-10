@@ -36,6 +36,13 @@ Android 侧曾创建 `AM-20260711-002-android-current-product-screenshots.md`、
 
 - Android：小米 10 Pro 已采集 b306932 当前真实页面截图，目录 `/Users/huangqi/AIHome/output/AM-20260711-002-b306932-xiaomi10/screens/`，截图采集包 sha256 `ae5da6fbeacbef9876062d6220b7d627987bf04a99a1280649be8bda734266f3`。
 - OHOS：此前 HDC connect-key blocker 已解除；HAP `/Users/huangqi/AIHome/projects/ai_music_ohos/build/ohos/hap/entry-default-signed.hap`，sha256 `9065d4d37c10c37be845f7c1c0a3561593f15234cf4a46535da2e1772f856abb`；HDC target `192.168.31.53:6666 TCP Connected localhost`；设备 `ALN-AL00`，系统 `OpenHarmony-6.1.0.115`，截图尺寸 `1260x2720`。截图目录 `/Users/huangqi/.codex/visualizations/2026/06/21/019ee7db-7cfc-7c41-9827-6b851ce89548/AM-20260711-002-ohos-design-facts/screenshots`，平台约束清单 `/Users/huangqi/.codex/visualizations/2026/06/21/019ee7db-7cfc-7c41-9827-6b851ce89548/AM-20260711-002-ohos-design-facts/ohos-platform-constraints.md`。
+- UI audit：真实截图 Product Design audit 已并入 `docs/codex_collab/knowledge/ui/2026-07-11-am002-real-screenshot-product-design-audit.md`。Architect 复核结论为 accepted_for_product_ideation：Product 可基于 Library First、Now Playing Hero、Discovery Mix 三套提示词生成恰好 3 张图；audit 中 P1/P2 进入 1.1.0 owner handoff，不阻塞当前 ideation。
+
+Architect 已复核 UI audit 中三个重点问题：
+
+- Android b306932 代码包含 AM-010 `_HotlistItemTile` leading `height: 32` 修复；若当前热榜详情截图仍出现 `overflowed by 4.0 pixels`，按当前 release 仍需 Android/android-discovery 复现或补无 overflow 截图处理。
+- 当前队列截图缺失且误触为新建歌单 sheet，不阻塞 Product 生成三套方向；但在 image-to-code/开发 handoff 前，Android 必须补采真正队列入口/sheet，或明确当前版本无可达队列 UI。
+- 搜索结果在键盘常驻时层级不足归 public Dart/UI implementation，必须进入 1.1.0 搜索结果行结构、键盘收起/滚动和触控目标设计。
 
 ## 必审路径
 

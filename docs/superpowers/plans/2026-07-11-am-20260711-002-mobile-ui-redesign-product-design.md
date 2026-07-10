@@ -21,6 +21,8 @@
 - Android 曾创建的同 requestId 截图采集 request/design/plan 已并入本 canonical plan 的 Task 2；它不是第二个 AM-20260711-002 request。
 - Product 静态审计 P1 事实必须进入 1.1.0 设计约束：当前播放队列没有可见 UI 入口；mini player 在下载管理、设置、排序编辑等页面中断；完整音频边下边播时丢失收藏与加歌单入口。选定视觉方向前只做设计约束和 handoff，不派 UI 代码。
 - 跨端硬约束必须进入 1.1.0 设计和 QA：横滑切歌避开系统边缘返回区；48px 最小触控目标；搜索提交后处理键盘与焦点；大字号下不依赖固定卡高；歌单选择 sheet 与下载长列表可滚动；SafeArea/系统手势区不能写死；OHOS foreground-only 与启动窗白色/暗色首帧不一致列为平台风险。
+- UI 真实截图 audit 已并入 `docs/codex_collab/knowledge/ui/2026-07-11-am002-real-screenshot-product-design-audit.md`。当前状态允许 Product 基于 Library First、Now Playing Hero、Discovery Mix 三套提示词生成恰好 3 张图并选择方向；选定前仍不派 UI 实现代码。
+- Audit evidence debt：Android b306932 已包含 AM-010 `_HotlistItemTile` leading `height: 32` 修复，但当前热榜详情截图仍显示 overflow debug 条，后续由 Android/android-discovery 复现或补无 overflow 截图；真正队列 sheet 截图缺失不阻塞 ideation，但 image-to-code/开发 handoff 前必须由 Android 补采或确认当前无可达队列 UI。
 
 ---
 
