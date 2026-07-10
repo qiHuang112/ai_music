@@ -1,6 +1,6 @@
 # AM-20260711-002 Product Design 重做 AI Music 移动端 UI
 
-Status: blocked
+Status: in_progress
 Owner Lane: architect
 Source Thread: 019ee910-8747-71e3-9293-720273f9e61f
 Target Version: 1.1.0
@@ -28,13 +28,13 @@ Red Evidence: not_applicable
 Green Evidence: not_applicable
 Targeted Tests: pending
 Self Test Evidence: pending
-Product Main Path Evidence: pending
-Baseline Freshness Evidence: origin/release/1.0.2=b306932d03e1eedbe96fd50dafe0f95805b0eab4 作为真实页面审计基线；Android 截图采集包为同 commit debug APK sha256=ae5da6fbeacbef9876062d6220b7d627987bf04a99a1280649be8bda734266f3
+Product Main Path Evidence: Android 当前截图目录 `/Users/huangqi/AIHome/output/AM-20260711-002-b306932-xiaomi10/screens/`；OHOS 当前截图目录 `/Users/huangqi/.codex/visualizations/2026/06/21/019ee7db-7cfc-7c41-9827-6b851ce89548/AM-20260711-002-ohos-design-facts/screenshots`；OHOS 约束清单 `/Users/huangqi/.codex/visualizations/2026/06/21/019ee7db-7cfc-7c41-9827-6b851ce89548/AM-20260711-002-ohos-design-facts/ohos-platform-constraints.md`
+Baseline Freshness Evidence: origin/release/1.0.2=b306932d03e1eedbe96fd50dafe0f95805b0eab4 作为真实页面审计基线；Android 截图采集包为同 commit debug APK sha256=ae5da6fbeacbef9876062d6220b7d627987bf04a99a1280649be8bda734266f3；Product 已检查首页、搜索、下载管理、播放/歌词、歌单 sheet 等关键截图有效
 Scope Diff Evidence: pending
 Spec Review Result: pending
 Code Quality Review Result: pending
 Full Verification Evidence: pending
-Blocking Findings: Android 小米 10 Pro 无线调试不可达；OHOS HDC 端口/RSA 可达但设备返回空 connectKey 并关闭 channel，`hdc list targets -v` 为空；截图证据采集 blocked，canonical request/design/plan gate 不阻塞。
+Blocking Findings: none for device screenshot collection; Android/OHOS current screenshots are available. Remaining work is UI audit and exactly three Product Design directions.
 Merge Evidence: pending
 Push Evidence: pending
 Product Notification Evidence: pending
@@ -74,6 +74,7 @@ Knowledge Evidence: docs/codex_collab/knowledge/qa-researcher/2026-07-11-ui-prod
 - 2026-07-11 type=status lane=architect summary=跨端硬约束已写入 canonical design/plan/QA：边缘返回区、48px 触控、搜索键盘、大字号、滚动 sheet/长列表、SafeArea/系统手势区和 OHOS foreground-only/启动首帧风险；分别标公共 Dart 与 OHOS owner。
 - 2026-07-11 type=blocker lane=ohos summary=OHOS 二次排查确认 Mac 到 `192.168.31.53:6666` 端口可达、`hdc tconn` 为 Connect OK、client/server 版本均为 3.2.0c、server log 显示 RSA 授权成功；但设备握手返回空 `connectKey`、`devname=localhost` 后 `CMD_KERNEL_CHANNEL_CLOSE`，所以 install/shell/uitest 仍不可执行。下一步需要设备侧关闭再开启无线调试和调试授权，必要时重新配对或重启手机端调试服务。
 - 2026-07-11 type=blocker lane=ohos summary=OHOS 按 Product 确认地址 `192.168.31.53:6666` 完成新会话复连验证：`hdc kill -r` 成功，`hdc tconn 192.168.31.53:6666` 返回 Connect OK，但 `hdc list targets -v` 仍为 `[Empty]`，`hdc shell echo ok` 返回 `[Fail]ExecuteCommand need connect-key? please confirm a device by help info`。按约定停止重复探测；截图仍 blocked，最新证据追加到 `/Users/huangqi/.codex/visualizations/2026/06/21/019ee7db-7cfc-7c41-9827-6b851ce89548/AM-20260711-002-ohos-design-facts/manifest.md`。
+- 2026-07-11 type=status lane=architect summary=AM-002 设备截图 blocker 已解除：Android b306932 / 小米 10 Pro 当前截图在 `/Users/huangqi/AIHome/output/AM-20260711-002-b306932-xiaomi10/screens/`，包 sha256 `ae5da6fbeacbef9876062d6220b7d627987bf04a99a1280649be8bda734266f3`；OHOS HAP 真机截图在 `/Users/huangqi/.codex/visualizations/2026/06/21/019ee7db-7cfc-7c41-9827-6b851ce89548/AM-20260711-002-ohos-design-facts/`，约束清单为 `ohos-platform-constraints.md`。Product 已检查首页、搜索、下载管理、播放/歌词、歌单 sheet 等关键图有效；UI 正在基于当前证据重做 audit 和三套视觉提示词。
 
 ## 相关提交
 
@@ -94,4 +95,4 @@ Knowledge Evidence: docs/codex_collab/knowledge/qa-researcher/2026-07-11-ui-prod
 - iOS Findings: not_applicable
 - HarmonyOS Findings: pending
 - Architect Findings: pending
-- Notes: 设计阶段 canonical 账本已建立；Android/OHOS 截图采集是子证据，当前被设备可达性阻塞；本任务不改业务代码。
+- Notes: 设计阶段 canonical 账本已建立；Android/OHOS 当前截图已可用，UI 继续 Product Design audit 和三套方向；本任务不改业务代码。

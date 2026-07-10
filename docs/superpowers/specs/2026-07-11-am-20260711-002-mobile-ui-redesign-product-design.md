@@ -32,10 +32,10 @@ Status: approved_for_planning
 
 Android 侧曾创建 `AM-20260711-002-android-current-product-screenshots.md`、`2026-07-11-am002-android-current-product-screenshots-design.md` 和 `2026-07-11-am002-android-current-product-screenshots.md`。这些文件的内容并入本设计规格和计划作为截图采集子证据清单，不再作为独立 request 或第二套 AM-20260711-002 口径。
 
-当前截图采集 blocker：
+当前截图采集证据：
 
-- Android：小米 10 Pro 无线调试不可达，`adb devices -l` 和 `adb mdns services` 无可用 target；Android 已停止旧 32d183c/AM-016 包，改用 b306932 debug APK。
-- OHOS：Mac 到 `192.168.31.53:6666` 端口可达，`hdc tconn` 返回 `Connect OK`，client/server 版本均为 `3.2.0c`，server log 显示 RSA 授权成功；但设备握手返回空 `connectKey`、`devname=localhost` 后 `CMD_KERNEL_CHANNEL_CLOSE`，`hdc list targets -v` 仍为空，暂不能安装 HAP、shell、uitest 或截图。设备侧需重新关闭再开启无线调试和调试授权，必要时重新配对或重启手机端调试服务。
+- Android：小米 10 Pro 已采集 b306932 当前真实页面截图，目录 `/Users/huangqi/AIHome/output/AM-20260711-002-b306932-xiaomi10/screens/`，截图采集包 sha256 `ae5da6fbeacbef9876062d6220b7d627987bf04a99a1280649be8bda734266f3`。
+- OHOS：此前 HDC connect-key blocker 已解除；HAP `/Users/huangqi/AIHome/projects/ai_music_ohos/build/ohos/hap/entry-default-signed.hap`，sha256 `9065d4d37c10c37be845f7c1c0a3561593f15234cf4a46535da2e1772f856abb`；HDC target `192.168.31.53:6666 TCP Connected localhost`；设备 `ALN-AL00`，系统 `OpenHarmony-6.1.0.115`，截图尺寸 `1260x2720`。截图目录 `/Users/huangqi/.codex/visualizations/2026/06/21/019ee7db-7cfc-7c41-9827-6b851ce89548/AM-20260711-002-ohos-design-facts/screenshots`，平台约束清单 `/Users/huangqi/.codex/visualizations/2026/06/21/019ee7db-7cfc-7c41-9827-6b851ce89548/AM-20260711-002-ohos-design-facts/ohos-platform-constraints.md`。
 
 ## 必审路径
 
