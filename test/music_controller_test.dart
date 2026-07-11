@@ -1520,6 +1520,65 @@ void main() {
   );
 
   test(
+    'playCandidate plays cached Gequhai full audio before opening transient stream',
+    () async {
+      final music = ResolvedMusic(
+        query: '外婆',
+        source: MusicDataSource.gequhai,
+        platform: 'gequhai',
+        id: '38173',
+        name: '外婆',
+        artist: '周杰伦',
+        album: '',
+        url: 'https://cdn.gequhai.test/audio/38173.mp3',
+        quality: const MusicQuality(format: 'mp3', bitrate: '128'),
+        urlType: MediaUrlType.directAudio,
+        canCacheAudio: true,
+      );
+      final cached = CachedTrack(
+        cacheId: cacheIdForResolved(music),
+        music: music,
+        filePath: '/tmp/gequhai-waipo.mp3',
+        sizeBytes: 3078864,
+        fromCache: true,
+      );
+      final handler = _SpyAudioHandler();
+      final controller = MusicController(
+        audioHandler: handler,
+        resolver: _FailingMusicResolver(),
+        cacheStore: _FakeCacheStore(cached: [cached]),
+        playlistStore: _FakePlaylistStore(),
+        settingsStore: _FakeSettingsStore(),
+        metadataRepository: _StaticMetadataRepository(),
+        streamingPlaybackCache: _FailingStreamingPlayback(),
+      );
+      final candidate = _candidate(
+        id: '38173',
+        name: '外婆',
+        artist: '周杰伦',
+        source: MusicDataSource.gequhai,
+        platform: 'gequhai',
+      );
+
+      try {
+        await controller.initialize();
+
+        await controller.playCandidate(candidate);
+
+        expect(handler.loadedIds, [cached.cacheId]);
+        expect(handler.loadedUris.single.scheme, 'file');
+        expect(
+          controller.statusMessage?.code,
+          MusicUiMessageCode.playingCachedFile,
+        );
+      } finally {
+        controller.dispose();
+        await handler.dispose();
+      }
+    },
+  );
+
+  test(
     'playCandidate keeps Kuwo full audio stream failures out of cache and downloads',
     () async {
       final root = await Directory.systemTemp.createTemp(

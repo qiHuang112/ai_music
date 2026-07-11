@@ -567,16 +567,15 @@ class MusicController extends ChangeNotifier {
       notifyListeners();
       return;
     }
-    if (_isFullAudioSource(candidate.source)) {
+    var record = _cachedRecordForCandidate(candidate);
+    if (record != null) {
+      record = await _refreshCachedCandidateMetadata(candidate, record);
+    } else if (_isFullAudioSource(candidate.source)) {
       await _playFullAudioStreamingCandidate(candidate);
       return;
-    }
-    var record = _cachedRecordForCandidate(candidate);
-    if (record == null) {
+    } else {
       await downloadCandidate(candidate);
       record = _cachedRecordForCandidate(candidate);
-    } else {
-      record = await _refreshCachedCandidateMetadata(candidate, record);
     }
     if (record == null) {
       return;
