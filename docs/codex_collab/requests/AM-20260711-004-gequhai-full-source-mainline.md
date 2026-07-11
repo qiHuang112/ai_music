@@ -1,6 +1,6 @@
 # AM-20260711-004 歌曲海完整搜索下载边播主链路
 
-Status: review
+Status: accepted_pending_merge
 Owner Lane: android-source
 Assist Lane: source-researcher, android-streaming, android, architect, ui, qa-researcher
 Source Thread: 019f4ed4-106e-7860-875d-a32f81629e4e
@@ -31,11 +31,12 @@ Green Evidence: 同名测试修复后通过；`gequhai validates the four produc
 Targeted Tests: `flutter test --no-pub test/music_resolver_test.dart test/music_cache_test.dart test/progressive_audio_cache_test.dart test/music_controller_test.dart test/widget_test.dart --dart-define=AI_MUSIC_DISABLE_AUDIO_SERVICE=true` = 145 passed；`flutter analyze --no-pub` no issues；`git diff --check` clean。
 Self Test Evidence: Debug APK `/Users/huangqi/AIHome/projects/ai_music_AM-20260711-004/build/app/outputs/flutter-apk/app-debug.apk` sha256 `02ac0f4523456381bb980ca7ff7b8382f752fc6d74c880d2b57242f5ad96f7c7` installed on Xiaomi 10 Pro `192.168.31.76:41563`, lastUpdateTime `2026-07-11 18:37:59`; input method restored to `com.baidu.input_mi/.ImeService`.
 Product Main Path Evidence: `/tmp/am004-device-evidence/full-source-postfix/summary.json` and screenshots/XML/logs show `外婆/周杰伦`、`一丝不挂/陈奕迅`、`稻香/周杰伦`、`哎呀/王蓉` all search as `歌海 ... MP3`, play with media_session state=3, grow transient part to full size, promote to formal mp3 + `_cache_index.json` + `.lrc`, and load artwork/lyrics; `东方财富` returns `没有找到在线结果` and writes no new audio cache.
+Waipo Rerun Evidence: `/tmp/am004-device-evidence/waipo-rerun-20260711-190020` shows `外婆/周杰伦` `first_byte_ms=1376 < download_complete_ms=5473`, part growth to `3913543/3913543`, formal mp3 promotion, media_session `state=3`, correct metadata, and android-streaming narrow P1 accepted.
 Baseline Freshness Evidence: Project Path 已基于 origin/release/1.0.2@b306932d03e1eedbe96fd50dafe0f95805b0eab4 创建独立工程。
 Scope Diff Evidence: WIP diff currently limited to `lib/src/application/music_controller.dart`, `lib/src/data/gequhai_player_audio_resolver.dart`, `lib/src/data/music_resolver.dart`, `lib/src/presentation/settings_page.dart`, `test/music_controller_test.dart`, `test/music_resolver_test.dart`, `test/widget_test.dart`.
-Spec Review Result: pending
-Code Quality Review Result: pending
-Full Verification Evidence: pending
+Spec Review Result: accepted
+Code Quality Review Result: accepted
+Full Verification Evidence: source-researcher accepted, Android owner accepted, android-streaming accepted; targeted suite 145 passed, analyze no issues, request/review gates OK.
 Blocking Findings: none
 Merge Evidence: pending
 Push Evidence: pending
@@ -126,6 +127,12 @@ AM-004 为 P0 主链路恢复任务，architect review 时任一 P0/P1 缺口都
 - 2026-07-11 `product` 备用审计：确认当前实现方向正确但不能 accepted；要求将旧源迁移、歌曲海可见候选、详情一致性、modified base64 夸克 evidence、东方财富 fail closed、四首正向矩阵、点击行下载播放、cache/lyrics/cover、首声早于下载完成、失败隔离和无 PREVIEW/网盘/HTML/防护页可见行纳入 P0/P1 review gate。
 - 2026-07-11 `product` heartbeat 监督：要求 architect 持续盯 `android-source`，10 到 15 分钟无 `review_request` 或 actionable `blocker` 即追问或重分配；收到 `review_request` 后立即分发 source-researcher、android-streaming、android 三方复核，并按双 review 结论回 Product。
 - 2026-07-11 `product` review_request：AM-004 已进入 review；业务实现 commit `139632665b7aa1a1fa232b0aa474a7ce13e37682`，证据记录 HEAD `51d887561ae7dce7650cb169decb72bf13173418`，APK sha256 `02ac0f4523456381bb980ca7ff7b8382f752fc6d74c880d2b57242f5ad96f7c7`，小米 10 Pro 证据 `/tmp/am004-device-evidence/full-source-postfix/summary.json`。architect 已启动 source-researcher、android-streaming、android 三方复核。
+- 2026-07-11 `source-researcher` review_result：协议实现复核 accepted。Reviewed HEAD `51d887561ae7dce7650cb169decb72bf13173418`，业务实现 commit `139632665b7aa1a1fa232b0aa474a7ce13e37682`；`Spec Review Result: accepted`，`Code Quality Review Result: accepted`，`Blocking Findings: none`。确认 `source_gequhai`、搜索可见性、详情一致性、cookie jar/defender retry、`/api/music` headers、CDN no-referer HEAD/Range gate、`external_pan_link` evidence、四首正样例和 `东方财富` fail closed 均符合协议。非阻塞观察：全分支 `git diff --check b306932..HEAD` 会因 raw upstream HTML evidence 尾随空格报错；客户端代码路径 diff-check clean。
+- 2026-07-11 `android` review_result：Android owner 双 review accepted。`Spec Review Result: accepted`，`Code Quality Review Result: accepted`；确认 Auto/设置主链路已迁到歌曲海完整音频，可见候选必须 `source_gequhai + direct_audio + canCacheAudio/clientReady`，四首正样例和 `东方财富` fail closed 证据齐，`GequhaiPlayerAudioResolver` 的 page/api/media_validation gate、CDN no-referer、external_pan evidence only、缓存闸口和 UI 过滤无阻塞。
+- 2026-07-11 `android-streaming` review_result：changes_requested。`Spec Review Result: changes_requested`，P1 证据缺口为主样例 `外婆/周杰伦` 的 `summary.json` 中 `playback_started_ms=null`，`02-waipo-logcat-raw.txt`/`02-waipo-logcat-filtered.txt` 未检出 `play-started` 或 `first_byte_ms`；不能用截取稍晚的 media_session state=3 反推首声早于完整下载。`Code Quality Review Result: changes_requested`，原因是 review/merge 所需证据与账本状态未闭环，未指出新的生产代码缺陷。正向部分：一丝不挂、稻香、哎呀首声早于 download_complete，part-growth、promote、cache index、lrc、artwork、not-in-download-list 证据通过；东方财富 fail closed 通过。
+- 2026-07-11 `product` scope guard：AM-004 暂缓合入但不扩大 review 范围；android-source 只需补 `外婆/周杰伦` `play-started` 或 `first_byte_ms` 真机证据，证明首声早于 `download_complete_ms`。回传后仅交 `android-streaming` 复核该 P1；若 accepted，architect 直接进入最终合入/体验包判断。
+- 2026-07-11 `android-source` P1 补证：`外婆/周杰伦` 新证据目录 `/tmp/am004-device-evidence/waipo-rerun-20260711-190020`，`first_byte_ms=1376 < download_complete_ms=5473`，part 增长到 `3913543/3913543` 后转正式 mp3，media_session `state=3` 且 metadata 正确。主目录和 Project Path 的 `validate-request`、`validate-workflow --gate review` 均 OK。
+- 2026-07-11 `android-streaming` P1 窄复核：accepted。`Spec Review Result: accepted`，`Code Quality Review Result: accepted`；`/tmp/am004-device-evidence/waipo-rerun-20260711-190020/summary.json` 与 raw log 均显示 `first_byte_ms=1376 < download_complete_ms=5473`，part 多次增长 `269416 -> 531560 -> ... -> 3913543/3913543`，progressive promoted 到正式缓存，media_session `state=3` 且 metadata `外婆, 周杰伦`，搜索 XML 无 PREVIEW/试听/网盘/夸克/30s，输入法已恢复。
 
 ## 2026-07-11 Android Self Test Evidence
 
@@ -148,7 +155,7 @@ Local verification:
 
 | song | search result | playback | progressive evidence | cache/metadata |
 | --- | --- | --- | --- | --- |
-| 外婆 / 周杰伦 | `歌海 / 外婆 / 周杰伦 - MP3`，无 PREVIEW/试听/网盘 | media_session `state=3`, metadata `外婆 / 周杰伦` | part `3913543/3913543`, `download_complete_ms=6082` | `周杰伦-外婆-74d0f9f4e3.mp3`, `.lrc`, lyrics 83 行, artwork=true |
+| 外婆 / 周杰伦 | `歌海 / 外婆 / 周杰伦 - MP3`，无 PREVIEW/试听/网盘 | media_session `state=3`, metadata `外婆 / 周杰伦` | `first_byte_ms=1376`, part `3913543/3913543`, `download_complete_ms=5473` | `周杰伦-外婆-74d0f9f4e3.mp3`, `.lrc`, lyrics 83 行, artwork=true |
 | 一丝不挂 / 陈奕迅 | `歌海 / 一丝不挂 / 陈奕迅 - MP3`，无 PREVIEW/试听/网盘 | media_session `state=3`, metadata `一丝不挂 / 陈奕迅` | `playback_started_ms=2220`, part `3877617/3877617`, `download_complete_ms=6507` | `陈奕迅-一丝不挂-f1115ce6db.mp3`, `.lrc`, lyrics 52 行, artwork=true |
 | 稻香 / 周杰伦 | `歌海 / 稻香 / 周杰伦 - MP3`，无 PREVIEW/试听/网盘 | media_session `state=3`, metadata `稻香 / 周杰伦` | `playback_started_ms=2916`, part `3576668/3576668`, `download_complete_ms=6468` | `周杰伦-稻香-33b8cfe87d.mp3`, `.lrc`, lyrics 48 行, artwork=true |
 | 哎呀 / 王蓉 | `歌海 / 哎呀 / 王蓉 - MP3`，无 PREVIEW/试听/网盘 | media_session `state=3`, metadata `哎呀 / 王蓉` | `playback_started_ms=1450`, part `3468831/3468831`, `download_complete_ms=4734` | `王蓉-哎呀-fc9fcb09c4.mp3`, `.lrc`, lyrics 87 行, artwork=true |
