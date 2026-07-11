@@ -625,6 +625,152 @@ void main() {
     expect(candidates, isEmpty);
   });
 
+  test('auto keeps gequhai artist-only search results visible', () async {
+    const audioUrl = 'https://cdn.gequhai.test/audio/326.mp3';
+    final http = _FakeResolverHttp(
+      onGet: (uri, _) async {
+        if (uri.path.startsWith('/s/')) {
+          return _html(uri, '''
+              <table>
+                <tr><td><a href="/play/326">晴天</a></td><td>周杰伦</td></tr>
+                <tr><td><a href="/play/553">青花瓷</a></td><td>周杰伦</td></tr>
+              </table>
+            ''');
+        }
+        if (uri.path == '/play/326') {
+          return _html(uri, '''
+              <script>
+                window.play_id = '326';
+                window.mp3_title = '晴天';
+                window.mp3_author = '周杰伦';
+              </script>
+              <div id="content-lrc2">[00:01.00]晴天</div>
+            ''');
+        }
+        if (uri.path == '/play/553') {
+          return _html(uri, '''
+              <script>
+                window.play_id = '553';
+                window.mp3_title = '青花瓷';
+                window.mp3_author = '周杰伦';
+              </script>
+              <div id="content-lrc2">[00:01.00]青花瓷</div>
+            ''');
+        }
+        fail('Unexpected GET $uri');
+      },
+      onPostForm: (uri, form, _) async => _json(uri, {
+        'code': 200,
+        'data': {'url': audioUrl.replaceFirst('326', form['id'] ?? '')},
+      }),
+      onHead: (uri, _) async => _response(
+        uri,
+        HttpStatus.ok,
+        headers: const {
+          'content-type': 'audio/mpeg',
+          'content-length': '3913543',
+        },
+      ),
+      onRange: (uri, _, _, _) async => _response(
+        uri,
+        HttpStatus.partialContent,
+        headers: const {
+          'content-type': 'audio/mpeg',
+          'content-range': 'bytes 0-8191/3913543',
+        },
+      ),
+    );
+    final resolver = RemoteMusicResolver(httpClient: http);
+
+    final candidates = await resolver.search('周杰伦', MusicDataSource.auto);
+
+    expect(candidates.map((candidate) => candidate.name), contains('晴天'));
+    expect(candidates.map((candidate) => candidate.artist).toSet(), {'周杰伦'});
+    expect(candidates.first.source, MusicDataSource.gequhai);
+  });
+
+  test(
+    'auto tries later gequhai candidates when the top match fails validation',
+    () async {
+      const goodAudioUrl = 'https://cdn.gequhai.test/audio/5553349.mp3';
+      final http = _FakeResolverHttp(
+        onGet: (uri, _) async {
+          if (uri.path.startsWith('/s/')) {
+            return _html(uri, '''
+              <table>
+                <tr><td><a href="/play/5553351">剩下的果实</a></td><td>陈玖术</td></tr>
+                <tr><td><a href="/play/5553349">剩下的果实</a></td><td>小羊</td></tr>
+              </table>
+            ''');
+          }
+          if (uri.path == '/play/5553351') {
+            return _html(uri, '''
+              <script>
+                window.play_id = '5553351';
+                window.mp3_title = '剩下的果实';
+                window.mp3_author = '陈玖术';
+              </script>
+            ''');
+          }
+          if (uri.path == '/play/5553349') {
+            return _html(uri, '''
+              <script>
+                window.play_id = '5553349';
+                window.mp3_title = '剩下的果实';
+                window.mp3_author = '小羊';
+              </script>
+              <div id="content-lrc2">[00:01.00]剩下的果实</div>
+            ''');
+          }
+          fail('Unexpected GET $uri');
+        },
+        onPostForm: (uri, form, _) async {
+          if (form['id'] == '5553351') {
+            return _json(uri, {
+              'code': 200,
+              'data': {'url': 'https://cdn.gequhai.test/not-audio.html'},
+            });
+          }
+          return _json(uri, {
+            'code': 200,
+            'data': {'url': goodAudioUrl},
+          });
+        },
+        onHead: (uri, _) async => _response(
+          uri,
+          HttpStatus.ok,
+          headers: {
+            'content-type': uri.path.endsWith('.html')
+                ? 'text/html'
+                : 'audio/mpeg',
+            'content-length': '3913543',
+          },
+        ),
+        onRange: (uri, _, _, _) async => _response(
+          uri,
+          HttpStatus.partialContent,
+          headers: const {
+            'content-type': 'audio/mpeg',
+            'content-range': 'bytes 0-8191/3913543',
+          },
+        ),
+      );
+      final resolver = RemoteMusicResolver(httpClient: http);
+
+      final candidates = await resolver.search('剩下的果实', MusicDataSource.auto);
+
+      expect(candidates.map((candidate) => candidate.id), contains('5553349'));
+      expect(
+        candidates.map((candidate) => candidate.id),
+        isNot(contains('5553351')),
+      );
+      expect(
+        candidates.single.raw['urlType'],
+        MediaUrlType.directAudio.storageValue,
+      );
+    },
+  );
+
   test(
     'auto does not fall back to old sources when gequhai media fails',
     () async {

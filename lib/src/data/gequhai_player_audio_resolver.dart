@@ -561,10 +561,7 @@ List<MusicSearchCandidate> _parseSearchResults(
     }
   }
   candidates.sort((a, b) => b.score.compareTo(a.score));
-  if (_queryHasArtist(query)) {
-    return candidates.take(8).toList(growable: false);
-  }
-  return candidates.take(1).toList(growable: false);
+  return candidates.take(8).toList(growable: false);
 }
 
 MusicSearchCandidate? _parseSearchRow(
@@ -615,11 +612,18 @@ MusicSearchCandidate? _candidateFromSearchMatch({
       normalizedTitle.contains(normalizedQuery);
   final artistMatches =
       normalizedArtist.isEmpty || normalizedQuery.contains(normalizedArtist);
-  if (!titleMatches || (_queryHasArtist(query) && !artistMatches)) {
+  final exactArtistOnlyMatch =
+      normalizedArtist.isNotEmpty && normalizedQuery == normalizedArtist;
+  if ((!titleMatches && !exactArtistOnlyMatch) ||
+      (_queryHasArtist(query) && !artistMatches)) {
     return null;
   }
   final score =
-      (normalizedQuery == normalizedTitle ? 240.0 : 190.0) +
+      (normalizedQuery == normalizedTitle
+          ? 240.0
+          : exactArtistOnlyMatch
+          ? 220.0
+          : 190.0) +
       (normalizedArtist.isNotEmpty && normalizedQuery.contains(normalizedArtist)
           ? 80.0
           : 0.0);

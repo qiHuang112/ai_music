@@ -235,6 +235,55 @@ void main() {
     },
   );
 
+  test(
+    'upstream range failure falls back to full GET for seekable proxy playback',
+    () async {
+      final root = await Directory.systemTemp.createTemp(
+        'ai_music_prog_range_fallback_',
+      );
+      final source = await _RangeFailingAudioSource.start(
+        _validMp3Bytes(48 * 1024),
+        chunkSize: 8192,
+        chunkDelay: Duration.zero,
+      );
+      final cacheStore = CachedTrackStore(rootProvider: () async => root);
+      final progressive = ProgressiveAudioCache(
+        cacheStore: cacheStore,
+        rootProvider: () async => root,
+      );
+
+      try {
+        final session = await progressive.open(
+          _resolvedMusic(url: source.audioUri.toString()),
+        );
+        final client = HttpClient();
+        final request = await client.getUrl(session.proxyUri);
+        request.headers.set(HttpHeaders.rangeHeader, 'bytes=32768-33791');
+        final response = await request.close();
+        final bytes = await response.fold<int>(
+          0,
+          (sum, chunk) => sum + chunk.length,
+        );
+
+        expect(source.rangeRequests, 1);
+        expect(source.fullRequests, 1);
+        expect(response.statusCode, HttpStatus.partialContent);
+        expect(
+          response.headers.value(HttpHeaders.contentRangeHeader),
+          'bytes 32768-33791/${source.bytes.length}',
+        );
+        expect(bytes, 1024);
+        expect(session.fetchError, isNull);
+        expect(await cacheStore.listCached(), isEmpty);
+        client.close(force: true);
+      } finally {
+        await progressive.close();
+        await source.close();
+        await root.delete(recursive: true);
+      }
+    },
+  );
+
   test('first byte timeout returns fallback signal without hanging', () async {
     final root = await Directory.systemTemp.createTemp(
       'ai_music_prog_timeout_',
@@ -443,6 +492,67 @@ List<int> _validMp3Bytes(int size) {
     0x00,
     ...List<int>.filled(max(size, 16 * 1024), 0),
   ];
+}
+
+class _RangeFailingAudioSource {
+  _RangeFailingAudioSource._(this._server, this.bytes, this.audioUri);
+
+  final HttpServer _server;
+  final List<int> bytes;
+  final Uri audioUri;
+  int rangeRequests = 0;
+  int fullRequests = 0;
+
+  static Future<_RangeFailingAudioSource> start(
+    List<int> bytes, {
+    required int chunkSize,
+    required Duration chunkDelay,
+  }) async {
+    final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+    final source = _RangeFailingAudioSource._(
+      server,
+      bytes,
+      Uri(
+        scheme: 'http',
+        host: server.address.host,
+        port: server.port,
+        path: '/song.mp3',
+      ),
+    );
+    unawaited(source._serve(chunkSize: chunkSize, chunkDelay: chunkDelay));
+    return source;
+  }
+
+  Future<void> close() => _server.close(force: true);
+
+  Future<void> _serve({
+    required int chunkSize,
+    required Duration chunkDelay,
+  }) async {
+    await for (final request in _server) {
+      final range = request.headers.value(HttpHeaders.rangeHeader);
+      if (range != null) {
+        rangeRequests += 1;
+        request.response.statusCode = HttpStatus.internalServerError;
+        await request.response.close();
+        continue;
+      }
+      fullRequests += 1;
+      request.response.statusCode = HttpStatus.ok;
+      request.response.headers.contentType = ContentType('audio', 'mpeg');
+      request.response.headers.contentLength = bytes.length;
+      request.response.headers.set(HttpHeaders.acceptRangesHeader, 'bytes');
+      for (var offset = 0; offset < bytes.length; offset += chunkSize) {
+        if (chunkDelay > Duration.zero) {
+          await Future<void>.delayed(chunkDelay);
+        }
+        final end = min(offset + chunkSize, bytes.length);
+        request.response.add(bytes.sublist(offset, end));
+        await request.response.flush();
+      }
+      await request.response.close();
+    }
+  }
 }
 
 class _FailingAudioSource {

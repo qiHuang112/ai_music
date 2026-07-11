@@ -659,10 +659,11 @@ class ProgressiveAudioSession {
   Future<void> _fetch() async {
     IOSink? sink;
     try {
-      final request = await _client.getUrl(Uri.parse(music.url));
-      request.headers.set(HttpHeaders.userAgentHeader, _userAgent);
-      request.headers.set(HttpHeaders.rangeHeader, 'bytes=0-');
-      final response = await request.close();
+      var response = await _openUpstream(useRange: true);
+      if (!_isSuccessfulUpstream(response)) {
+        await response.drain<void>();
+        response = await _openUpstream(useRange: false);
+      }
       if (response.statusCode != HttpStatus.ok &&
           response.statusCode != HttpStatus.partialContent) {
         throw HttpException(
@@ -704,6 +705,20 @@ class ProgressiveAudioSession {
     } finally {
       await sink?.close();
     }
+  }
+
+  Future<HttpClientResponse> _openUpstream({required bool useRange}) async {
+    final request = await _client.getUrl(Uri.parse(music.url));
+    request.headers.set(HttpHeaders.userAgentHeader, _userAgent);
+    if (useRange) {
+      request.headers.set(HttpHeaders.rangeHeader, 'bytes=0-');
+    }
+    return request.close();
+  }
+
+  bool _isSuccessfulUpstream(HttpClientResponse response) {
+    return response.statusCode == HttpStatus.ok ||
+        response.statusCode == HttpStatus.partialContent;
   }
 
   Future<void> _pipeAvailableBytes(
