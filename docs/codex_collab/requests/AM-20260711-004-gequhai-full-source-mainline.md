@@ -1,6 +1,6 @@
 # AM-20260711-004 歌曲海完整搜索下载边播主链路
 
-Status: self_tested
+Status: review
 Owner Lane: android-source
 Assist Lane: source-researcher, android-streaming, android, architect, ui, qa-researcher
 Source Thread: 019f4ed4-106e-7860-875d-a32f81629e4e
@@ -125,6 +125,7 @@ AM-004 为 P0 主链路恢复任务，architect review 时任一 P0/P1 缺口都
 - 2026-07-11 `product` 二次监督：发现 `android-source` 仍显示 `waitingOnApproval`；要求 architect 准备备用 owner 或接管策略，10 分钟无 `review_request` 或可行动 `blocker` 即重分配，不等待 Product 再确认。
 - 2026-07-11 `product` 备用审计：确认当前实现方向正确但不能 accepted；要求将旧源迁移、歌曲海可见候选、详情一致性、modified base64 夸克 evidence、东方财富 fail closed、四首正向矩阵、点击行下载播放、cache/lyrics/cover、首声早于下载完成、失败隔离和无 PREVIEW/网盘/HTML/防护页可见行纳入 P0/P1 review gate。
 - 2026-07-11 `product` heartbeat 监督：要求 architect 持续盯 `android-source`，10 到 15 分钟无 `review_request` 或 actionable `blocker` 即追问或重分配；收到 `review_request` 后立即分发 source-researcher、android-streaming、android 三方复核，并按双 review 结论回 Product。
+- 2026-07-11 `product` review_request：AM-004 已进入 review；业务实现 commit `139632665b7aa1a1fa232b0aa474a7ce13e37682`，证据记录 HEAD `51d887561ae7dce7650cb169decb72bf13173418`，APK sha256 `02ac0f4523456381bb980ca7ff7b8382f752fc6d74c880d2b57242f5ad96f7c7`，小米 10 Pro 证据 `/tmp/am004-device-evidence/full-source-postfix/summary.json`。architect 已启动 source-researcher、android-streaming、android 三方复核。
 
 ## 2026-07-11 Android Self Test Evidence
 
