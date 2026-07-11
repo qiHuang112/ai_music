@@ -242,7 +242,7 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(resolver.lastQuery, '周杰伦');
-    expect(resolver.lastSource, MusicDataSource.auto);
+    expect(resolver.lastSource, MusicDataSource.gequhai);
     expect(find.text('稻香 0'), findsOneWidget);
     expect(find.text('布谷'), findsWidgets);
     expect(find.textContaining('BuguYY'), findsNothing);
@@ -448,6 +448,61 @@ void main() {
     expect(find.text('歌海'), findsOneWidget);
     expect(find.byTooltip('播放'), findsOneWidget);
     expect(find.byTooltip('下载'), findsAtLeastNWidgets(1));
+    expect(find.textContaining('未通过完整音频校验'), findsNothing);
+  });
+
+  testWidgets('search results only show complete playable gequhai songs', (
+    tester,
+  ) async {
+    final resolver = _FakeMusicResolver(
+      candidates: [
+        _candidate(
+          id: '6330',
+          name: '外婆',
+          artist: '周杰伦',
+          source: MusicDataSource.gequhai,
+          platform: 'gequhai',
+        ),
+        _candidate(
+          id: 'buguyy-pan',
+          name: '网盘候选',
+          artist: '周杰伦',
+          source: MusicDataSource.buguyy,
+          platform: 'buguyy',
+        ),
+        _candidate(
+          id: 'flac-defender',
+          name: '防护页候选',
+          artist: '周杰伦',
+          source: MusicDataSource.flac,
+          platform: 'flac',
+        ),
+        _candidate(
+          id: 'preview',
+          name: '试听候选',
+          artist: '周杰伦',
+          source: MusicDataSource.itunesPreview,
+          platform: 'itunes',
+          quality: const MusicQuality(format: 'm4a', bitrate: 'PREVIEW · 30s'),
+        ),
+      ],
+    );
+    await tester.pumpWidget(_app(resolver: resolver));
+    await tester.pumpAndSettle();
+
+    await tester.enterText(find.byType(TextField), '外婆');
+    await tester.tap(find.byTooltip('在线搜索'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('外婆'), findsAtLeastNWidgets(1));
+    expect(find.text('歌海'), findsOneWidget);
+    expect(find.byTooltip('播放'), findsOneWidget);
+    expect(find.byTooltip('下载'), findsAtLeastNWidgets(1));
+    expect(find.text('网盘候选'), findsNothing);
+    expect(find.text('防护页候选'), findsNothing);
+    expect(find.text('试听候选'), findsNothing);
+    expect(find.textContaining('PREVIEW'), findsNothing);
+    expect(find.textContaining('30s'), findsNothing);
     expect(find.textContaining('未通过完整音频校验'), findsNothing);
   });
 
@@ -665,19 +720,19 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(settings.savedSource, isNull);
-    expect(settings.settings.source, MusicDataSource.auto);
+    expect(settings.settings.source, MusicDataSource.gequhai);
 
     await tester.tap(find.text('Gequhai'));
     await tester.pumpAndSettle();
 
-    expect(settings.savedSource, MusicDataSource.gequhai);
+    expect(settings.savedSource, isNull);
     expect(settings.settings.source, MusicDataSource.gequhai);
 
     await tester.tap(find.text('FLAC'));
     await tester.pumpAndSettle();
 
-    expect(settings.savedSource, MusicDataSource.flac);
-    expect(settings.settings.source, MusicDataSource.flac);
+    expect(settings.savedSource, isNull);
+    expect(settings.settings.source, MusicDataSource.gequhai);
   });
 
   testWidgets('search results hide preview-only candidates', (tester) async {
@@ -2103,7 +2158,9 @@ MusicSearchCandidate _candidate({
     coverUrl: '',
     qualities: [quality],
     score: 100,
-    raw: const {},
+    raw: source == MusicDataSource.gequhai
+        ? const {'clientReady': true, 'urlType': 'direct_audio'}
+        : const {},
   );
 }
 

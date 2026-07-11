@@ -25,10 +25,6 @@ import 'resolver_models.dart';
 import 'resolver_utils.dart';
 import 'source_22a5_resolver.dart';
 
-const bool _enableSource22a5Auto = bool.fromEnvironment(
-  'AI_MUSIC_ENABLE_22A5_AUTO',
-);
-
 class RemoteMusicResolver
     implements MusicResolver, PreferredMusicResolver, ProgressiveMusicResolver {
   RemoteMusicResolver({
@@ -141,7 +137,7 @@ class RemoteMusicResolver
     final stream = StreamController<MusicSearchProgress>();
     final merged = <MusicSearchCandidate>[];
     final errors = <Object>[];
-    var remaining = _enableSource22a5Auto ? 5 : 4;
+    var remaining = 1;
 
     void handleResult(_AutoSourceResult result) {
       remaining -= 1;
@@ -176,38 +172,8 @@ class RemoteMusicResolver
     unawaited(
       _searchAutoSource(
         trimmed,
-        MusicDataSource.buguyy,
-        _buguyy.search,
-      ).then(handleResult),
-    );
-    unawaited(
-      _searchAutoSource(
-        trimmed,
-        MusicDataSource.flac,
-        _flac.search,
-      ).then(handleResult),
-    );
-    unawaited(
-      _searchAutoSource(
-        trimmed,
         MusicDataSource.gequhai,
         _gequhai.search,
-      ).then(handleResult),
-    );
-    if (_enableSource22a5Auto) {
-      unawaited(
-        _searchAutoSource(
-          trimmed,
-          MusicDataSource.source22a5,
-          _source22a5.search,
-        ).then(handleResult),
-      );
-    }
-    unawaited(
-      _searchAutoSource(
-        trimmed,
-        MusicDataSource.kuwoFullAudio,
-        _kuwoFullAudio.search,
       ).then(handleResult),
     );
     yield* stream.stream;
@@ -331,81 +297,24 @@ class RemoteMusicResolver
   }
 
   Future<List<MusicSearchCandidate>> _searchAuto(String query) async {
-    final buguyyFuture = _searchAutoSource(
-      query,
-      MusicDataSource.buguyy,
-      _buguyy.search,
-    );
-    final flacFuture = _searchAutoSource(
-      query,
-      MusicDataSource.flac,
-      _flac.search,
-    );
-    final kuwoFuture = _searchAutoSource(
-      query,
-      MusicDataSource.kuwoFullAudio,
-      _kuwoFullAudio.search,
-    );
-    final gequhaiFuture = _searchAutoSource(
+    final gequhai = await _searchAutoSource(
       query,
       MusicDataSource.gequhai,
       _gequhai.search,
     );
-    final Future<_AutoSourceResult> source22a5Future = _enableSource22a5Auto
-        ? _searchAutoSource(
-            query,
-            MusicDataSource.source22a5,
-            _source22a5.search,
-          )
-        : Future.value(const _AutoSourceResult());
-    final results = await Future.wait([
-      buguyyFuture,
-      flacFuture,
-      kuwoFuture,
-      gequhaiFuture,
-      source22a5Future,
-    ]);
-    final buguyy = results[0];
-    final flac = results[1];
-    final kuwo = results[2];
-    final gequhai = results[3];
-    final source22a5 = results[4];
-    final merged = [
-      ...buguyy.candidates,
-      ...flac.candidates,
-      ...kuwo.candidates,
-      ...gequhai.candidates,
-      ...source22a5.candidates,
-    ]..sort((a, b) => b.score.compareTo(a.score));
+    final merged = [...gequhai.candidates]
+      ..sort((a, b) => b.score.compareTo(a.score));
     _logResolver(
       '[AI Music][resolver] auto merged query="$query" '
-      'buguyy=${buguyy.candidates.length} flac=${flac.candidates.length} '
-      'kuwoFullAudio=${kuwo.candidates.length} '
       'gequhai=${gequhai.candidates.length} '
-      'source22a5=${source22a5.candidates.length} '
+      'buguyy=0 flac=0 kuwoFullAudio=0 source22a5=0 '
       'itunesPreview=0 count=${merged.length}',
     );
     if (merged.isNotEmpty) {
       return merged.take(80).toList(growable: false);
     }
-    final activeResults = [
-      buguyy,
-      flac,
-      kuwo,
-      if (gequhai.error != null) gequhai,
-      if (_enableSource22a5Auto) source22a5,
-    ];
-    if (activeResults.every((result) => result.error != null)) {
-      throw _combinedAutoError(activeResults);
-    }
-    final error =
-        buguyy.error ??
-        flac.error ??
-        kuwo.error ??
-        gequhai.error ??
-        source22a5.error;
-    if (error != null) {
-      throw StateError(formatResolverError(error));
+    if (gequhai.error != null) {
+      throw _combinedAutoError([gequhai]);
     }
     return const [];
   }

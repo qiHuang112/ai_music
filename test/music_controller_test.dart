@@ -20,34 +20,31 @@ import 'package:flutter_test/flutter_test.dart';
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
-  test(
-    'initialize migrates unavailable product sources back to auto',
-    () async {
-      final handler = _SpyAudioHandler();
-      final settingsStore = _FakeSettingsStore(
-        settings: const MusicAppSettings(source: MusicDataSource.source2t58),
-      );
-      final controller = MusicController(
-        audioHandler: handler,
-        resolver: _FakeMusicResolver(),
-        cacheStore: _FakeCacheStore(cached: const []),
-        playlistStore: _FakePlaylistStore(),
-        settingsStore: settingsStore,
-        metadataRepository: _StaticMetadataRepository(),
-      );
+  test('initialize migrates unavailable product sources to gequhai', () async {
+    final handler = _SpyAudioHandler();
+    final settingsStore = _FakeSettingsStore(
+      settings: const MusicAppSettings(source: MusicDataSource.source2t58),
+    );
+    final controller = MusicController(
+      audioHandler: handler,
+      resolver: _FakeMusicResolver(),
+      cacheStore: _FakeCacheStore(cached: const []),
+      playlistStore: _FakePlaylistStore(),
+      settingsStore: settingsStore,
+      metadataRepository: _StaticMetadataRepository(),
+    );
 
-      try {
-        await controller.initialize();
-        await Future<void>.delayed(Duration.zero);
+    try {
+      await controller.initialize();
+      await Future<void>.delayed(Duration.zero);
 
-        expect(controller.source, MusicDataSource.auto);
-        expect(settingsStore.savedSettings?.source, MusicDataSource.auto);
-      } finally {
-        controller.dispose();
-        await handler.dispose();
-      }
-    },
-  );
+      expect(controller.source, MusicDataSource.gequhai);
+      expect(settingsStore.savedSettings?.source, MusicDataSource.gequhai);
+    } finally {
+      controller.dispose();
+      await handler.dispose();
+    }
+  });
 
   test('playTrack uses the explicit queue and applies shuffle mode', () async {
     final handler = _SpyAudioHandler();
@@ -1425,6 +1422,7 @@ void main() {
           isTrue,
         );
       } finally {
+        await streaming.close();
         controller.dispose();
         await handler.dispose();
         await root.delete(recursive: true);
@@ -1512,6 +1510,7 @@ void main() {
           isTrue,
         );
       } finally {
+        await streaming.close();
         controller.dispose();
         await handler.dispose();
         await root.delete(recursive: true);
