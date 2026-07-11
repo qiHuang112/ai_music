@@ -1,11 +1,11 @@
 # AM-20260711-003 Library First 移动端 UI 实现
 
-Status: in_progress
+Status: pushed
 Owner Lane: android
 Source Thread: 019ee910-8747-71e3-9293-720273f9e61f
 Product Return Thread: 019f4ed4-106e-7860-875d-a32f81629e4e
 Target Version: 1.1.0
-Base Branch: release/1.0.2
+Base Branch: release/1.1.0
 Work Branch: feature/1.1.0/AM-20260711-003-library-first-ui
 Project Path: /Users/huangqi/AIHome/projects/ai_music_AM-20260711-003
 Merge Branch: release/1.1.0
@@ -21,24 +21,25 @@ Required Skills: using-superpowers, ai-music-team-ops, brainstorming, writing-pl
 TDD Mode: required
 TDD Exception: not_applicable
 TDD Exception Review: not_applicable
-Baseline Commit: b306932d03e1eedbe96fd50dafe0f95805b0eab4
-Head Commit: pending
+Baseline Commit: aef2bf3c79623581b897d815315248fb15724d10
+Head Commit: edd10b83d6bcc777fea993c4e2708d2bafdd1ca0
 Root Cause Evidence: not_applicable
 Research Evidence: docs/codex_collab/knowledge/ui/2026-07-11-am002-real-screenshot-product-design-audit.md; docs/codex_collab/knowledge/ui/2026-07-11-am003-library-first-page-spec.md
-Red Evidence: pending
-Green Evidence: pending
-Targeted Tests: pending
-Self Test Evidence: pending
-Product Main Path Evidence: selected image `/Users/huangqi/.codex/generated_images/019ee910-8747-71e3-9293-720273f9e61f/exec-99786479-d2fb-4fcb-a642-c7d25fbb2b74.png`; Android baseline screenshots `/Users/huangqi/AIHome/output/AM-20260711-002-b306932-xiaomi10/screens/`; OHOS screenshots `/Users/huangqi/.codex/visualizations/2026/06/21/019ee7db-7cfc-7c41-9827-6b851ce89548/AM-20260711-002-ohos-design-facts/screenshots`; OHOS Library First notes `/Users/huangqi/.codex/visualizations/2026/06/21/019ee7db-7cfc-7c41-9827-6b851ce89548/AM-20260711-002-ohos-design-facts/library-first-ohos-implementation-notes.md`; OHOS AM-003 review checklist `/Users/huangqi/.codex/visualizations/2026/06/21/019ee7db-7cfc-7c41-9827-6b851ce89548/AM-20260711-002-ohos-design-facts/am-20260711-003-ohos-cross-platform-review-checklist.md`
-Baseline Freshness Evidence: implementation project `/Users/huangqi/AIHome/projects/ai_music_AM-20260711-003` is checked out at `origin/release/1.0.2=b306932d03e1eedbe96fd50dafe0f95805b0eab4` on `feature/1.1.0/AM-20260711-003-library-first-ui`
-Scope Diff Evidence: pending
-Spec Review Result: pending
-Code Quality Review Result: pending
-Full Verification Evidence: pending
-Blocking Findings: none for Android RED tests; selected visual direction, current screenshots, UI page-level implementation spec and OHOS checklist are available.
-Merge Evidence: pending
-Push Evidence: pending
-Product Notification Evidence: pending
+Red Evidence: Task 2 RED tests added in `test/widget_test.dart` and `test/player_page_test.dart`; targeted RED commands failed as expected: home hierarchy missing `继续播放`; search rows missing `可下载` status chip; player page missing `当前队列` entry/sheet.
+Green Evidence: Task 2/mini player GREEN implemented: Home adds `继续播放` card; search rows add status chips while keeping preview absent; Player adds distinct `当前队列` entry and queue sheet; mini player title/cover opens player detail, right queue button opens app queue sheet, and controls sit above gesture safe area.
+Targeted Tests: `flutter test --no-pub test/widget_test.dart --plain-name 'mini player title clears focus and opens player detail' --dart-define=AI_MUSIC_DISABLE_AUDIO_SERVICE=true` = 1 passed; `flutter test --no-pub test/widget_test.dart --plain-name 'mini player queue clears focus and opens app queue sheet' --dart-define=AI_MUSIC_DISABLE_AUDIO_SERVICE=true` = 1 passed; `flutter test --no-pub test/widget_test.dart --plain-name 'mini player keeps controls above gesture safe area' --dart-define=AI_MUSIC_DISABLE_AUDIO_SERVICE=true` = 1 passed; earlier targeted Home/Search/Player/Download/Settings/widget/player tests passed; `flutter analyze --no-pub lib/src/presentation/music_home_page.dart test/widget_test.dart` = no issues; scoped `git diff --check` clean.
+Self Test Evidence: Release/1.1.0 HEAD `45b302d48649330446d381b8593c50e22b9099f5` debug APK `/Users/huangqi/AIHome/projects/ai_music_AM-20260711-003/build/app/outputs/flutter-apk/app-debug.apk` sha256 `18e98b42e335fdc90b397d0af5d7e1386da5a32fdac6bdc11bc622dcb43ad4b8` installed on Xiaomi 10 Pro `192.168.31.76:41563`, lastUpdateTime `2026-07-11 21:12:27`, input method `com.baidu.input_mi/.ImeService`, queue operation after-test `mInputShown=false`; fixed evidence directory `/Users/huangqi/AIHome/output/AM-20260711-003-mini-player-fixed-20260711-211252-xiaomi10/`.
+Product Main Path Evidence: selected image `/Users/huangqi/.codex/generated_images/019ee910-8747-71e3-9293-720273f9e61f/exec-99786479-d2fb-4fcb-a642-c7d25fbb2b74.png`; full design QA path `/Users/huangqi/AIHome/output/AM-20260711-003-designqa-final-20260711-195825-xiaomi10/`; mini player fixed path `/Users/huangqi/AIHome/output/AM-20260711-003-mini-player-fixed-20260711-211252-xiaomi10/`; `02-title-tap-detail.png/xml` shows tapping mini player title opens in-app `正在播放` detail with `外婆/周杰伦`, lyrics and current queue button; `04-mini-queue-sheet.png/xml` shows tapping right `当前队列` opens AI Music bottom sheet with `当前队列`, `1 首`, `外婆/周杰伦/播放中`, without system clipboard or keyboard; previous evidence covers Gequhai full-audio search/play/cache, no PREVIEW/试听/30s/网盘/夸克, settings source only `歌曲海 / gequhai.com`, hotlist no Flutter overflow.
+Baseline Freshness Evidence: implementation project `/Users/huangqi/AIHome/projects/ai_music_AM-20260711-003` rebased onto `origin/release/1.1.0=aef2bf3c79623581b897d815315248fb15724d10`; pushed release HEAD is `45b302d48649330446d381b8593c50e22b9099f5`.
+Scope Diff Evidence: AM-003 diff is limited to UI docs/spec/request/plan plus Flutter presentation/test files: app localizations, download manager, music home, player page, settings page, widget tests and player page tests; no screenshot/build artifacts in release commit.
+Spec Review Result: accepted
+Code Quality Review Result: accepted
+Full Verification Evidence: Architect review accepted after UI P1 re-review accepted; release/1.1.0 HEAD `45b302d48649330446d381b8593c50e22b9099f5` installed on Xiaomi 10 Pro and mini player fixed evidence re-collected at `/Users/huangqi/AIHome/output/AM-20260711-003-mini-player-fixed-20260711-211252-xiaomi10/`; targeted mini player tests passed; local analyze for touched home/test files passed; main request close gate validated.
+Blocking Findings: none
+Merge Evidence: release/1.1.0 merge commit `d0fa9b26029eaca595d28a59ace377eb2a562c44` merged AM-003 Library First UI into release/1.1.0.
+Push Evidence: `git push origin release/1.1.0` succeeded; remote `origin/release/1.1.0` final HEAD `45b302d48649330446d381b8593c50e22b9099f5`.
+Push Status: pushed
+Product Notification Evidence: Product review_request 2026-07-11 confirmed release/1.1.0 HEAD `45b302d48649330446d381b8593c50e22b9099f5` installed on Xiaomi 10 Pro with fixed mini player evidence; this ledger sync replies to product/android/ui with pushed state and next verification tasks.
 Knowledge Evidence: docs/codex_collab/knowledge/qa-researcher/2026-07-11-ui-product-design-regression-matrix.md
 
 ## 目标
@@ -85,22 +86,38 @@ Knowledge Evidence: docs/codex_collab/knowledge/qa-researcher/2026-07-11-ui-prod
 
 ## 相关提交
 
-- pending
-- 87e58ce Sync AM-20260711-003 workflow docs into project path
+- `edd10b83d6bcc777fea993c4e2708d2bafdd1ca0` AM-003 Library First UI business implementation
+- `d0fa9b26029eaca595d28a59ace377eb2a562c44` AM-003 release/1.1.0 merge commit
+- `45b302d48649330446d381b8593c50e22b9099f5` release/1.1.0 final pushed HEAD
 
 ## 版本与发布
 
 - Target Version: 1.1.0
 - Release Tag: not_applicable
-- Android APK: pending
-- Push Status: not_ready
+- Android APK: `/Users/huangqi/AIHome/projects/ai_music_AM-20260711-003/build/app/outputs/flutter-apk/app-debug.apk`, sha256 `18e98b42e335fdc90b397d0af5d7e1386da5a32fdac6bdc11bc622dcb43ad4b8`
+- Push Status: pushed
 
 ## Review 结果
 
-- Reviewer Lane: pending
-- Result: pending
-- Android Findings: pending
+- Reviewer Lane: architect
+- Result: accepted
+- Android Findings: none
 - iOS Findings: not_applicable
-- HarmonyOS Findings: pending
-- Architect Findings: pending
-- Notes: 本 request 是 AM-20260711-002 设计选择后的实现拆分；AM-20260711-002 保持设计/audit canonical 角色。
+- HarmonyOS Findings: not_applicable_for_android_review; OHOS owner should re-verify after HAP is built from release/1.1.0 UI baseline.
+- Architect Findings: none
+- Notes: 本 request 是 AM-20260711-002 设计选择后的实现拆分；AM-20260711-002 保持设计/audit canonical 角色。UI overall final pass/fail 仍由 UI lane 基于最新 fixed evidence 回传；当前主账本先同步 release pushed 和 mini player P1 fixed 事实。
+
+## 2026-07-11 Mini Player Fixed Evidence on Pushed Release
+
+- Release HEAD: `45b302d48649330446d381b8593c50e22b9099f5`
+- APK sha256: `18e98b42e335fdc90b397d0af5d7e1386da5a32fdac6bdc11bc622dcb43ad4b8`
+- Device: Xiaomi 10 Pro `192.168.31.76:41563`, lastUpdateTime `2026-07-11 21:12:27`
+- Evidence directory: `/Users/huangqi/AIHome/output/AM-20260711-003-mini-player-fixed-20260711-211252-xiaomi10/`
+- Accepted facts for architect ledger:
+  - `02-title-tap-detail.png/xml`: mini player title tap opens in-app player detail, not system UI; detail shows `正在播放`, `外婆 / 周杰伦`, lyrics and queue entry.
+  - `04-mini-queue-sheet.png/xml`: right `当前队列` opens AI Music bottom sheet with `当前队列`, `1 首`, `外婆 / 周杰伦 / 播放中`; no keyboard or clipboard surface.
+  - Targeted mini player tests and touched-file analyze passed.
+  - Selected visual direction, current screenshots, UI page-level implementation spec and OHOS checklist are available; no active Android/UI blocker remains in architect ledger.
+- Next owner:
+  - UI lane gives AM-003 overall pass/fail/blocker based on this fixed evidence.
+  - Android continues AM-20260625-003 swipe/queue/search verification and AM-20260626-001 lyrics real-device regression.
