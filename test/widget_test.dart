@@ -17,6 +17,7 @@ import 'package:ai_music/src/presentation/music_home_page.dart';
 import 'package:ai_music/src/playback/music_audio_handler.dart';
 import 'package:audio_service/audio_service.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/semantics.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
@@ -116,6 +117,171 @@ void main() {
     expect(handler.skipPreviousCalls, 1);
   });
 
+  testWidgets('mini player exposes current queue without opening player', (
+    tester,
+  ) async {
+    final handler = _WidgetAudioHandler();
+    await tester.pumpWidget(_app(audioHandler: handler));
+    await tester.pumpAndSettle();
+
+    final first = const MediaItem(
+      id: 'song-1',
+      title: 'Queue Song',
+      artist: 'Singer',
+      duration: Duration(minutes: 3),
+    );
+    const second = MediaItem(
+      id: 'song-2',
+      title: 'Next Song',
+      artist: 'Singer',
+      duration: Duration(minutes: 3),
+    );
+    handler.queue.add([first, second]);
+    handler.emit(first);
+    await tester.pumpAndSettle();
+
+    expect(find.byTooltip('当前队列'), findsOneWidget);
+
+    await tester.tap(find.byTooltip('当前队列'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 100));
+
+    expect(find.text('当前队列'), findsOneWidget);
+    expect(find.text('2 首'), findsOneWidget);
+    expect(find.text('Queue Song'), findsWidgets);
+    expect(find.text('Next Song'), findsOneWidget);
+    expect(find.text('播放中'), findsOneWidget);
+    expect(find.text('正在播放'), findsNothing);
+  });
+
+  testWidgets('mini player title clears focus and opens player detail', (
+    tester,
+  ) async {
+    final handler = _WidgetAudioHandler();
+    await tester.pumpWidget(_app(audioHandler: handler));
+    await tester.pumpAndSettle();
+
+    final first = const MediaItem(
+      id: 'song-1',
+      title: 'Focused Song',
+      artist: 'Singer',
+      duration: Duration(minutes: 3),
+    );
+    handler.emit(first);
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byType(TextField));
+    await tester.pump();
+    final editable = tester.widget<EditableText>(find.byType(EditableText));
+    final searchFocus = editable.focusNode;
+    expect(searchFocus.hasFocus, isTrue);
+
+    await tester.tap(find.byKey(const ValueKey('mini-player-title-button')));
+    await tester.pumpAndSettle();
+
+    expect(searchFocus.hasFocus, isFalse);
+    expect(find.text('正在播放'), findsOneWidget);
+  });
+
+  testWidgets('mini player title exposes a button hit target', (
+    tester,
+  ) async {
+    final handler = _WidgetAudioHandler();
+    await tester.pumpWidget(_app(audioHandler: handler));
+    await tester.pumpAndSettle();
+
+    handler.emit(
+      const MediaItem(
+        id: 'song-1',
+        title: 'Button Hit Song',
+        artist: 'Singer',
+        duration: Duration(minutes: 3),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    final titleButton = find.byKey(
+      const ValueKey('mini-player-title-button'),
+    );
+    expect(titleButton, findsOneWidget);
+
+    final semantics = tester.getSemantics(titleButton);
+    final semanticsData = semantics.getSemanticsData();
+    expect(semanticsData.flagsCollection.isButton, isTrue);
+    expect(
+      semanticsData.hasAction(SemanticsAction.tap),
+      isTrue,
+    );
+    expect(semantics.label, contains('Button Hit Song'));
+  });
+
+  testWidgets('mini player queue clears focus and opens app queue sheet', (
+    tester,
+  ) async {
+    final handler = _WidgetAudioHandler();
+    await tester.pumpWidget(_app(audioHandler: handler));
+    await tester.pumpAndSettle();
+
+    final first = const MediaItem(
+      id: 'song-1',
+      title: 'Focused Queue Song',
+      artist: 'Singer',
+      duration: Duration(minutes: 3),
+    );
+    const second = MediaItem(
+      id: 'song-2',
+      title: 'Queued Next',
+      artist: 'Singer',
+      duration: Duration(minutes: 3),
+    );
+    handler.queue.add([first, second]);
+    handler.emit(first);
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byType(TextField));
+    await tester.pump();
+    var editable = tester.widget<EditableText>(find.byType(EditableText));
+    expect(editable.focusNode.hasFocus, isTrue);
+
+    await tester.tap(find.byKey(const ValueKey('mini-player-queue-button')));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 100));
+
+    editable = tester.widget<EditableText>(find.byType(EditableText));
+    expect(editable.focusNode.hasFocus, isFalse);
+    expect(find.text('当前队列'), findsOneWidget);
+    expect(find.text('2 首'), findsOneWidget);
+    expect(find.text('Focused Queue Song'), findsWidgets);
+    expect(find.text('Queued Next'), findsOneWidget);
+    expect(find.text('播放中'), findsOneWidget);
+    expect(find.text('正在播放'), findsNothing);
+  });
+
+  testWidgets('mini player keeps controls above gesture safe area', (
+    tester,
+  ) async {
+    final handler = _WidgetAudioHandler();
+    await tester.pumpWidget(_app(audioHandler: handler));
+    await tester.pumpAndSettle();
+
+    handler.emit(
+      const MediaItem(
+        id: 'song-1',
+        title: 'Safe Area Song',
+        artist: 'Singer',
+        duration: Duration(minutes: 3),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    final bottomGap = tester.widget<Padding>(
+      find.byKey(const ValueKey('mini-player-bottom-safe-gap')),
+    );
+
+    expect(bottomGap.padding, isA<EdgeInsets>());
+    expect((bottomGap.padding as EdgeInsets).bottom, greaterThanOrEqualTo(24));
+  });
+
   testWidgets('home defaults to favorite and custom playlist summaries', (
     tester,
   ) async {
@@ -150,6 +316,76 @@ void main() {
     expect(find.text('Road'), findsOneWidget);
     expect(find.text('Beta'), findsOneWidget);
   });
+
+  testWidgets(
+    'library first home prioritizes local assets and continuing playback',
+    (tester) async {
+      await tester.binding.setSurfaceSize(const Size(390, 1200));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+
+      final fixture = _homeLibraryFixture();
+      final handler = _WidgetAudioHandler();
+      final chart = HotlistChart(
+        source: HotlistSource.qq,
+        chartId: 'qq-hot',
+        title: 'QQ 热歌榜',
+        description: '热门歌曲',
+        coverUrl: '',
+        period: 'daily',
+        updatedAt: DateTime(2026),
+        items: const [
+          HotlistItem(
+            rank: 1,
+            title: '榜单歌曲',
+            artist: '榜单歌手',
+            album: '',
+            coverUrl: '',
+            sourceTrackId: 'hot-1',
+            durationMs: 180000,
+            rankChange: '',
+          ),
+        ],
+      );
+
+      await tester.pumpWidget(
+        _app(
+          cacheStore: fixture.cacheStore,
+          playlistStore: fixture.playlistStore,
+          audioHandler: handler,
+          hotlistRepository: _StaticHotlistRepository([chart]),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      handler.emit(
+        MediaItem(
+          id: fixture.cacheStore.cached.first.cacheId,
+          title: 'Alpha',
+          artist: 'A',
+          duration: const Duration(minutes: 3),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text('继续播放'), findsOneWidget);
+      expect(find.text('我的音乐'), findsOneWidget);
+      expect(find.text('热榜发现'), findsOneWidget);
+
+      final continueTop = tester.getTopLeft(find.text('继续播放')).dy;
+      final libraryTop = tester.getTopLeft(find.text('我的音乐')).dy;
+      final discoveryTop = tester.getTopLeft(find.text('热榜发现')).dy;
+      expect(continueTop, lessThan(libraryTop));
+      expect(libraryTop, lessThan(discoveryTop));
+      expect(
+        find.byKey(const ValueKey('home-favorites-entry')),
+        findsOneWidget,
+      );
+      expect(
+        find.byKey(const ValueKey('mini-player-swipe-area')),
+        findsOneWidget,
+      );
+    },
+  );
 
   testWidgets('search results hide home default library summaries', (
     tester,
@@ -707,28 +943,16 @@ void main() {
     await tester.tap(find.text('Music Source'));
     await tester.pumpAndSettle();
 
-    expect(find.text('Auto'), findsOneWidget);
-    expect(find.text('BuguYY'), findsOneWidget);
-    expect(find.text('FLAC'), findsOneWidget);
-    expect(find.text('2t58.com'), findsOneWidget);
-    expect(find.text('22a5.com'), findsOneWidget);
+    expect(find.text('Auto'), findsNothing);
+    expect(find.text('BuguYY'), findsNothing);
+    expect(find.text('FLAC'), findsNothing);
+    expect(find.text('2t58.com'), findsNothing);
+    expect(find.text('22a5.com'), findsNothing);
     expect(find.text('Gequhai'), findsOneWidget);
-    expect(find.text('Gequbao'), findsOneWidget);
-    expect(find.text('Kuwo Full Audio'), findsOneWidget);
-
-    await tester.tap(find.text('2t58.com'));
-    await tester.pumpAndSettle();
-
-    expect(settings.savedSource, isNull);
-    expect(settings.settings.source, MusicDataSource.gequhai);
+    expect(find.text('Gequbao'), findsNothing);
+    expect(find.text('Kuwo Full Audio'), findsNothing);
 
     await tester.tap(find.text('Gequhai'));
-    await tester.pumpAndSettle();
-
-    expect(settings.savedSource, isNull);
-    expect(settings.settings.source, MusicDataSource.gequhai);
-
-    await tester.tap(find.text('FLAC'));
     await tester.pumpAndSettle();
 
     expect(settings.savedSource, isNull);
@@ -810,6 +1034,46 @@ void main() {
     },
   );
 
+  testWidgets(
+    'search result rows expose status chips and keep unavailable rows actionless',
+    (tester) async {
+      final resolver = _FakeMusicResolver(
+        candidates: [
+          _candidate(
+            id: 'kuwo-full-1',
+            name: '一丝不挂',
+            artist: '陈奕迅',
+            source: MusicDataSource.kuwoFullAudio,
+            platform: 'kuwo',
+            quality: const MusicQuality(format: 'mp3'),
+          ),
+          _candidate(
+            id: 'flac-unavailable-1',
+            name: '一丝不挂',
+            artist: '陈奕迅',
+            source: MusicDataSource.flac,
+            platform: 'flac',
+            quality: const MusicQuality(format: 'flac', size: '30MB'),
+          ),
+        ],
+      );
+      await tester.pumpWidget(_app(resolver: resolver));
+      await tester.pumpAndSettle();
+
+      await tester.enterText(find.byType(TextField), '一丝不挂');
+      await tester.tap(find.byTooltip('在线搜索'));
+      await tester.pumpAndSettle();
+
+      expect(find.textContaining('PREVIEW'), findsNothing);
+      expect(find.textContaining('30s'), findsNothing);
+      expect(find.text('可下载'), findsOneWidget);
+      expect(find.text('不可下载'), findsOneWidget);
+      expect(find.byTooltip('播放'), findsOneWidget);
+      expect(find.byTooltip('下载'), findsNWidgets(2));
+      expect(find.textContaining('未通过完整音频校验'), findsOneWidget);
+    },
+  );
+
   testWidgets('home back clears search then asks before exiting', (
     tester,
   ) async {
@@ -867,6 +1131,34 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(cache.cached, isEmpty);
+  });
+
+  testWidgets('download manager cached rows expose cached status chip', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      _app(
+        cacheStore: _FakeCacheStore(
+          cached: [
+            CachedTrack(
+              cacheId: cacheIdForResolved(_resolvedMusic()),
+              music: _resolvedMusic(),
+              filePath: '/tmp/song-1.mp3',
+              sizeBytes: 4,
+              fromCache: true,
+            ),
+          ],
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byTooltip('下载'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('稻香'), findsOneWidget);
+    expect(find.text('已缓存'), findsOneWidget);
+    expect(find.byTooltip('播放'), findsOneWidget);
   });
 
   testWidgets('cache library opens local detail for cached tracks', (

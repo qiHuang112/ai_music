@@ -147,6 +147,8 @@ class AppStrings {
   String get retryLyrics => isZh ? '重新获取歌词' : 'Fetch lyrics again';
   String get fetchingLyrics => isZh ? '正在获取歌词' : 'Fetching lyrics';
   String get nowPlaying => isZh ? '正在播放' : 'Now playing';
+  String get continuePlayback => isZh ? '继续播放' : 'Continue playback';
+  String get currentQueue => isZh ? '当前队列' : 'Current queue';
   String get homeLibraryTitle => isZh ? '我的音乐' : 'My Music';
   String get libraryTitle => isZh ? '我的缓存列表' : 'My Library';
   String get localLibrary => isZh ? '本地' : 'Local';
@@ -204,6 +206,10 @@ class AppStrings {
   String get removeFromThisPlaylist =>
       isZh ? '从这个歌单移除' : 'Remove from this playlist';
   String get playing => isZh ? '正在播放' : 'Playing';
+  String get queuePlaying => isZh ? '播放中' : 'Playing';
+  String get downloadable => isZh ? '可下载' : 'Downloadable';
+  String get notDownloadable => isZh ? '不可下载' : 'Not downloadable';
+  String get cachedStatus => isZh ? '已缓存' : 'Cached';
   String get more => isZh ? '更多' : 'More';
   String get previous => isZh ? '上一首' : 'Previous';
   String get next => isZh ? '下一首' : 'Next';

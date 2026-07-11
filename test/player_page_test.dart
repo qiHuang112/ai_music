@@ -266,6 +266,64 @@ void main() {
       await handler.dispose();
     }
   });
+
+  testWidgets(
+    'current queue entry opens queue sheet instead of playlist sheet',
+    (tester) async {
+      final first = _cachedTrack(id: 'song-1', name: '第一首', artist: '歌手 A');
+      final second = _cachedTrack(id: 'song-2', name: '第二首', artist: '歌手 B');
+      final handler = _SpyAudioHandler();
+      final controller = MusicController(
+        audioHandler: handler,
+        resolver: _FakeMusicResolver(),
+        cacheStore: _FakeCacheStore(cached: [first, second]),
+        playlistStore: _FakePlaylistStore(),
+        settingsStore: _FakeSettingsStore(),
+        playbackStateStore: _FakePlaybackStateStore(),
+        metadataRepository: _StaticMetadataRepository(
+          metadata: const TrackMetadata(),
+        ),
+      );
+
+      try {
+        final firstTrack = trackFromCached(first);
+        final secondTrack = trackFromCached(second);
+        controller.cachedTracks = [firstTrack, secondTrack];
+        final firstItem = mediaItemFromTrack(firstTrack);
+        final secondItem = mediaItemFromTrack(secondTrack);
+        handler.queue.add([firstItem, secondItem]);
+        handler.emit(firstItem);
+
+        await tester.pumpWidget(
+          AppStringsScope(
+            language: AppLanguage.zh,
+            child: MaterialApp(
+              theme: ThemeData.dark(useMaterial3: true),
+              home: PlayerPage(controller: controller),
+            ),
+          ),
+        );
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 100));
+
+        expect(find.byTooltip('当前队列'), findsOneWidget);
+
+        await tester.tap(find.byTooltip('当前队列'));
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 100));
+
+        expect(find.text('当前队列'), findsOneWidget);
+        expect(find.text('2 首'), findsOneWidget);
+        expect(find.text('第一首'), findsWidgets);
+        expect(find.text('第二首'), findsOneWidget);
+        expect(find.text('播放中'), findsOneWidget);
+        expect(find.text('选择歌单'), findsNothing);
+      } finally {
+        controller.dispose();
+        await handler.dispose();
+      }
+    },
+  );
 }
 
 class _SpyAudioHandler extends MusicAudioHandler {
@@ -472,16 +530,20 @@ class _LyricsResolver extends _FakeMusicResolver {
   }
 }
 
-CachedTrack _cachedTrack() {
+CachedTrack _cachedTrack({
+  String id = 'song-1',
+  String name = '测试歌',
+  String artist = '测试歌手',
+}) {
   final music = ResolvedMusic(
-    query: '测试歌',
+    query: name,
     source: MusicDataSource.buguyy,
     platform: 'buguyy',
-    id: 'song-1',
-    name: '测试歌',
-    artist: '测试歌手',
+    id: id,
+    name: name,
+    artist: artist,
     album: '',
-    url: 'https://cdn.example.test/song-1.mp3',
+    url: 'https://cdn.example.test/$id.mp3',
     quality: const MusicQuality(format: 'mp3'),
   );
   return CachedTrack(

@@ -295,18 +295,55 @@ class _CachedTrackTile extends StatelessWidget {
         icon: const Icon(Icons.play_arrow),
       ),
       title: Text(track.title, maxLines: 1, overflow: TextOverflow.ellipsis),
-      subtitle: Text(
-        [
-          track.artist,
-          track.sizeLabel,
-        ].where((value) => value.isNotEmpty).join(' - '),
-        maxLines: 1,
-        overflow: TextOverflow.ellipsis,
+      subtitle: Padding(
+        padding: const EdgeInsets.only(top: 4),
+        child: Row(
+          children: [
+            _StatusPill(label: strings.cachedStatus),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(
+                [
+                  track.artist,
+                  track.sizeLabel,
+                ].where((value) => value.isNotEmpty).join(' - '),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+          ],
+        ),
       ),
       trailing: IconButton(
         tooltip: strings.delete,
         onPressed: () => controller.deleteCachedTrack(track),
         icon: const Icon(Icons.delete_outline),
+      ),
+    );
+  }
+}
+
+class _StatusPill extends StatelessWidget {
+  const _StatusPill({required this.label});
+
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    final color = Theme.of(context).colorScheme.primary;
+    return Container(
+      constraints: const BoxConstraints(minHeight: 24),
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.14),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Text(
+        label,
+        style: Theme.of(context).textTheme.labelSmall?.copyWith(
+          color: color,
+          fontWeight: FontWeight.w700,
+        ),
       ),
     );
   }

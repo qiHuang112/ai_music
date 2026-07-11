@@ -58,6 +58,11 @@ class _PlayerPageState extends State<PlayerPage> {
           appBar: AppBar(
             title: Text(strings.nowPlaying),
             actions: [
+              IconButton(
+                tooltip: strings.currentQueue,
+                onPressed: () => showCurrentQueueSheet(context, controller),
+                icon: const Icon(Icons.queue_music),
+              ),
               if (currentTrack != null) ...[
                 IconButton(
                   tooltip: controller.isFavorite(currentTrack)
@@ -144,6 +149,113 @@ class _PlayerPageState extends State<PlayerPage> {
   }
 }
 
+Future<void> showCurrentQueueSheet(
+  BuildContext context,
+  MusicController controller,
+) {
+  return showModalBottomSheet<void>(
+    context: context,
+    showDragHandle: true,
+    isScrollControlled: true,
+    builder: (context) => _CurrentQueueSheet(controller: controller),
+  );
+}
+
+class _CurrentQueueSheet extends StatelessWidget {
+  const _CurrentQueueSheet({required this.controller});
+
+  final MusicController controller;
+
+  @override
+  Widget build(BuildContext context) {
+    final strings = AppStringsScope.of(context);
+    final colors = Theme.of(context).colorScheme;
+    final queue = controller.audioHandler.queue.value;
+    final currentId = controller.audioHandler.mediaItem.value?.id;
+    final currentIndex = queue.indexWhere((item) => item.id == currentId);
+    final maxHeight = MediaQuery.sizeOf(context).height * 0.7;
+    return SafeArea(
+      top: false,
+      child: ConstrainedBox(
+        constraints: BoxConstraints(maxHeight: maxHeight),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 0, 20, 12),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      strings.currentQueue,
+                      style: Theme.of(context).textTheme.titleLarge,
+                    ),
+                  ),
+                  Text(
+                    strings.songCount(queue.length),
+                    style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                      color: colors.onSurfaceVariant,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            if (queue.isEmpty)
+              Padding(
+                padding: const EdgeInsets.fromLTRB(20, 8, 20, 24),
+                child: Text(strings.nothingPlaying),
+              )
+            else
+              Flexible(
+                child: ListView.separated(
+                  shrinkWrap: true,
+                  itemCount: queue.length,
+                  separatorBuilder: (_, _) => const Divider(height: 1),
+                  itemBuilder: (context, index) {
+                    final item = queue[index];
+                    final isCurrent = currentIndex == -1
+                        ? index == 0
+                        : index == currentIndex;
+                    return ListTile(
+                      selected: isCurrent,
+                      leading: SizedBox(
+                        width: 48,
+                        height: 48,
+                        child: Center(child: Text('${index + 1}')),
+                      ),
+                      title: Text(
+                        item.title,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                      subtitle: Text(
+                        item.artist ?? strings.unknownArtist,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                      trailing: isCurrent
+                          ? Text(
+                              strings.queuePlaying,
+                              style: Theme.of(context).textTheme.labelMedium
+                                  ?.copyWith(color: colors.primary),
+                            )
+                          : null,
+                      onTap: () {
+                        controller.audioHandler.skipToQueueItem(index);
+                        Navigator.of(context).pop();
+                      },
+                    );
+                  },
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
 class _Artwork extends StatelessWidget {
   const _Artwork({required this.uri});
 
@@ -206,6 +318,11 @@ class _LyricsDetailPage extends StatelessWidget {
           appBar: AppBar(
             title: Text(strings.lyrics),
             actions: [
+              IconButton(
+                tooltip: strings.currentQueue,
+                onPressed: () => showCurrentQueueSheet(context, controller),
+                icon: const Icon(Icons.queue_music),
+              ),
               if (currentTrack != null) ...[
                 IconButton(
                   tooltip: controller.isFavorite(currentTrack)
