@@ -134,6 +134,26 @@ python3 docs/codex_collab/tools/team_ops.py scan --root /Users/huangqi/AIHome/ai
 - reviewer 必须拒绝缺少产品主路径自测证据的 `review_request`；architect 不允许合入缺少主路径自测证据的用户功能。
 - 自测证据要写“做了什么动作、预期是什么、实际是什么”，不要只写“已安装”“截图见附件”。
 
+### 6.1.2 Codex 受信任目录与无人值守测试/构建授权
+
+- AI Music 本机 Codex 配置优先使用受信任项目和持久 prefix 规则，目标是让项目内测试/构建可以无人值守执行，而不是每次等待人工点授权。
+- 当前本机受信任目录配置在 `/Users/huangqi/.codex/config.toml`：
+  - `[projects."/Users/huangqi/AIHome"] trust_level = "trusted"`
+  - `[projects."/Users/huangqi/AIHome/ai_music"] trust_level = "trusted"`
+  - `[projects."/Users/huangqi/AIHome/projects"] trust_level = "trusted"`
+- 当前项目内命令前缀持久授权配置在 `/Users/huangqi/.codex/rules/default.rules`，覆盖 AI Music 常用 `team_ops.py`、Flutter test/analyze/build、Android debug build、OHOS HAP build 等命令前缀。
+- 需要显式无人值守运行 Codex CLI 时，使用专用 profile `/Users/huangqi/.codex/ai-music-unattended.config.toml`。推荐形态：
+
+```bash
+/Applications/ChatGPT.app/Contents/Resources/codex -p ai-music-unattended exec -C /Users/huangqi/AIHome/projects/<project> "<prompt>"
+```
+
+- 该 profile 设置 `approval_policy = "never"` 与 `sandbox_mode = "danger-full-access"`，只用于 AI Music 受信任工程里的测试、构建、账本校验和 release 收口自动化；不要作为通用浏览、第三方站点探测或设备控制默认入口。
+- 可预授权范围：项目目录内的只读检查、Dart/Flutter 单测、`flutter analyze`、Android debug/release 构建、OHOS HAP 构建、`team_ops.py validate-*`/`scan`、`git fetch/log/diff/check` 等不会修改系统状态的项目工作命令。
+- 不自动视为已授权范围：本机 socket/端口监听、局域网/外网访问、ADB/HDC 设备安装和坐标点击、系统输入法/锁屏/通知栏操作、Keychain/codesign/profile 修改、删除用户数据、第三方歌源高频探测、Chrome/Browser/Computer Use 自动化。即使历史 `default.rules` 中已有个别 prefix 规则，也必须按当前任务安全策略、设备归属和用户授权执行；没有授权时 10 到 15 分钟内回 `blocker`，不能把安全策略当成已完成。
+- 如果某个独立 Project Path 仍触发 Codex trust 提示，owner 可先确认它位于 `/Users/huangqi/AIHome/projects/`；仍提示时，把该具体路径加入 `/Users/huangqi/.codex/config.toml` 的 `[projects."<path>"] trust_level = "trusted"`，并在回传里写明新增路径和验证命令。
+- 验证要求：每次调整授权配置后至少运行一次 `codex --strict-config -p ai-music-unattended exec --help` 或等价 Codex profile 解析检查，再运行一个项目内 `team_ops.py validate-*` 命令，回传原始输出摘要。
+
 ## 6.2 Beta、QA 与 Release Manager
 
 - Beta 快速体验和 Release 正式收口分离。owner 修完可先产 Beta 包给 QA 验证。
