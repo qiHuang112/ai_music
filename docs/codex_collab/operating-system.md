@@ -16,6 +16,8 @@ Status: active
 - Researcher lane 负责并行调研、脚本验证、skill/方案沉淀和风险判断，不直接抢开发 lane 的业务代码 owner。
 - 当单一开发 lane 成为瓶颈时，architect/product 可以按独立仓库/工程目录拆出专项开发 lane；专项 lane 必须只在自己的完整工程目录开发，并把 review_request 回给 architect 和原 owner lane。
 - 产品体验小改是迭代输入，不是停工许可；只有 P0/P1、架构风险、数据风险或发布风险可以阻塞主流程。
+- 效率优先：P1 目标是“核心功能先可用、可装、可体验、可回滚”，P2 目标是“体验、覆盖率、跨端一致性和边界补齐”。P1 达到最小可用且无已知数据/架构破坏风险时，owner 自测通过后必须尽快 review/merge/push/装包，不得因为 P2 细节、全量截图或非必要权限等待而长期不合入。
+- 做不到的功能必须尽快暴露核心问题：外部源不可用、协议变更、设备不可达、平台能力缺失、权限策略限制等都必须用 `blocker` 给出证据和可选路径；不得用“继续调研”“等待确认”掩盖目标不可达。
 
 ## 2. 状态机
 
@@ -103,6 +105,22 @@ python3 docs/codex_collab/tools/team_ops.py scan --root /Users/huangqi/AIHome/ai
 - 如果推送失败，按 blocker 回报具体原因。
 - 最终合入 owner 默认为 architect。只要 owner 自测、必要 reviewer accepted、targeted tests/analyze 通过且没有 blocker，architect 不得继续等待 product、developer 或“更完整结论”；必须直接合入，或在 10 分钟内给出可行动 blocker。
 - 对已经有真机正向证据的任务，后续窄 P1/P2 gate 修复如果只加固失败路径且不改变 UI/播放/缓存正向路径，默认不要求重新完整真机验收；由 architect 明确判断是否需要补装机。不得因为“是否重装”不明确而静默停工。
+
+## 6.0 P1/P2 快速合入与授权测试边界
+
+- P1/P2 分级由 product 目标和用户可用性决定：
+  - P1：搜索、完整音频播放、下载、边下边播、缓存、歌词/封面主路径、安装包可体验、会导致用户“不能用”的回归。
+  - P2：滑动手感、截图覆盖、视觉 P3、长尾歌曲覆盖、跨端一致性补测、非主路径文案和后续体验精修。
+- P1 不等全量 P2。P1 最小闭环后，architect 必须推动 merge/push/体验包；P2 进入后续 request 或同 request 的 follow-up，不得阻塞用户拿到可用包。
+- 开发 lane 不再因为普通 Codex 授权、sandbox socket、`127.0.0.1`、Flutter test 端口、ADB/HDC 常规调试、debug 包安装、输入法切换等日常验证事项等待 product 人工批准。能用受信任工程、unattended profile、已有设备授权或开发机默认权限处理的，owner 直接处理并记录命令/证据。
+- 如果某个自动化测试因为本机 sandbox/socket/权限策略无法跑，owner 不能把任务停住等 product 授权；必须选择一条可执行路径：
+  - 使用已配置的 AI Music unattended profile 或 approved prefix 重跑；
+  - 改为更小的 targeted test / scoped analyze / 脚本证据；
+  - 构建 debug 包交给 product 或 QA 真机体验，并明确哪些自动化证据缺失；
+  - 若确属系统安全策略不可绕过，10 到 15 分钟内发 `blocker`，说明命令、失败输出、替代验证和需要谁处理。
+- “测试直接让 product 来体验”的含义是：当自动化权限/环境阻塞不影响代码实现和可装包时，owner 先交付可体验包和明确已知风险，不把本地 test 授权当成合入前无限等待条件。不能因此省略 owner 主路径自测；owner 仍需提供能做到的最小证据。
+- Review 要按风险收敛，不按完美主义扩散。P1 review 只拦 P0/P1/P2 阻塞问题；P3 和体验精修必须记录但默认不阻塞合入。连续两次 review 只剩 P3 时，architect 必须合入或明确拒绝理由。
+- 每次合入困难超过 10 到 15 分钟，architect 必须回传当前卡点属于哪类：冲突、测试失败、权限/设备、证据不足、产品取舍、外部源不可达。不能只写“等待中”。
 
 ## 6.1 测试策略
 
