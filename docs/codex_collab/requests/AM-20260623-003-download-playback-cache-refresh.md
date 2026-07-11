@@ -1,14 +1,14 @@
 # AM-20260623-003 下载后播放、缓存状态与 HarmonyOS 串歌修复
 
 Status: assigned
-Owner Lane: ohos
-Assist Lane: android public Dart, architect
+Owner Lane: android
+Assist Lane: ohos, architect
 Source Thread: 019ee4b7-e7d2-7751-a4c4-150ede83c350
 Target Version: 1.1.0 verification
 Base Branch: release/1.1.0
-Work Branch: verification/1.1.0/AM-20260623-003-ohos-download-playback
-Project Path: /Users/huangqi/AIHome/projects/ai_music_ohos
-Merge Branch: not_applicable_verification
+Work Branch: feature/1.1.0/AM-20260623-003-cache-first-full-audio-playback
+Project Path: /Users/huangqi/AIHome/projects/ai_music_AM-20260623-003_android_cache_first
+Merge Branch: release/1.1.0
 Created: 2026-06-23
 Updated: 2026-07-11
 
@@ -16,7 +16,8 @@ Updated: 2026-07-11
 
 - 修复产品在集成体验中发现的下载后播放与缓存状态刷新问题，保证 Android 与 HarmonyOS 的下载、播放、metadata 体验一致且可解释。
 - 本轮已闭合 HarmonyOS P1：多首下载后逐个点击播放时，实际播放源与点击行不一致或无声。
-- 公共 Dart P2 仍保留后续处理：下载完成播放按钮延迟、搜索结果当前播放态误导、已有封面重复拉取。
+- 2026-07-11 新增 release/1.1.0 P1：HarmonyOS 证明已缓存 `source_gequhai` full-audio candidate 再次点击仍走 transient proxy，导致 `playback_load_failed`；首因指向公共 Dart `playCandidate` 缓存优先级。
+- 公共 Dart 其它 P2 仍保留后续处理：下载完成播放按钮延迟、搜索结果当前播放态误导、已有封面重复拉取。
 
 ## 范围
 
@@ -57,6 +58,15 @@ Updated: 2026-07-11
   - UI 是否被 metadata 补全、封面下载或歌词解析阻塞。
   - 下载完成后不应因为后台补封面/歌词导致播放按钮延迟。
 
+### P1 公共 Dart：已缓存歌曲海完整音频必须优先走正式缓存播放
+
+- 现象：OHOS 在 `release/1.1.0@45b302d` signed HAP 上复现，`外婆 / 周杰伦` 下载完成并 promote 正式 mp3 后，再次点击已完成候选仍进入 `source_gequhai` transient proxy，随后旧 session canceled、新 session `bytes=0`、`promote-failed Bad state: No element`、AVPlayer `NET_ERR-server-IO error`、UI `playback_load_failed`。
+- 证据摘要：HAP sha256 `d2c0123307035a74e12eda375bc8fd610b5b17852d0f55ee0a9d94545c3849ed`；设备 `192.168.31.53:6666`；MUSIC=3、mute=0；搜索 `外婆` 得到 `歌海/外婆/周杰伦/可下载`；首次播放 `first_byte_ms=2244`、`download_complete_ms=7617`、正式缓存 mp3 已生成；再次点已完成结果仍走 `http://127.0.0.1:<port>/audio/...` transient proxy。
+- 架构判断：这是公共 Dart 路由优先级问题，不是 OHOS 原生 AVPlayer 首因。`lib/src/application/music_controller.dart` 的 `playCandidate` 对 `source_gequhai` 先进入 `_playFullAudioStreamingCandidate` 并 return，导致 `_cachedRecordForCandidate` 本地文件路径分支不可达。
+- 修复要求：已缓存 full-audio candidate 必须优先走正式缓存播放路径；只有未缓存且通过 `direct_audio/canCacheAudio/clientReady` gate 的 full-audio candidate 才进入 transient streaming；失败或取消不得写正式缓存。
+- Owner 裁决：由 `android` lane 修公共 Dart，独立工程 `/Users/huangqi/AIHome/projects/ai_music_AM-20260623-003_android_cache_first`，分支 `feature/1.1.0/AM-20260623-003-cache-first-full-audio-playback`，基线 `origin/release/1.1.0=45b302d48649330446d381b8593c50e22b9099f5`。
+- 回传证据：新 commit、targeted test 覆盖 `playCandidate` 对已缓存 `source_gequhai` full-audio 优先走 cache 而不打开 transient、`flutter analyze --no-pub`、scope diff、防回退说明、可验证 APK/HAP 构建点。OHOS 收到后复测 `外婆`、`一丝不挂`、`稻香`、`哎呀`，带 HAP sha、截图/录屏、hilog、AVSession 和 cache index 证据。
+
 ### P2 公共 Dart：搜索结果当前播放态误导
 
 - 现象：搜索结果行只根据 `isCached` 固定显示 play 图标，不订阅当前 `mediaItem` / `playbackState`；播放成功时搜索列表行仍可能显示三角形，而底部 mini player / 系统状态已是播放中。
@@ -91,6 +101,7 @@ Updated: 2026-07-11
   - 负责 `third_party/just_audio_harmonyos/**`、`ohos/**`、`docs/codex_collab/knowledge/ohos/**`。
   - 如后续需要改公共 Dart，必须先回报架构师确认边界。
 - android lane：
+  - 立即负责 P1 已缓存歌曲海完整音频 cache-first 播放路由修复。
   - 继续负责 P2 下载后播放按钮状态延迟、搜索结果当前播放态误导、封面重复下载的公共 Dart 排查。
   - Android 公共 Dart 队列/index 防串歌修复可作为后续安全加固；除非 HarmonyOS 修复后仍复现，否则不作为本轮 P1 主线。
   - 自测使用小米 10 Pro或其它开发测试设备，不使用小米 17 Pro。
@@ -125,6 +136,8 @@ Updated: 2026-07-11
 - 2026-06-24 type=blocker lane=ohos status=blocked summary=ohos lane 在 `192.168.31.53:10178` 复现核心链路：下载 `yellow` 搜索结果第 2/3/4 条后，点击第 3 条 `Yellow / 酷玩乐队`，Flutter UI 和 AVSession metadata 都显示酷玩乐队，但原生没有进入 `prepared/playing/play succeeded`，`AudioPolicyService` 显示 AudioRenderer `rendererState=5`，日志出现 `MediaAvPlayer current musicIndex 2`，对应 `loadAssent()` index 越界分支。
 - 2026-06-24 type=status lane=ohos status=in_progress summary=进一步定位为 HarmonyOS vendored plugin 缓存旧 `MediaSource` 队列：先播放 3 首自建歌单 `qi`，再搜索下载/播放多首 `yellow` 后，native duration 对上旧队列里的 `浮夸`/`Midnight City`；第 3/4 条进入 `loadAssent()` index 越界。
 - 2026-06-24 type=review_request lane=ohos status=ready_for_review summary=ohos lane 提交 `5916b4c` 修复旧队列复用，并提供 `qi` 歌单后连续播放 `yellow1` 到 `yellow4` 的 HDC 自测证据。
+- 2026-07-11 type=blocker lane=ohos status=blocked summary=OHOS 在 release/1.1.0 HAP 上复现下载后立即播放失败：正式缓存已存在但已缓存歌曲海 full-audio candidate 仍走 transient proxy，日志出现 `bytes=0`、`promote-failed Bad state: No element`、AVPlayer `NET_ERR-server-IO error`、UI `playback_load_failed`；判断为公共 Dart `playCandidate` cache-first 路由缺失。
+- 2026-07-11 type=task lane=architect status=assigned summary=Architect 裁决由 Android owner 修公共 Dart。专项工程 `/Users/huangqi/AIHome/projects/ai_music_AM-20260623-003_android_cache_first` 已基于 `origin/release/1.1.0=45b302d48649330446d381b8593c50e22b9099f5` 创建，分支 `feature/1.1.0/AM-20260623-003-cache-first-full-audio-playback`；若 Android 10 到 15 分钟仍无 review_request 或 blocker，architect 将接管或重分配专项 owner。
 
 ## 相关提交
 
@@ -158,9 +171,10 @@ Updated: 2026-07-11
   - HarmonyOS 下载完成后缓存状态、播放态和歌词/封面 metadata 是否与 Android 1.1.0 主链路一致。
   - Android 公共 Dart 已有封面不重复拉取的历史疑点仅在新证据复现时再开 bugfix；本轮不作为 release/1.1.0 blocker。
 - Owner:
-  - `ohos` 负责真机验证与 HAP 证据。
-  - `android` 仅在 OHOS 证据指向公共 Dart/cache 状态刷新回归时接手修复。
+  - `android` 负责公共 Dart cache-first 播放路由修复。
+  - `ohos` 负责修复后真机验证与 HAP 证据。
 - Project Path / Device:
+  - Android Project Path: `/Users/huangqi/AIHome/projects/ai_music_AM-20260623-003_android_cache_first`
   - OHOS Project Path: `/Users/huangqi/AIHome/projects/ai_music_ohos`
   - Device: `ALN-AL00` / HDC target `192.168.31.53:6666`（或 OHOS lane 回传的新 target）。
   - Android release baseline for comparison: `release/1.1.0@45b302d48649330446d381b8593c50e22b9099f5`。
