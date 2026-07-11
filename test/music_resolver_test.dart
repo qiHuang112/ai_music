@@ -690,6 +690,80 @@ void main() {
   });
 
   test(
+    'auto parses artist possessive title query for gequhai search',
+    () async {
+      final requestedSearchTerms = <String>[];
+      final resolver = RemoteMusicResolver(
+        httpClient: _naturalLanguageGequhaiHttp(
+          title: '外婆',
+          artist: '周杰伦',
+          id: '6330',
+          requestedSearchTerms: requestedSearchTerms,
+        ),
+      );
+
+      final candidates = await resolver.search('周杰伦的外婆', MusicDataSource.auto);
+
+      expect(requestedSearchTerms, ['周杰伦的外婆', '外婆']);
+      expect(candidates, hasLength(1));
+      expect(candidates.single.name, '外婆');
+      expect(candidates.single.artist, '周杰伦');
+      expect(candidates.single.raw['queryMatchReason'], 'artist_title_exact');
+    },
+  );
+
+  test(
+    'auto keeps real artist metadata for explainable possessive query correction',
+    () async {
+      final requestedSearchTerms = <String>[];
+      final resolver = RemoteMusicResolver(
+        httpClient: _naturalLanguageGequhaiHttp(
+          title: '哎呀',
+          artist: '王蓉',
+          id: '38173',
+          requestedSearchTerms: requestedSearchTerms,
+        ),
+      );
+
+      final candidates = await resolver.search('黄蓉的哎呀', MusicDataSource.auto);
+
+      expect(requestedSearchTerms, ['黄蓉的哎呀', '哎呀']);
+      expect(candidates, hasLength(1));
+      expect(candidates.single.name, '哎呀');
+      expect(candidates.single.artist, '王蓉');
+      expect(candidates.single.raw['queryArtistHint'], '黄蓉');
+      expect(candidates.single.raw['queryArtistCorrection'], '王蓉');
+      expect(
+        candidates.single.raw['queryMatchReason'],
+        'title_exact_artist_near_match',
+      );
+    },
+  );
+
+  test(
+    'auto keeps exact song titles containing possessive character',
+    () async {
+      final requestedSearchTerms = <String>[];
+      final resolver = RemoteMusicResolver(
+        httpClient: _naturalLanguageGequhaiHttp(
+          title: '我是真的爱你',
+          artist: '陈奕迅',
+          id: '9001',
+          requestedSearchTerms: requestedSearchTerms,
+        ),
+      );
+
+      final candidates = await resolver.search('我是真的爱你', MusicDataSource.auto);
+
+      expect(requestedSearchTerms.first, '我是真的爱你');
+      expect(candidates, hasLength(1));
+      expect(candidates.single.name, '我是真的爱你');
+      expect(candidates.single.artist, '陈奕迅');
+      expect(candidates.single.raw['queryMatchReason'], 'title_match');
+    },
+  );
+
+  test(
     'auto tries later gequhai candidates when the top match fails validation',
     () async {
       const goodAudioUrl = 'https://cdn.gequhai.test/audio/5553349.mp3';
@@ -2314,6 +2388,62 @@ String _lyricsLines(int count, String word) {
     for (var i = 0; i < count; i += 1)
       '[00:${(i % 60).toString().padLeft(2, '0')}.00]$word $i',
   ].join('\n');
+}
+
+_FakeResolverHttp _naturalLanguageGequhaiHttp({
+  required String title,
+  required String artist,
+  required String id,
+  required List<String> requestedSearchTerms,
+}) {
+  final audioUrl = 'https://cdn.gequhai.test/audio/$id.mp3';
+  return _FakeResolverHttp(
+    onGet: (uri, _) async {
+      if (uri.path.startsWith('/s/')) {
+        final searchTerm = uri.pathSegments.last;
+        requestedSearchTerms.add(searchTerm);
+        if (searchTerm != title) {
+          return _html(uri, '<table></table>');
+        }
+        return _html(uri, '''
+          <table>
+            <tr><td><a href="/play/$id">$title</a></td><td>$artist</td></tr>
+          </table>
+        ''');
+      }
+      if (uri.path == '/play/$id') {
+        return _html(uri, '''
+          <script>
+            window.play_id = '$id';
+            window.mp3_title = '$title';
+            window.mp3_author = '$artist';
+          </script>
+          <div id="content-lrc2">[00:01.00]$title</div>
+        ''');
+      }
+      fail('Unexpected GET $uri');
+    },
+    onPostForm: (uri, _, _) async => _json(uri, {
+      'code': 200,
+      'data': {'url': audioUrl},
+    }),
+    onHead: (uri, _) async => _response(
+      uri,
+      HttpStatus.ok,
+      headers: const {
+        'content-type': 'audio/mpeg',
+        'content-length': '3913543',
+      },
+    ),
+    onRange: (uri, _, _, _) async => _response(
+      uri,
+      HttpStatus.partialContent,
+      headers: const {
+        'content-type': 'audio/mpeg',
+        'content-range': 'bytes 0-8191/3913543',
+      },
+    ),
+  );
 }
 
 MusicSearchCandidate _gequhaiCandidate({

@@ -24,29 +24,36 @@ class GequhaiPlayerAudioResolver {
     if (trimmed.isEmpty) {
       return const [];
     }
-    final searchUri = Uri.parse(
-      'https://$_apiHost/s/${Uri.encodeComponent(trimmed)}',
-    );
-    final response = await _http.get(searchUri, headers: _pageHeaders);
-    if (response.statusCode == HttpStatus.forbidden ||
-        _looksLikeDefender(response.body)) {
-      return const [];
-    }
-    if (response.statusCode < 200 || response.statusCode >= 300) {
-      return const [];
-    }
-    final parsed = _parseSearchResults(response.body, trimmed, searchUri);
-    final playable = <MusicSearchCandidate>[];
-    for (final candidate in parsed) {
-      try {
-        final resolved = await resolve(candidate);
-        playable.add(_candidateWithResolvedMetadata(candidate, resolved));
-      } catch (_) {
-        // Search results are product-visible completion paths. Candidates that
-        // cannot pass the full audio gate are intentionally hidden.
+    final intent = _GequhaiSearchIntent.parse(trimmed);
+    final searchTerms = <String>{trimmed, intent.searchTerm};
+    for (final searchTerm in searchTerms) {
+      final searchUri = Uri.parse(
+        'https://$_apiHost/s/${Uri.encodeComponent(searchTerm)}',
+      );
+      final response = await _http.get(searchUri, headers: _pageHeaders);
+      if (response.statusCode == HttpStatus.forbidden ||
+          _looksLikeDefender(response.body)) {
+        return const [];
+      }
+      if (response.statusCode < 200 || response.statusCode >= 300) {
+        continue;
+      }
+      final parsed = _parseSearchResults(response.body, trimmed, searchUri);
+      final playable = <MusicSearchCandidate>[];
+      for (final candidate in parsed) {
+        try {
+          final resolved = await resolve(candidate);
+          playable.add(_candidateWithResolvedMetadata(candidate, resolved));
+        } catch (_) {
+          // Search results are product-visible completion paths. Candidates
+          // that cannot pass the full audio gate are intentionally hidden.
+        }
+      }
+      if (playable.isNotEmpty) {
+        return playable;
       }
     }
-    return playable;
+    return const [];
   }
 
   Future<ResolvedMusic> resolve(MusicSearchCandidate candidate) async {
@@ -601,25 +608,56 @@ MusicSearchCandidate? _candidateFromSearchMatch({
   required String rowText,
 }) {
   final normalizedQuery = _normalize(query);
+  final intent = _GequhaiSearchIntent.parse(query);
+  final normalizedTitleQuery = _normalize(intent.titleQuery);
+  final normalizedArtistHint = _normalize(intent.artistHint);
   final normalizedTitle = _normalize(title);
   final normalizedArtist = _normalize(artist);
   if (id.isEmpty || normalizedTitle.isEmpty) {
     return null;
   }
+  final exactFullTitleMatch = normalizedQuery == normalizedTitle;
   final titleMatches =
-      normalizedQuery == normalizedTitle ||
-      normalizedQuery.contains(normalizedTitle) ||
-      normalizedTitle.contains(normalizedQuery);
+      exactFullTitleMatch ||
+      normalizedTitleQuery == normalizedTitle ||
+      normalizedTitleQuery.contains(normalizedTitle) ||
+      normalizedTitle.contains(normalizedTitleQuery);
   final artistMatches =
-      normalizedArtist.isEmpty || normalizedQuery.contains(normalizedArtist);
+      normalizedArtist.isEmpty ||
+      (normalizedArtistHint.isNotEmpty
+          ? normalizedArtistHint == normalizedArtist
+          : normalizedQuery.contains(normalizedArtist));
+  final artistNearMatch =
+      normalizedArtistHint.isNotEmpty &&
+      normalizedArtist.isNotEmpty &&
+      _isSingleCharacterCorrection(normalizedArtistHint, normalizedArtist);
   final exactArtistOnlyMatch =
       normalizedArtist.isNotEmpty && normalizedQuery == normalizedArtist;
+  final naturalLanguageMatch =
+      !exactFullTitleMatch &&
+      intent.artistHint.isNotEmpty &&
+      normalizedTitleQuery == normalizedTitle &&
+      (artistMatches || artistNearMatch);
   if ((!titleMatches && !exactArtistOnlyMatch) ||
-      (_queryHasArtist(query) && !artistMatches)) {
+      (!exactFullTitleMatch &&
+          _queryHasArtist(query) &&
+          !artistMatches &&
+          !naturalLanguageMatch)) {
     return null;
   }
+  final queryMatchReason = naturalLanguageMatch
+      ? artistMatches
+            ? 'artist_title_exact'
+            : 'title_exact_artist_near_match'
+      : exactArtistOnlyMatch
+      ? 'artist_exact'
+      : 'title_match';
   final score =
-      (normalizedQuery == normalizedTitle
+      (naturalLanguageMatch && artistMatches
+          ? 260.0
+          : naturalLanguageMatch
+          ? 210.0
+          : normalizedQuery == normalizedTitle
           ? 240.0
           : exactArtistOnlyMatch
           ? 220.0
@@ -631,7 +669,7 @@ MusicSearchCandidate? _candidateFromSearchMatch({
     query: query,
     source: MusicDataSource.gequhai,
     platform: 'gequhai',
-    keyword: query,
+    keyword: intent.searchTerm,
     page: 0,
     id: id,
     name: title,
@@ -646,6 +684,10 @@ MusicSearchCandidate? _candidateFromSearchMatch({
       'searchUrl': searchUri.toString(),
       'detailPath': href,
       'rowText': rowText,
+      'queryMatchReason': queryMatchReason,
+      if (intent.artistHint.isNotEmpty) 'queryArtistHint': intent.artistHint,
+      if (naturalLanguageMatch && artistNearMatch)
+        'queryArtistCorrection': artist,
     },
   );
 }
@@ -667,7 +709,63 @@ String _extractSearchArtist(String rowText, String title) {
 }
 
 bool _queryHasArtist(String query) {
-  return query.trim().contains(RegExp(r'[\s/／\-—–]'));
+  final trimmed = query.trim();
+  return _GequhaiSearchIntent.parse(trimmed).artistHint.isNotEmpty ||
+      trimmed.contains(RegExp(r'[\s/／\-—–]'));
+}
+
+bool _isSingleCharacterCorrection(String expected, String actual) {
+  if (expected.length != actual.length || expected.isEmpty) {
+    return false;
+  }
+  var differences = 0;
+  for (var index = 0; index < expected.length; index += 1) {
+    if (expected[index] != actual[index]) {
+      differences += 1;
+      if (differences > 1) {
+        return false;
+      }
+    }
+  }
+  return differences == 1;
+}
+
+class _GequhaiSearchIntent {
+  const _GequhaiSearchIntent({
+    required this.searchTerm,
+    required this.titleQuery,
+    required this.artistHint,
+  });
+
+  factory _GequhaiSearchIntent.parse(String query) {
+    final trimmed = query.trim();
+    final possessive = RegExp(r'^(.{2,20})的(.{1,40})$').firstMatch(trimmed);
+    if (possessive == null) {
+      return _GequhaiSearchIntent(
+        searchTerm: trimmed,
+        titleQuery: trimmed,
+        artistHint: '',
+      );
+    }
+    final artist = possessive.group(1)?.trim() ?? '';
+    final title = possessive.group(2)?.trim() ?? '';
+    if (artist.isEmpty || title.isEmpty) {
+      return _GequhaiSearchIntent(
+        searchTerm: trimmed,
+        titleQuery: trimmed,
+        artistHint: '',
+      );
+    }
+    return _GequhaiSearchIntent(
+      searchTerm: title,
+      titleQuery: title,
+      artistHint: artist,
+    );
+  }
+
+  final String searchTerm;
+  final String titleQuery;
+  final String artistHint;
 }
 
 bool _matchesDetailCandidate(

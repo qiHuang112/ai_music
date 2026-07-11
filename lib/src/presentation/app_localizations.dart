@@ -122,6 +122,9 @@ class AppStrings {
   String get candidateUnavailableForDownload => isZh
       ? '未通过完整音频校验，不能下载'
       : 'Full-audio validation unavailable; cannot download';
+  String artistCorrection(String inputArtist, String actualArtist) => isZh
+      ? '艺人纠错：$inputArtist → $actualArtist'
+      : 'Artist correction: $inputArtist → $actualArtist';
   String get repairLegacy => isZh ? '修复老资源' : 'Repair old cache';
   String get refresh => isZh ? '刷新' : 'Refresh';
   String get sort => isZh ? '排序' : 'Sort';
