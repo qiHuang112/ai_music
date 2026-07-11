@@ -89,13 +89,13 @@ Library First 不是单页皮肤，而是信息架构约束：
 - UI lane 必须先输出页面级实现规范，包含 tokens、组件层级、页面状态和截图标注。
 - Android owner 在 UI 规范后实现公共 Flutter UI、测试和小米 10 Pro 自测。
 - OHOS owner 按 `library-first-ohos-implementation-notes.md` 复核安全区、系统手势、大字号、搜索键盘、队列入口、mini player、foreground-only 和启动首帧风险。
-- QA researcher 按矩阵验收截图、录屏、包 SHA、设备和失败升级规则。
+- QA researcher 按矩阵验收截图、录屏、包 SHA、设备和失败升级规则；Android/OHOS review_request 必须显式回传矩阵路径、截图命名规则、包 SHA、设备、操作路径、截图/录屏/日志路径和每项 pass/fail/blocker。
 - Architect 负责 review gate、scope diff、防回退、合入和 Product 通知。
 
 ## 验收门禁
 
 - Start gate：request、design、plan、Project Path、baseline、owner 全部有效。
-- Review gate：必须有 HEAD、RED/GREEN 或 TDD 证据、targeted tests、scope diff、self-test 和 Android/OHOS/QA 主路径证据。
+- Review gate：必须有 HEAD、RED/GREEN 或 TDD 证据、targeted tests、scope diff、self-test 和 Android/OHOS/QA 主路径证据；缺矩阵路径、截图命名、包 SHA、设备、操作路径、截图/录屏/日志或 pass/fail/blocker 结论时，architect 返回 `changes_requested`。
 - Merge gate：Android owner、UI/spec、OHOS constraints、QA matrix 或明确 blocker 均已回传；无 P0/P1/P2 阻塞。
 
 ## 风险

@@ -57,7 +57,7 @@ Knowledge Evidence: docs/codex_collab/knowledge/qa-researcher/2026-07-11-ui-prod
 - Android 必须按 TDD 提交：先补 widget/controller golden-adjacent 或截图主路径测试，再实现。
 - 小米 10 Pro 真机主路径必须覆盖：首页、搜索 `一丝不挂`/`稻香` 并点击播放、不可下载样例原因展示且无 PREVIEW、播放详情、当前队列入口/sheet、下载管理、设置、收藏/歌单、热榜详情无 overflow、完整音频边下边播收藏/加歌单入口。
 - OHOS 必须复核：SafeArea、系统手势区、48px 触控、大字号、键盘、foreground-only、启动首帧风险。
-- QA 必须按 `docs/codex_collab/knowledge/qa-researcher/2026-07-11-ui-product-design-regression-matrix.md` 回传包 SHA、设备、截图/录屏/日志和 pass/fail/blocker。
+- QA 必须按 `docs/codex_collab/knowledge/qa-researcher/2026-07-11-ui-product-design-regression-matrix.md` 作为 design-qa gate 回传：矩阵路径、截图命名规则、包 SHA、设备、操作路径、截图/录屏/日志路径、每项 pass/fail/blocker 和失败升级规则。
 - Product 体验包只接受完整音频路径；preview、网盘、HTML、防护页仍不得作为完成路径或正式缓存。
 
 ## 分工
@@ -73,6 +73,7 @@ Knowledge Evidence: docs/codex_collab/knowledge/qa-researcher/2026-07-11-ui-prod
 - 2026-07-11 type=task lane=product summary=Product 默认选择第 1 张 `Library First / 我的音乐与继续播放优先` 作为 1.1.0 UI 实现基准，生成图路径 `/Users/huangqi/.codex/generated_images/019ee910-8747-71e3-9293-720273f9e61f/exec-99786479-d2fb-4fcb-a642-c7d25fbb2b74.png`。
 - 2026-07-11 type=status lane=architect summary=Architect 创建 AM-20260711-003 实现 request，独立 Project Path 为 `/Users/huangqi/AIHome/projects/ai_music_AM-20260711-003`，基线 `origin/release/1.0.2=b306932d03e1eedbe96fd50dafe0f95805b0eab4`，实现分支 `feature/1.1.0/AM-20260711-003-library-first-ui`。
 - 2026-07-11 type=status lane=qa-researcher summary=QA researcher 已更新 Library First 验收矩阵，作为本实现 request 的 design-qa gate 和后续截图验收输入。
+- 2026-07-11 type=status lane=architect summary=Architect 已将 QA 矩阵设为 AM-003 design-qa gate：后续 Android/OHOS review_request 必须回传矩阵路径、截图命名规则、包 SHA、设备、操作路径、截图/录屏/日志路径和 pass/fail/blocker 证据；缺任一关键字段按 changes_requested 处理。
 - 2026-07-11 type=status lane=ohos summary=OHOS 已提供 Library First 跨端实现注意清单 `library-first-ohos-implementation-notes.md`；UI 规范和 Android 实现必须标注并处理 SafeArea/insets、跨页 mini player、搜索键盘、48px 触控、大字号、当前队列入口、播放详情层级、长列表/sheet、foreground-only 和启动首帧风险。
 
 ## 相关提交

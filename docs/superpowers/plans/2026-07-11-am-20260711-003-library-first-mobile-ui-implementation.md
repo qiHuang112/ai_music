@@ -275,6 +275,21 @@ hotlist detail
 playlist/favorite
 ```
 
+- [ ] **Step 2a: Attach required matrix metadata**
+
+Android and OHOS review requests must include:
+
+```text
+QA matrix path: docs/codex_collab/knowledge/qa-researcher/2026-07-11-ui-product-design-regression-matrix.md
+screenshot naming rule
+package path and sha256
+device model and device id
+operation path for each screenshot or recording
+screenshot/recording/log directory
+pass/fail/blocker result for each required matrix row
+failure escalation rule for any blocker
+```
+
 - [ ] **Step 3: Record pass/fail/blocker**
 
 Use failure categories:
@@ -317,6 +332,7 @@ debug APK path and sha256
 Xiaomi 10 Pro screenshot directory
 media_session evidence for search -> tap play
 cache evidence proving only complete audio is cached
+QA matrix path, screenshot naming rule, package sha, device, operation path and pass/fail/blocker summary
 ```
 
 - [ ] **Step 3: Merge gate**
