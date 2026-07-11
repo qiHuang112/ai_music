@@ -113,6 +113,8 @@ AM-004 为 P0 主链路恢复任务，architect review 时任一 P0/P1 缺口都
 - `window.mp3_extra_url` 按页面 JS `atob(value.replace(/#/g,"H").replace(/%/g,"S"))` 解码后作为 `external_pan_link` 证据记录，不得进入搜索完成路径、边下边播、正式缓存或下载列表。
 - P0 不因单线程权限等待停摆：若 `android-source` 在 10 分钟内没有回 `review_request` 或可行动 `blocker`，architect 将把 AM-004 重分配给可执行 Android source owner 或临时接管；接管必须基于 Project Path `/Users/huangqi/AIHome/projects/ai_music_AM-20260711-004` 的现有 diff 继续，不回退已完成 RED/GREEN，不从零重做。
 - 备用审计结论：android-source 当前方向正确但尚不能 accepted；review_request 缺少上述任一 P0/P1 证据时，architect 直接 `changes_requested`，不进入合入。
+- Heartbeat 已启用：architect 每 10 到 15 分钟检查 `android-source` 是否回 `review_request` 或可行动 `blocker`；未回则追问一次，继续无响应则按备用 owner/接管策略执行。
+- Review 分发固定顺序：收到 `android-source` review_request 后，architect 立即分发 `source-researcher` 做协议忠实性复核、`android-streaming` 做边下边播 gate 复核、`android` 做公共 Dart/Android 边界复核；三方结论必须包含 `Spec Review Result` 与 `Code Quality Review Result`，architect 再给 accepted 或 changes_requested。
 
 ## 消息记录
 
@@ -122,3 +124,4 @@ AM-004 为 P0 主链路恢复任务，architect review 时任一 P0/P1 缺口都
 - 2026-07-11 `source-researcher`：已完成低频串行多样例复核并 handoff 给 `android-source`；脚本 `scripts/probe_gequhai_am004_samples.js`，JSON `evidence/script/gequhai-am004-multisample-result.json`，报告 `reports/am004-gequhai-multisample-status.md`，原始 headers/html/bin 位于 `evidence/script/`。
 - 2026-07-11 `product` 二次监督：发现 `android-source` 仍显示 `waitingOnApproval`；要求 architect 准备备用 owner 或接管策略，10 分钟无 `review_request` 或可行动 `blocker` 即重分配，不等待 Product 再确认。
 - 2026-07-11 `product` 备用审计：确认当前实现方向正确但不能 accepted；要求将旧源迁移、歌曲海可见候选、详情一致性、modified base64 夸克 evidence、东方财富 fail closed、四首正向矩阵、点击行下载播放、cache/lyrics/cover、首声早于下载完成、失败隔离和无 PREVIEW/网盘/HTML/防护页可见行纳入 P0/P1 review gate。
+- 2026-07-11 `product` heartbeat 监督：要求 architect 持续盯 `android-source`，10 到 15 分钟无 `review_request` 或 actionable `blocker` 即追问或重分配；收到 `review_request` 后立即分发 source-researcher、android-streaming、android 三方复核，并按双 review 结论回 Product。
