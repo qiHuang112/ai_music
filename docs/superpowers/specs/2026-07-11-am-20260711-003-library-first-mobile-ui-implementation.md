@@ -27,6 +27,7 @@ Status: approved_for_planning
 - OHOS Screenshot Baseline: `/Users/huangqi/.codex/visualizations/2026/06/21/019ee7db-7cfc-7c41-9827-6b851ce89548/AM-20260711-002-ohos-design-facts/screenshots`
 - OHOS Constraints: `/Users/huangqi/.codex/visualizations/2026/06/21/019ee7db-7cfc-7c41-9827-6b851ce89548/AM-20260711-002-ohos-design-facts/ohos-platform-constraints.md`
 - OHOS Library First Implementation Notes: `/Users/huangqi/.codex/visualizations/2026/06/21/019ee7db-7cfc-7c41-9827-6b851ce89548/AM-20260711-002-ohos-design-facts/library-first-ohos-implementation-notes.md`
+- OHOS AM-003 Cross-platform Review Checklist: `/Users/huangqi/.codex/visualizations/2026/06/21/019ee7db-7cfc-7c41-9827-6b851ce89548/AM-20260711-002-ohos-design-facts/am-20260711-003-ohos-cross-platform-review-checklist.md`
 - QA Matrix: `docs/codex_collab/knowledge/qa-researcher/2026-07-11-ui-product-design-regression-matrix.md`
 - Implementation Project: `/Users/huangqi/AIHome/projects/ai_music_AM-20260711-003`
 - Baseline: `origin/release/1.0.2=b306932d03e1eedbe96fd50dafe0f95805b0eab4`
@@ -88,7 +89,7 @@ Library First 不是单页皮肤，而是信息架构约束：
 
 - UI lane 必须先输出页面级实现规范，包含 tokens、组件层级、页面状态和截图标注。
 - Android owner 在 UI 规范后实现公共 Flutter UI、测试和小米 10 Pro 自测。
-- OHOS owner 按 `library-first-ohos-implementation-notes.md` 复核安全区、系统手势、大字号、搜索键盘、队列入口、mini player、foreground-only 和启动首帧风险。
+- OHOS owner 按 `library-first-ohos-implementation-notes.md` 与 `am-20260711-003-ohos-cross-platform-review-checklist.md` 复核安全区、系统手势、大字号、搜索键盘、队列入口、mini player、foreground-only 和启动首帧风险。
 - QA researcher 按矩阵验收截图、录屏、包 SHA、设备和失败升级规则；Android/OHOS review_request 必须显式回传矩阵路径、截图命名规则、包 SHA、设备、操作路径、截图/录屏/日志路径和每项 pass/fail/blocker。
 - Architect 负责 review gate、scope diff、防回退、合入和 Product 通知。
 
@@ -96,11 +97,11 @@ Library First 不是单页皮肤，而是信息架构约束：
 
 - Start gate：request、design、plan、Project Path、baseline、owner 全部有效。
 - Review gate：必须有 HEAD、RED/GREEN 或 TDD 证据、targeted tests、scope diff、self-test 和 Android/OHOS/QA 主路径证据；缺矩阵路径、截图命名、包 SHA、设备、操作路径、截图/录屏/日志或 pass/fail/blocker 结论时，architect 返回 `changes_requested`。
-- Merge gate：Android owner、UI/spec、OHOS constraints、QA matrix 或明确 blocker 均已回传；无 P0/P1/P2 阻塞。
+- Merge gate：Android owner、UI/spec、OHOS checklist、QA matrix 或明确 blocker 均已回传；无 P0/P1/P2 阻塞。
 
 ## 风险
 
 - 选定图是方向基准，不是像素级最终稿；实现必须以真实产品路径和审计约束为准。
 - 如果 UI 规范缺失页面状态，Android 不应直接做大改。
-- 如果当前队列入口、热榜 overflow、mini player 跨页或完整音频收藏/加歌单缺证据，不允许 accepted。
+- 如果当前队列入口、热榜 overflow、mini player 跨页、OHOS checklist 必填证据或完整音频收藏/加歌单缺证据，不允许 accepted。
 - 如果视觉大改造成 AM-014/016/017 完整音频路径回退，按 P0 打回。

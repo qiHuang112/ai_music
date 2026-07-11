@@ -28,7 +28,7 @@ Red Evidence: pending
 Green Evidence: pending
 Targeted Tests: pending
 Self Test Evidence: pending
-Product Main Path Evidence: selected image `/Users/huangqi/.codex/generated_images/019ee910-8747-71e3-9293-720273f9e61f/exec-99786479-d2fb-4fcb-a642-c7d25fbb2b74.png`; Android baseline screenshots `/Users/huangqi/AIHome/output/AM-20260711-002-b306932-xiaomi10/screens/`; OHOS screenshots `/Users/huangqi/.codex/visualizations/2026/06/21/019ee7db-7cfc-7c41-9827-6b851ce89548/AM-20260711-002-ohos-design-facts/screenshots`; OHOS Library First notes `/Users/huangqi/.codex/visualizations/2026/06/21/019ee7db-7cfc-7c41-9827-6b851ce89548/AM-20260711-002-ohos-design-facts/library-first-ohos-implementation-notes.md`
+Product Main Path Evidence: selected image `/Users/huangqi/.codex/generated_images/019ee910-8747-71e3-9293-720273f9e61f/exec-99786479-d2fb-4fcb-a642-c7d25fbb2b74.png`; Android baseline screenshots `/Users/huangqi/AIHome/output/AM-20260711-002-b306932-xiaomi10/screens/`; OHOS screenshots `/Users/huangqi/.codex/visualizations/2026/06/21/019ee7db-7cfc-7c41-9827-6b851ce89548/AM-20260711-002-ohos-design-facts/screenshots`; OHOS Library First notes `/Users/huangqi/.codex/visualizations/2026/06/21/019ee7db-7cfc-7c41-9827-6b851ce89548/AM-20260711-002-ohos-design-facts/library-first-ohos-implementation-notes.md`; OHOS AM-003 review checklist `/Users/huangqi/.codex/visualizations/2026/06/21/019ee7db-7cfc-7c41-9827-6b851ce89548/AM-20260711-002-ohos-design-facts/am-20260711-003-ohos-cross-platform-review-checklist.md`
 Baseline Freshness Evidence: implementation project `/Users/huangqi/AIHome/projects/ai_music_AM-20260711-003` is checked out at `origin/release/1.0.2=b306932d03e1eedbe96fd50dafe0f95805b0eab4` on `feature/1.1.0/AM-20260711-003-library-first-ui`
 Scope Diff Evidence: pending
 Spec Review Result: pending
@@ -56,7 +56,7 @@ Knowledge Evidence: docs/codex_collab/knowledge/qa-researcher/2026-07-11-ui-prod
 - UI lane 先输出页面级实现规范，必须引用选定图和真实截图；Android 不在规范前抢写大改 UI。
 - Android 必须按 TDD 提交：先补 widget/controller golden-adjacent 或截图主路径测试，再实现。
 - 小米 10 Pro 真机主路径必须覆盖：首页、搜索 `一丝不挂`/`稻香` 并点击播放、不可下载样例原因展示且无 PREVIEW、播放详情、当前队列入口/sheet、下载管理、设置、收藏/歌单、热榜详情无 overflow、完整音频边下边播收藏/加歌单入口。
-- OHOS 必须复核：SafeArea、系统手势区、48px 触控、大字号、键盘、foreground-only、启动首帧风险。
+- OHOS 必须按 `/Users/huangqi/.codex/visualizations/2026/06/21/019ee7db-7cfc-7c41-9827-6b851ce89548/AM-20260711-002-ohos-design-facts/am-20260711-003-ohos-cross-platform-review-checklist.md` 复核：SafeArea、系统手势区、48px 触控、大字号、键盘、跨页 mini player、当前队列入口、长列表/sheet、foreground-only、启动首帧风险，并回传 HAP 路径、sha256、source commit、是否清数据、目标设备、截图目录、操作路径和 pass/fail/blocker。
 - QA 必须按 `docs/codex_collab/knowledge/qa-researcher/2026-07-11-ui-product-design-regression-matrix.md` 作为 design-qa gate 回传：矩阵路径、截图命名规则、包 SHA、设备、操作路径、截图/录屏/日志路径、每项 pass/fail/blocker 和失败升级规则。
 - Product 体验包只接受完整音频路径；preview、网盘、HTML、防护页仍不得作为完成路径或正式缓存。
 
@@ -76,6 +76,7 @@ Knowledge Evidence: docs/codex_collab/knowledge/qa-researcher/2026-07-11-ui-prod
 - 2026-07-11 type=status lane=architect summary=Architect 已将 QA 矩阵设为 AM-003 design-qa gate：后续 Android/OHOS review_request 必须回传矩阵路径、截图命名规则、包 SHA、设备、操作路径、截图/录屏/日志路径和 pass/fail/blocker 证据；缺任一关键字段按 changes_requested 处理。
 - 2026-07-11 type=status lane=ohos summary=OHOS 已提供 Library First 跨端实现注意清单 `library-first-ohos-implementation-notes.md`；UI 规范和 Android 实现必须标注并处理 SafeArea/insets、跨页 mini player、搜索键盘、48px 触控、大字号、当前队列入口、播放详情层级、长列表/sheet、foreground-only 和启动首帧风险。
 - 2026-07-11 type=status lane=architect summary=Architect 已修复独立 Project Path 同步问题：`/Users/huangqi/AIHome/projects/ai_music_AM-20260711-003` 现已包含 AM-003 request/spec/plan、`team_ops.py`、UI audit 和 QA 矩阵；该路径本地 `validate-request` 与 `validate-workflow --gate start` 均为 OK。同步提交为 `87e58ce`，已推送远端分支 `feature/1.1.0/AM-20260711-003-library-first-ui`。UI 页面级实现规范仍是 Android 开工前置，目标路径 `docs/codex_collab/knowledge/ui/2026-07-11-am003-library-first-page-spec.md`。
+- 2026-07-11 type=status lane=ohos summary=OHOS 已输出 AM-003 Library First 跨端实现复核清单 `am-20260711-003-ohos-cross-platform-review-checklist.md`；Architect 将其纳入 review/验收 gate。UI 页面级 spec 必须标注 safe area、键盘态、mini player 固定规则、当前队列入口、sheet 高度、48px 触控、大字号策略和暗色首帧预期；Android 实现不得写死 Android 状态栏/键盘/导航栏高度；后续 HAP 验收必须回传 HAP 路径、sha256、source commit、是否清数据、目标设备和截图 pass/fail/blocker。
 
 ## 相关提交
 
