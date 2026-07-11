@@ -1,0 +1,20 @@
+status: 206
+url: https://car-er.kuwo.cn/a9777bf8b2c0fe506eef9dd562b27dd6/6a51f9ac/resource/30106/trackmedia/M500003aAYrm3GE0Ac.mp3
+final-url: https://car-er.kuwo.cn/a9777bf8b2c0fe506eef9dd562b27dd6/6a51f9ac/resource/30106/trackmedia/M500003aAYrm3GE0Ac.mp3
+last-modified: Sun, 28 Apr 2019 16:52:52 GMT
+etag: "e322b526f11a5a40afcdfb66df964c0d242bf3e6"
+ip: 11.140.19.227
+server: TencentCOS
+x-cos-storage-class: STANDARD_IA
+x-cos-version-id: MTg0NDY3NDI1MTcyMzkxNzg3MjY
+x-cos-hash-crc64ecma: 6708310233090437386
+content-type: audio/mpeg
+content-disposition: attachment; filename*="UTF-8''M500003aAYrm3GE0Ac.mp3"
+x-cos-replication-status: Complete
+x-cos-object-type: normal
+date: Thu, 14 May 2026 11:11:22 GMT
+content-range: bytes 0-8191/3576668
+content-length: 8192
+x-nws-log-uuid: 10344201094758097016
+connection: keep-alive
+x-cache-lookup: Cache Hit

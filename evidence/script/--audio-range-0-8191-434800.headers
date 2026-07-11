@@ -1,0 +1,22 @@
+status: 206
+url: https://car-lv.kuwo.cn/83c4f03ac24d1c261613d75d8e798993/6a521328/resource/30106/trackmedia/M500001gBMIM468DN5.mp3
+final-url: https://car-lv.kuwo.cn/83c4f03ac24d1c261613d75d8e798993/6a521328/resource/30106/trackmedia/M500001gBMIM468DN5.mp3
+server: openresty
+date: Sat, 11 Jul 2026 09:55:54 GMT
+content-type: audio/mpeg
+content-length: 8192
+connection: keep-alive
+ip: 11.143.46.5
+x-cos-storage-class: STANDARD_IA
+x-cos-version-id: null
+x-cos-hash-crc64ecma: 9031919303986328957
+content-disposition: attachment; filename*="UTF-8''M500001gBMIM468DN5.mp3"
+etag: "3122c735d9e799ebb215ec8332fa3f022c4b67d5"
+x-cos-meta-md5: 9c5e7874115ad59e50a63ad604e39634
+x-cos-object-type: normal
+last-modified: Mon, 04 Dec 2023 06:38:03 GMT
+x-nws-log-uuid: 266b0f3c-35a6-45aa-8932-4a7f3d94f30c
+x-cache: from sal-tln-jsnt-p1-230-141, from sal-tln-jsnt-p1-230-120, HIT from SAL-CMC-JSSQ-P2-18-116, HIT from sal-cmc-jssq-n-186-12
+age: 10017423
+via: http/1.1 traffic_server (new1cloud [cHs f ]), http/1.1 traffic_server (new1cloud [c sSf ])
+content-range: bytes 0-8191/3877617

@@ -1,0 +1,22 @@
+status: 200
+url: https://car-lv.kuwo.cn/740842efcec3b06908f03667304e5dc8/6a520d28/resource/30106/trackmedia/M5000027gHes1HjRNe.mp3
+final-url: https://car-lv.kuwo.cn/740842efcec3b06908f03667304e5dc8/6a520d28/resource/30106/trackmedia/M5000027gHes1HjRNe.mp3
+server: openresty
+date: Sat, 11 Jul 2026 09:55:45 GMT
+content-type: audio/mpeg
+content-length: 3913543
+connection: keep-alive
+ip: 30.47.188.234
+x-cos-storage-class: STANDARD_IA
+x-cos-version-id: MTg0NDUwNjU3MDc5OTg3NzU3MTI
+x-cos-hash-crc64ecma: 14339730490114532614
+content-disposition: attachment; filename*="UTF-8''M5000027gHes1HjRNe.mp3"
+etag: "361ad95d2f65616c7176d8d2fc8d67f6c6e879e2"
+x-cos-meta-md5: 01546dadc5c5c66518dcb8bfc90f2a7d
+x-cos-object-type: normal
+last-modified: Thu, 09 Mar 2023 12:41:50 GMT
+x-nws-log-uuid: 75fdf571-e40c-4669-992c-86b72b04bc84
+x-cache: from sal-tln-jsnt-p1-230-141, from sal-tln-jsnt-p1-230-95, HIT from SAL-CMC-JSSQ-P2-18-116, HIT from sal-cmc-jssq-n-186-7
+age: 586100
+via: http/1.1 traffic_server (new1cloud [cHs f ]), http/1.1 traffic_server (new1cloud [c sSf ])
+accept-ranges: bytes

@@ -12,7 +12,6 @@ class GequhaiPlayerAudioResolver {
 
   static const _source = MusicDataSource.gequhai;
   static const _platform = 'gequhai';
-  static const _playId = '38173';
   static const _apiHost = 'www.gequhai.com';
   static const _userAgent =
       'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 '
@@ -25,33 +24,34 @@ class GequhaiPlayerAudioResolver {
     if (trimmed.isEmpty) {
       return const [];
     }
-    if (!_matchesScopedSong(trimmed)) {
+    final searchUri = Uri.parse(
+      'https://$_apiHost/s/${Uri.encodeComponent(trimmed)}',
+    );
+    final response = await _http.get(searchUri, headers: _pageHeaders);
+    if (response.statusCode == HttpStatus.forbidden ||
+        _looksLikeDefender(response.body)) {
       return const [];
     }
-    return [
-      MusicSearchCandidate(
-        query: trimmed,
-        source: _source,
-        platform: _platform,
-        keyword: trimmed,
-        page: 0,
-        id: _playId,
-        name: '哎呀',
-        artist: '王蓉',
-        album: '',
-        duration: 216,
-        link: 'https://www.gequhai.com/play/$_playId',
-        coverUrl: '',
-        qualities: const [MusicQuality(format: 'mp3', bitrate: 'validated')],
-        score: 212,
-        raw: const {'seed': 'gequhai_play_38173'},
-      ),
-    ];
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      return const [];
+    }
+    final parsed = _parseSearchResults(response.body, trimmed, searchUri);
+    final playable = <MusicSearchCandidate>[];
+    for (final candidate in parsed) {
+      try {
+        final resolved = await resolve(candidate);
+        playable.add(_candidateWithResolvedMetadata(candidate, resolved));
+      } catch (_) {
+        // Search results are product-visible completion paths. Candidates that
+        // cannot pass the full audio gate are intentionally hidden.
+      }
+    }
+    return playable;
   }
 
   Future<ResolvedMusic> resolve(MusicSearchCandidate candidate) async {
     final detailUri = Uri.tryParse(candidate.link);
-    if (detailUri == null || candidate.id != _playId) {
+    if (detailUri == null || candidate.id.trim().isEmpty) {
       throw _failure(candidate, 'page', 'play_url_unavailable', '歌曲海页面地址不可用。');
     }
 
@@ -62,6 +62,10 @@ class GequhaiPlayerAudioResolver {
       status: SourceAttemptStatus.ok,
       reasonCode: 'page_metadata_ready',
       candidate: candidate,
+      mediaUrl: page.externalPanLink,
+      mediaUrlType: page.externalPanLink.isEmpty
+          ? MediaUrlType.unknown
+          : MediaUrlType.externalPan,
       lyricsStatus: page.lyrics == null ? 'missing' : 'page_lrc',
       coverUrl: page.coverUrl,
       coverStatus: page.coverUrl.isEmpty ? 'missing' : 'page_cover',
@@ -197,7 +201,10 @@ class GequhaiPlayerAudioResolver {
       );
     }
     final html = response.body;
-    final playId = _extractJsString(html, 'play_id');
+    final playId = _extractJsString(
+      html,
+      'play_id',
+    ).ifEmpty(_extractJsString(html, 'mp3_id'));
     if (playId.isEmpty) {
       throw _failure(
         candidate,
@@ -212,10 +219,26 @@ class GequhaiPlayerAudioResolver {
     if (externalPan.isNotEmpty) {
       // Kept as evidence only. The player API is the completion path.
     }
+    final pageTitle = _cleanHtmlText(_extractJsString(html, 'mp3_title'));
+    final pageArtist = _cleanHtmlText(_extractJsString(html, 'mp3_author'));
+    if (!_matchesDetailCandidate(
+      candidate,
+      title: pageTitle,
+      artist: pageArtist,
+    )) {
+      throw _failure(
+        candidate,
+        'page',
+        'low_confidence_match',
+        '歌曲海详情页标题或歌手与搜索候选不匹配。',
+        mediaContentType: contentType,
+        evidenceUrl: detailUri.toString(),
+      );
+    }
     return _PageResult(
       playId: playId,
-      title: _cleanHtmlText(_extractJsString(html, 'mp3_title')),
-      artist: _cleanHtmlText(_extractJsString(html, 'mp3_author')),
+      title: pageTitle,
+      artist: pageArtist,
       coverUrl: _absoluteUrl(_extractJsString(html, 'mp3_cover'), detailUri),
       lyrics: makeResolvedLyrics(
         _extractContentLrc(html),
@@ -223,6 +246,7 @@ class GequhaiPlayerAudioResolver {
       ),
       durationSeconds: _parseDurationSeconds(_extractDuration(html)),
       cookieHeader: _cookieHeaderFromJar(cookies),
+      externalPanLink: externalPan,
     );
   }
 
@@ -465,11 +489,203 @@ const _mediaHeaders = {
   'accept': '*/*',
 };
 
-bool _matchesScopedSong(String query) {
-  final normalized = _normalize(query);
-  return normalized == '哎呀' ||
-      normalized.contains('哎呀王蓉') ||
-      normalized.contains('王蓉哎呀');
+MusicSearchCandidate _candidateWithResolvedMetadata(
+  MusicSearchCandidate candidate,
+  ResolvedMusic resolved,
+) {
+  final lastAttempt = resolved.sourceAttempts.isEmpty
+      ? null
+      : resolved.sourceAttempts.last;
+  return MusicSearchCandidate(
+    query: candidate.query,
+    source: candidate.source,
+    platform: candidate.platform,
+    keyword: candidate.keyword,
+    page: candidate.page,
+    id: candidate.id,
+    name: resolved.name,
+    artist: resolved.artist,
+    album: resolved.album,
+    duration: resolved.duration,
+    link: candidate.link,
+    coverUrl: resolved.coverUrl,
+    qualities: [resolved.quality],
+    score: candidate.score,
+    raw: {
+      ...candidate.raw,
+      'clientReady': resolved.canCacheAudio,
+      'urlType': resolved.urlType.storageValue,
+      'lyricsLines': resolved.lyrics?.lines ?? 0,
+      'mediaValidation': lastAttempt?.mediaValidation ?? '',
+      'mediaContentLength': lastAttempt?.mediaContentLength,
+    },
+  );
+}
+
+List<MusicSearchCandidate> _parseSearchResults(
+  String html,
+  String query,
+  Uri searchUri,
+) {
+  final candidates = <MusicSearchCandidate>[];
+  final rowPattern = RegExp(
+    r'''<tr\b[^>]*>(.*?)</tr>''',
+    caseSensitive: false,
+    dotAll: true,
+  );
+  for (final row in rowPattern.allMatches(html)) {
+    final parsed = _parseSearchRow(row.group(1) ?? '', query, searchUri);
+    if (parsed != null) {
+      candidates.add(parsed);
+    }
+  }
+  if (candidates.isEmpty) {
+    final linkPattern = RegExp(
+      r'''<a\b[^>]*href=["'](/play/(\d+))["'][^>]*>(.*?)</a>''',
+      caseSensitive: false,
+      dotAll: true,
+    );
+    for (final match in linkPattern.allMatches(html)) {
+      final parsed = _candidateFromSearchMatch(
+        query: query,
+        searchUri: searchUri,
+        href: match.group(1) ?? '',
+        id: match.group(2) ?? '',
+        title: _cleanHtmlText(match.group(3) ?? ''),
+        artist: '',
+        rowText: _cleanHtmlText(match.group(0) ?? ''),
+      );
+      if (parsed != null) {
+        candidates.add(parsed);
+      }
+    }
+  }
+  candidates.sort((a, b) => b.score.compareTo(a.score));
+  if (_queryHasArtist(query)) {
+    return candidates.take(8).toList(growable: false);
+  }
+  return candidates.take(1).toList(growable: false);
+}
+
+MusicSearchCandidate? _parseSearchRow(
+  String rowHtml,
+  String query,
+  Uri searchUri,
+) {
+  final linkMatch = RegExp(
+    r'''<a\b[^>]*href=["'](/play/(\d+))["'][^>]*>(.*?)</a>''',
+    caseSensitive: false,
+    dotAll: true,
+  ).firstMatch(rowHtml);
+  if (linkMatch == null) {
+    return null;
+  }
+  final title = _cleanHtmlText(linkMatch.group(3) ?? '');
+  final rowText = _cleanHtmlText(rowHtml).replaceAll(RegExp(r'\s+'), ' ');
+  final artist = _extractSearchArtist(rowText, title);
+  return _candidateFromSearchMatch(
+    query: query,
+    searchUri: searchUri,
+    href: linkMatch.group(1) ?? '',
+    id: linkMatch.group(2) ?? '',
+    title: title,
+    artist: artist,
+    rowText: rowText,
+  );
+}
+
+MusicSearchCandidate? _candidateFromSearchMatch({
+  required String query,
+  required Uri searchUri,
+  required String href,
+  required String id,
+  required String title,
+  required String artist,
+  required String rowText,
+}) {
+  final normalizedQuery = _normalize(query);
+  final normalizedTitle = _normalize(title);
+  final normalizedArtist = _normalize(artist);
+  if (id.isEmpty || normalizedTitle.isEmpty) {
+    return null;
+  }
+  final titleMatches =
+      normalizedQuery == normalizedTitle ||
+      normalizedQuery.contains(normalizedTitle) ||
+      normalizedTitle.contains(normalizedQuery);
+  final artistMatches =
+      normalizedArtist.isEmpty || normalizedQuery.contains(normalizedArtist);
+  if (!titleMatches || (_queryHasArtist(query) && !artistMatches)) {
+    return null;
+  }
+  final score =
+      (normalizedQuery == normalizedTitle ? 240.0 : 190.0) +
+      (normalizedArtist.isNotEmpty && normalizedQuery.contains(normalizedArtist)
+          ? 80.0
+          : 0.0);
+  return MusicSearchCandidate(
+    query: query,
+    source: MusicDataSource.gequhai,
+    platform: 'gequhai',
+    keyword: query,
+    page: 0,
+    id: id,
+    name: title,
+    artist: artist,
+    album: '',
+    duration: 0,
+    link: searchUri.resolve(href).toString(),
+    coverUrl: '',
+    qualities: const [MusicQuality(format: 'mp3', bitrate: 'validated')],
+    score: score,
+    raw: {
+      'searchUrl': searchUri.toString(),
+      'detailPath': href,
+      'rowText': rowText,
+    },
+  );
+}
+
+String _extractSearchArtist(String rowText, String title) {
+  final withoutTitle = rowText.replaceFirst(title, '').trim();
+  final parts = withoutTitle
+      .split(RegExp(r'[\s|/／\-—–]+'))
+      .map((part) => part.trim())
+      .where((part) => part.isNotEmpty)
+      .toList(growable: false);
+  if (parts.isEmpty) {
+    return '';
+  }
+  return parts.lastWhere(
+    (part) => !RegExp(r'^\d+$').hasMatch(part),
+    orElse: () => '',
+  );
+}
+
+bool _queryHasArtist(String query) {
+  return query.trim().contains(RegExp(r'[\s/／\-—–]'));
+}
+
+bool _matchesDetailCandidate(
+  MusicSearchCandidate candidate, {
+  required String title,
+  required String artist,
+}) {
+  final candidateTitle = _normalize(candidate.name);
+  final pageTitle = _normalize(title);
+  if (candidateTitle.isNotEmpty &&
+      pageTitle.isNotEmpty &&
+      candidateTitle != pageTitle) {
+    return false;
+  }
+  final candidateArtist = _normalize(candidate.artist);
+  final pageArtist = _normalize(artist);
+  if (candidateArtist.isNotEmpty &&
+      pageArtist.isNotEmpty &&
+      candidateArtist != pageArtist) {
+    return false;
+  }
+  return true;
 }
 
 bool _looksLikeDefender(String html) {
@@ -514,19 +730,33 @@ String _extractExternalPan(String html) {
   if (extraUrl.isEmpty) {
     return '';
   }
-  String decoded = extraUrl;
+  final variants = <String>{extraUrl};
+  var uriDecoded = extraUrl;
   for (var i = 0; i < 2; i += 1) {
-    final next = Uri.decodeComponent(decoded);
-    if (next == decoded) {
+    final next = Uri.decodeComponent(uriDecoded);
+    variants.add(next);
+    if (next == uriDecoded) {
       break;
     }
-    decoded = next;
+    uriDecoded = next;
   }
-  return RegExp(
-        r'''https?://pan\.quark\.cn/[^\s"'<>]+''',
-        caseSensitive: false,
-      ).firstMatch(decoded)?.group(0) ??
-      '';
+  final gequhaiBase64 = extraUrl.replaceAll('#', 'H').replaceAll('%', 'S');
+  try {
+    variants.add(utf8.decode(base64Decode(_padBase64(gequhaiBase64))));
+  } catch (_) {
+    // Some pages use a plain or percent-encoded URL instead of the atob form.
+  }
+  final panPattern = RegExp(
+    r'''https?://pan\.quark\.cn/[^\s"'<>]+''',
+    caseSensitive: false,
+  );
+  for (final variant in variants) {
+    final match = panPattern.firstMatch(variant);
+    if (match != null) {
+      return match.group(0) ?? '';
+    }
+  }
+  return '';
 }
 
 String _absoluteUrl(String url, Uri base) {
@@ -607,6 +837,18 @@ String _decodeHtml(String text) {
       .replaceAll('&nbsp;', ' ');
 }
 
+String _padBase64(String value) {
+  final remainder = value.length % 4;
+  if (remainder == 0) {
+    return value;
+  }
+  return value.padRight(value.length + 4 - remainder, '=');
+}
+
+extension _StringIfEmpty on String {
+  String ifEmpty(String fallback) => isEmpty ? fallback : this;
+}
+
 String _normalize(String value) {
   return value.toLowerCase().replaceAll(
     RegExp(r'[\s·•_\-—/\\()\[\]（）【】《》<>:：，,。.!！?？]'),
@@ -623,6 +865,7 @@ class _PageResult {
     required this.lyrics,
     required this.durationSeconds,
     required this.cookieHeader,
+    required this.externalPanLink,
   });
 
   final String playId;
@@ -632,6 +875,7 @@ class _PageResult {
   final ResolvedLyrics? lyrics;
   final int durationSeconds;
   final Map<String, String> cookieHeader;
+  final String externalPanLink;
 }
 
 class _ApiResult {

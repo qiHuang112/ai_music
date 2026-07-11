@@ -1,0 +1,15 @@
+status: 200
+url: https://www.gequhai.com/play/38173
+final-url: https://www.gequhai.com/play/38173
+server: nginx
+date: Sat, 11 Jul 2026 09:58:35 GMT
+content-type: text/html; charset=UTF-8
+transfer-encoding: chunked
+connection: keep-alive
+vary: Accept-Encoding
+set-cookie: PHPSESSID=4p2iptmnpglro6lju9h06f70ee; path=/
+expires: Thu, 19 Nov 1981 08:52:00 GMT
+cache-control: no-store, no-cache, must-revalidate
+pragma: no-cache
+strict-transport-security: max-age=31536000
+alt-svc: h3=":443"; ma=2592000,h3-29=":443"; ma=2592000,h3-Q050=":443"; ma=2592000,quic=":443"; ma=2592000; v="46,43"

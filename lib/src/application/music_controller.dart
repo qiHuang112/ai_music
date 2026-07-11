@@ -469,8 +469,19 @@ class MusicController extends ChangeNotifier {
   List<MusicSearchCandidate> _visibleSearchCandidates(
     List<MusicSearchCandidate> sourceCandidates,
   ) {
+    final hasGequhaiFullAudio = sourceCandidates.any(
+      _isVisibleGequhaiFullAudioCandidate,
+    );
     final visible = sourceCandidates
-        .where((candidate) => candidate.source != MusicDataSource.itunesPreview)
+        .where((candidate) {
+          if (_cachedRecordForCandidate(candidate) != null) {
+            return true;
+          }
+          if (hasGequhaiFullAudio) {
+            return _isVisibleGequhaiFullAudioCandidate(candidate);
+          }
+          return candidate.source != MusicDataSource.itunesPreview;
+        })
         .toList(growable: false);
     visible.sort((a, b) {
       final priority = _searchCandidatePriority(
@@ -1747,16 +1758,17 @@ class MusicController extends ChangeNotifier {
   }
 }
 
-MusicDataSource _selectableSearchSource(MusicDataSource source) {
-  return switch (source) {
-    MusicDataSource.source2t58 ||
-    MusicDataSource.source22a5 ||
-    MusicDataSource.gequbao => MusicDataSource.auto,
-    _ => source,
-  };
+MusicDataSource _selectableSearchSource(MusicDataSource _) {
+  return MusicDataSource.gequhai;
 }
 
 bool _isFullAudioSource(MusicDataSource source) {
   return source == MusicDataSource.kuwoFullAudio ||
       source == MusicDataSource.gequhai;
+}
+
+bool _isVisibleGequhaiFullAudioCandidate(MusicSearchCandidate candidate) {
+  return candidate.source == MusicDataSource.gequhai &&
+      candidate.raw['clientReady'] == true &&
+      candidate.raw['urlType'] == MediaUrlType.directAudio.storageValue;
 }
