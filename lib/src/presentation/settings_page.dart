@@ -179,51 +179,9 @@ class SourceSettingsPage extends StatelessWidget {
               child: ListView(
                 children: [
                   RadioListTile<MusicDataSource>(
-                    value: MusicDataSource.auto,
-                    title: Text(strings.autoSource),
-                    subtitle: Text(strings.autoSourceDescription),
-                    enabled: false,
-                  ),
-                  RadioListTile<MusicDataSource>(
-                    value: MusicDataSource.buguyy,
-                    title: Text(strings.buguyy),
-                    subtitle: Text(strings.buguyyDescription),
-                    enabled: false,
-                  ),
-                  RadioListTile<MusicDataSource>(
-                    value: MusicDataSource.flac,
-                    title: Text(strings.flacSource),
-                    subtitle: Text(strings.flacSourceDescription),
-                    enabled: false,
-                  ),
-                  RadioListTile<MusicDataSource>(
-                    value: MusicDataSource.source2t58,
-                    title: Text(strings.source2t58),
-                    subtitle: Text(strings.source2t58Description),
-                    enabled: false,
-                  ),
-                  RadioListTile<MusicDataSource>(
-                    value: MusicDataSource.source22a5,
-                    title: Text(strings.source22a5),
-                    subtitle: Text(strings.source22a5Description),
-                    enabled: false,
-                  ),
-                  RadioListTile<MusicDataSource>(
                     value: MusicDataSource.gequhai,
                     title: Text(strings.gequhaiSource),
                     subtitle: Text(strings.gequhaiDescription),
-                  ),
-                  RadioListTile<MusicDataSource>(
-                    value: MusicDataSource.gequbao,
-                    title: Text(strings.gequbaoSource),
-                    subtitle: Text(strings.gequbaoDescription),
-                    enabled: false,
-                  ),
-                  RadioListTile<MusicDataSource>(
-                    value: MusicDataSource.kuwoFullAudio,
-                    title: Text(strings.kuwoFullAudioSource),
-                    subtitle: Text(strings.kuwoFullAudioDescription),
-                    enabled: false,
                   ),
                 ],
               ),

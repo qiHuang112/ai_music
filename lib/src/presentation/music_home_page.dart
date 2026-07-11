@@ -428,15 +428,31 @@ class _OnlineSearchPanel extends StatelessWidget {
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                       ),
-                      subtitle: Text(
-                        _candidateSubtitle(
-                          strings,
-                          candidate,
-                          isCached: isCached,
-                          isFullAudio: isFullAudio,
-                        ),
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
+                      subtitle: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            _candidateSubtitle(
+                              strings,
+                              candidate,
+                              isCached: isCached,
+                              isFullAudio: isFullAudio,
+                            ),
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                          const SizedBox(height: 4),
+                          _SearchStatusChip(
+                            label: isCached
+                                ? strings.statusCompleted
+                                : isFullAudio
+                                ? strings.downloadable
+                                : strings.notDownloadable,
+                            tone: isCached || isFullAudio
+                                ? _SearchStatusTone.ready
+                                : _SearchStatusTone.limited,
+                          ),
+                        ],
                       ),
                       trailing: Row(
                         mainAxisSize: MainAxisSize.min,
@@ -477,6 +493,40 @@ class _OnlineSearchPanel extends StatelessWidget {
   }
 }
 
+enum _SearchStatusTone { ready, limited }
+
+class _SearchStatusChip extends StatelessWidget {
+  const _SearchStatusChip({required this.label, required this.tone});
+
+  final String label;
+  final _SearchStatusTone tone;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+    final background = tone == _SearchStatusTone.ready
+        ? colors.primaryContainer
+        : colors.surfaceContainerHighest;
+    final foreground = tone == _SearchStatusTone.ready
+        ? colors.onPrimaryContainer
+        : colors.onSurfaceVariant;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+      decoration: BoxDecoration(
+        color: background,
+        borderRadius: BorderRadius.circular(999),
+      ),
+      child: Text(
+        label,
+        style: Theme.of(context).textTheme.labelSmall?.copyWith(
+          color: foreground,
+          fontWeight: FontWeight.w700,
+        ),
+      ),
+    );
+  }
+}
+
 class _SearchBody extends StatelessWidget {
   const _SearchBody({
     required this.controller,
@@ -504,6 +554,7 @@ class _SearchBody extends StatelessWidget {
     return ListView(
       padding: const EdgeInsets.fromLTRB(16, 16, 16, 112),
       children: [
+        _ContinuePlaybackCard(controller: controller),
         _HomeLibrarySection(
           controller: controller,
           onOpenLibrary: onOpenLibrary,
@@ -514,6 +565,94 @@ class _SearchBody extends StatelessWidget {
           onSearch: onHotlistSearch,
         ),
       ],
+    );
+  }
+}
+
+class _ContinuePlaybackCard extends StatelessWidget {
+  const _ContinuePlaybackCard({required this.controller});
+
+  final MusicController controller;
+
+  @override
+  Widget build(BuildContext context) {
+    return StreamBuilder<MediaItem?>(
+      stream: controller.mediaItemStream,
+      builder: (context, snapshot) {
+        final item = snapshot.data;
+        if (item == null) {
+          return const SizedBox.shrink();
+        }
+        final strings = AppStringsScope.of(context);
+        final colors = Theme.of(context).colorScheme;
+        return Padding(
+          padding: const EdgeInsets.only(bottom: 24),
+          child: InkWell(
+            borderRadius: BorderRadius.circular(14),
+            onTap: () => _openPlayer(context, controller),
+            child: DecoratedBox(
+              decoration: BoxDecoration(
+                color: colors.surfaceContainerHigh,
+                borderRadius: BorderRadius.circular(14),
+              ),
+              child: Padding(
+                padding: const EdgeInsets.all(14),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      strings.continuePlayback,
+                      style: Theme.of(context).textTheme.titleMedium,
+                    ),
+                    const SizedBox(height: 12),
+                    Row(
+                      children: [
+                        ClipRRect(
+                          borderRadius: BorderRadius.circular(12),
+                          child: ColoredBox(
+                            color: colors.surfaceContainerHighest,
+                            child: SizedBox.square(
+                              dimension: 64,
+                              child: Icon(Icons.album, color: colors.primary),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 14),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                item.title,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: Theme.of(context).textTheme.titleMedium,
+                              ),
+                              const SizedBox(height: 4),
+                              Text(
+                                item.artist ?? strings.unknownArtist,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: Theme.of(context).textTheme.bodyMedium
+                                    ?.copyWith(color: colors.onSurfaceVariant),
+                              ),
+                            ],
+                          ),
+                        ),
+                        IconButton(
+                          tooltip: strings.play,
+                          onPressed: controller.togglePlayPause,
+                          icon: const Icon(Icons.play_arrow),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        );
+      },
     );
   }
 }
@@ -2448,62 +2587,117 @@ class _MiniPlayer extends StatelessWidget {
           builder: (context, stateSnapshot) {
             final state = stateSnapshot.data ?? PlaybackState();
             final strings = AppStringsScope.of(context);
-            return Material(
-              elevation: 12,
-              color: Theme.of(context).colorScheme.surfaceContainerHighest,
-              child: SafeArea(
-                top: false,
-                child: SwipeToSkip(
-                  key: const ValueKey('mini-player-swipe-area'),
-                  onSwipeLeft: controller.next,
-                  onSwipeRight: controller.previous,
-                  child: InkWell(
-                    onTap: () => _openPlayer(context),
-                    child: Padding(
-                      padding: const EdgeInsets.fromLTRB(16, 10, 8, 10),
-                      child: Row(
-                        children: [
-                          const Icon(Icons.album),
-                          const SizedBox(width: 12),
-                          Expanded(
-                            child: Column(
-                              mainAxisSize: MainAxisSize.min,
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                  item.title,
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                  style: Theme.of(context).textTheme.titleSmall,
+            return Padding(
+              key: const ValueKey('mini-player-bottom-safe-gap'),
+              padding: const EdgeInsets.only(bottom: 24),
+              child: Material(
+                elevation: 12,
+                color: Theme.of(context).colorScheme.surfaceContainerHighest,
+                child: SafeArea(
+                  top: false,
+                  bottom: false,
+                  child: SwipeToSkip(
+                    key: const ValueKey('mini-player-swipe-area'),
+                    onSwipeLeft: controller.next,
+                    onSwipeRight: controller.previous,
+                    child: ConstrainedBox(
+                      constraints: const BoxConstraints(minHeight: 72),
+                      child: Padding(
+                        key: const ValueKey('mini-player-safe-padding'),
+                        padding: const EdgeInsets.fromLTRB(16, 10, 8, 10),
+                        child: Row(
+                          children: [
+                            Expanded(
+                              child: TextButton(
+                                key: const ValueKey(
+                                  'mini-player-title-button',
                                 ),
-                                Text(
-                                  item.artist ?? '',
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
+                                style: TextButton.styleFrom(
+                                  alignment: Alignment.centerLeft,
+                                  foregroundColor: Theme.of(
+                                    context,
+                                  ).colorScheme.onSurface,
+                                  minimumSize: Size.zero,
+                                  padding: EdgeInsets.zero,
+                                  tapTargetSize:
+                                      MaterialTapTargetSize.shrinkWrap,
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(12),
+                                  ),
                                 ),
-                              ],
+                                onPressed: () {
+                                  FocusManager.instance.primaryFocus
+                                      ?.unfocus();
+                                  _openPlayer(context, controller);
+                                },
+                                child: Padding(
+                                  key: const ValueKey(
+                                    'mini-player-title-hit-area',
+                                  ),
+                                  padding: const EdgeInsets.symmetric(
+                                    vertical: 6,
+                                  ),
+                                  child: Row(
+                                    children: [
+                                      const Icon(Icons.album),
+                                      const SizedBox(width: 12),
+                                      Expanded(
+                                        child: Column(
+                                          mainAxisSize: MainAxisSize.min,
+                                          crossAxisAlignment:
+                                              CrossAxisAlignment.start,
+                                          children: [
+                                            Text(
+                                              item.title,
+                                              maxLines: 1,
+                                              overflow: TextOverflow.ellipsis,
+                                              style: Theme.of(
+                                                context,
+                                              ).textTheme.titleSmall,
+                                            ),
+                                            Text(
+                                              item.artist ?? '',
+                                              maxLines: 1,
+                                              overflow: TextOverflow.ellipsis,
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ),
                             ),
-                          ),
-                          IconButton(
-                            tooltip: strings.previous,
-                            onPressed: controller.previous,
-                            icon: const Icon(Icons.skip_previous),
-                          ),
-                          IconButton(
-                            tooltip: state.playing
-                                ? strings.pause
-                                : strings.play,
-                            onPressed: controller.togglePlayPause,
-                            icon: Icon(
-                              state.playing ? Icons.pause : Icons.play_arrow,
+                            IconButton(
+                              tooltip: strings.previous,
+                              onPressed: controller.previous,
+                              icon: const Icon(Icons.skip_previous),
                             ),
-                          ),
-                          IconButton(
-                            tooltip: strings.next,
-                            onPressed: controller.next,
-                            icon: const Icon(Icons.skip_next),
-                          ),
-                        ],
+                            IconButton(
+                              tooltip: state.playing
+                                  ? strings.pause
+                                  : strings.play,
+                              onPressed: controller.togglePlayPause,
+                              icon: Icon(
+                                state.playing ? Icons.pause : Icons.play_arrow,
+                              ),
+                            ),
+                            IconButton(
+                              tooltip: strings.next,
+                              onPressed: controller.next,
+                              icon: const Icon(Icons.skip_next),
+                            ),
+                            IconButton(
+                              key: const ValueKey('mini-player-queue-button'),
+                              tooltip: strings.currentQueue,
+                              onPressed: () {
+                                FocusManager.instance.primaryFocus?.unfocus();
+                                showCurrentQueueSheet(context, controller);
+                              },
+                              icon: const Icon(Icons.queue_music),
+                            ),
+                          ],
+                        ),
                       ),
                     ),
                   ),
@@ -2515,14 +2709,12 @@ class _MiniPlayer extends StatelessWidget {
       },
     );
   }
+}
 
-  Future<void> _openPlayer(BuildContext context) {
-    return Navigator.of(context).push<void>(
-      MaterialPageRoute(
-        builder: (context) => PlayerPage(controller: controller),
-      ),
-    );
-  }
+Future<void> _openPlayer(BuildContext context, MusicController controller) {
+  return Navigator.of(context).push<void>(
+    MaterialPageRoute(builder: (context) => PlayerPage(controller: controller)),
+  );
 }
 
 class _EmptyLibrary extends StatelessWidget {

@@ -1,11 +1,11 @@
 # AM-20260711-003 Library First 移动端 UI 实现
 
-Status: in_progress
+Status: self_tested
 Owner Lane: android
 Source Thread: 019ee910-8747-71e3-9293-720273f9e61f
 Product Return Thread: 019f4ed4-106e-7860-875d-a32f81629e4e
 Target Version: 1.1.0
-Base Branch: release/1.0.2
+Base Branch: release/1.1.0
 Work Branch: feature/1.1.0/AM-20260711-003-library-first-ui
 Project Path: /Users/huangqi/AIHome/projects/ai_music_AM-20260711-003
 Merge Branch: release/1.1.0
@@ -16,26 +16,26 @@ Work Type: feature
 Risk Level: P1
 User Visible: yes
 Design Doc: docs/superpowers/specs/2026-07-11-am-20260711-003-library-first-mobile-ui-implementation.md
-Implementation Plan: docs/superpowers/plans/2026-07-11-am-20260711-003-library-first-mobile-ui-implementation.md
+Implementation Plan: docs/superpowers/plans/2026-07-11-am003-library-first-ui.md
 Required Skills: using-superpowers, ai-music-team-ops, brainstorming, writing-plans, test-driven-development, product-design:image-to-code, verification-before-completion
 TDD Mode: required
 TDD Exception: not_applicable
 TDD Exception Review: not_applicable
-Baseline Commit: b306932d03e1eedbe96fd50dafe0f95805b0eab4
-Head Commit: pending
+Baseline Commit: aef2bf3c79623581b897d815315248fb15724d10
+Head Commit: a17d402e13a5a89c7de6caf82c0605bdd93892cf
 Root Cause Evidence: not_applicable
 Research Evidence: docs/codex_collab/knowledge/ui/2026-07-11-am002-real-screenshot-product-design-audit.md; docs/codex_collab/knowledge/ui/2026-07-11-am003-library-first-page-spec.md
-Red Evidence: pending
-Green Evidence: pending
-Targeted Tests: pending
-Self Test Evidence: pending
-Product Main Path Evidence: selected image `/Users/huangqi/.codex/generated_images/019ee910-8747-71e3-9293-720273f9e61f/exec-99786479-d2fb-4fcb-a642-c7d25fbb2b74.png`; Android baseline screenshots `/Users/huangqi/AIHome/output/AM-20260711-002-b306932-xiaomi10/screens/`; OHOS screenshots `/Users/huangqi/.codex/visualizations/2026/06/21/019ee7db-7cfc-7c41-9827-6b851ce89548/AM-20260711-002-ohos-design-facts/screenshots`; OHOS Library First notes `/Users/huangqi/.codex/visualizations/2026/06/21/019ee7db-7cfc-7c41-9827-6b851ce89548/AM-20260711-002-ohos-design-facts/library-first-ohos-implementation-notes.md`; OHOS AM-003 review checklist `/Users/huangqi/.codex/visualizations/2026/06/21/019ee7db-7cfc-7c41-9827-6b851ce89548/AM-20260711-002-ohos-design-facts/am-20260711-003-ohos-cross-platform-review-checklist.md`
-Baseline Freshness Evidence: implementation project `/Users/huangqi/AIHome/projects/ai_music_AM-20260711-003` is checked out at `origin/release/1.0.2=b306932d03e1eedbe96fd50dafe0f95805b0eab4` on `feature/1.1.0/AM-20260711-003-library-first-ui`
-Scope Diff Evidence: pending
+Red Evidence: Task 2 RED tests added in `test/widget_test.dart` and `test/player_page_test.dart`; targeted RED commands failed as expected: home hierarchy missing `继续播放`; search rows missing `可下载` status chip; player page missing `当前队列` entry/sheet.
+Green Evidence: Task 2/early Task 3 GREEN implemented: Home adds `继续播放` card before local assets/discovery; search rows add status chips for downloadable/unavailable candidates while keeping preview absent; Player adds distinct `当前队列` entry and queue sheet with count/current row; mini player exposes the same queue sheet without opening player; mini player title/cover area is now a real button hit target and clears focus before opening player detail; mini player sits above the gesture edge with fixed bottom gap.
+Targeted Tests: `flutter test --no-pub test/widget_test.dart --plain-name 'library first home prioritizes local assets and continuing playback'` passed; `flutter test --no-pub test/widget_test.dart --plain-name 'search result rows expose status chips and keep unavailable rows actionless'` passed; `flutter test --no-pub test/player_page_test.dart --plain-name 'current queue entry opens queue sheet instead of playlist sheet'` passed; `flutter test --no-pub test/widget_test.dart --plain-name 'mini player exposes current queue without opening player'` passed; `flutter test --no-pub test/widget_test.dart --plain-name 'mini player keeps controls above gesture safe area'` passed; `flutter test --no-pub test/widget_test.dart --plain-name 'mini player title exposes a button hit target'` RED/GREEN passed; `flutter test --no-pub test/widget_test.dart --plain-name 'mini player title clears focus and opens player detail'` passed; `flutter test --no-pub test/widget_test.dart --plain-name 'mini player queue clears focus and opens app queue sheet'` passed; `flutter test --no-pub test/widget_test.dart --plain-name 'download manager cached rows expose cached status chip'` RED/GREEN passed; `flutter test --no-pub test/widget_test.dart --plain-name 'settings pages persist language theme and music source'` RED/GREEN passed after hiding old/preview/Kuwo sources from the user-facing source selector; targeted `flutter analyze --no-pub lib/src/presentation/music_home_page.dart test/widget_test.dart` passed after mini player fix; earlier targeted `flutter analyze --no-pub lib/src/presentation/app_localizations.dart lib/src/presentation/download_manager_page.dart lib/src/presentation/music_home_page.dart lib/src/presentation/player_page.dart lib/src/presentation/settings_page.dart test/widget_test.dart test/player_page_test.dart` passed; `git diff --check` passed. Full `test/widget_test.dart test/player_page_test.dart` attempt was stopped after an existing `lyrics scroll does not seek but tapping a line seeks` test did not complete, unrelated to this slice.
+Self Test Evidence: Latest WIP debug APK built and installed on Xiaomi 10 Pro `192.168.31.76:41563`; sha256 `18e98b42e335fdc90b397d0af5d7e1386da5a32fdac6bdc11bc622dcb43ad4b8`, `versionCode=1`, `versionName=1.0.0`, `lastUpdateTime=2026-07-11 20:30:27`; input method remains `com.baidu.input_mi/.ImeService`. Evidence captured in `/Users/huangqi/AIHome/output/AM-20260711-003-designqa-final-20260711-195825-xiaomi10/`: home and settings/source selector show only `歌曲海 / gequhai.com`; search `外婆` via system Baidu 9-key candidate returns `歌海 / 外婆 / 周杰伦 - MP3 / 可下载` with no `PREVIEW/试听/30s/网盘/夸克`; tapping play yields `first_byte_ms=1653 < download_complete_ms=6077`, media session `state=3`, formal cache `周杰伦-外婆-74d0f9f4e3.mp3`, `.lrc`, and `_cache_index.json` with `source_gequhai/direct_audio/canCacheAudio=true/clientReady=true`; mini player safe-area evidence `44-home-after-final-install.xml` shows title button bounds `[44,2104][530,2247]` and controls above bottom edge; `45-current-queue-sheet-fixed.xml` shows `当前队列` app bottom sheet with `1 首` and no keyboard/clipboard; `46-player-detail-from-mini-title-fixed.xml` shows tapping mini title opens `正在播放` detail with `外婆/周杰伦` and lyrics block.
+Product Main Path Evidence: selected image `/Users/huangqi/.codex/generated_images/019ee910-8747-71e3-9293-720273f9e61f/exec-99786479-d2fb-4fcb-a642-c7d25fbb2b74.png`; Android baseline screenshots `/Users/huangqi/AIHome/output/AM-20260711-002-b306932-xiaomi10/screens/`; OHOS screenshots `/Users/huangqi/.codex/visualizations/2026/06/21/019ee7db-7cfc-7c41-9827-6b851ce89548/AM-20260711-002-ohos-design-facts/screenshots`; OHOS Library First notes `/Users/huangqi/.codex/visualizations/2026/06/21/019ee7db-7cfc-7c41-9827-6b851ce89548/AM-20260711-002-ohos-design-facts/library-first-ohos-implementation-notes.md`; OHOS AM-003 review checklist `/Users/huangqi/.codex/visualizations/2026/06/21/019ee7db-7cfc-7c41-9827-6b851ce89548/AM-20260711-002-ohos-design-facts/am-20260711-003-ohos-cross-platform-review-checklist.md`; WIP Android screenshots `/Users/huangqi/AIHome/output/AM-20260711-003-designqa-wip-20260711-194305-xiaomi10/screens/`, including `AM-20260711-003_library-first_android_xiaomi10_home_initial_wip.png` and `AM-20260711-003_library-first_android_xiaomi10_settings_source_gequhai_only_wip.png`.
+Baseline Freshness Evidence: implementation project `/Users/huangqi/AIHome/projects/ai_music_AM-20260711-003` fetched and rebased AM-003 workflow commits onto `origin/release/1.1.0=aef2bf3c79623581b897d815315248fb15724d10`; branch upstream updated to `origin/release/1.1.0`.
+Scope Diff Evidence: `git diff --name-status origin/release/1.1.0..HEAD` shows AM-003 docs/spec/request/plan plus Flutter presentation/test files only: `docs/codex_collab/knowledge/qa-researcher/*`, `docs/codex_collab/knowledge/ui/*`, `docs/codex_collab/requests/AM-20260711-003-*`, `docs/superpowers/plans/2026-07-11-am003-library-first-ui.md`, `docs/superpowers/specs/2026-07-11-am-20260711-003-library-first-mobile-ui-implementation.md`, `lib/src/presentation/app_localizations.dart`, `download_manager_page.dart`, `music_home_page.dart`, `player_page.dart`, `settings_page.dart`, `test/player_page_test.dart`, `test/widget_test.dart`; no screenshot/build artifacts staged.
 Spec Review Result: pending
 Code Quality Review Result: pending
-Full Verification Evidence: pending
-Blocking Findings: none for Android RED tests; selected visual direction, current screenshots, UI page-level implementation spec and OHOS checklist are available.
+Full Verification Evidence: partial WIP only - AM-003 targeted tests/analyze/build/install passed for current slices; final review still requires UI lane to re-check the fixed screenshots/XML for mini player safe area, current queue sheet, player detail lyrics, hotlist no overflow, unavailable reason and Product main path.
+Blocking Findings: no active P1 blocker after latest WIP self-test. Product-observed source selector regression was reproduced and fixed in WIP: settings now show only `歌曲海 / gequhai.com` in user-facing source selection. UI changes_requested P1 for mini player safe area/click split was locally fixed and verified on Xiaomi 10 Pro; pending UI/architect re-review.
 Merge Evidence: pending
 Push Evidence: pending
 Product Notification Evidence: pending
@@ -82,6 +82,11 @@ Knowledge Evidence: docs/codex_collab/knowledge/qa-researcher/2026-07-11-ui-prod
 - 2026-07-11 type=status lane=ui summary=UI 已完成页面级实现规范 `docs/codex_collab/knowledge/ui/2026-07-11-am003-library-first-page-spec.md`，覆盖 Home/Search/Player/Queue/Library/Download/Settings、tokens、状态 chip、48px 触控、Android/OHOS safe area、键盘常驻、mini player、长文本、热榜无 Flutter layout overflow 和 QA 截图命名。
 - 2026-07-11 type=status lane=architect summary=Architect 已将 UI page spec 同步进 AM-003 Project Path，并给出 scope 裁决：新增真实当前队列 bottom sheet 属于 AM-003；热榜红色竖条按图片水印/素材质量处理，不按 Flutter overflow 定性，但实现仍需防 layout overflow；状态 chip 映射按 UI spec 执行；标题取舍为首页/主入口用 `音乐`，搜索页和搜索输入聚焦态用 `搜音乐`。
 - 2026-07-11 type=status lane=architect summary=Architect 已整理 AM-003 product 路由：当前 product 回传入口为 `019f4ed4-106e-7860-875d-a32f81629e4e`；旧 `Source Thread: 019ee910-8747-71e3-9293-720273f9e61f` 仅保留为历史来源/归档引用，不作为当前推进投递目标。
+- 2026-07-11 type=task lane=product summary=Product 确认当前安装的 AM-003 WIP 包核心链路不可用，搜索、下载、边下边播不能验收；AM-003 已标记 `blocked_on_core_source`，等待 AM-20260711-004 恢复歌曲海完整资源主链路后再继续 UI 实现和体验包。
+- 2026-07-11 type=status lane=product summary=AM-004 已进入 review 且小米 10 Pro 已安装 self_tested 包；AM-003 不继续空等，恢复 Library First 实现准备和计划对齐，但最终打包、自测、截图/录屏和 review_request 等 AM-004 architect accepted/merged 基线后执行。
+- 2026-07-11 type=status lane=android summary=AM-004 三方 review 已 accepted，但 AM-003 Project Path fetch 后 `origin/release/1.0.2` 仍为 `b306932`，`origin/main` 为 `7ef2430`，尚未包含 AM-004 业务提交；AM-003 继续准备不依赖合入的 TDD/UI 清单，构建 APK 和小米 10 Pro 主路径自测等待 architect 合入 AM-004 后的 release 基线。
+- 2026-07-11 type=blocker lane=android summary=收到 AM-004 已合入 `release/1.1.0@aef2bf3` 的回传后，AM-003 Project Path 执行 `git fetch origin`、显式 fetch `release/1.1.0`、`git ls-remote origin` 均确认当前 remote 只暴露 `main=7ef2430` 和 `release/1.0.2=b306932`；AM-003 无法同步到 `aef2bf3`，不能进入基于 AM-004 的构建和真机自测。
+- 2026-07-11 type=status lane=product/ui summary=Product/UI 复核远端后确认 `release/1.1.0` 已可 fetch；Android 在 AM-003 Project Path 重新 fetch 成功，`origin/release/1.1.0=aef2bf3c79623581b897d815315248fb15724d10`，并将 AM-003 workflow commits rebase 到该基线，继续保留 Library First WIP。
 
 ## 相关提交
 
@@ -92,7 +97,7 @@ Knowledge Evidence: docs/codex_collab/knowledge/qa-researcher/2026-07-11-ui-prod
 
 - Target Version: 1.1.0
 - Release Tag: not_applicable
-- Android APK: pending
+- Android APK: WIP debug `/Users/huangqi/AIHome/projects/ai_music_AM-20260711-003/build/app/outputs/flutter-apk/app-debug.apk`, sha256 `c605edf0b662ddf14240f7bb9d065c5a95b90e3e1245e3bd0dc388e6b7c85ace`
 - Push Status: not_ready
 
 ## Review 结果
