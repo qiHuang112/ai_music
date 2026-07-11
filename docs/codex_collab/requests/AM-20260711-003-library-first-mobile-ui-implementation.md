@@ -75,10 +75,12 @@ Knowledge Evidence: docs/codex_collab/knowledge/qa-researcher/2026-07-11-ui-prod
 - 2026-07-11 type=status lane=qa-researcher summary=QA researcher 已更新 Library First 验收矩阵，作为本实现 request 的 design-qa gate 和后续截图验收输入。
 - 2026-07-11 type=status lane=architect summary=Architect 已将 QA 矩阵设为 AM-003 design-qa gate：后续 Android/OHOS review_request 必须回传矩阵路径、截图命名规则、包 SHA、设备、操作路径、截图/录屏/日志路径和 pass/fail/blocker 证据；缺任一关键字段按 changes_requested 处理。
 - 2026-07-11 type=status lane=ohos summary=OHOS 已提供 Library First 跨端实现注意清单 `library-first-ohos-implementation-notes.md`；UI 规范和 Android 实现必须标注并处理 SafeArea/insets、跨页 mini player、搜索键盘、48px 触控、大字号、当前队列入口、播放详情层级、长列表/sheet、foreground-only 和启动首帧风险。
+- 2026-07-11 type=status lane=architect summary=Architect 已修复独立 Project Path 同步问题：`/Users/huangqi/AIHome/projects/ai_music_AM-20260711-003` 现已包含 AM-003 request/spec/plan、`team_ops.py`、UI audit 和 QA 矩阵；该路径本地 `validate-request` 与 `validate-workflow --gate start` 均为 OK。同步提交为 `87e58ce`，已推送远端分支 `feature/1.1.0/AM-20260711-003-library-first-ui`。UI 页面级实现规范仍是 Android 开工前置，目标路径 `docs/codex_collab/knowledge/ui/2026-07-11-am003-library-first-page-spec.md`。
 
 ## 相关提交
 
 - pending
+- 87e58ce Sync AM-20260711-003 workflow docs into project path
 
 ## 版本与发布
 
