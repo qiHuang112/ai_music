@@ -19,6 +19,7 @@
 - Product Design Audit: `docs/codex_collab/knowledge/ui/2026-07-11-am002-real-screenshot-product-design-audit.md`.
 - QA Matrix: `docs/codex_collab/knowledge/qa-researcher/2026-07-11-ui-product-design-regression-matrix.md`.
 - OHOS Library First Notes: `/Users/huangqi/.codex/visualizations/2026/06/21/019ee7db-7cfc-7c41-9827-6b851ce89548/AM-20260711-002-ohos-design-facts/library-first-ohos-implementation-notes.md`.
+- OHOS AM-003 Review Checklist: `/Users/huangqi/.codex/visualizations/2026/06/21/019ee7db-7cfc-7c41-9827-6b851ce89548/AM-20260711-002-ohos-design-facts/am-20260711-003-ohos-cross-platform-review-checklist.md`.
 - Preview,网盘,HTML,防护页和不可下载源不能作为完整播放或下载完成路径。
 - Android code work starts only after UI lane provides a page-level implementation spec.
 - Every user-visible code slice must include RED/GREEN evidence or an approved TDD exception.
@@ -258,6 +259,20 @@ large font behavior
 keyboard behavior
 foreground-only assumptions
 startup first-frame risk
+```
+
+OHOS review evidence must follow `/Users/huangqi/.codex/visualizations/2026/06/21/019ee7db-7cfc-7c41-9827-6b851ce89548/AM-20260711-002-ohos-design-facts/am-20260711-003-ohos-cross-platform-review-checklist.md` and include:
+
+```text
+HAP path and sha256
+source commit / branch
+whether app data was cleared
+HDC target, device model and OS
+screenshot directory
+operation path list
+pass/fail/blocker table
+key screenshots: home, search_keyboard, search_results, mini_player, player_lyrics, queue, favorites_or_playlist, downloads, settings
+blocker owner and required decision when blocked
 ```
 
 - [ ] **Step 2: QA matrix execution**
