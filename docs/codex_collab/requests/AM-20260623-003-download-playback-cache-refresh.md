@@ -1,15 +1,16 @@
 # AM-20260623-003 下载后播放、缓存状态与 HarmonyOS 串歌修复
 
-Status: accepted_ohos_pending_android_p2
-Owner Lane: ohos, android
+Status: assigned
+Owner Lane: ohos
+Assist Lane: android public Dart, architect
 Source Thread: 019ee4b7-e7d2-7751-a4c4-150ede83c350
-Target Version: 1.0.1
-Base Branch: main
-Work Branch: lane/ohos, lane/android
-Worktree Path: /Users/huangqi/AIHome/projects/ai_music_ohos, /Users/huangqi/AIHome/projects/ai_music_android
-Merge Branch: main
+Target Version: 1.1.0 verification
+Base Branch: release/1.1.0
+Work Branch: verification/1.1.0/AM-20260623-003-ohos-download-playback
+Project Path: /Users/huangqi/AIHome/projects/ai_music_ohos
+Merge Branch: not_applicable_verification
 Created: 2026-06-23
-Updated: 2026-06-24
+Updated: 2026-07-11
 
 ## 目标
 
@@ -96,6 +97,7 @@ Updated: 2026-06-24
 - architect lane：
   - 负责定责、review、合入主线、推送和安装通知。
   - 只有证据显示问题跨平台或归属变化时，才调整 owner。
+  - 2026-07-05 起作为唯一 owner 负责把旧多 owner 综合任务拆成 Android/OHOS 可执行子任务，避免继续违反唯一 owner 规则。
 
 ## HarmonyOS 自测证据
 
@@ -144,3 +146,26 @@ Updated: 2026-06-24
 - iOS Findings: 不涉及。
 - HarmonyOS Findings: `5916b4c` 修复方向和证据充分。full load 强制重建 native source tree，清理 next preload，并在 `loadAssent()` 越界/空 uri 时可靠上抛，直接覆盖本次 P1 根因；HDC 复测四首 `yellow` 的 metadata、source path、file size 与播放状态一致，未再出现越界或无声。
 - Architect Findings: HarmonyOS P1 可合入 main 并推送；推送后需从 main 构建 signed HAP，安装到 HarmonyOS 测试机并通知 product。小米 17 Pro 是 Android 设备，本轮 HarmonyOS HAP 不适用；如后续要给小米 17 Pro 装包，必须基于 Android/common Dart accepted 代码另行构建 APK。
+
+## 2026-07-11 Active Request Convergence
+
+- Result: still_active_as_verification
+- Covered By:
+  - AM-20260711-004 已恢复 Android 公共 Dart 歌曲海完整搜索、边下边播、正式缓存转正、歌词/封面 metadata。
+  - AM-20260711-003 已补当前队列入口、mini player 点击层级和 Library First UI。
+- Remaining Scope:
+  - HarmonyOS 下载完成后立即播放是否有声、是否无需杀进程重进。
+  - HarmonyOS 下载完成后缓存状态、播放态和歌词/封面 metadata 是否与 Android 1.1.0 主链路一致。
+  - Android 公共 Dart 已有封面不重复拉取的历史疑点仅在新证据复现时再开 bugfix；本轮不作为 release/1.1.0 blocker。
+- Owner:
+  - `ohos` 负责真机验证与 HAP 证据。
+  - `android` 仅在 OHOS 证据指向公共 Dart/cache 状态刷新回归时接手修复。
+- Project Path / Device:
+  - OHOS Project Path: `/Users/huangqi/AIHome/projects/ai_music_ohos`
+  - Device: `ALN-AL00` / HDC target `192.168.31.53:6666`（或 OHOS lane 回传的新 target）。
+  - Android release baseline for comparison: `release/1.1.0@45b302d48649330446d381b8593c50e22b9099f5`。
+- Acceptance Samples:
+  - 正向样例优先：`外婆 / 周杰伦`、`一丝不挂 / 陈奕迅`、`稻香 / 周杰伦`、`哎呀 / 王蓉`。
+  - 每首必须覆盖：搜索歌曲海完整音频、点击下载/播放、下载完成后立即播放有声、media session/AVSession playing、正式缓存 mp3 与 `.lrc`、缓存 index、歌词/封面 metadata。
+  - 设备前置：验证前记录 MUSIC 音量非 0 且未 mute。
+  - 证据：HAP path/sha、source commit、是否清数据、`hdc hilog`、截图/录屏、缓存文件列表和播放状态。

@@ -160,3 +160,13 @@ Knowledge Evidence: docs/superpowers/specs/2026-07-11-ai-music-team-workflow-des
   - `git diff --check` = no output。
 - Decision:
   - accepted_pending_merge。下一步执行 merge gate，确认提交范围后合入/push 或给唯一 blocker。
+
+## 2026-07-11 Active Request Convergence
+
+- Result: verified / process_rules_active
+- 关闭原因：Superpowers 工作流门禁、`team_ops.py`、任务模板和 lane 同步已经在 `main` 生效；后续 AM-003/AM-004 均已按 `superpowers-v1` 执行并通过 request/workflow gates。
+- 证据：
+  - `python3 -m unittest docs.codex_collab.tools.test_team_ops -v` = 16 tests passed（原 review 记录）。
+  - `python3 docs/codex_collab/tools/team_ops.py validate-request docs/codex_collab/requests/AM-20260711-001-superpowers-team-workflow.md` = OK。
+  - `python3 docs/codex_collab/tools/team_ops.py validate-workflow docs/codex_collab/requests/AM-20260711-001-superpowers-team-workflow.md --gate merge` = OK。
+- 后续：新增工作流缺口不再挂 AM-20260711-001；另开 process request 或直接更新 `operating-system.md` + `team_ops.py` 并按新 request 走门禁。
