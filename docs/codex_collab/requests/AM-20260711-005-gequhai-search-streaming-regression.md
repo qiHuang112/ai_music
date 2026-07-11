@@ -1,6 +1,6 @@
 # AM-20260711-005 歌曲海搜索与边下边播主链路回归
 
-Status: self_tested
+Status: blocked
 Owner Lane: android
 Assist Lane: source-researcher, android-streaming, qa-researcher, architect review
 Source Thread: 019f4ed4-106e-7860-875d-a32f81629e4e
@@ -20,7 +20,7 @@ Implementation Plan: docs/superpowers/plans/2026-07-11-am005-gequhai-search-stre
 Required Skills: systematic-debugging, test-driven-development, ai-music-team-ops, verification-before-completion
 TDD Mode: required
 Baseline Commit: 2f309fbd0619c34da6f1bf99d4d451b8953a7b7d
-Head Commit: 5e906ca929a085226621f7b43e01794fc64cc84a
+Head Commit: cc6f345373349eb703309f2088431fe5e60c0247
 Business Implementation Commit: 586fa96874dc3a92bc12366e39643750e31ac29e
 Root Cause Evidence: `周杰伦` artist-only query was filtered because 歌曲海 candidate matching required title containment unless the query carried explicit title/artist separators; progressive playback also assumed the initial upstream `Range: bytes=0-` request would succeed, so upstreams that reject Range could fail streaming while full GET/download remained viable.
 Red Evidence: RED reproduced with `flutter test --no-pub test/music_resolver_test.dart --plain-name 'auto keeps gequhai artist-only search results visible' --dart-define=AI_MUSIC_DISABLE_AUDIO_SERVICE=true` failing before the resolver matching change, and `flutter test --no-pub test/progressive_audio_cache_test.dart --plain-name 'upstream range failure falls back to full GET for seekable proxy playback' --dart-define=AI_MUSIC_DISABLE_AUDIO_SERVICE=true` failing before the progressive fallback change.
@@ -30,6 +30,9 @@ Self Test Evidence: `/Users/huangqi/AIHome/tools/flutter/bin/flutter analyze --n
 Baseline Freshness Evidence: Project Path branch `feature/1.1.0/AM-20260711-005-gequhai-search-streaming-regression` is based on `release/1.1.0@2f309fbd0619c34da6f1bf99d4d451b8953a7b7d`, which includes AM-20260623 cache-first public Dart fix.
 Scope Diff Evidence: Business diff is limited to `lib/src/data/gequhai_player_audio_resolver.dart`, `lib/src/data/progressive_audio_cache.dart`, `test/music_resolver_test.dart`, and `test/progressive_audio_cache_test.dart`; ledger sync adds this AM-005 request, implementation plan, and QA matrix.
 Product Main Path Evidence: Code-level P1 path is covered by GREEN tests for 歌曲海 artist-only search visibility, later-candidate validation fallback, and progressive upstream Range failure falling back to full GET; APK is installed on Xiaomi 10 Pro for immediate manual/QA seek verification. Full physical seek-after-drag recording remains the next android-streaming/QA gate before final merge acceptance.
+Blocking Findings: blocked_pending_device_secure_keyguard; Xiaomi 10 Pro is connected over ADB but currently shows `isKeyguardShowing=true`, `mDreamingLockscreen=true`, `mCurrentFocus=NotificationShade`, so required product main path screenshots/recording/logcat for seek/range/cache cannot be collected until device holder unlocks or an equivalent test device is assigned.
+Spec Review Result: blocked_pending_device
+Code Quality Review Result: accepted_pending_device
 
 ## 背景
 
@@ -81,3 +84,4 @@ Product 在小米 10 Pro 最新体验包上反馈四个主链路问题：
 - 2026-07-11 type=status lane=architect status=in_progress summary=Product/architect 巡检当前 Project Path 发现仅 `test/music_resolver_test.dart` 与 `test/progressive_audio_cache_test.dart` 有 RED 测试改动，尚无生产实现、提交或 APK；review gate 缺 HEAD、Root Cause、RED/GREEN、Targeted Tests、Self Test、Scope Diff 和 Product Main Path Evidence。有效 RED 当前聚焦 `周杰伦` 歌手搜索失败与 Range 失败回退失败；`剩下的果实` 兜底测试已通过，需要 Android 补真实 miss 复现或调整证据口径。
 - 2026-07-11 type=status lane=architect status=self_tested summary=Architect 兜底收口 AM-005 P1 最小 GREEN：提交 `586fa96874dc3a92bc12366e39643750e31ac29e`，修复 歌曲海 artist-only 查询召回与 progressive Range 失败 full GET fallback；targeted suite 157 passed，analyze no issues，debug APK sha256 `47bf23e46cc3f1d6123feb1027a3ebb3fd5887cc2456bba32adb8ba7d6a7f4b4` 已安装小米 10 Pro。下一步需 android-streaming/QA 用已安装包补真实 seek 后续播设备证据。
 - 2026-07-11 type=status lane=architect status=in_progress summary=Android 回报设备 secure keyguard blocker 后，architect 复查 `adb -s 192.168.31.76:41563 shell dumpsys window`，当前 `mDreamingLockscreen=false`、`isKeyguardShowing=false`、`mCurrentFocus=com.qi.ai.music/.MainActivity`。该 blocker 已解除，Android owner 应继续采集 AM-005 seek/range/cache 真机证据；普通 ADB/install/test/socket 不作为等待 product 授权理由。
+- 2026-07-11 type=blocker lane=architect status=blocked summary=QA 与 android-streaming 均确认 AM-005 代码/自动化层可先接受但设备证据 blocked。architect 重新复查小米 10 Pro：设备 ADB 在线，但 `isKeyguardShowing=true`、`mDreamingLockscreen=true`、`mCurrentFocus=NotificationShade`；secure keyguard 不是 Codex approval，也不能通过 ADB 合法绕过。最终合入仍需解锁后补 seek 后续播、Range/206/416、part 增长、download_complete、media_session、cache index 转正/失败不写缓存证据。`Head Commit` 已同步为当前工程 HEAD `cc6f345373349eb703309f2088431fe5e60c0247`，APK sha `47bf23e46cc3f1d6123feb1027a3ebb3fd5887cc2456bba32adb8ba7d6a7f4b4` 对应业务实现 commit `586fa96874dc3a92bc12366e39643750e31ac29e`。
