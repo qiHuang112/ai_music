@@ -79,10 +79,12 @@ Knowledge Evidence: docs/codex_collab/knowledge/qa-researcher/2026-07-11-ui-prod
 - 2026-07-11 type=status lane=ui summary=UI 已基于 Android b306932 小米 10 Pro 当前截图和 OHOS 真机截图完成真实截图 Product Design audit，文档已并入 canonical path `docs/codex_collab/knowledge/ui/2026-07-11-am002-real-screenshot-product-design-audit.md`；本轮未生成新图、未改业务代码；三套 390x844 ImageGen 提示词为 Library First、Now Playing Hero、Discovery Mix。
 - 2026-07-11 type=review_result lane=architect summary=Spec Review Result: accepted，UI audit 已并入 canonical path，Product 可基于文档中三套提示词独立生成恰好 3 张图并选择方向；Code Quality Review Result: accepted，本轮仅账本和设计文档更新，无 UI 代码改动。`release/1.0.2@b306932` 代码包含 AM-010 `_HotlistItemTile` leading `height: 32` 修复，因此当前热榜详情 overflow 截图按“仍需 Android/android-discovery 复现或补无 overflow 截图”的 P1 视觉证据项处理；真正队列 sheet 截图缺失不阻塞 ideation，但在 image-to-code/开发 handoff 前 Android 需补采真正队列入口/sheet 或确认当前版本无可达队列 UI；键盘常驻搜索层级不足归 public Dart/UI implementation，进入 1.1.0 设计约束。
 - 2026-07-11 type=status lane=product summary=Product 默认采用三张方向图中的第 1 张 `Library First / 我的音乐与继续播放优先` 作为后续实现基准，不再等待额外选择；对应生成图路径为 `/Users/huangqi/.codex/generated_images/019ee910-8747-71e3-9293-720273f9e61f/exec-99786479-d2fb-4fcb-a642-c7d25fbb2b74.png`。下一步由 architect 拆 1.1.0 UI implementation request，UI 输出页面级实现规范，Android/OHOS/QA 按约束分头落地与验收。
+- 2026-07-11 type=status lane=architect summary=Architect 已基于 Product 选定的 Library First 方向拆出 1.1.0 UI implementation request `AM-20260711-003`，独立 Project Path `/Users/huangqi/AIHome/projects/ai_music_AM-20260711-003`，实现分支 `feature/1.1.0/AM-20260711-003-library-first-ui`，基线 `origin/release/1.0.2=b306932d03e1eedbe96fd50dafe0f95805b0eab4`。AM-002 继续作为 design/audit canonical，AM-003 承接实现、测试、OHOS 约束复核和 QA 截图验收。
 
 ## 相关提交
 
 - pending
+- 609bcc78ae8da55a7253af9bb9d35eeee3946711 recorded UI audit review; follow-up AM-20260711-003 created in this update.
 
 ## 版本与发布
 
@@ -99,4 +101,4 @@ Knowledge Evidence: docs/codex_collab/knowledge/qa-researcher/2026-07-11-ui-prod
 - iOS Findings: not_applicable
 - HarmonyOS Findings: pending
 - Architect Findings: accepted_for_product_ideation；P1/P2 owner 已记录，Product 选定视觉方向前不派 UI 代码
-- Notes: 设计阶段 canonical 账本已建立；Android/OHOS 当前截图和 UI audit 已可用，Product 可按 UI 文档中的 Library First、Now Playing Hero、Discovery Mix 三套提示词生成恰好 3 张图并选择方向；本任务不改业务代码。
+- Notes: 设计阶段 canonical 账本已建立；Android/OHOS 当前截图和 UI audit 已可用，Product 已选择 Library First；实现阶段由 AM-20260711-003 承接，本任务不改业务代码。
