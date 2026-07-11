@@ -1,6 +1,6 @@
 # AM-20260711-005 歌曲海搜索与边下边播主链路回归
 
-Status: in_progress
+Status: self_tested
 Owner Lane: android
 Assist Lane: source-researcher, android-streaming, qa-researcher, architect review
 Source Thread: 019f4ed4-106e-7860-875d-a32f81629e4e
@@ -20,6 +20,16 @@ Implementation Plan: docs/superpowers/plans/2026-07-11-am005-gequhai-search-stre
 Required Skills: systematic-debugging, test-driven-development, ai-music-team-ops, verification-before-completion
 TDD Mode: required
 Baseline Commit: 2f309fbd0619c34da6f1bf99d4d451b8953a7b7d
+Head Commit: 5e906ca929a085226621f7b43e01794fc64cc84a
+Business Implementation Commit: 586fa96874dc3a92bc12366e39643750e31ac29e
+Root Cause Evidence: `周杰伦` artist-only query was filtered because 歌曲海 candidate matching required title containment unless the query carried explicit title/artist separators; progressive playback also assumed the initial upstream `Range: bytes=0-` request would succeed, so upstreams that reject Range could fail streaming while full GET/download remained viable.
+Red Evidence: RED reproduced with `flutter test --no-pub test/music_resolver_test.dart --plain-name 'auto keeps gequhai artist-only search results visible' --dart-define=AI_MUSIC_DISABLE_AUDIO_SERVICE=true` failing before the resolver matching change, and `flutter test --no-pub test/progressive_audio_cache_test.dart --plain-name 'upstream range failure falls back to full GET for seekable proxy playback' --dart-define=AI_MUSIC_DISABLE_AUDIO_SERVICE=true` failing before the progressive fallback change.
+Green Evidence: The same two RED tests now pass; `auto tries later gequhai candidates when the top match fails validation` also passes, preserving fail-closed fallback to later validated 歌曲海 candidates.
+Targeted Tests: `/Users/huangqi/AIHome/tools/flutter/bin/flutter test --no-pub test/music_resolver_test.dart test/music_cache_test.dart test/progressive_audio_cache_test.dart test/music_controller_test.dart test/widget_test.dart --dart-define=AI_MUSIC_DISABLE_AUDIO_SERVICE=true` = 157 passed.
+Self Test Evidence: `/Users/huangqi/AIHome/tools/flutter/bin/flutter analyze --no-pub` no issues; `git diff --check` clean; debug APK built with Flutter China mirrors at `build/app/outputs/flutter-apk/app-debug.apk`, sha256 `47bf23e46cc3f1d6123feb1027a3ebb3fd5887cc2456bba32adb8ba7d6a7f4b4`, installed to Xiaomi 10 Pro `192.168.31.76:41563`, `lastUpdateTime=2026-07-11 22:34:13`.
+Baseline Freshness Evidence: Project Path branch `feature/1.1.0/AM-20260711-005-gequhai-search-streaming-regression` is based on `release/1.1.0@2f309fbd0619c34da6f1bf99d4d451b8953a7b7d`, which includes AM-20260623 cache-first public Dart fix.
+Scope Diff Evidence: Business diff is limited to `lib/src/data/gequhai_player_audio_resolver.dart`, `lib/src/data/progressive_audio_cache.dart`, `test/music_resolver_test.dart`, and `test/progressive_audio_cache_test.dart`; ledger sync adds this AM-005 request, implementation plan, and QA matrix.
+Product Main Path Evidence: Code-level P1 path is covered by GREEN tests for 歌曲海 artist-only search visibility, later-candidate validation fallback, and progressive upstream Range failure falling back to full GET; APK is installed on Xiaomi 10 Pro for immediate manual/QA seek verification. Full physical seek-after-drag recording remains the next android-streaming/QA gate before final merge acceptance.
 
 ## 背景
 
@@ -69,3 +79,4 @@ Product 在小米 10 Pro 最新体验包上反馈四个主链路问题：
 
 - 2026-07-11 type=task lane=product status=in_progress summary=Product 反馈歌曲海完整源主链路四个问题：在线边播 seek 后不能继续播放；部分歌曲边播 HTTP 失败但可下载；搜索《剩下的果实》无资源；歌手搜索 `周杰伦` 无召回但自然语言 `周杰伦的外婆` 可用。
 - 2026-07-11 type=status lane=architect status=in_progress summary=Product/architect 巡检当前 Project Path 发现仅 `test/music_resolver_test.dart` 与 `test/progressive_audio_cache_test.dart` 有 RED 测试改动，尚无生产实现、提交或 APK；review gate 缺 HEAD、Root Cause、RED/GREEN、Targeted Tests、Self Test、Scope Diff 和 Product Main Path Evidence。有效 RED 当前聚焦 `周杰伦` 歌手搜索失败与 Range 失败回退失败；`剩下的果实` 兜底测试已通过，需要 Android 补真实 miss 复现或调整证据口径。
+- 2026-07-11 type=status lane=architect status=self_tested summary=Architect 兜底收口 AM-005 P1 最小 GREEN：提交 `586fa96874dc3a92bc12366e39643750e31ac29e`，修复 歌曲海 artist-only 查询召回与 progressive Range 失败 full GET fallback；targeted suite 157 passed，analyze no issues，debug APK sha256 `47bf23e46cc3f1d6123feb1027a3ebb3fd5887cc2456bba32adb8ba7d6a7f4b4` 已安装小米 10 Pro。下一步需 android-streaming/QA 用已安装包补真实 seek 后续播设备证据。

@@ -63,4 +63,3 @@ Use systematic debugging before implementation. Do not patch symptoms until each
 - android-streaming: seek/range/cache consistency.
 - QA: product matrix pass/fail/blocker.
 - Architect: merge/push after accepted gates.
-
