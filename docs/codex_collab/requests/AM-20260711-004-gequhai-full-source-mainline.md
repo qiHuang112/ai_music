@@ -96,6 +96,7 @@ Product 指定新主链路只展示歌曲海资源，并要求按真实浏览器
 - source-researcher 2026-07-11 多样例复核 accepted：`外婆/周杰伦/play/6330`、`一丝不挂/陈奕迅/play/434800`、`稻香/周杰伦/play/333`、`哎呀/王蓉/play/38173` 均为 `direct_full_audio`，HEAD 200 audio/mpeg、Range 206、正数 length/total、歌词和封面通过；`东方财富` 为 `no_search_match`，必须 fail closed。
 - 客户端实现必须按页面链路实时解析 `play_id`、歌词、封面和夸克 evidence；POST `/api/music` 使用页面 cookie jar、Origin、页面 Referer、`X-Requested-With: Http`、`X-Custom-Header: Key`；最终 CDN HEAD/Range/播放不得带歌曲海 referer。
 - `window.mp3_extra_url` 按页面 JS `atob(value.replace(/#/g,"H").replace(/%/g,"S"))` 解码后作为 `external_pan_link` 证据记录，不得进入搜索完成路径、边下边播、正式缓存或下载列表。
+- P0 不因单线程权限等待停摆：若 `android-source` 在 10 分钟内没有回 `review_request` 或可行动 `blocker`，architect 将把 AM-004 重分配给可执行 Android source owner 或临时接管；接管必须基于 Project Path `/Users/huangqi/AIHome/projects/ai_music_AM-20260711-004` 的现有 diff 继续，不回退已完成 RED/GREEN，不从零重做。
 
 ## 消息记录
 
@@ -103,3 +104,4 @@ Product 指定新主链路只展示歌曲海资源，并要求按真实浏览器
 - 2026-07-11 `android-streaming`：已接收 streaming 复核任务，`validate-request` 与 `validate-workflow --gate start` 均 OK；后续按 `Spec Review Result` 和 `Code Quality Review Result` 双结论复核首声、Range/206、part 增长、缓存转正、失败隔离、LRU、metadata、targeted tests、analyze、diff-check 和缓存语义。
 - 2026-07-11 `architect`：已将 AM-004 request、design、plan、歌曲海协议知识页和 `team_ops` gate 工具同步到 Project Path `/Users/huangqi/AIHome/projects/ai_music_AM-20260711-004`；当前等待 `android-source` 回传 HEAD、targeted tests、analyze、APK sha 和小米 10 Pro 主路径证据。
 - 2026-07-11 `source-researcher`：已完成低频串行多样例复核并 handoff 给 `android-source`；脚本 `scripts/probe_gequhai_am004_samples.js`，JSON `evidence/script/gequhai-am004-multisample-result.json`，报告 `reports/am004-gequhai-multisample-status.md`，原始 headers/html/bin 位于 `evidence/script/`。
+- 2026-07-11 `product` 二次监督：发现 `android-source` 仍显示 `waitingOnApproval`；要求 architect 准备备用 owner 或接管策略，10 分钟无 `review_request` 或可行动 `blocker` 即重分配，不等待 Product 再确认。
