@@ -1,6 +1,6 @@
 # AM-20260711-003 Library First 移动端 UI 实现
 
-Status: accepted_pending_merge
+Status: accepted_pending_push
 Owner Lane: android
 Source Thread: 019ee910-8747-71e3-9293-720273f9e61f
 Product Return Thread: 019f4ed4-106e-7860-875d-a32f81629e4e
@@ -36,7 +36,7 @@ Spec Review Result: accepted
 Code Quality Review Result: accepted
 Full Verification Evidence: Architect review accepted after UI P1 re-review accepted. Fresh verification: `flutter test --no-pub test/widget_test.dart --name "mini player|library first|search result rows|download manager cached|settings pages"` = 12 passed; `flutter test --no-pub test/player_page_test.dart --name "current queue entry opens queue sheet instead of playlist sheet"` = 1 passed; `flutter analyze --no-pub lib/src/presentation/app_localizations.dart lib/src/presentation/download_manager_page.dart lib/src/presentation/music_home_page.dart lib/src/presentation/player_page.dart lib/src/presentation/settings_page.dart test/widget_test.dart test/player_page_test.dart` = no issues; scoped `git diff --check` clean. Xiaomi 10 Pro evidence path `/Users/huangqi/AIHome/output/AM-20260711-003-designqa-final-20260711-195825-xiaomi10/` covers full-audio search/play/cache, no PREVIEW, Gequhai-only settings, mini player safe area, player detail lyrics, current queue sheet, and hotlist no overflow.
 Blocking Findings: none
-Merge Evidence: pending
+Merge Evidence: release/1.1.0 merge commit d0fa9b26029eaca595d28a59ace377eb2a562c44 merged feature/1.1.0/AM-20260711-003-library-first-ui into release/1.1.0.
 Push Evidence: pending
 Product Notification Evidence: pending
 Knowledge Evidence: docs/codex_collab/knowledge/qa-researcher/2026-07-11-ui-product-design-regression-matrix.md
