@@ -68,3 +68,4 @@ Product 在小米 10 Pro 最新体验包上反馈四个主链路问题：
 ## 消息记录
 
 - 2026-07-11 type=task lane=product status=in_progress summary=Product 反馈歌曲海完整源主链路四个问题：在线边播 seek 后不能继续播放；部分歌曲边播 HTTP 失败但可下载；搜索《剩下的果实》无资源；歌手搜索 `周杰伦` 无召回但自然语言 `周杰伦的外婆` 可用。
+- 2026-07-11 type=status lane=architect status=in_progress summary=Product/architect 巡检当前 Project Path 发现仅 `test/music_resolver_test.dart` 与 `test/progressive_audio_cache_test.dart` 有 RED 测试改动，尚无生产实现、提交或 APK；review gate 缺 HEAD、Root Cause、RED/GREEN、Targeted Tests、Self Test、Scope Diff 和 Product Main Path Evidence。有效 RED 当前聚焦 `周杰伦` 歌手搜索失败与 Range 失败回退失败；`剩下的果实` 兜底测试已通过，需要 Android 补真实 miss 复现或调整证据口径。
