@@ -26,6 +26,7 @@ Status: approved_for_planning
 - Android Screenshot APK SHA256: `ae5da6fbeacbef9876062d6220b7d627987bf04a99a1280649be8bda734266f3`
 - OHOS Screenshot Baseline: `/Users/huangqi/.codex/visualizations/2026/06/21/019ee7db-7cfc-7c41-9827-6b851ce89548/AM-20260711-002-ohos-design-facts/screenshots`
 - OHOS Constraints: `/Users/huangqi/.codex/visualizations/2026/06/21/019ee7db-7cfc-7c41-9827-6b851ce89548/AM-20260711-002-ohos-design-facts/ohos-platform-constraints.md`
+- OHOS Library First Implementation Notes: `/Users/huangqi/.codex/visualizations/2026/06/21/019ee7db-7cfc-7c41-9827-6b851ce89548/AM-20260711-002-ohos-design-facts/library-first-ohos-implementation-notes.md`
 - QA Matrix: `docs/codex_collab/knowledge/qa-researcher/2026-07-11-ui-product-design-regression-matrix.md`
 - Implementation Project: `/Users/huangqi/AIHome/projects/ai_music_AM-20260711-003`
 - Baseline: `origin/release/1.0.2=b306932d03e1eedbe96fd50dafe0f95805b0eab4`
@@ -80,12 +81,14 @@ Library First 不是单页皮肤，而是信息架构约束：
 - 大字号和较长歌名/歌手名下不得依赖固定卡高承载关键语义。
 - 歌单选择 sheet、当前队列 sheet、下载管理长列表和设置音乐源列表必须可滚动。
 - OHOS 按 foreground-only 设计；启动窗白色与暗色首帧不一致列为平台风险，不在设计图或实现中假设已解决。
+- UI 页面级规范必须显式标注 safe area、键盘态、mini player 固定规则、当前队列入口、48px 触控目标、大字号/长文本策略和长列表/sheet 滚动策略。
+- Android 实现不得写死 Android 状态栏、键盘或导航栏高度；必须通过 Flutter/平台 insets 适配 Android 和 OHOS。
 
 ## Owner 与 Handoff
 
 - UI lane 必须先输出页面级实现规范，包含 tokens、组件层级、页面状态和截图标注。
 - Android owner 在 UI 规范后实现公共 Flutter UI、测试和小米 10 Pro 自测。
-- OHOS owner 复核安全区、系统手势、大字号、foreground-only 和启动首帧风险。
+- OHOS owner 按 `library-first-ohos-implementation-notes.md` 复核安全区、系统手势、大字号、搜索键盘、队列入口、mini player、foreground-only 和启动首帧风险。
 - QA researcher 按矩阵验收截图、录屏、包 SHA、设备和失败升级规则。
 - Architect 负责 review gate、scope diff、防回退、合入和 Product 通知。
 

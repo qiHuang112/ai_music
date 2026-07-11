@@ -28,7 +28,7 @@ Red Evidence: pending
 Green Evidence: pending
 Targeted Tests: pending
 Self Test Evidence: pending
-Product Main Path Evidence: selected image `/Users/huangqi/.codex/generated_images/019ee910-8747-71e3-9293-720273f9e61f/exec-99786479-d2fb-4fcb-a642-c7d25fbb2b74.png`; Android baseline screenshots `/Users/huangqi/AIHome/output/AM-20260711-002-b306932-xiaomi10/screens/`; OHOS screenshots `/Users/huangqi/.codex/visualizations/2026/06/21/019ee7db-7cfc-7c41-9827-6b851ce89548/AM-20260711-002-ohos-design-facts/screenshots`
+Product Main Path Evidence: selected image `/Users/huangqi/.codex/generated_images/019ee910-8747-71e3-9293-720273f9e61f/exec-99786479-d2fb-4fcb-a642-c7d25fbb2b74.png`; Android baseline screenshots `/Users/huangqi/AIHome/output/AM-20260711-002-b306932-xiaomi10/screens/`; OHOS screenshots `/Users/huangqi/.codex/visualizations/2026/06/21/019ee7db-7cfc-7c41-9827-6b851ce89548/AM-20260711-002-ohos-design-facts/screenshots`; OHOS Library First notes `/Users/huangqi/.codex/visualizations/2026/06/21/019ee7db-7cfc-7c41-9827-6b851ce89548/AM-20260711-002-ohos-design-facts/library-first-ohos-implementation-notes.md`
 Baseline Freshness Evidence: implementation project `/Users/huangqi/AIHome/projects/ai_music_AM-20260711-003` is checked out at `origin/release/1.0.2=b306932d03e1eedbe96fd50dafe0f95805b0eab4` on `feature/1.1.0/AM-20260711-003-library-first-ui`
 Scope Diff Evidence: pending
 Spec Review Result: pending
@@ -72,6 +72,8 @@ Knowledge Evidence: docs/codex_collab/knowledge/qa-researcher/2026-07-11-ui-prod
 
 - 2026-07-11 type=task lane=product summary=Product 默认选择第 1 张 `Library First / 我的音乐与继续播放优先` 作为 1.1.0 UI 实现基准，生成图路径 `/Users/huangqi/.codex/generated_images/019ee910-8747-71e3-9293-720273f9e61f/exec-99786479-d2fb-4fcb-a642-c7d25fbb2b74.png`。
 - 2026-07-11 type=status lane=architect summary=Architect 创建 AM-20260711-003 实现 request，独立 Project Path 为 `/Users/huangqi/AIHome/projects/ai_music_AM-20260711-003`，基线 `origin/release/1.0.2=b306932d03e1eedbe96fd50dafe0f95805b0eab4`，实现分支 `feature/1.1.0/AM-20260711-003-library-first-ui`。
+- 2026-07-11 type=status lane=qa-researcher summary=QA researcher 已更新 Library First 验收矩阵，作为本实现 request 的 design-qa gate 和后续截图验收输入。
+- 2026-07-11 type=status lane=ohos summary=OHOS 已提供 Library First 跨端实现注意清单 `library-first-ohos-implementation-notes.md`；UI 规范和 Android 实现必须标注并处理 SafeArea/insets、跨页 mini player、搜索键盘、48px 触控、大字号、当前队列入口、播放详情层级、长列表/sheet、foreground-only 和启动首帧风险。
 
 ## 相关提交
 

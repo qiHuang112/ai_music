@@ -18,10 +18,12 @@
 - Selected Image: `/Users/huangqi/.codex/generated_images/019ee910-8747-71e3-9293-720273f9e61f/exec-99786479-d2fb-4fcb-a642-c7d25fbb2b74.png`.
 - Product Design Audit: `docs/codex_collab/knowledge/ui/2026-07-11-am002-real-screenshot-product-design-audit.md`.
 - QA Matrix: `docs/codex_collab/knowledge/qa-researcher/2026-07-11-ui-product-design-regression-matrix.md`.
+- OHOS Library First Notes: `/Users/huangqi/.codex/visualizations/2026/06/21/019ee7db-7cfc-7c41-9827-6b851ce89548/AM-20260711-002-ohos-design-facts/library-first-ohos-implementation-notes.md`.
 - Preview,网盘,HTML,防护页和不可下载源不能作为完整播放或下载完成路径。
 - Android code work starts only after UI lane provides a page-level implementation spec.
 - Every user-visible code slice must include RED/GREEN evidence or an approved TDD exception.
 - Main-path self-test evidence is mandatory before review: search, tap play, download/cache, player, queue, playlists, hotlist, settings.
+- UI spec and Android implementation must not hard-code Android status bar, keyboard or navigation bar heights; use safe area/insets and scrollable layouts that also pass OHOS constraints.
 
 ---
 
@@ -73,6 +75,21 @@ For each page, include:
 - Required state(s):
 - Must not regress:
 - QA screenshot name(s):
+```
+
+- [ ] **Step 3a: Add OHOS implementation notes**
+
+Copy these requirements into the page spec:
+
+```text
+safe area/insets annotated per page
+keyboard-visible search result behavior
+mini player persistence rule
+current queue entry location and semantics
+48px minimum touch target
+large-font/long-text behavior
+scroll strategy for queue, playlist sheet, download manager and settings
+foreground-only and startup first-frame risk notes
 ```
 
 - [ ] **Step 4: Validate handoff message**
