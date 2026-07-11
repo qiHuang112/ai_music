@@ -6,7 +6,7 @@
 
 | Lane | 线程标题 | Thread ID | 主要职责 | 可写范围 | 状态 |
 | --- | --- | --- | --- | --- | --- |
-| product | AIMusic-产品负责人 | `019eea5b-9b46-7f92-a35c-7d080ea1e986` | 最高优先级产品决策、用户反馈收口、需求澄清、体验验收、后续测试/UI lane 招募。 | 产品需求、交互方案、验收标准、优先级、协同账本中的产品记录。默认不直接改业务代码。 | active |
+| product | AIMusic-产品负责人 | `019f4ed4-106e-7860-875d-a32f81629e4e` | 最高优先级产品决策、用户反馈收口、需求澄清、体验验收、后续测试/UI lane 招募。旧线程 `019ee910-8747-71e3-9293-720273f9e61f` 仅作为历史 Source Thread / 归档引用，不作为当前回传入口。 | 产品需求、交互方案、验收标准、优先级、协同账本中的产品记录。默认不直接改业务代码。 | active |
 | architect | AIMusic-架构师Reviewer | `019ee4b7-e7d2-7751-a4c4-150ede83c350` | 规划、拆任务、review、验收、跨 lane 冲突裁决。 | 协同账本、review 记录、架构决策。除非用户明确要求，否则不直接实现业务功能。 | idle |
 | android | AIMusic-安卓开发 | `019ee41d-647e-7250-bb01-f1ae81098696` | 公共 Dart 业务逻辑、Android 行为、Android 打包发布、测试、Android 架构文档。 | `lib/src/`、`test/`、`android/`、Android 构建工具、公共业务文档。 | idle |
 | ios | AIMusic-iOS开发 | `019ee563-42df-7de0-9c64-0a771f243f6a` | iOS 宿主工程、签名、IPA 打包、Apple 平台能力、iOS 文档。 | `ios/`、`tool/build_ios_ipa.sh`、iOS 相关 README。未 handoff 前不要改公共 Dart 业务。 | idle |
