@@ -1,13 +1,13 @@
 # AM-20260625-003 滑动动效、播放队列与搜索单击优化
 
-Status: assigned
+Status: in_progress
 Owner Lane: android
 Source Thread: 019ee910-8747-71e3-9293-720273f9e61f
-Target Version: 1.1.0 verification
+Target Version: 1.1.0
 Base Branch: release/1.1.0
-Work Branch: verification/1.1.0/AM-20260625-003-swipe-skip-animation
-Project Path: /Users/huangqi/AIHome/projects/ai_music_AM-20260711-003
-Merge Branch: not_applicable_verification
+Work Branch: feature/1.1.0/AM-20260625-003-swipe-queue-search-ux
+Project Path: /Users/huangqi/AIHome/projects/ai_music_AM-20260625-003_android_swipe_queue_search
+Merge Branch: release/1.1.0
 Created: 2026-06-25
 Updated: 2026-07-11
 
@@ -42,6 +42,7 @@ Updated: 2026-07-11
 - 2026-06-25 type=changes_requested lane=product summary=产品验收滑动动效不满意：触发切歌后页面滑到一半又回弹到中间，但歌曲已变成下一首；要求切歌完成时当前页继续滑出，下一首/上一首从另一侧接入，只有未过阈值或不能切歌时才回弹。
 - 2026-06-25 type=task lane=product summary=产品明确开发验证机调试策略：小米 10 Pro 等开发机可直接卸载 release 包后安装 debug 包，不要为了 release 同签覆盖、沙盒命令或权限申请反复阻塞；只有小米 17 Pro 验收机或真实敏感数据清理才回 product 确认。
 - 2026-06-25 type=status lane=android status=ready_to_try summary=Android 已按反馈修正滑动动效：成功切歌旧页继续滑出、新页从另一侧滑入，单曲或不可切歌才回弹；小米 10 Pro 已安装 release 包，APK sha256 `0411b0f050c3c1c6234bf24b5c5bf9af8d9e612f5c17cd67dbd9b5b881ddafcd`；当前等待 architect review。
+- 2026-07-11 type=task lane=architect status=in_progress summary=Architect 按 Product 巡检重新分配 AM-20260625-003，不等待 AM-20260623 cache-first 修复。独立工程 `/Users/huangqi/AIHome/projects/ai_music_AM-20260625-003_android_swipe_queue_search` 已基于 `origin/release/1.1.0=45b302d48649330446d381b8593c50e22b9099f5` 创建，分支 `feature/1.1.0/AM-20260625-003-swipe-queue-search-ux`；Android 负责最小回归/回改与小米 10 Pro 录屏证据。
 
 ## 相关提交
 
@@ -76,8 +77,9 @@ Updated: 2026-07-11
   - 手势区需避开 Android/OHOS 系统边缘返回区；保持 48px 触控目标。
 - Owner / Project:
   - Owner Lane: `android`
-  - Project Path: `/Users/huangqi/AIHome/projects/ai_music_AM-20260711-003`
-  - Base: latest `origin/release/1.1.0`
+  - Project Path: `/Users/huangqi/AIHome/projects/ai_music_AM-20260625-003_android_swipe_queue_search`
+  - Branch: `feature/1.1.0/AM-20260625-003-swipe-queue-search-ux`
+  - Base: `origin/release/1.1.0=45b302d48649330446d381b8593c50e22b9099f5`
   - Device: 小米 10 Pro；跨端差异需要 OHOS 时再回 `ohos` 线程。
 - Acceptance Samples:
   - 使用歌曲海完整音频缓存队列：`外婆`、`一丝不挂`、`稻香`、`哎呀`。
