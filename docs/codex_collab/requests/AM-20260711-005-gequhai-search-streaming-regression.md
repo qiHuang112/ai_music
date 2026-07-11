@@ -49,6 +49,12 @@ Product 在小米 10 Pro 最新体验包上反馈四个主链路问题：
 - 包含：QA 按真实设备矩阵复核结果只展示完整可播资源，无 PREVIEW/网盘/HTML 完成路径。
 - 不包含：恢复 BuguYY/FLAC 作为主完成路径；不包含批量压测歌曲海。
 
+## QA Gate
+
+- Matrix: `docs/codex_collab/knowledge/qa-researcher/2026-07-11-am20260711-005-gequhai-p1-regression-matrix.md`
+- Android 若 10 到 15 分钟内未给 APK/sha/设备/证据目录，architect 追 Android owner 补齐可复核证据。
+- QA 收到 Android APK 后，按矩阵复核完整搜索、下载按钮、边下边播、seek、HTTP fail-closed、cache 转正和 pass/fail/blocker。
+
 ## 验收标准
 
 - 小米 10 Pro 上在线边播 `外婆`、`一丝不挂`、`稻香`、`哎呀` 中至少两首，拖动进度条到中段后能继续有声播放；media_session 仍 `state=3`，日志显示有效 Range/seek 或 player position 继续推进。
