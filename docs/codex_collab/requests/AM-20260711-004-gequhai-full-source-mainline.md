@@ -79,6 +79,21 @@ Product 指定新主链路只展示歌曲海资源，并要求按真实浏览器
 - 失败样例必须 fail closed，不显示可播放行，不写正式缓存。
 - 小米 10 Pro 主路径自测必须从 App 搜索入口跑到播放和下载完成，不允许只用脚本或 XML 代替。
 
+## 规格 Review Checklist
+
+AM-004 为 P0 主链路恢复任务，architect review 时任一 P0/P1 缺口都直接 `changes_requested`，不得进入合入：
+
+- P0 旧源迁移：搜索完成路径必须从旧 BuguYY/FLAC/iTunes preview/网盘候选迁移到歌曲海页面播放器实际音频；旧源不得作为完成、播放、下载或边下边播验收路径。
+- P0 可见候选：搜索结果中每个可操作候选必须是 `source_gequhai` + `clientReady=true` + `direct_audio` + `canCacheAudio=true`；不可出现 PREVIEW/30s、网盘、HTML、防护页或不可下载普通候选的可播放/可下载行。
+- P0 详情一致性：详情页解析出的标题、歌手、`play_id`、歌词、封面必须与搜索候选高置信一致；错艺人、错版本、低置信或非歌曲关键词必须 fail closed。
+- P0 媒体 gate：`/api/music` 后的 CDN HEAD/Range/播放请求不得带歌曲海 referer；必须 HEAD 200 audio、正数 Content-Length 或 Range total、Range 206 后才返回 `direct_audio/canCacheAudio=true`。
+- P0 夸克分类：`window.mp3_extra_url` 必须按页面 modified base64 规则解码并记录为 `external_pan_link` evidence；夸克不得进入可见完成路径、transient streaming、正式缓存或下载列表。
+- P0 五样例矩阵：`外婆/周杰伦`、`一丝不挂/陈奕迅`、`稻香/周杰伦`、`哎呀/王蓉` 必须正向通过；`东方财富` 必须 `no_search_match` fail closed，不写缓存。
+- P0 用户主路径：小米 10 Pro 必须从 App 搜索入口验证点击结果行会下载并播放；下载按钮只下载不播放；media session、metadata、歌词/封面、首声、part 增长、`download_complete_ms`、正式缓存转正均要有证据。
+- P0 缓存安全：完成后写正式 mp3、`_cache_index.json`、lyrics/cover metadata；失败、取消、低置信、HTML、防护页、网盘、preview 不得写正式缓存或污染下载管理。
+- P1 边下边播：首声时间必须早于完整下载完成，part 文件需有增长序列；android-streaming 必须复核 Range/206、失败隔离、LRU 与 metadata。
+- P1 防回退：AM-014/015/016 的 full-download-only、无 preview 完成路径、不可下载原因、缓存闸口不得回退；AM-003 UI WIP 不得作为 AM-004 验收包。
+
 ## 分工
 
 - `source-researcher`：低频复核歌曲海多样例，输出 Chrome 证据、脚本、字段表和失败分类。
@@ -97,6 +112,7 @@ Product 指定新主链路只展示歌曲海资源，并要求按真实浏览器
 - 客户端实现必须按页面链路实时解析 `play_id`、歌词、封面和夸克 evidence；POST `/api/music` 使用页面 cookie jar、Origin、页面 Referer、`X-Requested-With: Http`、`X-Custom-Header: Key`；最终 CDN HEAD/Range/播放不得带歌曲海 referer。
 - `window.mp3_extra_url` 按页面 JS `atob(value.replace(/#/g,"H").replace(/%/g,"S"))` 解码后作为 `external_pan_link` 证据记录，不得进入搜索完成路径、边下边播、正式缓存或下载列表。
 - P0 不因单线程权限等待停摆：若 `android-source` 在 10 分钟内没有回 `review_request` 或可行动 `blocker`，architect 将把 AM-004 重分配给可执行 Android source owner 或临时接管；接管必须基于 Project Path `/Users/huangqi/AIHome/projects/ai_music_AM-20260711-004` 的现有 diff 继续，不回退已完成 RED/GREEN，不从零重做。
+- 备用审计结论：android-source 当前方向正确但尚不能 accepted；review_request 缺少上述任一 P0/P1 证据时，architect 直接 `changes_requested`，不进入合入。
 
 ## 消息记录
 
@@ -105,3 +121,4 @@ Product 指定新主链路只展示歌曲海资源，并要求按真实浏览器
 - 2026-07-11 `architect`：已将 AM-004 request、design、plan、歌曲海协议知识页和 `team_ops` gate 工具同步到 Project Path `/Users/huangqi/AIHome/projects/ai_music_AM-20260711-004`；当前等待 `android-source` 回传 HEAD、targeted tests、analyze、APK sha 和小米 10 Pro 主路径证据。
 - 2026-07-11 `source-researcher`：已完成低频串行多样例复核并 handoff 给 `android-source`；脚本 `scripts/probe_gequhai_am004_samples.js`，JSON `evidence/script/gequhai-am004-multisample-result.json`，报告 `reports/am004-gequhai-multisample-status.md`，原始 headers/html/bin 位于 `evidence/script/`。
 - 2026-07-11 `product` 二次监督：发现 `android-source` 仍显示 `waitingOnApproval`；要求 architect 准备备用 owner 或接管策略，10 分钟无 `review_request` 或可行动 `blocker` 即重分配，不等待 Product 再确认。
+- 2026-07-11 `product` 备用审计：确认当前实现方向正确但不能 accepted；要求将旧源迁移、歌曲海可见候选、详情一致性、modified base64 夸克 evidence、东方财富 fail closed、四首正向矩阵、点击行下载播放、cache/lyrics/cover、首声早于下载完成、失败隔离和无 PREVIEW/网盘/HTML/防护页可见行纳入 P0/P1 review gate。
