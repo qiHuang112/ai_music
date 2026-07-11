@@ -20,7 +20,8 @@ Implementation Plan: docs/superpowers/plans/2026-07-11-am005-gequhai-search-stre
 Required Skills: systematic-debugging, test-driven-development, ai-music-team-ops, verification-before-completion
 TDD Mode: required
 Baseline Commit: 2f309fbd0619c34da6f1bf99d4d451b8953a7b7d
-Head Commit: 586fa96874dc3a92bc12366e39643750e31ac29e
+Head Commit: 5e906ca929a085226621f7b43e01794fc64cc84a
+Business Implementation Commit: 586fa96874dc3a92bc12366e39643750e31ac29e
 Root Cause Evidence: `周杰伦` artist-only query was filtered because 歌曲海 candidate matching required title containment unless the query carried explicit title/artist separators; progressive playback also assumed the initial upstream `Range: bytes=0-` request would succeed, so upstreams that reject Range could fail streaming while full GET/download remained viable.
 Red Evidence: RED reproduced with `flutter test --no-pub test/music_resolver_test.dart --plain-name 'auto keeps gequhai artist-only search results visible' --dart-define=AI_MUSIC_DISABLE_AUDIO_SERVICE=true` failing before the resolver matching change, and `flutter test --no-pub test/progressive_audio_cache_test.dart --plain-name 'upstream range failure falls back to full GET for seekable proxy playback' --dart-define=AI_MUSIC_DISABLE_AUDIO_SERVICE=true` failing before the progressive fallback change.
 Green Evidence: The same two RED tests now pass; `auto tries later gequhai candidates when the top match fails validation` also passes, preserving fail-closed fallback to later validated 歌曲海 candidates.
