@@ -1,6 +1,6 @@
 # AM-20260623-003 下载后播放、缓存状态与 HarmonyOS 串歌修复
 
-Status: assigned
+Status: pushed
 Owner Lane: android
 Assist Lane: ohos, architect
 Source Thread: 019ee4b7-e7d2-7751-a4c4-150ede83c350
@@ -139,6 +139,7 @@ Updated: 2026-07-11
 - 2026-07-11 type=blocker lane=ohos status=blocked summary=OHOS 在 release/1.1.0 HAP 上复现下载后立即播放失败：正式缓存已存在但已缓存歌曲海 full-audio candidate 仍走 transient proxy，日志出现 `bytes=0`、`promote-failed Bad state: No element`、AVPlayer `NET_ERR-server-IO error`、UI `playback_load_failed`；判断为公共 Dart `playCandidate` cache-first 路由缺失。
 - 2026-07-11 type=task lane=architect status=assigned summary=Architect 裁决由 Android owner 修公共 Dart。专项工程 `/Users/huangqi/AIHome/projects/ai_music_AM-20260623-003_android_cache_first` 已基于 `origin/release/1.1.0=45b302d48649330446d381b8593c50e22b9099f5` 创建，分支 `feature/1.1.0/AM-20260623-003-cache-first-full-audio-playback`；若 Android 10 到 15 分钟仍无 review_request 或 blocker，architect 将接管或重分配专项 owner。
 - 2026-07-11 type=review_result lane=architect status=accepted summary=Architect 窄复核 Android 回改 accepted：`playCandidate` 先查 `_cachedRecordForCandidate`，命中后走 `_refreshCachedCandidateMetadata` 与正式缓存 file 播放；只有未缓存 full-audio source 才进入 `_playFullAudioStreamingCandidate`。复核路径为 `/Users/huangqi/AIHome/projects/ai_music_AM-20260711-003`，diff 仅认可 `lib/src/application/music_controller.dart` 与 `test/music_controller_test.dart` 的 AM-20260623-003 部分；同目录 `swipe_to_skip.dart` 与 `widget_test.dart` 属 AM-20260625/AM-003 WIP，合入前必须拆分，不得混入本任务提交。
+- 2026-07-11 type=review_result lane=architect status=accepted summary=Architect 复核独立 Project Path `/Users/huangqi/AIHome/projects/ai_music_AM-20260623-003_android_cache_first` commit `2f309fbd0619c34da6f1bf99d4d451b8953a7b7d` accepted，diff 仅 `music_controller.dart` 与 `music_controller_test.dart`；targeted tests 63 passed、scoped analyze no issues、diff-check clean。随后 fast-forward 合入并推送 `release/1.1.0` 到 `2f309fbd0619c34da6f1bf99d4d451b8953a7b7d`，OHOS 可基于该 release HEAD 构建 HAP 复测四首。
 
 ## 相关提交
 
@@ -148,9 +149,9 @@ Updated: 2026-07-11
 
 - Target Version: 1.0.1
 - Release Tag: pending
-- Android APK: pending
+- Android APK: cbe88617f2acd88b20ca57a0fadd9a4a5eee3f967bcad8f7a7b3c7198d1c7c6a
 - HarmonyOS HAP: `build/ohos/hap/entry-default-signed.hap`
-- Push Status: pending_main_push
+- Push Status: pushed
 
 ## Review 结果
 
@@ -161,6 +162,7 @@ Updated: 2026-07-11
 - HarmonyOS Findings: `5916b4c` 修复方向和证据充分。full load 强制重建 native source tree，清理 next preload，并在 `loadAssent()` 越界/空 uri 时可靠上抛，直接覆盖本次 P1 根因；HDC 复测四首 `yellow` 的 metadata、source path、file size 与播放状态一致，未再出现越界或无声。
 - Architect Findings: HarmonyOS P1 可合入 main 并推送；推送后需从 main 构建 signed HAP，安装到 HarmonyOS 测试机并通知 product。小米 17 Pro 是 Android 设备，本轮 HarmonyOS HAP 不适用；如后续要给小米 17 Pro 装包，必须基于 Android/common Dart accepted 代码另行构建 APK。
 - Architect Findings 2026-07-11 cache-first review: accepted for code boundary. `lib/src/application/music_controller.dart` now checks cache before full-audio streaming, so cached `source_gequhai` candidates use the local file path instead of transient proxy. Regression test `playCandidate plays cached Gequhai full audio before opening transient stream` covers `loadedIds=cacheId`, `uri.scheme=file`, and `playingCachedFile`; `_FailingStreamingPlayback` would fail if transient opened. Verification run by architect: `/Users/huangqi/AIHome/tools/flutter/bin/flutter test --no-pub test/music_controller_test.dart test/music_cache_test.dart test/progressive_audio_cache_test.dart --dart-define=AI_MUSIC_DISABLE_AUDIO_SERVICE=true` = 63 passed; `/Users/huangqi/AIHome/tools/flutter/bin/flutter analyze --no-pub lib/src/application/music_controller.dart test/music_controller_test.dart` = no issues. Scope caveat: Android implemented inside `/Users/huangqi/AIHome/projects/ai_music_AM-20260711-003`, where unrelated WIP files `lib/src/presentation/swipe_to_skip.dart` and `test/widget_test.dart` are also dirty; release merge requires cherry-picking or committing only the two accepted AM-20260623-003 files into the designated clean Project Path/branch.
+- Architect Findings 2026-07-11 independent replay: accepted and pushed. Independent Project Path `/Users/huangqi/AIHome/projects/ai_music_AM-20260623-003_android_cache_first` contains only `2f309fbd0619c34da6f1bf99d4d451b8953a7b7d` over `origin/release/1.1.0=45b302d48649330446d381b8593c50e22b9099f5`; diff is limited to `lib/src/application/music_controller.dart` and `test/music_controller_test.dart`. Architect reran `/Users/huangqi/AIHome/tools/flutter/bin/flutter test --no-pub test/music_controller_test.dart test/music_cache_test.dart test/progressive_audio_cache_test.dart --dart-define=AI_MUSIC_DISABLE_AUDIO_SERVICE=true` = 63 passed; `/Users/huangqi/AIHome/tools/flutter/bin/flutter analyze --no-pub lib/src/application/music_controller.dart test/music_controller_test.dart` = no issues; `git diff --check origin/release/1.1.0..HEAD` = clean. `release/1.1.0` has been fast-forwarded and pushed to `2f309fbd0619c34da6f1bf99d4d451b8953a7b7d`; next owner is OHOS for HAP build/install and four-song retest.
 
 ## 2026-07-11 Active Request Convergence
 
