@@ -111,6 +111,36 @@ Range GET bytes=0-8191 <cdn-url>
 - 歌词：页面 `#content-lrc2`。
 - 封面：`window.mp3_cover`。
 
+## 多样例脚本证据
+
+2026-07-11 已按低频串行策略复核 AM-004 多样例，证据文件：
+
+- 脚本：`/Users/huangqi/AIHome/projects/ai_music_AM-20260711-004/scripts/probe_gequhai_am004_samples.js`
+- 汇总 JSON：`/Users/huangqi/AIHome/projects/ai_music_AM-20260711-004/evidence/script/gequhai-am004-multisample-result.json`
+- 报告：`/Users/huangqi/AIHome/projects/ai_music_AM-20260711-004/reports/am004-gequhai-multisample-status.md`
+- 原始 headers/html/bin：`/Users/huangqi/AIHome/projects/ai_music_AM-20260711-004/evidence/script/`
+
+可进入客户端完整结果的样例：
+
+| query | selected | play | media validation | lyrics | cover | classification |
+| --- | --- | --- | --- | --- | --- | --- |
+| 外婆 | 外婆 / 周杰伦 | `/play/6330` | HEAD 200 `audio/mpeg` length 3913543; Range 206 `bytes 0-8191/3913543` | 83 lines | ok | `direct_full_audio` |
+| 一丝不挂 | 一丝不挂 / 陈奕迅 | `/play/434800` | HEAD 200 `audio/mpeg` length 3877617; Range 206 `bytes 0-8191/3877617` | 52 lines | ok | `direct_full_audio` |
+| 稻香 | 稻香 / 周杰伦 | `/play/333` | HEAD 200 `audio/mpeg` length 3576668; Range 206 `bytes 0-8191/3576668` | 48 lines | ok | `direct_full_audio` |
+| 哎呀 | 哎呀 / 王蓉 | `/play/38173` | HEAD 200 `audio/mpeg` length 3468831; Range 206 `bytes 0-8191/3468831` | 87 lines | ok | `direct_full_audio` |
+
+失败样例：
+
+- `东方财富`：搜索返回 200，但 `candidates=0`，分类为 `no_search_match`。客户端必须 fail closed，不显示可播放行，不写正式缓存。
+
+`window.mp3_extra_url` 解码规则与页面 JS 一致：
+
+```text
+atob(value.replace(/#/g, "H").replace(/%/g, "S"))
+```
+
+当前多样例解码结果均为夸克链接，只能作为 `external_pan_link` evidence，不能作为完整音频、边下边播或正式缓存路径。
+
 ## 客户端分类
 
 - `source_gequhai` + `direct_audio` + `canCacheAudio=true`：只有搜索、详情、API、HEAD、Range 全部通过才成立。

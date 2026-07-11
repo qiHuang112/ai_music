@@ -1,0 +1,693 @@
+{
+  "request": "AM-20260711-004",
+  "workflow": "superpowers-v1",
+  "lane": "source-researcher",
+  "generatedAt": "2026-07-11T09:58:37.343Z",
+  "startedAt": "2026-07-11T09:57:59.316Z",
+  "policy": "low_frequency_serial_search_detail_api_head_range",
+  "samples": [
+    {
+      "query": "外婆",
+      "expectedTitle": "外婆",
+      "expectedArtist": "周杰伦",
+      "expectFailure": false,
+      "search": {
+        "url": "https://www.gequhai.com/s/%E5%A4%96%E5%A9%86",
+        "status": 200,
+        "candidateCount": 8,
+        "candidates": [
+          {
+            "rank": 1,
+            "id": "6330",
+            "title": "外婆",
+            "artist": "周杰伦 2 外婆的澎湖湾",
+            "link": "https://www.gequhai.com/play/6330",
+            "matchScore": 1
+          },
+          {
+            "rank": 2,
+            "id": "22301",
+            "title": "外婆的澎湖湾",
+            "artist": "任贤齐 3 外婆的澎湖湾",
+            "link": "https://www.gequhai.com/play/22301",
+            "matchScore": 0
+          },
+          {
+            "rank": 3,
+            "id": "16907",
+            "title": "外婆的澎湖湾",
+            "artist": "",
+            "link": "https://www.gequhai.com/play/16907",
+            "matchScore": 0
+          },
+          {
+            "rank": 4,
+            "id": "22310",
+            "title": "外婆的澎湖湾",
+            "artist": "",
+            "link": "https://www.gequhai.com/play/22310",
+            "matchScore": 0
+          },
+          {
+            "rank": 5,
+            "id": "192997",
+            "title": "外婆的澎湖湾",
+            "artist": "",
+            "link": "https://www.gequhai.com/play/192997",
+            "matchScore": 0
+          },
+          {
+            "rank": 6,
+            "id": "22312",
+            "title": "外婆的澎湖湾",
+            "artist": "",
+            "link": "https://www.gequhai.com/play/22312",
+            "matchScore": 0
+          },
+          {
+            "rank": 7,
+            "id": "4643",
+            "title": "我的地盘+七里香+借口+外婆+将军+搁浅+乱舞春秋+困兽之斗+园游会+止战之殇",
+            "artist": "周杰伦 8 外婆桥",
+            "link": "https://www.gequhai.com/play/4643",
+            "matchScore": 0
+          },
+          {
+            "rank": 8,
+            "id": "2507532",
+            "title": "外婆桥",
+            "artist": "任然 9 外婆桥",
+            "link": "https://www.gequhai.com/play/2507532",
+            "matchScore": 0
+          }
+        ]
+      },
+      "selectedCandidate": {
+        "rank": 1,
+        "id": "6330",
+        "title": "外婆",
+        "artist": "周杰伦 2 外婆的澎湖湾",
+        "link": "https://www.gequhai.com/play/6330",
+        "matchScore": 1
+      },
+      "detail": {
+        "url": "https://www.gequhai.com/play/6330",
+        "status": 200,
+        "mp3Id": "6330",
+        "playId": "62663653a1cb3bf1c96f56f49503382f",
+        "title": "外婆",
+        "artist": "周杰伦",
+        "duration": "00:00",
+        "cookieJarNames": [
+          "server_session_9d2a987d",
+          "PHPSESSID"
+        ]
+      },
+      "api": {
+        "url": "https://www.gequhai.com/api/music",
+        "status": 200,
+        "responseCode": 200,
+        "responseMessage": "ok!",
+        "requestHeaders": {
+          "origin": "https://www.gequhai.com",
+          "referer": "https://www.gequhai.com/play/6330",
+          "x-requested-with": "Http",
+          "x-custom-header": "Key",
+          "cookieJar": "present"
+        },
+        "audioUrl": "https://car-lv.kuwo.cn/740842efcec3b06908f03667304e5dc8/6a520d28/resource/30106/trackmedia/M5000027gHes1HjRNe.mp3"
+      },
+      "audioValidation": {
+        "head": {
+          "status": 200,
+          "contentType": "audio/mpeg",
+          "contentLength": 3913543,
+          "acceptRanges": "bytes"
+        },
+        "range": {
+          "status": 206,
+          "contentType": "audio/mpeg",
+          "contentRange": "bytes 0-8191/3913543",
+          "rangeTotal": 3913543,
+          "bytesRead": 8192
+        }
+      },
+      "lyrics": {
+        "source": "page:#content-lrc2",
+        "lineCount": 83,
+        "sample": [
+          "[00:00.00]外婆 - 周杰伦 (Jay Chou)",
+          "[00:05.00]词：周杰伦",
+          "[00:11.00]曲：周杰伦",
+          "[00:17.00]编曲：周杰伦",
+          "[00:23.00]今天是外婆生日",
+          "[00:24.00]我换上复古西装",
+          "[00:26.00]载着外婆开着拉风的古董车",
+          "[00:28.00]兜兜兜风"
+        ]
+      },
+      "cover": {
+        "source": "page:window.mp3_cover",
+        "url": "https://img2.kuwo.cn/star/albumcover/120/30/97/4276557883.jpg"
+      },
+      "externalPan": {
+        "url": "https://pan.quark.cn/s/f8da49f2f6c7",
+        "classification": "external_pan_link"
+      },
+      "classification": "direct_full_audio",
+      "failureCode": "",
+      "clientReady": true
+    },
+    {
+      "query": "一丝不挂",
+      "expectedTitle": "一丝不挂",
+      "expectedArtist": "陈奕迅",
+      "expectFailure": false,
+      "search": {
+        "url": "https://www.gequhai.com/s/%E4%B8%80%E4%B8%9D%E4%B8%8D%E6%8C%82",
+        "status": 200,
+        "candidateCount": 8,
+        "candidates": [
+          {
+            "rank": 1,
+            "id": "434800",
+            "title": "一丝不挂",
+            "artist": "",
+            "link": "https://www.gequhai.com/play/434800",
+            "matchScore": 1
+          },
+          {
+            "rank": 2,
+            "id": "5860092",
+            "title": "一丝不挂来人间",
+            "artist": "",
+            "link": "https://www.gequhai.com/play/5860092",
+            "matchScore": 0
+          },
+          {
+            "rank": 3,
+            "id": "706816",
+            "title": "一丝不挂 (Live)",
+            "artist": "第四碗海龟汤",
+            "link": "https://www.gequhai.com/play/706816",
+            "matchScore": 0
+          },
+          {
+            "rank": 4,
+            "id": "5576275",
+            "title": "她参加了山顶露营，酒后的第二天竟一丝不挂的死在山顶--第四碗海龟汤",
+            "artist": "",
+            "link": "https://www.gequhai.com/play/5576275",
+            "matchScore": 0
+          },
+          {
+            "rank": 5,
+            "id": "3190080",
+            "title": "一丝不挂的忧伤",
+            "artist": "",
+            "link": "https://www.gequhai.com/play/3190080",
+            "matchScore": 0
+          },
+          {
+            "rank": 6,
+            "id": "2888109",
+            "title": "一丝不挂 (原版伴奏)",
+            "artist": "",
+            "link": "https://www.gequhai.com/play/2888109",
+            "matchScore": 0
+          },
+          {
+            "rank": 7,
+            "id": "954680",
+            "title": "《一丝不挂》（粤）",
+            "artist": "瓜田 8 一丝不挂钢琴版",
+            "link": "https://www.gequhai.com/play/954680",
+            "matchScore": 0
+          },
+          {
+            "rank": 8,
+            "id": "820857",
+            "title": "一丝不挂钢琴版",
+            "artist": "",
+            "link": "https://www.gequhai.com/play/820857",
+            "matchScore": 0
+          }
+        ]
+      },
+      "selectedCandidate": {
+        "rank": 1,
+        "id": "434800",
+        "title": "一丝不挂",
+        "artist": "",
+        "link": "https://www.gequhai.com/play/434800",
+        "matchScore": 1
+      },
+      "detail": {
+        "url": "https://www.gequhai.com/play/434800",
+        "status": 200,
+        "mp3Id": "434800",
+        "playId": "2383d6b01663ca1ee6797fd62646136e",
+        "title": "一丝不挂",
+        "artist": "陈奕迅",
+        "duration": "00:00",
+        "cookieJarNames": [
+          "server_session_9d2a987d",
+          "PHPSESSID"
+        ]
+      },
+      "api": {
+        "url": "https://www.gequhai.com/api/music",
+        "status": 200,
+        "responseCode": 200,
+        "responseMessage": "ok!",
+        "requestHeaders": {
+          "origin": "https://www.gequhai.com",
+          "referer": "https://www.gequhai.com/play/434800",
+          "x-requested-with": "Http",
+          "x-custom-header": "Key",
+          "cookieJar": "present"
+        },
+        "audioUrl": "https://car-lv.kuwo.cn/83c4f03ac24d1c261613d75d8e798993/6a521328/resource/30106/trackmedia/M500001gBMIM468DN5.mp3"
+      },
+      "audioValidation": {
+        "head": {
+          "status": 200,
+          "contentType": "audio/mpeg",
+          "contentLength": 3877617,
+          "acceptRanges": "bytes"
+        },
+        "range": {
+          "status": 206,
+          "contentType": "audio/mpeg",
+          "contentRange": "bytes 0-8191/3877617",
+          "rangeTotal": 3877617,
+          "bytesRead": 8192
+        }
+      },
+      "lyrics": {
+        "source": "page:#content-lrc2",
+        "lineCount": 52,
+        "sample": [
+          "[00:00.00]一丝不挂 - 陈奕迅 (Eason Chan)",
+          "[00:05.00]词：林夕",
+          "[00:10.00]曲：泽日生",
+          "[00:15.00]编曲：陈珀",
+          "[00:20.00]监制：Alvin Leong",
+          "[00:25.00]分手时内疚的你一转脸",
+          "[00:30.00]为日后不想有什么牵连",
+          "[00:35.00]当我工作睡觉"
+        ]
+      },
+      "cover": {
+        "source": "page:window.mp3_cover",
+        "url": "https://img2.kuwo.cn/star/albumcover/120/s4s93/93/2840291452.jpg"
+      },
+      "externalPan": {
+        "url": "https://pan.quark.cn/s/79e62b4c8952",
+        "classification": "external_pan_link"
+      },
+      "classification": "direct_full_audio",
+      "failureCode": "",
+      "clientReady": true
+    },
+    {
+      "query": "稻香",
+      "expectedTitle": "稻香",
+      "expectedArtist": "周杰伦",
+      "expectFailure": false,
+      "search": {
+        "url": "https://www.gequhai.com/s/%E7%A8%BB%E9%A6%99",
+        "status": 200,
+        "candidateCount": 8,
+        "candidates": [
+          {
+            "rank": 1,
+            "id": "333",
+            "title": "稻香",
+            "artist": "周杰伦 2 稻香",
+            "link": "https://www.gequhai.com/play/333",
+            "matchScore": 1
+          },
+          {
+            "rank": 2,
+            "id": "593",
+            "title": "稻香",
+            "artist": "",
+            "link": "https://www.gequhai.com/play/593",
+            "matchScore": 1
+          },
+          {
+            "rank": 3,
+            "id": "2976975",
+            "title": "稻香+简单爱+甜甜的+花海+珊瑚海+爱的飞行日记+阳光宅男+她的睫毛+晴天+七里香+一路向北+最长的电影+最伟大的作品+夜的第七章+兰亭序+烟花易冷+千里之外+红尘客栈+青花瓷 (网友改编)",
+            "artist": "浅影阿&九三 4 稻香",
+            "link": "https://www.gequhai.com/play/2976975",
+            "matchScore": 0
+          },
+          {
+            "rank": 4,
+            "id": "2288250",
+            "title": "稻香",
+            "artist": "",
+            "link": "https://www.gequhai.com/play/2288250",
+            "matchScore": 1
+          },
+          {
+            "rank": 5,
+            "id": "1850525",
+            "title": "稻香 (原版伴奏)",
+            "artist": "",
+            "link": "https://www.gequhai.com/play/1850525",
+            "matchScore": 0
+          },
+          {
+            "rank": 6,
+            "id": "2208059",
+            "title": "晴天+稻香 (Live)",
+            "artist": "",
+            "link": "https://www.gequhai.com/play/2208059",
+            "matchScore": 0
+          },
+          {
+            "rank": 7,
+            "id": "1433871",
+            "title": "稻香 (纯音乐) (纯音乐)",
+            "artist": "",
+            "link": "https://www.gequhai.com/play/1433871",
+            "matchScore": 0
+          },
+          {
+            "rank": 8,
+            "id": "5153065",
+            "title": "稻香 (Live)",
+            "artist": "",
+            "link": "https://www.gequhai.com/play/5153065",
+            "matchScore": 0
+          }
+        ]
+      },
+      "selectedCandidate": {
+        "rank": 1,
+        "id": "333",
+        "title": "稻香",
+        "artist": "周杰伦 2 稻香",
+        "link": "https://www.gequhai.com/play/333",
+        "matchScore": 1
+      },
+      "detail": {
+        "url": "https://www.gequhai.com/play/333",
+        "status": 200,
+        "mp3Id": "333",
+        "playId": "c26cace43a6d9616683cf0da1e7ebeac",
+        "title": "稻香",
+        "artist": "周杰伦",
+        "duration": "00:00",
+        "cookieJarNames": [
+          "server_session_9d2a987d",
+          "PHPSESSID"
+        ]
+      },
+      "api": {
+        "url": "https://www.gequhai.com/api/music",
+        "status": 200,
+        "responseCode": 200,
+        "responseMessage": "ok!",
+        "requestHeaders": {
+          "origin": "https://www.gequhai.com",
+          "referer": "https://www.gequhai.com/play/333",
+          "x-requested-with": "Http",
+          "x-custom-header": "Key",
+          "cookieJar": "present"
+        },
+        "audioUrl": "https://car-er.kuwo.cn/a9777bf8b2c0fe506eef9dd562b27dd6/6a51f9ac/resource/30106/trackmedia/M500003aAYrm3GE0Ac.mp3"
+      },
+      "audioValidation": {
+        "head": {
+          "status": 200,
+          "contentType": "audio/mpeg",
+          "contentLength": 3576668,
+          "acceptRanges": "bytes"
+        },
+        "range": {
+          "status": 206,
+          "contentType": "audio/mpeg",
+          "contentRange": "bytes 0-8191/3576668",
+          "rangeTotal": 3576668,
+          "bytesRead": 8192
+        }
+      },
+      "lyrics": {
+        "source": "page:#content-lrc2",
+        "lineCount": 48,
+        "sample": [
+          "[00:00.00]稻香 - 周杰伦 (Jay Chou)",
+          "[00:07.00]词：周杰伦",
+          "[00:15.00]曲：周杰伦",
+          "[00:23.00]编曲：黄雨勋",
+          "[00:30.00]对这个世界如果你有太多的抱怨",
+          "[00:34.00]跌倒了就不敢继续往前走",
+          "[00:37.00]为什么人要这么的脆弱堕落",
+          "[00:41.00]请你打开电视看看"
+        ]
+      },
+      "cover": {
+        "source": "page:window.mp3_cover",
+        "url": "https://img2.kuwo.cn/star/albumcover/120/s4s0/93/1794217775.jpg"
+      },
+      "externalPan": {
+        "url": "https://pan.quark.cn/s/50caad3cc3f8",
+        "classification": "external_pan_link"
+      },
+      "classification": "direct_full_audio",
+      "failureCode": "",
+      "clientReady": true
+    },
+    {
+      "query": "哎呀",
+      "expectedTitle": "哎呀",
+      "expectedArtist": "王蓉",
+      "expectFailure": false,
+      "search": {
+        "url": "https://www.gequhai.com/s/%E5%93%8E%E5%91%80",
+        "status": 200,
+        "candidateCount": 8,
+        "candidates": [
+          {
+            "rank": 1,
+            "id": "1030937",
+            "title": "哎呀哎呀 (DJ阿卓版)",
+            "artist": "大黑&王小胖 2 哎呀",
+            "link": "https://www.gequhai.com/play/1030937",
+            "matchScore": 0
+          },
+          {
+            "rank": 2,
+            "id": "38173",
+            "title": "哎呀",
+            "artist": "",
+            "link": "https://www.gequhai.com/play/38173",
+            "matchScore": 1
+          },
+          {
+            "rank": 3,
+            "id": "68689",
+            "title": "哎呀",
+            "artist": "",
+            "link": "https://www.gequhai.com/play/68689",
+            "matchScore": 1
+          },
+          {
+            "rank": 4,
+            "id": "1030941",
+            "title": "哎呀哎呀",
+            "artist": "",
+            "link": "https://www.gequhai.com/play/1030941",
+            "matchScore": 0
+          },
+          {
+            "rank": 5,
+            "id": "1030940",
+            "title": "哎呀哎呀",
+            "artist": "",
+            "link": "https://www.gequhai.com/play/1030940",
+            "matchScore": 0
+          },
+          {
+            "rank": 6,
+            "id": "5840714",
+            "title": "哎呀咿呀",
+            "artist": "小疯子)",
+            "link": "https://www.gequhai.com/play/5840714",
+            "matchScore": 0
+          },
+          {
+            "rank": 7,
+            "id": "5654344",
+            "title": "哎呀我的姑娘 (cover: 小疯子)",
+            "artist": "樊志豪 8 哎呀",
+            "link": "https://www.gequhai.com/play/5654344",
+            "matchScore": 0
+          },
+          {
+            "rank": 8,
+            "id": "3764673",
+            "title": "哎呀，小凉山",
+            "artist": "阿四龙 9 哎呀呀",
+            "link": "https://www.gequhai.com/play/3764673",
+            "matchScore": 0
+          }
+        ]
+      },
+      "selectedCandidate": {
+        "rank": 2,
+        "id": "38173",
+        "title": "哎呀",
+        "artist": "",
+        "link": "https://www.gequhai.com/play/38173",
+        "matchScore": 1
+      },
+      "detail": {
+        "url": "https://www.gequhai.com/play/38173",
+        "status": 200,
+        "mp3Id": "38173",
+        "playId": "93cf9e948de1c7bed52757e816406eeb",
+        "title": "哎呀",
+        "artist": "王蓉",
+        "duration": "00:00",
+        "cookieJarNames": [
+          "server_session_9d2a987d",
+          "PHPSESSID"
+        ]
+      },
+      "api": {
+        "url": "https://www.gequhai.com/api/music",
+        "status": 200,
+        "responseCode": 200,
+        "responseMessage": "ok!",
+        "requestHeaders": {
+          "origin": "https://www.gequhai.com",
+          "referer": "https://www.gequhai.com/play/38173",
+          "x-requested-with": "Http",
+          "x-custom-header": "Key",
+          "cookieJar": "present"
+        },
+        "audioUrl": "https://car-er.kuwo.cn/aec4ca65283ccce724d4d0cfbbdeadd6/6a521338/resource/30106/trackmedia/M500000ybLMu1RZ65O.mp3"
+      },
+      "audioValidation": {
+        "head": {
+          "status": 200,
+          "contentType": "audio/mpeg",
+          "contentLength": 3468831,
+          "acceptRanges": "bytes"
+        },
+        "range": {
+          "status": 206,
+          "contentType": "audio/mpeg",
+          "contentRange": "bytes 0-8191/3468831",
+          "rangeTotal": 3468831,
+          "bytesRead": 8192
+        }
+      },
+      "lyrics": {
+        "source": "page:#content-lrc2",
+        "lineCount": 87,
+        "sample": [
+          "[00:00.00]哎呀-王蓉",
+          "[00:00.00]词：李敏/王蓉",
+          "[00:00.00]曲：王蓉",
+          "[00:00.00]编曲：王蓉",
+          "[00:00.00]哎呀",
+          "[00:09.00]哎呀",
+          "[00:15.00]哎呀",
+          "[00:16.00]嘿相爱一次"
+        ]
+      },
+      "cover": {
+        "source": "page:window.mp3_cover",
+        "url": "https://img2.kuwo.cn/star/albumcover/120/25/73/1950245592.jpg"
+      },
+      "externalPan": {
+        "url": "https://pan.quark.cn/s/c62e929dc2d3",
+        "classification": "external_pan_link"
+      },
+      "classification": "direct_full_audio",
+      "failureCode": "",
+      "clientReady": true
+    },
+    {
+      "query": "东方财富",
+      "expectedTitle": "东方财富",
+      "expectedArtist": "",
+      "expectFailure": true,
+      "search": {
+        "url": "https://www.gequhai.com/s/%E4%B8%9C%E6%96%B9%E8%B4%A2%E5%AF%8C",
+        "status": 200,
+        "candidateCount": 0,
+        "candidates": []
+      },
+      "selectedCandidate": null,
+      "detail": null,
+      "api": null,
+      "audioValidation": null,
+      "lyrics": null,
+      "cover": null,
+      "externalPan": null,
+      "classification": "no_search_match",
+      "failureCode": "no_search_match",
+      "clientReady": false
+    }
+  ],
+  "clientEligible": [
+    {
+      "query": "外婆",
+      "title": "外婆",
+      "artist": "周杰伦",
+      "playPage": "https://www.gequhai.com/play/6330",
+      "playId": "62663653a1cb3bf1c96f56f49503382f",
+      "audioUrl": "https://car-lv.kuwo.cn/740842efcec3b06908f03667304e5dc8/6a520d28/resource/30106/trackmedia/M5000027gHes1HjRNe.mp3",
+      "contentLength": 3913543,
+      "lyricsLines": 83,
+      "coverUrl": "https://img2.kuwo.cn/star/albumcover/120/30/97/4276557883.jpg"
+    },
+    {
+      "query": "一丝不挂",
+      "title": "一丝不挂",
+      "artist": "陈奕迅",
+      "playPage": "https://www.gequhai.com/play/434800",
+      "playId": "2383d6b01663ca1ee6797fd62646136e",
+      "audioUrl": "https://car-lv.kuwo.cn/83c4f03ac24d1c261613d75d8e798993/6a521328/resource/30106/trackmedia/M500001gBMIM468DN5.mp3",
+      "contentLength": 3877617,
+      "lyricsLines": 52,
+      "coverUrl": "https://img2.kuwo.cn/star/albumcover/120/s4s93/93/2840291452.jpg"
+    },
+    {
+      "query": "稻香",
+      "title": "稻香",
+      "artist": "周杰伦",
+      "playPage": "https://www.gequhai.com/play/333",
+      "playId": "c26cace43a6d9616683cf0da1e7ebeac",
+      "audioUrl": "https://car-er.kuwo.cn/a9777bf8b2c0fe506eef9dd562b27dd6/6a51f9ac/resource/30106/trackmedia/M500003aAYrm3GE0Ac.mp3",
+      "contentLength": 3576668,
+      "lyricsLines": 48,
+      "coverUrl": "https://img2.kuwo.cn/star/albumcover/120/s4s0/93/1794217775.jpg"
+    },
+    {
+      "query": "哎呀",
+      "title": "哎呀",
+      "artist": "王蓉",
+      "playPage": "https://www.gequhai.com/play/38173",
+      "playId": "93cf9e948de1c7bed52757e816406eeb",
+      "audioUrl": "https://car-er.kuwo.cn/aec4ca65283ccce724d4d0cfbbdeadd6/6a521338/resource/30106/trackmedia/M500000ybLMu1RZ65O.mp3",
+      "contentLength": 3468831,
+      "lyricsLines": 87,
+      "coverUrl": "https://img2.kuwo.cn/star/albumcover/120/25/73/1950245592.jpg"
+    }
+  ],
+  "failClosed": [
+    {
+      "query": "东方财富",
+      "classification": "no_search_match",
+      "failureCode": "no_search_match"
+    }
+  ]
+}
