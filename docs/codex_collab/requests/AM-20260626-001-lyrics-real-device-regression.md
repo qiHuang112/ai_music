@@ -33,6 +33,7 @@ Updated: 2026-07-11
 
 ## QA 验证
 
+- QA Gate: `docs/codex_collab/knowledge/qa-researcher/2026-07-11-am20260626-001-lyrics-real-device-matrix.md`
 - 默认设备：小米 10 Pro `192.168.31.76:5555`。
 - QA 使用 Android 提供的 Beta manifest 和 APK sha。
 - QA 运行 `tool/collect_android_diagnostics.sh --device 192.168.31.76:5555` 采集证据。
@@ -71,3 +72,4 @@ Updated: 2026-07-11
 - Architect 已按 Product 巡检并行分配，不等待 AM-20260623 cache-first 修复完成。
 - 独立工程 `/Users/huangqi/AIHome/projects/ai_music_AM-20260626-001_android_lyrics_regression` 已基于 `origin/release/1.1.0=45b302d48649330446d381b8593c50e22b9099f5` 创建。
 - Android/QA 必须按真实设备清单回传 `坏孩子`、`苦笑`、`风度`、`昆明晚安`、`春雨里洗过的太阳`、`一丝不挂` 的 pass/fail/blocker；若某首无高置信完整音频或无 timed LRC，必须给结构化 miss chain，不得用 PREVIEW、URL、网页介绍或无时间轴文本当作歌词完成。
+- 2026-07-11 QA gate 已绑定：`docs/codex_collab/knowledge/qa-researcher/2026-07-11-am20260626-001-lyrics-real-device-matrix.md`。Android 未在 10 到 15 分钟内回 APK sha、设备、截图/XML、cache index、`.lrc`、resolver/sourceAttempt 时，architect 追 Android owner；QA 收到包后按矩阵给 pass/fail/blocker。
