@@ -1,6 +1,6 @@
 # AM-20260711-004 歌曲海完整搜索下载边播主链路
 
-Status: accepted_pending_push
+Status: pushed
 Owner Lane: android-source
 Assist Lane: source-researcher, android-streaming, android, architect, ui, qa-researcher
 Source Thread: 019f4ed4-106e-7860-875d-a32f81629e4e
@@ -39,9 +39,10 @@ Code Quality Review Result: accepted
 Full Verification Evidence: source-researcher accepted, Android owner accepted, android-streaming accepted; targeted suite 145 passed, analyze no issues, request/review gates OK.
 Blocking Findings: none
 Merge Evidence: release/1.1.0 merge commit 1744c5e3266fe9e8527316787479caf4b3247d68 merged feature/1.1.0/AM-20260711-004-gequhai-full-source-mainline into release/1.1.0.
-Push Evidence: pending
-Product Notification Evidence: pending
-Knowledge Evidence: pending
+Push Evidence: `git push origin release/1.1.0` succeeded; remote branch `origin/release/1.1.0` created with release HEAD 12f5173 before final push-evidence ledger update.
+Push Status: pushed
+Product Notification Evidence: architect final response to current product thread will include target branch, merge commit, release HEAD, push result, APK sha, installed device, and AM-003 baseline decision.
+Knowledge Evidence: docs/codex_collab/knowledge/source-researcher/2026-07-11-am004-gequhai-full-source-protocol.md; /tmp/am004-device-evidence/full-source-postfix/summary.json; /tmp/am004-device-evidence/waipo-rerun-20260711-190020/summary.json
 
 ## 背景
 
