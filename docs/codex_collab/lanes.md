@@ -6,7 +6,7 @@
 
 | Lane | 线程标题 | Thread ID | 主要职责 | 可写范围 | 状态 |
 | --- | --- | --- | --- | --- | --- |
-| product | AIMusic-产品负责人 | `019ee910-8747-71e3-9293-720273f9e61f` | 最高优先级产品决策、用户反馈收口、需求澄清、体验验收、后续测试/UI lane 招募。 | 产品需求、交互方案、验收标准、优先级、协同账本中的产品记录。默认不直接改业务代码。 | active |
+| product | AIMusic-产品负责人 | `019f4ed4-106e-7860-875d-a32f81629e4e` | 最高优先级产品决策、用户反馈收口、需求澄清、体验验收、后续测试/UI lane 招募。旧线程 `019ee910-8747-71e3-9293-720273f9e61f` 仅作为历史 Source Thread / 归档引用，不作为当前回传入口。 | 产品需求、交互方案、验收标准、优先级、协同账本中的产品记录。默认不直接改业务代码。 | active |
 | architect | AIMusic-架构师Reviewer | `019ee4b7-e7d2-7751-a4c4-150ede83c350` | 规划、拆任务、review、验收、跨 lane 冲突裁决。 | 协同账本、review 记录、架构决策。除非用户明确要求，否则不直接实现业务功能。 | idle |
 | android | AIMusic-安卓开发 | `019ee41d-647e-7250-bb01-f1ae81098696` | 公共 Dart 业务逻辑、Android 行为、Android 打包发布、测试、Android 架构文档。 | `lib/src/`、`test/`、`android/`、Android 构建工具、公共业务文档。 | idle |
 | android-source | AI Music-安卓歌源修复开发 | `019f2fef-a4bb-7891-98b6-5f8b0bf3b17b` | AM-20260705-009 歌源下载失败分类、URL 类型校验和短超时 fallback。 | 迁移到独立仓库/工程目录；旧 `/Users/huangqi/AIHome/worktrees/ai_music/android-AM-20260705-009` 只可作为取补丁来源，合入前必须在最新主线独立工程重放。 | active |

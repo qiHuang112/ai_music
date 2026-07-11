@@ -3,6 +3,7 @@
 Status: in_progress
 Owner Lane: android
 Source Thread: 019ee910-8747-71e3-9293-720273f9e61f
+Product Return Thread: 019f4ed4-106e-7860-875d-a32f81629e4e
 Target Version: 1.1.0
 Base Branch: release/1.0.2
 Work Branch: feature/1.1.0/AM-20260711-003-library-first-ui
@@ -80,6 +81,7 @@ Knowledge Evidence: docs/codex_collab/knowledge/qa-researcher/2026-07-11-ui-prod
 - 2026-07-11 type=status lane=architect summary=Architect 已补齐 Android start gate 需要的短路径兼容 request `docs/codex_collab/requests/AM-20260711-003-library-first-ui.md`，内容与 canonical `AM-20260711-003-library-first-mobile-ui-implementation.md` 保持一致；Android 可用任一路径运行 `validate-request` 和 `validate-workflow --gate start`。
 - 2026-07-11 type=status lane=ui summary=UI 已完成页面级实现规范 `docs/codex_collab/knowledge/ui/2026-07-11-am003-library-first-page-spec.md`，覆盖 Home/Search/Player/Queue/Library/Download/Settings、tokens、状态 chip、48px 触控、Android/OHOS safe area、键盘常驻、mini player、长文本、热榜无 Flutter layout overflow 和 QA 截图命名。
 - 2026-07-11 type=status lane=architect summary=Architect 已将 UI page spec 同步进 AM-003 Project Path，并给出 scope 裁决：新增真实当前队列 bottom sheet 属于 AM-003；热榜红色竖条按图片水印/素材质量处理，不按 Flutter overflow 定性，但实现仍需防 layout overflow；状态 chip 映射按 UI spec 执行；标题取舍为首页/主入口用 `音乐`，搜索页和搜索输入聚焦态用 `搜音乐`。
+- 2026-07-11 type=status lane=architect summary=Architect 已整理 AM-003 product 路由：当前 product 回传入口为 `019f4ed4-106e-7860-875d-a32f81629e4e`；旧 `Source Thread: 019ee910-8747-71e3-9293-720273f9e61f` 仅保留为历史来源/归档引用，不作为当前推进投递目标。
 
 ## 相关提交
 
