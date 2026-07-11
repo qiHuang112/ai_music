@@ -1,6 +1,6 @@
 # AM-20260711-003 Library First 移动端 UI 实现
 
-Status: assigned
+Status: in_progress
 Owner Lane: android
 Source Thread: 019ee910-8747-71e3-9293-720273f9e61f
 Target Version: 1.1.0
@@ -23,7 +23,7 @@ TDD Exception Review: not_applicable
 Baseline Commit: b306932d03e1eedbe96fd50dafe0f95805b0eab4
 Head Commit: pending
 Root Cause Evidence: not_applicable
-Research Evidence: docs/codex_collab/knowledge/ui/2026-07-11-am002-real-screenshot-product-design-audit.md
+Research Evidence: docs/codex_collab/knowledge/ui/2026-07-11-am002-real-screenshot-product-design-audit.md; docs/codex_collab/knowledge/ui/2026-07-11-am003-library-first-page-spec.md
 Red Evidence: pending
 Green Evidence: pending
 Targeted Tests: pending
@@ -34,7 +34,7 @@ Scope Diff Evidence: pending
 Spec Review Result: pending
 Code Quality Review Result: pending
 Full Verification Evidence: pending
-Blocking Findings: none at assignment; selected visual direction and current screenshots are available. UI page-level implementation spec is required before Android starts code.
+Blocking Findings: none for Android RED tests; selected visual direction, current screenshots, UI page-level implementation spec and OHOS checklist are available.
 Merge Evidence: pending
 Push Evidence: pending
 Product Notification Evidence: pending
@@ -78,6 +78,8 @@ Knowledge Evidence: docs/codex_collab/knowledge/qa-researcher/2026-07-11-ui-prod
 - 2026-07-11 type=status lane=architect summary=Architect 已修复独立 Project Path 同步问题：`/Users/huangqi/AIHome/projects/ai_music_AM-20260711-003` 现已包含 AM-003 request/spec/plan、`team_ops.py`、UI audit 和 QA 矩阵；该路径本地 `validate-request` 与 `validate-workflow --gate start` 均为 OK。同步提交为 `87e58ce`，已推送远端分支 `feature/1.1.0/AM-20260711-003-library-first-ui`。UI 页面级实现规范仍是 Android 开工前置，目标路径 `docs/codex_collab/knowledge/ui/2026-07-11-am003-library-first-page-spec.md`。
 - 2026-07-11 type=status lane=ohos summary=OHOS 已输出 AM-003 Library First 跨端实现复核清单 `am-20260711-003-ohos-cross-platform-review-checklist.md`；Architect 将其纳入 review/验收 gate。UI 页面级 spec 必须标注 safe area、键盘态、mini player 固定规则、当前队列入口、sheet 高度、48px 触控、大字号策略和暗色首帧预期；Android 实现不得写死 Android 状态栏/键盘/导航栏高度；后续 HAP 验收必须回传 HAP 路径、sha256、source commit、是否清数据、目标设备和截图 pass/fail/blocker。
 - 2026-07-11 type=status lane=architect summary=Architect 已补齐 Android start gate 需要的短路径兼容 request `docs/codex_collab/requests/AM-20260711-003-library-first-ui.md`，内容与 canonical `AM-20260711-003-library-first-mobile-ui-implementation.md` 保持一致；Android 可用任一路径运行 `validate-request` 和 `validate-workflow --gate start`。
+- 2026-07-11 type=status lane=ui summary=UI 已完成页面级实现规范 `docs/codex_collab/knowledge/ui/2026-07-11-am003-library-first-page-spec.md`，覆盖 Home/Search/Player/Queue/Library/Download/Settings、tokens、状态 chip、48px 触控、Android/OHOS safe area、键盘常驻、mini player、长文本、热榜无 Flutter layout overflow 和 QA 截图命名。
+- 2026-07-11 type=status lane=architect summary=Architect 已将 UI page spec 同步进 AM-003 Project Path，并给出 scope 裁决：新增真实当前队列 bottom sheet 属于 AM-003；热榜红色竖条按图片水印/素材质量处理，不按 Flutter overflow 定性，但实现仍需防 layout overflow；状态 chip 映射按 UI spec 执行；标题取舍为首页/主入口用 `音乐`，搜索页和搜索输入聚焦态用 `搜音乐`。
 
 ## 相关提交
 
