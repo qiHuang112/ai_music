@@ -23,7 +23,7 @@ TDD Mode: required
 TDD Exception: none
 TDD Exception Review: not_applicable
 Baseline Commit: b306932d03e1eedbe96fd50dafe0f95805b0eab4
-Head Commit: ea0a00d1e814c781332c6653bc001e288bb20e6c
+Head Commit: 139632665b7aa1a1fa232b0aa474a7ce13e37682
 Root Cause Evidence: AM-20260711-003 WIP 包仍沿用混合歌源和不可下载候选，Product 真机反馈搜索、下载、边下边播主链路不可用；Chrome 复核证明歌曲海页面播放器可脚本化获得完整 mp3；真机回归中发现歌曲海搜索行含序号导致 artist 被解析成 `1`，客户端按低置信 fail closed，已用 RED/GREEN 修复。
 Research Evidence: docs/codex_collab/knowledge/source-researcher/2026-07-11-am004-gequhai-full-source-protocol.md
 Red Evidence: `flutter test --no-pub test/music_resolver_test.dart --plain-name 'gequhai search returns exact playable result'` 曾失败，实际为 `外婆/周杰伦` 候选被序号解析成 artist=`1` 后过滤。
