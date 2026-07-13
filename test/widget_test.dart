@@ -183,9 +183,7 @@ void main() {
     expect(find.text('正在播放'), findsOneWidget);
   });
 
-  testWidgets('mini player title exposes a button hit target', (
-    tester,
-  ) async {
+  testWidgets('mini player title exposes a button hit target', (tester) async {
     final handler = _WidgetAudioHandler();
     await tester.pumpWidget(_app(audioHandler: handler));
     await tester.pumpAndSettle();
@@ -200,18 +198,13 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    final titleButton = find.byKey(
-      const ValueKey('mini-player-title-button'),
-    );
+    final titleButton = find.byKey(const ValueKey('mini-player-title-button'));
     expect(titleButton, findsOneWidget);
 
     final semantics = tester.getSemantics(titleButton);
     final semanticsData = semantics.getSemanticsData();
     expect(semanticsData.flagsCollection.isButton, isTrue);
-    expect(
-      semanticsData.hasAction(SemanticsAction.tap),
-      isTrue,
-    );
+    expect(semanticsData.hasAction(SemanticsAction.tap), isTrue);
     expect(semantics.label, contains('Button Hit Song'));
   });
 

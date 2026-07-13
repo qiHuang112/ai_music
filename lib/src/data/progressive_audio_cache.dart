@@ -680,7 +680,7 @@ class ProgressiveAudioSession {
     IOSink? sink;
     try {
       var response = await _openUpstream(useRange: true);
-      if (!_isSuccessfulUpstream(response)) {
+      if (!_isUsableInitialRangeResponse(response)) {
         await response.drain<void>();
         response = await _openUpstream(useRange: false);
       }
@@ -742,9 +742,22 @@ class ProgressiveAudioSession {
     return request.close();
   }
 
-  bool _isSuccessfulUpstream(HttpClientResponse response) {
-    return response.statusCode == HttpStatus.ok ||
-        response.statusCode == HttpStatus.partialContent;
+  bool _isUsableInitialRangeResponse(HttpClientResponse response) {
+    if (response.statusCode == HttpStatus.ok) {
+      return true;
+    }
+    if (response.statusCode != HttpStatus.partialContent) {
+      return false;
+    }
+    final contentRange = response.headers.value(HttpHeaders.contentRangeHeader);
+    if (contentRange == null) {
+      return false;
+    }
+    final match = RegExp(
+      r'^bytes\s+0-\d+/(\d+)$',
+    ).firstMatch(contentRange.trim());
+    final total = match == null ? null : int.tryParse(match.group(1)!);
+    return total != null && total > 0;
   }
 
   Future<void> _pipeAvailableBytes(

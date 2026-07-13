@@ -2623,9 +2623,7 @@ class _MiniPlayer extends StatelessWidget {
                           children: [
                             Expanded(
                               child: TextButton(
-                                key: const ValueKey(
-                                  'mini-player-title-button',
-                                ),
+                                key: const ValueKey('mini-player-title-button'),
                                 style: TextButton.styleFrom(
                                   alignment: Alignment.centerLeft,
                                   foregroundColor: Theme.of(
@@ -2640,8 +2638,7 @@ class _MiniPlayer extends StatelessWidget {
                                   ),
                                 ),
                                 onPressed: () {
-                                  FocusManager.instance.primaryFocus
-                                      ?.unfocus();
+                                  FocusManager.instance.primaryFocus?.unfocus();
                                   _openPlayer(context, controller);
                                 },
                                 child: Padding(

@@ -150,10 +150,7 @@ void main() {
           'bytes 8192-9215/${source.bytes.length}',
         );
         expect(
-          await seekResponse.fold<int>(
-            0,
-            (sum, chunk) => sum + chunk.length,
-          ),
+          await seekResponse.fold<int>(0, (sum, chunk) => sum + chunk.length),
           1024,
         );
         await firstResponse.drain<void>();
@@ -337,6 +334,50 @@ void main() {
     },
   );
 
+  test(
+    'misaligned upstream 206 falls back to full GET before proxying byte zero',
+    () async {
+      final root = await Directory.systemTemp.createTemp(
+        'ai_music_prog_misaligned_range_',
+      );
+      final source = await _MisalignedRangeAudioSource.start(
+        _validMp3Bytes(48 * 1024),
+      );
+      final cacheStore = CachedTrackStore(rootProvider: () async => root);
+      final progressive = ProgressiveAudioCache(
+        cacheStore: cacheStore,
+        rootProvider: () async => root,
+      );
+
+      try {
+        final session = await progressive.open(
+          _resolvedMusic(url: source.audioUri.toString()),
+        );
+        final client = HttpClient();
+        final request = await client.getUrl(session.proxyUri);
+        request.headers.set(HttpHeaders.rangeHeader, 'bytes=0-1023');
+        final response = await request.close();
+        final bytes = await response.expand((chunk) => chunk).toList();
+
+        expect(source.rangeRequests, 1);
+        expect(source.fullRequests, 1);
+        expect(response.statusCode, HttpStatus.partialContent);
+        expect(
+          response.headers.value(HttpHeaders.contentRangeHeader),
+          'bytes 0-1023/${source.bytes.length}',
+        );
+        expect(bytes, source.bytes.take(1024));
+        expect(session.fetchError, isNull);
+        expect(await cacheStore.listCached(), isEmpty);
+        client.close(force: true);
+      } finally {
+        await progressive.close();
+        await source.close();
+        await root.delete(recursive: true);
+      }
+    },
+  );
+
   test('first byte timeout returns fallback signal without hanging', () async {
     final root = await Directory.systemTemp.createTemp(
       'ai_music_prog_timeout_',
@@ -394,8 +435,9 @@ void main() {
       final fetchFailed = session.changes.firstWhere(
         (_) => session.fetchError != null,
       );
-      final firstResponse = await (await client.getUrl(session.proxyUri))
-          .close();
+      final firstResponse = await (await client.getUrl(
+        session.proxyUri,
+      )).close();
       await firstResponse.drain<void>();
       await fetchFailed;
       final response = await (await client.getUrl(session.proxyUri)).close();
@@ -403,10 +445,7 @@ void main() {
       expect(response.statusCode, HttpStatus.badGateway);
       expect(session.fetchError, isA<AudioValidationException>());
       expect(session.isComplete, isFalse);
-      expect(
-        session.promoteWhenComplete(),
-        throwsA(isA<StateError>()),
-      );
+      expect(session.promoteWhenComplete(), throwsA(isA<StateError>()));
       expect(await cacheStore.listCached(), isEmpty);
       await response.drain<void>();
       client.close(force: true);
