@@ -482,7 +482,22 @@ class ProgressiveAudioCache {
         await request.response.close();
         continue;
       }
+      unawaited(_handleSessionRequest(session, request));
+    }
+  }
+
+  Future<void> _handleSessionRequest(
+    ProgressiveAudioSession session,
+    HttpRequest request,
+  ) async {
+    try {
       await session.handle(request);
+    } catch (_) {
+      try {
+        await request.response.close();
+      } catch (_) {
+        // A disconnected client can close the response before the handler.
+      }
     }
   }
 
@@ -573,6 +588,11 @@ class ProgressiveAudioSession {
         HttpHeaders.contentRangeHeader,
         'bytes */$knownTotal',
       );
+      await request.response.close();
+      return;
+    }
+    if (_fetchError != null) {
+      request.response.statusCode = HttpStatus.badGateway;
       await request.response.close();
       return;
     }
@@ -688,6 +708,12 @@ class ProgressiveAudioSession {
         _notifyChanged();
       }
       await sink.flush();
+      if (_totalBytes != null && _downloadedBytes != _totalBytes) {
+        throw AudioValidationException(
+          'progressive HTTP body truncated: '
+          'received $_downloadedBytes of $_totalBytes bytes',
+        );
+      }
       _complete = true;
       _totalBytes ??= _downloadedBytes;
       await _updateTransient(TransientStreamingState.complete);
