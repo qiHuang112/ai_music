@@ -424,6 +424,10 @@ class _OnlineSearchPanel extends StatelessWidget {
                         );
                       }
                       final candidate = candidates[index];
+                      final artistCorrection = _candidateArtistCorrection(
+                        strings,
+                        candidate,
+                      );
                       final isBusy = isCandidateBusy(candidate);
                       final isCached = isCandidateCached(candidate);
                       final isValidating = candidate.isValidating;
@@ -473,6 +477,16 @@ class _OnlineSearchPanel extends StatelessWidget {
                               maxLines: 2,
                               overflow: TextOverflow.ellipsis,
                             ),
+                            if (artistCorrection != null) ...[
+                              const SizedBox(height: 2),
+                              Text(
+                                artistCorrection,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: Theme.of(context).textTheme.bodySmall
+                                    ?.copyWith(color: colors.tertiary),
+                              ),
+                            ],
                             const SizedBox(height: 4),
                             _SearchStatusChip(
                               label: isValidating
@@ -2862,6 +2876,27 @@ String _candidateSubtitle(
     if (!isCached && !isFullAudio) strings.candidateUnavailableForDownload,
   ];
   return parts.join(' - ');
+}
+
+String? _candidateArtistCorrection(
+  AppStrings strings,
+  MusicSearchCandidate candidate,
+) {
+  if (candidate.raw['queryMatchReason'] != 'title_exact_artist_near_match') {
+    return null;
+  }
+  final inputArtist = candidate.raw['queryArtistHint']?.toString().trim() ?? '';
+  final correctedArtist =
+      candidate.raw['queryArtistCorrection']?.toString().trim() ?? '';
+  final actualArtist = candidate.artist.trim();
+  if (inputArtist.isEmpty ||
+      correctedArtist.isEmpty ||
+      actualArtist.isEmpty ||
+      inputArtist == actualArtist ||
+      correctedArtist != actualArtist) {
+    return null;
+  }
+  return strings.artistCorrection(inputArtist, actualArtist);
 }
 
 String _qualityAndSize(MusicSearchCandidate candidate) {

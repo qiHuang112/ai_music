@@ -488,6 +488,27 @@ class ProgressiveAudioCache {
         await request.response.close();
         return;
       }
+      unawaited(_handleSessionRequest(session, request));
+    } catch (error) {
+      _logger?.call('progressive proxy routing failed error=$error');
+      try {
+        request.response.statusCode = HttpStatus.badGateway;
+      } catch (_) {
+        // Headers may already be committed by a partially handled request.
+      }
+      try {
+        await request.response.close();
+      } catch (_) {
+        // The client may have disconnected before routing completed.
+      }
+    }
+  }
+
+  Future<void> _handleSessionRequest(
+    ProgressiveAudioSession session,
+    HttpRequest request,
+  ) async {
+    try {
       await session.handle(request);
     } catch (error) {
       _logger?.call('progressive proxy request failed error=$error');
@@ -592,6 +613,11 @@ class ProgressiveAudioSession {
         HttpHeaders.contentRangeHeader,
         'bytes */$knownTotal',
       );
+      await request.response.close();
+      return;
+    }
+    if (_fetchError != null) {
+      request.response.statusCode = HttpStatus.badGateway;
       await request.response.close();
       return;
     }

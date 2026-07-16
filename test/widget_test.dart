@@ -738,6 +738,41 @@ void main() {
     expect(find.textContaining('未通过完整音频校验'), findsNothing);
   });
 
+  testWidgets(
+    'Gequhai artist correction is visible without changing metadata',
+    (tester) async {
+      final resolver = _FakeMusicResolver(
+        candidates: [
+          _candidate(
+            id: '38173',
+            name: '哎呀',
+            artist: '王蓉',
+            source: MusicDataSource.gequhai,
+            platform: 'gequhai',
+            raw: const {
+              'clientReady': true,
+              'urlType': 'direct_audio',
+              'queryArtistHint': '黄蓉',
+              'queryArtistCorrection': '王蓉',
+              'queryMatchReason': 'title_exact_artist_near_match',
+            },
+          ),
+        ],
+      );
+      await tester.pumpWidget(_app(resolver: resolver));
+      await tester.pumpAndSettle();
+
+      await tester.enterText(find.byType(TextField), '黄蓉的哎呀');
+      await tester.tap(find.byTooltip('在线搜索'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('哎呀'), findsAtLeastNWidgets(1));
+      expect(find.textContaining('艺人纠错：黄蓉 → 王蓉'), findsOneWidget);
+      expect(find.byTooltip('播放'), findsOneWidget);
+      expect(find.byTooltip('下载'), findsAtLeastNWidgets(1));
+    },
+  );
+
   testWidgets('search results only show complete playable gequhai songs', (
     tester,
   ) async {
