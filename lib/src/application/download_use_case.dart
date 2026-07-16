@@ -1,3 +1,6 @@
+import 'dart:async';
+import 'dart:io';
+
 import '../data/music_cache.dart';
 import '../data/music_resolver.dart';
 import 'download_queue_controller.dart';
@@ -171,6 +174,15 @@ class DownloadUseCase {
 }
 
 String friendlyError(Object error) {
+  if (error is TimeoutException) {
+    return '源站连接超时，请稍后重试。';
+  }
+  if (error is HandshakeException || error is SocketException) {
+    return '源站网络连接失败，请检查网络后重试。';
+  }
+  if (error is SourceDownloadException) {
+    return error.message;
+  }
   return error
       .toString()
       .replaceFirst('Exception: ', '')

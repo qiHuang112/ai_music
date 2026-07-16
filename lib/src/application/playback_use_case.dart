@@ -100,9 +100,26 @@ class PlaybackUseCase {
     await audioHandler.stop();
   }
 
-  Future<void> applyPlaybackMode(PlaybackMode mode) async {
+  Future<void> applyPlaybackMode(
+    PlaybackMode mode, {
+    bool managedQueue = false,
+  }) async {
     final currentItemId = audioHandler.mediaItem.value?.id;
     final currentPosition = audioHandler.currentPosition;
+    if (managedQueue) {
+      await audioHandler.setManagedQueueMode(
+        repeatMode: switch (mode) {
+          PlaybackMode.sequential => AudioServiceRepeatMode.none,
+          PlaybackMode.loopAll ||
+          PlaybackMode.shuffle => AudioServiceRepeatMode.all,
+          PlaybackMode.repeatOne => AudioServiceRepeatMode.one,
+        },
+        shuffleMode: mode == PlaybackMode.shuffle
+            ? AudioServiceShuffleMode.all
+            : AudioServiceShuffleMode.none,
+      );
+      return;
+    }
     switch (mode) {
       case PlaybackMode.sequential:
         await audioHandler.setShuffleMode(AudioServiceShuffleMode.none);

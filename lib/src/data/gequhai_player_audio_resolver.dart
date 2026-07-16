@@ -1,55 +1,237 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:math';
 
 import 'lyrics_normalizer.dart';
 import 'resolver_models.dart';
 import 'resolver_utils.dart';
 
 class GequhaiPlayerAudioResolver {
-  const GequhaiPlayerAudioResolver({required MusicResolverHttp httpClient})
+  GequhaiPlayerAudioResolver({required MusicResolverHttp httpClient})
     : _http = httpClient;
 
   static const _source = MusicDataSource.gequhai;
   static const _platform = 'gequhai';
   static const _apiHost = 'www.gequhai.com';
+  static const _validationConcurrency = 2;
+  static const _validationBatchSize = 3;
   static const _userAgent =
       'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 '
       '(KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36';
 
   final MusicResolverHttp _http;
+  final Map<String, ResolvedMusic> _preparedResolutions = {};
+  final Map<String, ResolverHttpResponse> _searchPageResponses = {};
+  final Map<int, _SearchPageCursor> _searchPageCursors = {};
+  int _searchGeneration = 0;
+  String _activeQuery = '';
 
   Future<List<MusicSearchCandidate>> search(String query) async {
+    var result = const <MusicSearchCandidate>[];
+    await for (final progress in searchPageProgressively(query, page: 1)) {
+      result = progress.candidates;
+    }
+    return result;
+  }
+
+  Stream<MusicSearchProgress> searchPageProgressively(
+    String query, {
+    required int page,
+  }) async* {
     final trimmed = query.trim();
-    if (trimmed.isEmpty) {
-      return const [];
+    if (trimmed.isEmpty || page < 1) {
+      yield MusicSearchProgress(
+        candidates: const [],
+        isComplete: true,
+        page: max(1, page),
+      );
+      return;
     }
-    final searchUri = Uri.parse(
-      'https://$_apiHost/s/${Uri.encodeComponent(trimmed)}',
-    );
-    final response = await _http.get(searchUri, headers: _pageHeaders);
-    if (response.statusCode == HttpStatus.forbidden ||
-        _looksLikeDefender(response.body)) {
-      return const [];
+    late final int generation;
+    if (page == 1 || _activeQuery != trimmed) {
+      generation = ++_searchGeneration;
+      _activeQuery = trimmed;
+      _preparedResolutions.clear();
+      _searchPageResponses.clear();
+      _searchPageCursors
+        ..clear()
+        ..[1] = const _SearchPageCursor(providerPage: 1, offset: 0);
+    } else {
+      generation = _searchGeneration;
     }
-    if (response.statusCode < 200 || response.statusCode >= 300) {
-      return const [];
-    }
-    final parsed = _parseSearchResults(response.body, trimmed, searchUri);
-    final playable = <MusicSearchCandidate>[];
-    for (final candidate in parsed) {
-      try {
-        final resolved = await resolve(candidate);
-        playable.add(_candidateWithResolvedMetadata(candidate, resolved));
-      } catch (_) {
-        // Search results are product-visible completion paths. Candidates that
-        // cannot pass the full audio gate are intentionally hidden.
+    final cursor =
+        _searchPageCursors[page] ??
+        _SearchPageCursor(providerPage: page, offset: 0);
+    final intent = _GequhaiSearchIntent.parse(trimmed);
+    final searchTerms = <String>{trimmed, intent.searchTerm};
+    var lastHasNextPage = false;
+    for (final searchTerm in searchTerms) {
+      var searchUri = Uri.parse(
+        'https://$_apiHost/s/${Uri.encodeComponent(searchTerm)}',
+      );
+      if (cursor.providerPage > 1) {
+        searchUri = searchUri.replace(
+          queryParameters: {'page': '${cursor.providerPage}'},
+        );
+      }
+      final cacheKey = searchUri.toString();
+      final cachedResponse = _searchPageResponses[cacheKey];
+      final response =
+          cachedResponse ?? await _http.get(searchUri, headers: _pageHeaders);
+      if (generation != _searchGeneration) {
+        return;
+      }
+      final defender = _looksLikeDefender(response.body);
+      if (response.statusCode == HttpStatus.forbidden ||
+          response.statusCode == HttpStatus.tooManyRequests ||
+          defender) {
+        final failureCode = response.statusCode == HttpStatus.tooManyRequests
+            ? 'provider_http_429'
+            : 'security_or_defender';
+        throw SourceDownloadException(
+          response.statusCode == HttpStatus.tooManyRequests
+              ? '歌曲海搜索请求受限，已停止继续请求。'
+              : '歌曲海搜索进入安全验证或防护页。',
+          failureCode: failureCode,
+          sourceAttempts: [
+            _attempt(
+              query: trimmed,
+              stage: 'search',
+              status: SourceAttemptStatus.failed,
+              failureCode: failureCode,
+              mediaContentType: _header(
+                response,
+                HttpHeaders.contentTypeHeader,
+              ),
+              evidenceUrl: searchUri.toString(),
+              browserPlayable: false,
+              clientReady: false,
+            ),
+          ],
+        );
+      }
+      if (response.statusCode < 200 || response.statusCode >= 300) {
+        continue;
+      }
+      _searchPageResponses[cacheKey] = response;
+      final parsed = _parseSearchResults(
+        response.body,
+        trimmed,
+        searchUri,
+        page,
+      );
+      final pageCandidates = parsed.candidates
+          .skip(cursor.offset)
+          .take(_validationBatchSize)
+          .toList(growable: false);
+      final hasRemainingCandidates =
+          cursor.offset + pageCandidates.length < parsed.candidates.length;
+      final hasNextPage = hasRemainingCandidates || parsed.hasNextPage;
+      if (hasRemainingCandidates) {
+        _searchPageCursors[page + 1] = _SearchPageCursor(
+          providerPage: cursor.providerPage,
+          offset: cursor.offset + pageCandidates.length,
+        );
+      } else if (parsed.hasNextPage) {
+        _searchPageCursors[page + 1] = _SearchPageCursor(
+          providerPage: cursor.providerPage + 1,
+          offset: 0,
+        );
+      }
+      lastHasNextPage = hasNextPage;
+      final completed = List<bool>.filled(pageCandidates.length, false);
+      final playable = List<MusicSearchCandidate?>.filled(
+        pageCandidates.length,
+        null,
+      );
+      yield MusicSearchProgress(
+        candidates: [
+          for (final candidate in pageCandidates)
+            _candidateWithValidationStatus(candidate, 'validating'),
+        ],
+        isComplete: false,
+        page: page,
+        hasNextPage: hasNextPage,
+      );
+
+      var nextIndex = 0;
+      final active = <int, Future<_IndexedResolution>>{};
+      void fillWorkers() {
+        while (active.length < _validationConcurrency &&
+            nextIndex < pageCandidates.length) {
+          final index = nextIndex;
+          nextIndex += 1;
+          active[index] = _resolveIndexed(index, pageCandidates[index]);
+        }
+      }
+
+      fillWorkers();
+      while (active.isNotEmpty) {
+        final result = await Future.any(active.values);
+        active.remove(result.index);
+        if (generation != _searchGeneration) {
+          return;
+        }
+        completed[result.index] = true;
+        final resolved = result.resolved;
+        if (resolved != null) {
+          final candidate = pageCandidates[result.index];
+          _preparedResolutions[_preparedKey(candidate)] = resolved;
+          playable[result.index] = _candidateWithResolvedMetadata(
+            candidate,
+            resolved,
+          );
+        }
+        fillWorkers();
+        yield MusicSearchProgress(
+          candidates: _validationSnapshot(pageCandidates, playable, completed),
+          isComplete: false,
+          page: page,
+          hasNextPage: hasNextPage,
+        );
+      }
+      final ready = playable.whereType<MusicSearchCandidate>().toList(
+        growable: false,
+      );
+      if (ready.isNotEmpty) {
+        yield MusicSearchProgress(
+          candidates: List<MusicSearchCandidate>.unmodifiable(ready),
+          isComplete: true,
+          page: page,
+          hasNextPage: hasNextPage,
+        );
+        return;
       }
     }
-    return playable;
+    yield MusicSearchProgress(
+      candidates: const [],
+      isComplete: true,
+      page: page,
+      hasNextPage: lastHasNextPage,
+    );
+  }
+
+  Future<_IndexedResolution> _resolveIndexed(
+    int index,
+    MusicSearchCandidate candidate,
+  ) async {
+    try {
+      return _IndexedResolution(index, await _resolveFresh(candidate));
+    } catch (_) {
+      return _IndexedResolution(index, null);
+    }
   }
 
   Future<ResolvedMusic> resolve(MusicSearchCandidate candidate) async {
+    final prepared = _preparedResolutions.remove(_preparedKey(candidate));
+    if (prepared != null) {
+      return prepared;
+    }
+    return _resolveFresh(candidate);
+  }
+
+  Future<ResolvedMusic> _resolveFresh(MusicSearchCandidate candidate) async {
     final detailUri = Uri.tryParse(candidate.link);
     if (detailUri == null || candidate.id.trim().isEmpty) {
       throw _failure(candidate, 'page', 'play_url_unavailable', '歌曲海页面地址不可用。');
@@ -160,6 +342,10 @@ class GequhaiPlayerAudioResolver {
         ),
       ],
     );
+  }
+
+  String _preparedKey(MusicSearchCandidate candidate) {
+    return '${candidate.source.storageValue}|${candidate.platform}|${candidate.id}';
   }
 
   Future<_PageResult> _fetchPage(
@@ -513,6 +699,7 @@ MusicSearchCandidate _candidateWithResolvedMetadata(
     score: candidate.score,
     raw: {
       ...candidate.raw,
+      'validationStatus': 'ready',
       'clientReady': resolved.canCacheAudio,
       'urlType': resolved.urlType.storageValue,
       'lyricsLines': resolved.lyrics?.lines ?? 0,
@@ -522,10 +709,62 @@ MusicSearchCandidate _candidateWithResolvedMetadata(
   );
 }
 
-List<MusicSearchCandidate> _parseSearchResults(
+MusicSearchCandidate _candidateWithValidationStatus(
+  MusicSearchCandidate candidate,
+  String status,
+) {
+  return MusicSearchCandidate(
+    query: candidate.query,
+    source: candidate.source,
+    platform: candidate.platform,
+    keyword: candidate.keyword,
+    page: candidate.page,
+    id: candidate.id,
+    name: candidate.name,
+    artist: candidate.artist,
+    album: candidate.album,
+    duration: candidate.duration,
+    link: candidate.link,
+    coverUrl: candidate.coverUrl,
+    qualities: candidate.qualities,
+    score: candidate.score,
+    raw: {...candidate.raw, 'validationStatus': status, 'clientReady': false},
+  );
+}
+
+List<MusicSearchCandidate> _validationSnapshot(
+  List<MusicSearchCandidate> original,
+  List<MusicSearchCandidate?> playable,
+  List<bool> completed,
+) {
+  return List<MusicSearchCandidate>.unmodifiable([
+    for (var index = 0; index < original.length; index += 1)
+      if (playable[index] != null)
+        playable[index]!
+      else if (!completed[index])
+        _candidateWithValidationStatus(original[index], 'validating'),
+  ]);
+}
+
+class _IndexedResolution {
+  const _IndexedResolution(this.index, this.resolved);
+
+  final int index;
+  final ResolvedMusic? resolved;
+}
+
+class _SearchPageCursor {
+  const _SearchPageCursor({required this.providerPage, required this.offset});
+
+  final int providerPage;
+  final int offset;
+}
+
+_SearchPageResult _parseSearchResults(
   String html,
   String query,
   Uri searchUri,
+  int page,
 ) {
   final candidates = <MusicSearchCandidate>[];
   final rowPattern = RegExp(
@@ -534,7 +773,7 @@ List<MusicSearchCandidate> _parseSearchResults(
     dotAll: true,
   );
   for (final row in rowPattern.allMatches(html)) {
-    final parsed = _parseSearchRow(row.group(1) ?? '', query, searchUri);
+    final parsed = _parseSearchRow(row.group(1) ?? '', query, searchUri, page);
     if (parsed != null) {
       candidates.add(parsed);
     }
@@ -554,6 +793,7 @@ List<MusicSearchCandidate> _parseSearchResults(
         title: _cleanHtmlText(match.group(3) ?? ''),
         artist: '',
         rowText: _cleanHtmlText(match.group(0) ?? ''),
+        page: page,
       );
       if (parsed != null) {
         candidates.add(parsed);
@@ -561,13 +801,17 @@ List<MusicSearchCandidate> _parseSearchResults(
     }
   }
   candidates.sort((a, b) => b.score.compareTo(a.score));
-  return candidates.take(8).toList(growable: false);
+  return _SearchPageResult(
+    candidates: List<MusicSearchCandidate>.unmodifiable(candidates),
+    hasNextPage: _hasNextSearchPage(html, searchUri, page),
+  );
 }
 
 MusicSearchCandidate? _parseSearchRow(
   String rowHtml,
   String query,
   Uri searchUri,
+  int page,
 ) {
   final linkMatch = RegExp(
     r'''<a\b[^>]*href=["'](/play/(\d+))["'][^>]*>(.*?)</a>''',
@@ -588,6 +832,7 @@ MusicSearchCandidate? _parseSearchRow(
     title: title,
     artist: artist,
     rowText: rowText,
+    page: page,
   );
 }
 
@@ -599,27 +844,59 @@ MusicSearchCandidate? _candidateFromSearchMatch({
   required String title,
   required String artist,
   required String rowText,
+  required int page,
 }) {
   final normalizedQuery = _normalize(query);
+  final intent = _GequhaiSearchIntent.parse(query);
+  final normalizedTitleQuery = _normalize(intent.titleQuery);
+  final normalizedArtistHint = _normalize(intent.artistHint);
   final normalizedTitle = _normalize(title);
   final normalizedArtist = _normalize(artist);
   if (id.isEmpty || normalizedTitle.isEmpty) {
     return null;
   }
+  final exactFullTitleMatch = normalizedQuery == normalizedTitle;
   final titleMatches =
-      normalizedQuery == normalizedTitle ||
-      normalizedQuery.contains(normalizedTitle) ||
-      normalizedTitle.contains(normalizedQuery);
+      exactFullTitleMatch ||
+      normalizedTitleQuery == normalizedTitle ||
+      normalizedTitleQuery.contains(normalizedTitle) ||
+      normalizedTitle.contains(normalizedTitleQuery);
   final artistMatches =
-      normalizedArtist.isEmpty || normalizedQuery.contains(normalizedArtist);
+      normalizedArtist.isEmpty ||
+      (normalizedArtistHint.isNotEmpty
+          ? normalizedArtistHint == normalizedArtist
+          : normalizedQuery.contains(normalizedArtist));
+  final artistNearMatch =
+      normalizedArtistHint.isNotEmpty &&
+      normalizedArtist.isNotEmpty &&
+      _isSingleCharacterCorrection(normalizedArtistHint, normalizedArtist);
   final exactArtistOnlyMatch =
       normalizedArtist.isNotEmpty && normalizedQuery == normalizedArtist;
+  final naturalLanguageMatch =
+      !exactFullTitleMatch &&
+      intent.artistHint.isNotEmpty &&
+      normalizedTitleQuery == normalizedTitle &&
+      (artistMatches || artistNearMatch);
   if ((!titleMatches && !exactArtistOnlyMatch) ||
-      (_queryHasArtist(query) && !artistMatches)) {
+      (!exactFullTitleMatch &&
+          _queryHasArtist(query) &&
+          !artistMatches &&
+          !naturalLanguageMatch)) {
     return null;
   }
+  final queryMatchReason = naturalLanguageMatch
+      ? artistMatches
+            ? 'artist_title_exact'
+            : 'title_exact_artist_near_match'
+      : exactArtistOnlyMatch
+      ? 'artist_exact'
+      : 'title_match';
   final score =
-      (normalizedQuery == normalizedTitle
+      (naturalLanguageMatch && artistMatches
+          ? 260.0
+          : naturalLanguageMatch
+          ? 210.0
+          : normalizedQuery == normalizedTitle
           ? 240.0
           : exactArtistOnlyMatch
           ? 220.0
@@ -631,8 +908,8 @@ MusicSearchCandidate? _candidateFromSearchMatch({
     query: query,
     source: MusicDataSource.gequhai,
     platform: 'gequhai',
-    keyword: query,
-    page: 0,
+    keyword: intent.searchTerm,
+    page: page,
     id: id,
     name: title,
     artist: artist,
@@ -646,8 +923,41 @@ MusicSearchCandidate? _candidateFromSearchMatch({
       'searchUrl': searchUri.toString(),
       'detailPath': href,
       'rowText': rowText,
+      'queryMatchReason': queryMatchReason,
+      if (intent.artistHint.isNotEmpty) 'queryArtistHint': intent.artistHint,
+      if (naturalLanguageMatch && artistNearMatch)
+        'queryArtistCorrection': artist,
     },
   );
+}
+
+bool _hasNextSearchPage(String html, Uri searchUri, int page) {
+  final hrefPattern = RegExp(
+    r'''href=["']([^"']+)["']''',
+    caseSensitive: false,
+  );
+  for (final match in hrefPattern.allMatches(html)) {
+    final href = (match.group(1) ?? '').replaceAll('&amp;', '&');
+    final uri = Uri.tryParse(href);
+    if (uri == null) {
+      continue;
+    }
+    final resolved = searchUri.resolveUri(uri);
+    if (int.tryParse(resolved.queryParameters['page'] ?? '') == page + 1) {
+      return true;
+    }
+  }
+  return false;
+}
+
+class _SearchPageResult {
+  const _SearchPageResult({
+    required this.candidates,
+    required this.hasNextPage,
+  });
+
+  final List<MusicSearchCandidate> candidates;
+  final bool hasNextPage;
 }
 
 String _extractSearchArtist(String rowText, String title) {
@@ -667,7 +977,63 @@ String _extractSearchArtist(String rowText, String title) {
 }
 
 bool _queryHasArtist(String query) {
-  return query.trim().contains(RegExp(r'[\s/／\-—–]'));
+  final trimmed = query.trim();
+  return _GequhaiSearchIntent.parse(trimmed).artistHint.isNotEmpty ||
+      trimmed.contains(RegExp(r'[\s/／\-—–]'));
+}
+
+bool _isSingleCharacterCorrection(String expected, String actual) {
+  if (expected.length != actual.length || expected.isEmpty) {
+    return false;
+  }
+  var differences = 0;
+  for (var index = 0; index < expected.length; index += 1) {
+    if (expected[index] != actual[index]) {
+      differences += 1;
+      if (differences > 1) {
+        return false;
+      }
+    }
+  }
+  return differences == 1;
+}
+
+class _GequhaiSearchIntent {
+  const _GequhaiSearchIntent({
+    required this.searchTerm,
+    required this.titleQuery,
+    required this.artistHint,
+  });
+
+  factory _GequhaiSearchIntent.parse(String query) {
+    final trimmed = query.trim();
+    final possessive = RegExp(r'^(.{2,20})的(.{1,40})$').firstMatch(trimmed);
+    if (possessive == null) {
+      return _GequhaiSearchIntent(
+        searchTerm: trimmed,
+        titleQuery: trimmed,
+        artistHint: '',
+      );
+    }
+    final artist = possessive.group(1)?.trim() ?? '';
+    final title = possessive.group(2)?.trim() ?? '';
+    if (artist.isEmpty || title.isEmpty) {
+      return _GequhaiSearchIntent(
+        searchTerm: trimmed,
+        titleQuery: trimmed,
+        artistHint: '',
+      );
+    }
+    return _GequhaiSearchIntent(
+      searchTerm: title,
+      titleQuery: title,
+      artistHint: artist,
+    );
+  }
+
+  final String searchTerm;
+  final String titleQuery;
+  final String artistHint;
 }
 
 bool _matchesDetailCandidate(

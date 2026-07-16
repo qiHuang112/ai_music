@@ -26,7 +26,11 @@ import 'resolver_utils.dart';
 import 'source_22a5_resolver.dart';
 
 class RemoteMusicResolver
-    implements MusicResolver, PreferredMusicResolver, ProgressiveMusicResolver {
+    implements
+        MusicResolver,
+        PreferredMusicResolver,
+        ProgressiveMusicResolver,
+        PaginatedProgressiveMusicResolver {
   RemoteMusicResolver({
     MusicResolverHttp? httpClient,
     String? initialFlacCookie,
@@ -66,6 +70,9 @@ class RemoteMusicResolver
   late final GequhaiPlayerAudioResolver _gequhai;
   late final KuwoFullAudioResolver _kuwoFullAudio;
   late final ItunesPreviewResolver _itunesPreview;
+  DateTime? _gequhaiRetryAfter;
+  String _activeAutoQuery = '';
+  MusicDataSource? _activeAutoSource;
 
   @override
   Future<List<MusicSearchCandidate>> search(
@@ -112,71 +119,144 @@ class RemoteMusicResolver
     String query,
     MusicDataSource source,
   ) async* {
+    yield* searchPageProgressively(query, source, page: 1);
+  }
+
+  @override
+  Stream<MusicSearchProgress> searchPageProgressively(
+    String query,
+    MusicDataSource source, {
+    required int page,
+  }) async* {
     final trimmed = query.trim();
     if (trimmed.isEmpty) {
-      yield const MusicSearchProgress(candidates: [], isComplete: true);
+      yield MusicSearchProgress(
+        candidates: const [],
+        isComplete: true,
+        page: page,
+      );
       return;
     }
-    if (source != MusicDataSource.auto) {
-      try {
-        final result = await search(trimmed, source);
-        yield MusicSearchProgress(candidates: result, isComplete: true);
-      } catch (error) {
-        yield MusicSearchProgress(
-          candidates: const [],
-          isComplete: true,
-          error: error,
-        );
+    if (source == MusicDataSource.auto) {
+      yield* _searchAutoPageProgressively(trimmed, page: page);
+      return;
+    }
+    if (source == MusicDataSource.gequhai) {
+      _logResolver(
+        '[AI Music][resolver] search query="$trimmed" '
+        'source=${source.storageValue} page=$page',
+      );
+      await for (final progress in _gequhai.searchPageProgressively(
+        trimmed,
+        page: page,
+      )) {
+        if (progress.isComplete) {
+          _logResolver(
+            '[AI Music][resolver] search done query="$trimmed" '
+            'source=${source.storageValue} page=$page '
+            'count=${progress.candidates.length} '
+            'hasNextPage=${progress.hasNextPage}',
+          );
+        }
+        yield progress;
       }
       return;
     }
+    if (page > 1) {
+      yield MusicSearchProgress(
+        candidates: const [],
+        isComplete: true,
+        page: page,
+      );
+      return;
+    }
+    try {
+      final result = await search(trimmed, source);
+      yield MusicSearchProgress(
+        candidates: result,
+        isComplete: true,
+        page: page,
+      );
+    } catch (error) {
+      yield MusicSearchProgress(
+        candidates: const [],
+        isComplete: true,
+        page: page,
+        error: error,
+      );
+    }
+  }
 
+  Stream<MusicSearchProgress> _searchAutoPageProgressively(
+    String query, {
+    required int page,
+  }) async* {
+    if (page == 1 || _activeAutoQuery != query) {
+      _activeAutoQuery = query;
+      _activeAutoSource = null;
+    }
     _logResolver(
-      '[AI Music][resolver] search query="$trimmed" source=${source.storageValue}',
+      '[AI Music][resolver] search query="$query" source=auto page=$page',
     );
-    final stream = StreamController<MusicSearchProgress>();
-    final merged = <MusicSearchCandidate>[];
-    final errors = <Object>[];
-    var remaining = 1;
 
-    void handleResult(_AutoSourceResult result) {
-      remaining -= 1;
-      if (result.error != null) {
-        errors.add(result.error!);
-      }
-      if (result.candidates.isNotEmpty) {
-        _appendStableCandidates(merged, result.candidates);
-      }
-      final isComplete = remaining == 0;
-      if (isComplete) {
+    Object? gequhaiError;
+    final retryAfter = _gequhaiRetryAfter;
+    final gequhaiCircuitOpen =
+        retryAfter != null && DateTime.now().isBefore(retryAfter);
+    final shouldTryGequhai =
+        _activeAutoSource != MusicDataSource.kuwoFullAudio &&
+        !gequhaiCircuitOpen;
+    if (shouldTryGequhai) {
+      try {
+        await for (final progress in _gequhai.searchPageProgressively(
+          query,
+          page: page,
+        )) {
+          yield progress;
+          if (progress.isComplete && progress.candidates.isNotEmpty) {
+            _activeAutoSource = MusicDataSource.gequhai;
+            _gequhaiRetryAfter = null;
+            return;
+          }
+        }
+      } catch (error) {
+        gequhaiError = error;
+        _gequhaiRetryAfter = DateTime.now().add(const Duration(minutes: 2));
         _logResolver(
-          '[AI Music][resolver] search done query="$trimmed" '
-          'source=${source.storageValue} count=${merged.length} '
-          'candidateSources=${merged.map((c) => c.source.storageValue).toSet().join(",")}',
+          '[AI Music][resolver] auto gequhai failed query="$query" '
+          'page=$page error=${formatResolverError(error)}',
         );
       }
-      stream.add(
-        MusicSearchProgress(
-          candidates: List<MusicSearchCandidate>.unmodifiable(merged),
-          isComplete: isComplete,
-          error: isComplete && merged.isEmpty && errors.isNotEmpty
-              ? _combinedAutoError(errors)
-              : null,
+    }
+
+    _activeAutoSource = MusicDataSource.kuwoFullAudio;
+    var fallbackReady = false;
+    Object? fallbackError;
+    try {
+      await for (final progress in _kuwoFullAudio.searchPageProgressively(
+        query,
+        page: page,
+      )) {
+        if (progress.isComplete) {
+          fallbackReady = progress.candidates.isNotEmpty;
+          fallbackError = progress.error;
+        }
+        yield progress;
+      }
+    } catch (error) {
+      fallbackError = error;
+    }
+    if (!fallbackReady && (fallbackError != null || gequhaiError != null)) {
+      yield MusicSearchProgress(
+        candidates: const [],
+        isComplete: true,
+        page: page,
+        error: _autoFallbackError(
+          gequhaiError: gequhaiError,
+          kuwoError: fallbackError,
         ),
       );
-      if (isComplete) {
-        unawaited(stream.close());
-      }
     }
-
-    unawaited(
-      _searchAutoSource(
-        trimmed,
-        MusicDataSource.gequhai,
-        _gequhai.search,
-      ).then(handleResult),
-    );
-    yield* stream.stream;
   }
 
   @override
@@ -297,24 +377,19 @@ class RemoteMusicResolver
   }
 
   Future<List<MusicSearchCandidate>> _searchAuto(String query) async {
-    final gequhai = await _searchAutoSource(
-      query,
-      MusicDataSource.gequhai,
-      _gequhai.search,
-    );
-    final merged = [...gequhai.candidates]
-      ..sort((a, b) => b.score.compareTo(a.score));
-    _logResolver(
-      '[AI Music][resolver] auto merged query="$query" '
-      'gequhai=${gequhai.candidates.length} '
-      'buguyy=0 flac=0 kuwoFullAudio=0 source22a5=0 '
-      'itunesPreview=0 count=${merged.length}',
-    );
-    if (merged.isNotEmpty) {
-      return merged.take(80).toList(growable: false);
+    var candidates = const <MusicSearchCandidate>[];
+    Object? error;
+    await for (final progress in _searchAutoPageProgressively(query, page: 1)) {
+      if (progress.isComplete) {
+        candidates = progress.candidates;
+        error = progress.error;
+      }
     }
-    if (gequhai.error != null) {
-      throw _combinedAutoError([gequhai]);
+    if (candidates.isNotEmpty) {
+      return candidates;
+    }
+    if (error != null) {
+      throw error;
     }
     return const [];
   }
@@ -371,110 +446,20 @@ Future<ResolvedMusic> _unsupportedResolve(MusicSearchCandidate candidate) {
   );
 }
 
-void _appendStableCandidates(
-  List<MusicSearchCandidate> target,
-  List<MusicSearchCandidate> incoming,
-) {
-  final seen = {
-    for (final candidate in target)
-      '${candidate.source.storageValue}\t${candidate.platform}\t${candidate.id}',
-  };
-  for (final candidate in incoming) {
-    final key =
-        '${candidate.source.storageValue}\t${candidate.platform}\t${candidate.id}';
-    if (seen.add(key)) {
-      target.add(candidate);
-    }
-  }
-}
-
-StateError _combinedAutoError(List<Object> errors) {
-  if (errors.length <= 1) {
-    final error = errors.single;
-    if (error is _AutoSourceResult && error.error != null) {
-      return StateError(formatResolverError(error.error!));
-    }
-    return StateError(formatResolverError(error));
-  }
-  final messages = <String>[];
-  for (var i = 0; i < errors.length; i += 1) {
-    final error = errors[i];
-    if (error is _AutoSourceResult && error.error != null) {
-      messages.add(
-        '${_autoSourceLabel(error.source)} failed: '
-        '${formatResolverError(error.error!)}',
-      );
-    } else {
-      messages.add(_fallbackCombinedErrorLabel(i, error));
-    }
-  }
+StateError _autoFallbackError({Object? gequhaiError, Object? kuwoError}) {
+  final messages = <String>[
+    if (gequhaiError != null)
+      'gequhai failed: ${formatResolverError(gequhaiError)}',
+    if (kuwoError != null)
+      'kuwo full audio failed: ${formatResolverError(kuwoError)}',
+  ];
   return StateError(messages.join('; '));
-}
-
-String _autoSourceLabel(MusicDataSource source) {
-  return switch (source) {
-    MusicDataSource.buguyy => 'buguyy',
-    MusicDataSource.flac => 'flac',
-    MusicDataSource.source2t58 => '2t58',
-    MusicDataSource.kuwoFullAudio => 'kuwo full audio',
-    MusicDataSource.source22a5 => 'source 22a5',
-    MusicDataSource.gequhai => 'gequhai',
-    MusicDataSource.gequbao => 'gequbao',
-    MusicDataSource.itunesPreview => 'itunes preview',
-    MusicDataSource.auto => 'auto',
-  };
-}
-
-String _fallbackCombinedErrorLabel(int index, Object error) {
-  final label = switch (index) {
-    0 => 'buguyy',
-    1 => 'flac',
-    2 => 'kuwo full audio',
-    3 => 'gequhai',
-    4 => 'source 22a5',
-    5 => 'itunes preview',
-    _ => 'source ${index + 1}',
-  };
-  return '$label failed: ${formatResolverError(error)}';
 }
 
 void _logResolver(String message) {
   developer.log(message, name: 'ai_music.resolver');
   // ignore: avoid_print
   print(message);
-}
-
-Future<_AutoSourceResult> _searchAutoSource(
-  String query,
-  MusicDataSource source,
-  Future<List<MusicSearchCandidate>> Function(String query) search,
-) async {
-  try {
-    final candidates = await search(query);
-    _logResolver(
-      '[AI Music][resolver] auto ${source.storageValue} query="$query" '
-      'count=${candidates.length}',
-    );
-    return _AutoSourceResult(source: source, candidates: candidates);
-  } catch (error) {
-    _logResolver(
-      '[AI Music][resolver] auto ${source.storageValue} failed query="$query" '
-      'error=${formatResolverError(error)}',
-    );
-    return _AutoSourceResult(source: source, error: error);
-  }
-}
-
-class _AutoSourceResult {
-  const _AutoSourceResult({
-    this.source = MusicDataSource.auto,
-    this.candidates = const [],
-    this.error,
-  });
-
-  final MusicDataSource source;
-  final List<MusicSearchCandidate> candidates;
-  final Object? error;
 }
 
 bool _isTrustedFallbackCandidate(

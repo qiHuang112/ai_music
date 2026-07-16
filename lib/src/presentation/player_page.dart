@@ -522,11 +522,6 @@ class _PlaybackControls extends StatelessWidget {
           onPressed: controller.next,
           icon: const Icon(Icons.skip_next),
         ),
-        IconButton(
-          tooltip: strings.stop,
-          onPressed: controller.stop,
-          icon: const Icon(Icons.stop),
-        ),
       ],
     );
   }
@@ -637,8 +632,8 @@ class _MissingLyricsContentState extends State<_MissingLyricsContent> {
   @override
   void didUpdateWidget(covariant _MissingLyricsContent oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (oldWidget.controller.currentTrack?.id !=
-        widget.controller.currentTrack?.id) {
+    if (oldWidget.controller.currentMetadataTargetId !=
+        widget.controller.currentMetadataTargetId) {
       _autoRequestedTrackId = null;
     }
   }
@@ -679,7 +674,7 @@ class _MissingLyricsContentState extends State<_MissingLyricsContent> {
   }
 
   void _scheduleAutoRecover() {
-    final trackId = widget.controller.currentTrack?.id;
+    final trackId = widget.controller.currentMetadataTargetId;
     if (trackId == null ||
         _autoRequestedTrackId == trackId ||
         widget.controller.currentLyrics.isNotEmpty ||
@@ -777,8 +772,8 @@ class _LyricsPanelState extends State<_LyricsPanel> {
                 children: [
                   NotificationListener<ScrollNotification>(
                     onNotification: (notification) {
-                      if (notification is ScrollUpdateNotification ||
-                          notification is UserScrollNotification) {
+                      if (notification is ScrollUpdateNotification &&
+                          notification.dragDetails != null) {
                         _userScrolling = true;
                         _followState.reset();
                         _updatePreviewIndex(lyrics.length);

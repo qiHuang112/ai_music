@@ -5,7 +5,7 @@ import 'resolver_models.dart';
 import 'resolver_utils.dart';
 
 class KuwoFullAudioResolver {
-  const KuwoFullAudioResolver({
+  KuwoFullAudioResolver({
     required MusicResolverHttp httpClient,
     CandidateScorer scorer = const CandidateScorer(),
   }) : _http = httpClient,
@@ -18,14 +18,116 @@ class KuwoFullAudioResolver {
       '(KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36';
   static const _referer = 'http://www.kuwo.cn/';
   static const _minimumMatchScore = 210.0;
+  static const _minimumArtistMatchScore = 120.0;
+  static const _minimumTitleMatchScore = 150.0;
+  static const _progressivePageSize = 8;
+  static const _validationConcurrency = 2;
 
   final MusicResolverHttp _http;
   final CandidateScorer _scorer;
+  final Map<String, ResolvedMusic> _preparedResolutions = {};
 
   Future<List<MusicSearchCandidate>> search(String query) async {
+    final result = await _searchPage(query, page: 1, limit: 30);
+    return result.candidates.take(20).toList(growable: false);
+  }
+
+  Stream<MusicSearchProgress> searchPageProgressively(
+    String query, {
+    required int page,
+  }) async* {
+    final trimmed = query.trim();
+    if (trimmed.isEmpty || page < 1) {
+      yield MusicSearchProgress(
+        candidates: const [],
+        isComplete: true,
+        page: page < 1 ? 1 : page,
+      );
+      return;
+    }
+    if (page == 1) {
+      _preparedResolutions.clear();
+    }
+    final searchPage = await _searchPage(
+      trimmed,
+      page: page,
+      limit: _progressivePageSize,
+    );
+    final original = searchPage.candidates;
+    if (original.isEmpty) {
+      yield MusicSearchProgress(
+        candidates: const [],
+        isComplete: true,
+        page: page,
+        hasNextPage: searchPage.hasNextPage,
+      );
+      return;
+    }
+
+    final completed = List<bool>.filled(original.length, false);
+    final playable = List<MusicSearchCandidate?>.filled(original.length, null);
+    yield MusicSearchProgress(
+      candidates: [
+        for (final candidate in original)
+          _candidateWithValidationStatus(candidate, 'validating'),
+      ],
+      isComplete: false,
+      page: page,
+      hasNextPage: searchPage.hasNextPage,
+    );
+
+    var nextIndex = 0;
+    final active = <int, Future<_IndexedResolution>>{};
+    void fillWorkers() {
+      while (active.length < _validationConcurrency &&
+          nextIndex < original.length) {
+        final index = nextIndex;
+        nextIndex += 1;
+        active[index] = _resolveIndexed(index, original[index]);
+      }
+    }
+
+    fillWorkers();
+    while (active.isNotEmpty) {
+      final result = await Future.any(active.values);
+      active.remove(result.index);
+      completed[result.index] = true;
+      final resolved = result.resolved;
+      if (resolved != null) {
+        final candidate = original[result.index];
+        _preparedResolutions[_preparedKey(candidate)] = resolved;
+        playable[result.index] = _candidateWithResolvedMetadata(
+          candidate,
+          resolved,
+        );
+      }
+      fillWorkers();
+      yield MusicSearchProgress(
+        candidates: _validationSnapshot(original, playable, completed),
+        isComplete: false,
+        page: page,
+        hasNextPage: searchPage.hasNextPage,
+      );
+    }
+
+    yield MusicSearchProgress(
+      candidates: playable.whereType<MusicSearchCandidate>().toList(
+        growable: false,
+      ),
+      isComplete: true,
+      page: page,
+      hasNextPage: searchPage.hasNextPage,
+    );
+  }
+
+  Future<_KuwoSearchPage> _searchPage(
+    String query, {
+    required int page,
+    required int limit,
+  }) async {
     final trimmed = query.trim();
     if (trimmed.isEmpty) {
-      return const [];
+      return const _KuwoSearchPage();
     }
     final scopedSong = _scopedSongFor(trimmed);
     final searchTerm = scopedSong?.title ?? trimmed;
@@ -34,8 +136,8 @@ class KuwoFullAudioResolver {
       'ft': 'music',
       'itemset': 'web_2013',
       'client': 'kt',
-      'pn': '0',
-      'rn': '30',
+      'pn': '${page - 1}',
+      'rn': '$limit',
       'rformat': 'json',
       'encoding': 'utf8',
     });
@@ -56,19 +158,61 @@ class KuwoFullAudioResolver {
       );
     }
 
+    final items = _parseAbslist(response.body);
     final candidates =
-        _parseAbslist(response.body)
+        items
             .map((item) => _candidateFromItem(item, trimmed))
             .where(_isTrustedFullAudioCandidate)
             .toList(growable: false)
           ..sort((a, b) => b.score.compareTo(a.score));
+    // ignore: avoid_print
+    print(
+      '[AI Music][resolver] Kuwo search query="$trimmed" page=$page '
+      'raw=${items.length} trusted=${candidates.length}',
+    );
     if (candidates.isEmpty && scopedSong != null) {
-      return [_seedCandidate(scopedSong, trimmed)];
+      return _KuwoSearchPage(candidates: [_seedCandidate(scopedSong, trimmed)]);
     }
-    return candidates.take(20).toList(growable: false);
+    return _KuwoSearchPage(
+      candidates: candidates,
+      hasNextPage: items.length >= limit,
+    );
+  }
+
+  Future<_IndexedResolution> _resolveIndexed(
+    int index,
+    MusicSearchCandidate candidate,
+  ) async {
+    try {
+      final resolved = await _resolveFresh(candidate);
+      final validation = resolved.sourceAttempts.isEmpty
+          ? ''
+          : resolved.sourceAttempts.last.mediaValidation;
+      // ignore: avoid_print
+      print(
+        '[AI Music][resolver] Kuwo validation ok id=${candidate.id} '
+        '$validation',
+      );
+      return _IndexedResolution(index, resolved);
+    } catch (error) {
+      // ignore: avoid_print
+      print(
+        '[AI Music][resolver] Kuwo validation failed id=${candidate.id} '
+        'name="${candidate.name}" error=${formatResolverError(error)}',
+      );
+      return _IndexedResolution(index, null);
+    }
   }
 
   Future<ResolvedMusic> resolve(MusicSearchCandidate candidate) async {
+    final prepared = _preparedResolutions.remove(_preparedKey(candidate));
+    if (prepared != null) {
+      return prepared;
+    }
+    return _resolveFresh(candidate);
+  }
+
+  Future<ResolvedMusic> _resolveFresh(MusicSearchCandidate candidate) async {
     if (!_isTrustedFullAudioCandidate(candidate)) {
       throw SourceDownloadException(
         '候选歌曲匹配度不足，已阻止完整播放和缓存。',
@@ -327,20 +471,39 @@ class KuwoFullAudioResolver {
   }
 
   bool _isTrustedFullAudioCandidate(MusicSearchCandidate candidate) {
-    if (candidate.id.trim().isEmpty) {
+    if (!candidate.id.startsWith('MUSIC_')) {
       return false;
     }
-    if (candidate.duration < 120 || candidate.duration > 420) {
+    if (candidate.duration < 90 || candidate.duration > 600) {
+      return false;
+    }
+    if (_looksLikeAlternateOrPartialVersion(candidate.raw['songName'])) {
       return false;
     }
     final scopedSong = _scopedSongFor(candidate.query);
     final title = _normalizeTitle(candidate.name);
     final artist = _normalizeTitle(candidate.artist);
-    return scopedSong != null &&
-        title == scopedSong.title &&
-        artist.contains(scopedSong.artist) &&
-        candidate.id == scopedSong.musicRid &&
-        candidate.score >= _minimumMatchScore;
+    if (scopedSong != null) {
+      return title == scopedSong.title &&
+          artist.contains(scopedSong.artist) &&
+          candidate.id == scopedSong.musicRid &&
+          candidate.score >= _minimumMatchScore;
+    }
+
+    final tokens = candidate.query
+        .trim()
+        .split(RegExp(r'[\s,，/]+'))
+        .where((token) => token.isNotEmpty)
+        .toList(growable: false);
+    if (tokens.length > 1) {
+      return candidate.score >= _minimumArtistMatchScore &&
+          isLooseArtistTitleCandidate(candidate, candidate.query);
+    }
+    final normalizedQuery = _normalizeTitle(candidate.query);
+    final artistExact = artist == normalizedQuery;
+    final titleExact = title == normalizedQuery;
+    return (artistExact && candidate.score >= _minimumArtistMatchScore) ||
+        (titleExact && candidate.score >= _minimumTitleMatchScore);
   }
 
   double _strictKnownSongBoost(Map<String, dynamic> item, String query) {
@@ -385,6 +548,7 @@ class KuwoFullAudioResolver {
             if (item is Map)
               {
                 'name': item['name'] ?? item['NAME'],
+                'songName': item['songName'] ?? item['SONGNAME'],
                 'artist': item['artist'] ?? item['ARTIST'],
                 'album': item['album'] ?? item['ALBUM'],
                 'duration': item['duration'] ?? item['DURATION'],
@@ -405,6 +569,7 @@ class KuwoFullAudioResolver {
         .map(
           (block) => {
             'name': _field(block, 'NAME'),
+            'songName': _field(block, 'SONGNAME'),
             'artist': _field(block, 'ARTIST'),
             'album': _field(block, 'ALBUM'),
             'duration': int.tryParse(_field(block, 'DURATION')) ?? 0,
@@ -421,28 +586,54 @@ class KuwoFullAudioResolver {
   }
 
   List<String> _legacyAbslist(String text) {
-    final startToken = "'abslist':[";
-    final start = text.indexOf(startToken);
-    if (start == -1) {
+    final listMatch = RegExp(r'''['"]abslist['"]\s*:\s*\[''').firstMatch(text);
+    if (listMatch == null) {
       return const [];
     }
-    final listStart = start + startToken.length;
-    final end = text.indexOf("],'", listStart);
-    final listBody = text.substring(listStart, end == -1 ? text.length : end);
-    return listBody
-        .split(RegExp(r"\},\{"))
-        .map((block) {
-          var next = block;
-          if (!next.startsWith('{')) {
-            next = '{$next';
-          }
-          if (!next.endsWith('}')) {
-            next = '$next}';
-          }
-          return next;
-        })
-        .where((block) => block.contains("'MUSICRID':'MUSIC_"))
-        .toList(growable: false);
+    final blocks = <String>[];
+    var depth = 0;
+    var objectStart = -1;
+    var inString = false;
+    var escaped = false;
+    var quote = '';
+    for (var index = listMatch.end; index < text.length; index += 1) {
+      final char = text[index];
+      if (inString) {
+        if (escaped) {
+          escaped = false;
+        } else if (char == '\\') {
+          escaped = true;
+        } else if (char == quote) {
+          inString = false;
+        }
+        continue;
+      }
+      if (char == "'" || char == '"') {
+        inString = true;
+        quote = char;
+        continue;
+      }
+      if (char == '{') {
+        if (depth == 0) {
+          objectStart = index;
+        }
+        depth += 1;
+        continue;
+      }
+      if (char == '}' && depth > 0) {
+        depth -= 1;
+        if (depth == 0 && objectStart >= 0) {
+          blocks.add(text.substring(objectStart, index + 1));
+          objectStart = -1;
+        }
+        continue;
+      }
+      if (char == ']' && depth == 0) {
+        break;
+      }
+    }
+    final musicRidPattern = RegExp(r"'MUSICRID'\s*:\s*'MUSIC_");
+    return blocks.where(musicRidPattern.hasMatch).toList(growable: false);
   }
 
   bool _isAvailableItem(Map<String, dynamic> item) {
@@ -560,6 +751,105 @@ String _header(ResolverHttpResponse response, String name) {
     }
   }
   return '';
+}
+
+bool _looksLikeAlternateOrPartialVersion(Object? value) {
+  final text = _cleanText(value).toLowerCase();
+  if (text.isEmpty) {
+    return false;
+  }
+  return RegExp(
+    r'\+|片段|伴奏|纯音乐|纯人声|演唱会|艺术节|串烧|升调|\bdj\b|\blive\b|\bdemo\b|\bremix\b',
+    caseSensitive: false,
+  ).hasMatch(text);
+}
+
+String _preparedKey(MusicSearchCandidate candidate) {
+  return '${candidate.platform}|${candidate.id}';
+}
+
+MusicSearchCandidate _candidateWithResolvedMetadata(
+  MusicSearchCandidate candidate,
+  ResolvedMusic resolved,
+) {
+  final lastAttempt = resolved.sourceAttempts.isEmpty
+      ? null
+      : resolved.sourceAttempts.last;
+  return MusicSearchCandidate(
+    query: candidate.query,
+    source: candidate.source,
+    platform: candidate.platform,
+    keyword: candidate.keyword,
+    page: candidate.page,
+    id: candidate.id,
+    name: resolved.name,
+    artist: resolved.artist,
+    album: resolved.album,
+    duration: resolved.duration,
+    link: candidate.link,
+    coverUrl: resolved.coverUrl,
+    qualities: [resolved.quality],
+    score: candidate.score,
+    raw: {
+      ...candidate.raw,
+      'validationStatus': 'ready',
+      'clientReady': resolved.canCacheAudio,
+      'urlType': resolved.urlType.storageValue,
+      'mediaValidation': lastAttempt?.mediaValidation ?? '',
+      'mediaContentLength': lastAttempt?.mediaContentLength,
+    },
+  );
+}
+
+MusicSearchCandidate _candidateWithValidationStatus(
+  MusicSearchCandidate candidate,
+  String status,
+) {
+  return MusicSearchCandidate(
+    query: candidate.query,
+    source: candidate.source,
+    platform: candidate.platform,
+    keyword: candidate.keyword,
+    page: candidate.page,
+    id: candidate.id,
+    name: candidate.name,
+    artist: candidate.artist,
+    album: candidate.album,
+    duration: candidate.duration,
+    link: candidate.link,
+    coverUrl: candidate.coverUrl,
+    qualities: candidate.qualities,
+    score: candidate.score,
+    raw: {...candidate.raw, 'validationStatus': status, 'clientReady': false},
+  );
+}
+
+List<MusicSearchCandidate> _validationSnapshot(
+  List<MusicSearchCandidate> original,
+  List<MusicSearchCandidate?> playable,
+  List<bool> completed,
+) {
+  return List<MusicSearchCandidate>.unmodifiable([
+    for (var index = 0; index < original.length; index += 1)
+      if (playable[index] != null)
+        playable[index]!
+      else if (!completed[index])
+        _candidateWithValidationStatus(original[index], 'validating'),
+  ]);
+}
+
+class _IndexedResolution {
+  const _IndexedResolution(this.index, this.resolved);
+
+  final int index;
+  final ResolvedMusic? resolved;
+}
+
+class _KuwoSearchPage {
+  const _KuwoSearchPage({this.candidates = const [], this.hasNextPage = false});
+
+  final List<MusicSearchCandidate> candidates;
+  final bool hasNextPage;
 }
 
 class _ConvertResult {
