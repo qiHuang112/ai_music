@@ -1,6 +1,6 @@
 # AM-20260711-005 歌曲海搜索与边下边播主链路回归
 
-Status: accepted_pending_merge
+Status: pushed
 Owner Lane: android
 Assist Lane: source-researcher, android-streaming, qa-researcher, architect review
 Source Thread: 019f4ed4-106e-7860-875d-a32f81629e4e
@@ -20,26 +20,31 @@ Implementation Plan: docs/superpowers/plans/2026-07-11-am005-gequhai-search-stre
 Required Skills: systematic-debugging, test-driven-development, ai-music-team-ops, verification-before-completion
 TDD Mode: required
 Baseline Commit: c754ac7443020303dafae490890cce3efc540066
-Head Commit: b22bcbf3190196dac1af5574d30d1028e63dab83
+Head Commit: b21578c77ee5ea5e1df7dd5f8b483a1980135657
 Business Implementation Commit: d9525aee5154e1d69fb8d0e31d61a4a94a0b88b2
 Root Cause Evidence: `周杰伦` artist-only query was filtered because 歌曲海 candidate matching required title containment unless the query carried explicit title/artist separators; progressive playback also assumed the initial upstream `Range: bytes=0-` request would succeed, so upstreams that reject Range could fail streaming while full GET/download remained viable.
 Red Evidence: RED reproduced with `flutter test --no-pub test/music_resolver_test.dart --plain-name 'auto keeps gequhai artist-only search results visible' --dart-define=AI_MUSIC_DISABLE_AUDIO_SERVICE=true` failing before the resolver matching change, and `flutter test --no-pub test/progressive_audio_cache_test.dart --plain-name 'upstream range failure falls back to full GET for seekable proxy playback' --dart-define=AI_MUSIC_DISABLE_AUDIO_SERVICE=true` failing before the progressive fallback change.
 Green Evidence: The same two RED tests now pass; `auto tries later gequhai candidates when the top match fails validation` also passes, preserving fail-closed fallback to later validated 歌曲海 candidates.
 Targeted Tests: R3 eight-file suite = 189 passed; after integrating the latest `release/1.1.0`, exact promoted-Kuwo, neutral-no-lyrics, artist-correction tests = 3 passed, progressive suite = 20 passed, full `/Users/huangqi/AIHome/tools/flutter/bin/flutter test --no-pub --dart-define=AI_MUSIC_DISABLE_AUDIO_SERVICE=true` = 274 passed.
-Self Test Evidence: `/Users/huangqi/AIHome/tools/flutter/bin/flutter analyze --no-pub` no issues; `git diff --check` clean; final debug APK at `build/app/outputs/flutter-apk/app-debug.apk` and Xiaomi 10 Pro installed `base.apk` sha256 both `bb6287c45a86e1794d23567a08aac786bc4ec8ee58bbe8bdc3194f6b06cda2da`; device `lastUpdateTime=2026-07-17 07:59:24`, app launch confirmed.
+Self Test Evidence: `/Users/huangqi/AIHome/tools/flutter/bin/flutter analyze --no-pub` no issues; `git diff --check` clean; final default-audio debug APK at `build/app/outputs/flutter-apk/app-debug.apk` and Xiaomi 10 Pro installed `base.apk` sha256 both `bb6287c45a86e1794d23567a08aac786bc4ec8ee58bbe8bdc3194f6b06cda2da`; device `lastUpdateTime=2026-07-17 08:08:56`, app launch confirmed.
 Baseline Freshness Evidence: `origin/release/1.1.0@c754ac7443020303dafae490890cce3efc540066` is an ancestor of final candidate `b22bcbf3190196dac1af5574d30d1028e63dab83`; integration retained the target branch's natural-language artist correction, concurrent-seek and truncated-stream hardening.
 Scope Diff Evidence: Final candidate contains 29 request-owned code, test and collaboration files relative to `origin/release/1.1.0`; raw QA, Chrome and script evidence directories remain untracked and excluded from Git.
 Product Main Path Evidence: `evidence/qa-am005-r3-20260717/SUMMARY.md` records initial capped 206 fail-closed with `incomplete_audio_response`, strict same-song validated Kuwo evidence reuse, neutral no-lyrics state and Xiaomi 10 Pro playback continuation. Final installed candidate additionally preserves dynamic pagination, artist correction, source timeout fallback, HTTP fail-closed/cache integrity and real drag seek behavior.
 Spec Review Result: accepted
 Code Quality Review Result: accepted
-Full Verification Evidence: R3 eight-file suite 189 passed; post-integration exact P1/UI tests 3 passed, progressive suite 20 passed, full Flutter suite 274 passed; analyze no issues and diff-check clean. Final debug APK and Xiaomi 10 Pro installed base.apk SHA-256 both `bb6287c45a86e1794d23567a08aac786bc4ec8ee58bbe8bdc3194f6b06cda2da`, device `lastUpdateTime=2026-07-17 07:59:24`; R3 device evidence records dynamic pagination, strict source failover/cache integrity, neutral no-lyrics playback and real seek continuation with `state=3`.
+Full Verification Evidence: R3 eight-file suite 189 passed; post-integration exact P1/UI tests 3 passed, progressive suite 20 passed, release merge full Flutter suite 274 passed; analyze no issues, diff-check clean and merge gate OK. Final default-audio debug APK and Xiaomi 10 Pro installed base.apk SHA-256 both `bb6287c45a86e1794d23567a08aac786bc4ec8ee58bbe8bdc3194f6b06cda2da`, device `lastUpdateTime=2026-07-17 08:08:56`; R3 device evidence records dynamic pagination, strict source failover/cache integrity, neutral no-lyrics playback and real seek continuation with `state=3`.
 Blocking Findings: none
+Merge Evidence: `release/1.1.0` merge commit `b21578c77ee5ea5e1df7dd5f8b483a1980135657` merged the accepted AM-005 feature over target baseline `c754ac7443020303dafae490890cce3efc540066` without conflicts.
+Push Evidence: `git push origin release/1.1.0` succeeded; `git ls-remote origin refs/heads/release/1.1.0` confirmed remote release at `b21578c77ee5ea5e1df7dd5f8b483a1980135657` before this final push-evidence ledger update.
+Push Status: pushed
+Product Notification Evidence: lead final response and Android review result include release commit, remote release HEAD, APK/device SHA, installation time, verification results, residual P2 risks and experience readiness.
+Knowledge Evidence: `reports/am005-gequhai-query-normalization-status.md`; `docs/superpowers/plans/2026-07-16-am005-search-library-lyrics.md`; `docs/superpowers/plans/2026-07-16-am005-streaming-search-pagination.md`; `docs/superpowers/specs/2026-07-16-am005-search-library-lyrics-design.md`; `docs/superpowers/specs/2026-07-16-am005-streaming-search-pagination-design.md`.
 
 ## 2026-07-17 R3 集中复核结论
 
 - Spec Review Result / 规格符合性：accepted。R3 两项 P1 修复满足修订后的主链路验收：不完整初始 206 不转正缓存；同歌曲严格验证证据可跨刷新 CDN URL 复用，未降低普通匹配门槛；无歌词保持中性可播放状态。
 - Code Quality Review Result / 代码质量：accepted。关键状态转换、缓存写入边界和 same-song 约束均有 RED-GREEN 回归测试；合入最新目标基线后定向 23 项和全量 274 项测试通过，analyze 与 diff-check 通过，无阻塞 finding。
-- 真机结论：final APK 与 Xiaomi 10 Pro `base.apk` SHA-256 一致，应用已安装并启动；R3 设备证据显示同曲流媒体升格后继续播放，forced metadata recovery 未出现 `low_match_confidence`，seek 后 `state=3`。
+- 真机结论：final default-audio APK 与 Xiaomi 10 Pro `base.apk` SHA-256 一致，应用已安装并启动；R3 设备证据显示同曲流媒体升格后继续播放，forced metadata recovery 未出现 `low_match_confidence`，seek 后 `state=3`。
 - 非阻塞后续：设备日志中的转义 artist 文本和 Android NDK 未来版本告警归入 P2，不阻塞本次体验包和 1.1.0 合入。
 
 ## 背景
