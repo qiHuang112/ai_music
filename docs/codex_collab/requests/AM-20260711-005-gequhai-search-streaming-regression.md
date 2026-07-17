@@ -19,7 +19,7 @@ Design Doc: docs/superpowers/plans/2026-07-11-am005-gequhai-search-streaming-reg
 Implementation Plan: docs/superpowers/plans/2026-07-11-am005-gequhai-search-streaming-regression.md
 Required Skills: systematic-debugging, test-driven-development, ai-music-team-ops, verification-before-completion
 TDD Mode: required
-Baseline Commit: c754ac7443026facfcdd7bdd8ccac3a90d4bca25
+Baseline Commit: c754ac7443020303dafae490890cce3efc540066
 Head Commit: b22bcbf3190196dac1af5574d30d1028e63dab83
 Business Implementation Commit: d9525aee5154e1d69fb8d0e31d61a4a94a0b88b2
 Root Cause Evidence: `周杰伦` artist-only query was filtered because 歌曲海 candidate matching required title containment unless the query carried explicit title/artist separators; progressive playback also assumed the initial upstream `Range: bytes=0-` request would succeed, so upstreams that reject Range could fail streaming while full GET/download remained viable.
@@ -27,7 +27,7 @@ Red Evidence: RED reproduced with `flutter test --no-pub test/music_resolver_tes
 Green Evidence: The same two RED tests now pass; `auto tries later gequhai candidates when the top match fails validation` also passes, preserving fail-closed fallback to later validated 歌曲海 candidates.
 Targeted Tests: R3 eight-file suite = 189 passed; after integrating the latest `release/1.1.0`, exact promoted-Kuwo, neutral-no-lyrics, artist-correction tests = 3 passed, progressive suite = 20 passed, full `/Users/huangqi/AIHome/tools/flutter/bin/flutter test --no-pub --dart-define=AI_MUSIC_DISABLE_AUDIO_SERVICE=true` = 274 passed.
 Self Test Evidence: `/Users/huangqi/AIHome/tools/flutter/bin/flutter analyze --no-pub` no issues; `git diff --check` clean; final debug APK at `build/app/outputs/flutter-apk/app-debug.apk` and Xiaomi 10 Pro installed `base.apk` sha256 both `bb6287c45a86e1794d23567a08aac786bc4ec8ee58bbe8bdc3194f6b06cda2da`; device `lastUpdateTime=2026-07-17 07:59:24`, app launch confirmed.
-Baseline Freshness Evidence: `origin/release/1.1.0@c754ac7443026facfcdd7bdd8ccac3a90d4bca25` is an ancestor of final candidate `b22bcbf3190196dac1af5574d30d1028e63dab83`; integration retained the target branch's natural-language artist correction, concurrent-seek and truncated-stream hardening.
+Baseline Freshness Evidence: `origin/release/1.1.0@c754ac7443020303dafae490890cce3efc540066` is an ancestor of final candidate `b22bcbf3190196dac1af5574d30d1028e63dab83`; integration retained the target branch's natural-language artist correction, concurrent-seek and truncated-stream hardening.
 Scope Diff Evidence: Final candidate contains 29 request-owned code, test and collaboration files relative to `origin/release/1.1.0`; raw QA, Chrome and script evidence directories remain untracked and excluded from Git.
 Product Main Path Evidence: `evidence/qa-am005-r3-20260717/SUMMARY.md` records initial capped 206 fail-closed with `incomplete_audio_response`, strict same-song validated Kuwo evidence reuse, neutral no-lyrics state and Xiaomi 10 Pro playback continuation. Final installed candidate additionally preserves dynamic pagination, artist correction, source timeout fallback, HTTP fail-closed/cache integrity and real drag seek behavior.
 Spec Review Result: accepted
