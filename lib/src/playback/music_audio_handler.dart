@@ -18,16 +18,42 @@ class PlayableAudio {
 
 class MusicAudioHandler extends BaseAudioHandler
     with QueueHandler, SeekHandler {
-  MusicAudioHandler({ShuffleSkipPlanner? shuffleSkipPlanner})
-    : _shuffleSkipPlanner = shuffleSkipPlanner ?? ShuffleSkipPlanner() {
+  MusicAudioHandler({
+    ShuffleSkipPlanner? shuffleSkipPlanner,
+    AudioPlayer? player,
+  }) : _player = player ?? AudioPlayer(),
+       _shuffleSkipPlanner = shuffleSkipPlanner ?? ShuffleSkipPlanner() {
     if (isOpenHarmonyPlatform) {
       _ohosMediaControlsChannel.setMethodCallHandler(
         _handleOhosMediaControlCall,
       );
     }
-    _playbackEventSubscription = _player.playbackEventStream.listen((event) {
-      playbackState.add(_transformEvent(event));
-    });
+    _playbackEventSubscription = _player.playbackEventStream.listen(
+      (event) {
+        final failed = event.errorCode != null || event.errorMessage != null;
+        if (failed) {
+          _markSourceError();
+        }
+        final state = _transformEvent(event);
+        playbackState.add(
+          failed
+              ? state.copyWith(
+                  processingState: AudioProcessingState.error,
+                  playing: false,
+                )
+              : state,
+        );
+      },
+      onError: (Object error, StackTrace stackTrace) {
+        _markSourceError();
+        playbackState.add(
+          playbackState.value.copyWith(
+            processingState: AudioProcessingState.error,
+            playing: false,
+          ),
+        );
+      },
+    );
     _currentIndexSubscription = _player.currentIndexStream.listen(
       _handleCurrentIndexChanged,
     );
@@ -36,12 +62,12 @@ class MusicAudioHandler extends BaseAudioHandler
       state,
     ) {
       if (state == ProcessingState.completed) {
-        stop();
+        unawaited(_handlePlaybackCompleted());
       }
     });
   }
 
-  final AudioPlayer _player = AudioPlayer();
+  final AudioPlayer _player;
   static const MethodChannel _ohosMediaControlsChannel = MethodChannel(
     'com.qi.ai_music.ohos_media_controls',
   );
@@ -49,20 +75,30 @@ class MusicAudioHandler extends BaseAudioHandler
   Future<void> Function(String loopMode)? onOhosLoopModeRequested;
   Future<void> Function(String mediaId)? onOhosToggleFavoriteRequested;
   Future<void> Function(String mediaId)? onToggleFavoriteRequested;
+  Future<bool> Function()? onSkipToNextRequested;
+  Future<bool> Function()? onSkipToPreviousRequested;
+  Future<bool> Function(int index)? onSkipToQueueItemRequested;
+  Future<bool> Function()? onPlaybackCompleted;
   late final StreamSubscription<PlaybackEvent> _playbackEventSubscription;
   late final StreamSubscription<int?> _currentIndexSubscription;
   late final StreamSubscription<Duration?> _durationSubscription;
   late final StreamSubscription<ProcessingState> _processingStateSubscription;
   List<PlayableAudio> _items = const [];
+  List<MediaItem>? _displayQueueItems;
+  int? _displayQueueIndex;
   final ShuffleSkipPlanner _shuffleSkipPlanner;
   final PlaybackIndexTracker _indexTracker = PlaybackIndexTracker();
   bool _shuffleModeEnabled = false;
   bool _isCurrentFavorite = false;
+  bool _sourceErrorPending = false;
+  bool _isRecoveringSource = false;
+  bool _playRequested = false;
+  bool _isHandlingCompletion = false;
 
   Duration get currentPosition => _player.position;
   Duration get currentBufferedPosition => _player.bufferedPosition;
   double get currentSpeed => _player.speed;
-  int? get currentQueueIndex => _player.currentIndex;
+  int? get currentQueueIndex => _displayQueueIndex ?? _player.currentIndex;
   Stream<Duration> get positionStream => _player.positionStream;
 
   Future<void> configure() async {
@@ -78,6 +114,11 @@ class MusicAudioHandler extends BaseAudioHandler
   }) async {
     // App 内播放器、通知栏、锁屏和耳机按键都消费 audio_service 队列，不能绕过这里直接播。
     _items = List<PlayableAudio>.unmodifiable(items);
+    _displayQueueItems = null;
+    _displayQueueIndex = null;
+    _sourceErrorPending = false;
+    _isRecoveringSource = false;
+    _playRequested = false;
     _indexTracker.reset();
     _shuffleSkipPlanner.reset(_items.map((item) => item.mediaItem.id).toList());
     queue.add(_items.map((item) => item.mediaItem).toList(growable: false));
@@ -118,10 +159,47 @@ class MusicAudioHandler extends BaseAudioHandler
             ? PlayableAudio(mediaItem: updated, uri: _items[i].uri)
             : _items[i],
     ]);
-    queue.add(_items.map((item) => item.mediaItem).toList(growable: false));
+    final displayItems = _displayQueueItems;
+    if (displayItems == null) {
+      queue.add(_items.map((item) => item.mediaItem).toList(growable: false));
+    } else {
+      final displayIndex = displayItems.indexWhere(
+        (item) => item.id == updated.id,
+      );
+      if (displayIndex != -1) {
+        _displayQueueItems = List<MediaItem>.unmodifiable([
+          for (var i = 0; i < displayItems.length; i += 1)
+            if (i == displayIndex) updated else displayItems[i],
+        ]);
+      }
+      queue.add(_displayQueueItems!);
+    }
     final item = _withKnownDuration(updated);
     mediaItem.add(item);
     await _syncOhosMediaItem(item);
+  }
+
+  Future<void> publishDisplayQueue(
+    List<MediaItem> items, {
+    required int currentIndex,
+  }) async {
+    if (items.isEmpty) {
+      _displayQueueItems = null;
+      _displayQueueIndex = null;
+      queue.add(_items.map((item) => item.mediaItem).toList(growable: false));
+      return;
+    }
+    _displayQueueItems = List<MediaItem>.unmodifiable(items);
+    _displayQueueIndex = currentIndex.clamp(0, items.length - 1);
+    // ignore: avoid_print
+    print(
+      '[AI Music][playback] display queue count=${items.length} '
+      'currentIndex=$_displayQueueIndex',
+    );
+    queue.add(_displayQueueItems!);
+    playbackState.add(
+      playbackState.value.copyWith(queueIndex: _displayQueueIndex),
+    );
   }
 
   Future<void> restoreCurrentItemPosition(
@@ -141,16 +219,50 @@ class MusicAudioHandler extends BaseAudioHandler
   }
 
   @override
-  Future<void> play() => _player.play();
+  Future<void> play() async {
+    _playRequested = true;
+    await _reloadSourceAfterError(_player.position);
+    _startPlayer();
+  }
 
   @override
-  Future<void> pause() => _player.pause();
+  Future<void> pause() async {
+    _playRequested = false;
+    await _player.pause();
+  }
 
   @override
-  Future<void> seek(Duration position) => _player.seek(position);
+  Future<void> seek(Duration position) async {
+    final reloaded = await _reloadSourceAfterError(position);
+    if (!reloaded) {
+      await _player.seek(position);
+      return;
+    }
+    if (_playRequested) {
+      _startPlayer();
+    }
+  }
+
+  void _startPlayer() {
+    unawaited(
+      _player.play().onError((Object error, StackTrace stackTrace) {
+        _markSourceError();
+        playbackState.add(
+          playbackState.value.copyWith(
+            processingState: AudioProcessingState.error,
+            playing: false,
+          ),
+        );
+      }),
+    );
+  }
 
   @override
   Future<void> skipToQueueItem(int index) async {
+    final callback = onSkipToQueueItemRequested;
+    if (callback != null && await callback(index)) {
+      return;
+    }
     if (index < 0 || index >= _items.length) {
       return;
     }
@@ -164,6 +276,10 @@ class MusicAudioHandler extends BaseAudioHandler
 
   @override
   Future<void> skipToNext() async {
+    final callback = onSkipToNextRequested;
+    if (callback != null && await callback()) {
+      return;
+    }
     if (_shuffleModeEnabled && _items.length > 1) {
       final current = mediaItem.value;
       final nextId = current == null
@@ -199,6 +315,10 @@ class MusicAudioHandler extends BaseAudioHandler
 
   @override
   Future<void> skipToPrevious() async {
+    final callback = onSkipToPreviousRequested;
+    if (callback != null && await callback()) {
+      return;
+    }
     final previousIndex = _previousSequentialIndex();
     if (previousIndex != null) {
       _indexTracker.markManualTarget(
@@ -239,6 +359,24 @@ class MusicAudioHandler extends BaseAudioHandler
     await _player.setShuffleModeEnabled(false);
     playbackState.add(playbackState.value.copyWith(shuffleMode: shuffleMode));
     unawaited(_syncOhosControlState(shuffleMode: shuffleMode));
+  }
+
+  Future<void> setManagedQueueMode({
+    required AudioServiceRepeatMode repeatMode,
+    required AudioServiceShuffleMode shuffleMode,
+  }) async {
+    _shuffleModeEnabled = false;
+    await _player.setLoopMode(LoopMode.off);
+    await _player.setShuffleModeEnabled(false);
+    playbackState.add(
+      playbackState.value.copyWith(
+        repeatMode: repeatMode,
+        shuffleMode: shuffleMode,
+      ),
+    );
+    unawaited(
+      _syncOhosControlState(repeatMode: repeatMode, shuffleMode: shuffleMode),
+    );
   }
 
   Future<void> syncControlState({bool? isFavorite}) {
@@ -283,6 +421,8 @@ class MusicAudioHandler extends BaseAudioHandler
 
   @override
   Future<void> stop() async {
+    _playRequested = false;
+    _sourceErrorPending = false;
     await _player.stop();
     playbackState.add(
       playbackState.value.copyWith(
@@ -302,6 +442,54 @@ class MusicAudioHandler extends BaseAudioHandler
       _ohosMediaControlsChannel.setMethodCallHandler(null);
     }
     await _player.dispose();
+  }
+
+  Future<void> _handlePlaybackCompleted() async {
+    if (_isHandlingCompletion) {
+      return;
+    }
+    _isHandlingCompletion = true;
+    try {
+      final callback = onPlaybackCompleted;
+      if (callback != null && await callback()) {
+        return;
+      }
+      await stop();
+    } finally {
+      _isHandlingCompletion = false;
+    }
+  }
+
+  void _markSourceError() {
+    if (!_isRecoveringSource && _items.isNotEmpty) {
+      _sourceErrorPending = true;
+    }
+  }
+
+  Future<bool> _reloadSourceAfterError(Duration position) async {
+    if (!_sourceErrorPending || _isRecoveringSource || _items.isEmpty) {
+      return false;
+    }
+    _sourceErrorPending = false;
+    _isRecoveringSource = true;
+    final index = (_player.currentIndex ?? _indexTracker.lastIndex ?? 0).clamp(
+      0,
+      _items.length - 1,
+    );
+    try {
+      await _player.setAudioSources(
+        [
+          for (final item in _items)
+            AudioSource.uri(item.uri, tag: item.mediaItem),
+        ],
+        initialIndex: index,
+        initialPosition: position,
+      );
+      _publishCurrentItem(index);
+      return true;
+    } finally {
+      _isRecoveringSource = false;
+    }
   }
 
   void _handleCurrentIndexChanged(int? index) {
@@ -523,7 +711,7 @@ class MusicAudioHandler extends BaseAudioHandler
       updatePosition: _player.position,
       bufferedPosition: _player.bufferedPosition,
       speed: _player.speed,
-      queueIndex: event.currentIndex,
+      queueIndex: _displayQueueIndex ?? event.currentIndex,
       repeatMode: playbackState.value.repeatMode,
       shuffleMode: playbackState.value.shuffleMode,
     );

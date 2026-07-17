@@ -23,6 +23,7 @@ import 'metadata_use_case.dart';
 import 'music_mappers.dart';
 import 'music_ui_message.dart';
 import 'playback_use_case.dart';
+import 'search_playback_session.dart';
 import 'settings_controller.dart';
 
 /// UI 层的组合门面。
@@ -75,6 +76,10 @@ class MusicController extends ChangeNotifier {
     audioHandler.onOhosToggleFavoriteRequested =
         _handleOhosToggleFavoriteRequested;
     audioHandler.onToggleFavoriteRequested = _handleToggleFavoriteRequested;
+    audioHandler.onSkipToNextRequested = _handleSearchNextRequested;
+    audioHandler.onSkipToPreviousRequested = _handleSearchPreviousRequested;
+    audioHandler.onSkipToQueueItemRequested = _handleSearchQueueItemRequested;
+    audioHandler.onPlaybackCompleted = _handleSearchPlaybackCompleted;
     _mediaItemSubscription = audioHandler.mediaItem.listen(
       _handleMediaItemChanged,
     );
@@ -104,11 +109,20 @@ class MusicController extends ChangeNotifier {
   int _metadataRequest = 0;
   // 搜索框允许“非空换非空”快速输入；request id 用来丢弃晚返回的旧结果。
   int _searchRequest = 0;
+  String _searchQuery = '';
+  int _searchPage = 0;
+  int? _failedSearchPage;
+  final Map<int, List<MusicSearchCandidate>> _searchCandidatesByPage = {};
   String? _metadataTrackId;
   final Set<String> _autoMetadataRecoveryAttempted = {};
   PlaybackQueueSource _activeQueueSource =
       const PlaybackQueueSource.localCache();
   List<String> _activeQueueTrackIds = const [];
+  SearchPlaybackSession? _searchPlaybackSession;
+  bool _isSwitchingSearchTrack = false;
+  String? _activeStreamingMediaId;
+  CachedTrack? _activeStreamingCachedRecord;
+  int _streamingPlaybackRequest = 0;
   bool _legacyRepairRunning = false;
   bool _isDisposed = false;
   int _hotlistLogCursor = 0;
@@ -129,6 +143,8 @@ class MusicController extends ChangeNotifier {
   List<HotlistChart> hotlistCharts = const [];
   List<HotlistPlaylist> hotlistPlaylists = const [];
   bool isSearching = false;
+  bool isLoadingMoreSearch = false;
+  bool hasMoreSearchResults = false;
   bool isLoadingCache = false;
   bool isLoadingHotlists = false;
   bool isSavingHotlistPlaylist = false;
@@ -152,6 +168,17 @@ class MusicController extends ChangeNotifier {
   Stream<Duration> get positionStream => audioHandler.positionStream;
   List<LyricLine> get currentLyrics => currentMetadata.lyrics;
   Uri? get currentArtworkUri => currentMetadata.artworkUri;
+  String? get currentMetadataTargetId {
+    final track = currentTrack;
+    if (track != null) {
+      return track.id;
+    }
+    final mediaId = _activeStreamingMediaId;
+    return mediaId != null && audioHandler.mediaItem.value?.id == mediaId
+        ? mediaId
+        : null;
+  }
+
   List<DownloadTask> get activeDownloadTasks {
     return downloadQueue.activeTasks;
   }
@@ -162,6 +189,7 @@ class MusicController extends ChangeNotifier {
 
   bool get hasSearchState {
     return isSearching ||
+        isLoadingMoreSearch ||
         candidates.isNotEmpty ||
         errorMessage != null ||
         errorDetail != null;
@@ -400,48 +428,25 @@ class MusicController extends ChangeNotifier {
       return;
     }
     final request = ++_searchRequest;
+    _searchQuery = trimmed;
+    _searchPage = 0;
+    _failedSearchPage = null;
+    _searchCandidatesByPage.clear();
     isSearching = true;
+    isLoadingMoreSearch = false;
+    hasMoreSearchResults = false;
     errorDetail = null;
     errorMessage = null;
     statusMessage = null;
     candidates = const [];
     notifyListeners();
     try {
-      final progressiveResolver = _resolver is ProgressiveMusicResolver
-          ? _resolver as ProgressiveMusicResolver
-          : null;
-      if (progressiveResolver != null) {
-        await for (final progress in progressiveResolver.searchProgressively(
-          trimmed,
-          source,
-        )) {
-          if (request != _searchRequest) {
-            return;
-          }
-          candidates = _visibleSearchCandidates(progress.candidates);
-          if (progress.isComplete) {
-            if (progress.error != null) {
-              errorDetail = friendlyError(progress.error!);
-            } else if (candidates.isEmpty) {
-              errorMessage = const MusicUiMessage(
-                MusicUiMessageCode.noOnlineMatchesFound,
-              );
-            }
-          }
-          notifyListeners();
-        }
-      } else {
-        final result = await _resolver.search(trimmed, source);
-        if (request != _searchRequest) {
-          return;
-        }
-        candidates = _visibleSearchCandidates(result);
-        if (candidates.isEmpty) {
-          errorMessage = const MusicUiMessage(
-            MusicUiMessageCode.noOnlineMatchesFound,
-          );
-        }
-      }
+      await _loadSearchPage(
+        query: trimmed,
+        page: 1,
+        request: request,
+        append: false,
+      );
     } catch (exception) {
       if (request != _searchRequest) {
         return;
@@ -456,9 +461,165 @@ class MusicController extends ChangeNotifier {
     }
   }
 
+  Future<void> loadMoreSearchResults() async {
+    if (isSearching ||
+        isLoadingMoreSearch ||
+        !hasMoreSearchResults ||
+        _searchQuery.isEmpty) {
+      return;
+    }
+    final request = _searchRequest;
+    isLoadingMoreSearch = true;
+    errorDetail = null;
+    errorMessage = null;
+    notifyListeners();
+    try {
+      final page = _failedSearchPage ?? _searchPage + 1;
+      await _loadSearchPage(
+        query: _searchQuery,
+        page: page,
+        request: request,
+        append: true,
+      );
+    } catch (exception) {
+      if (request == _searchRequest) {
+        _failedSearchPage ??= _searchPage + 1;
+        errorDetail = friendlyError(exception);
+      }
+    } finally {
+      if (request == _searchRequest) {
+        isLoadingMoreSearch = false;
+        notifyListeners();
+      }
+    }
+  }
+
+  Future<void> retrySearchPage(String query) async {
+    if (candidates.isEmpty || _failedSearchPage == null) {
+      await search(query);
+      return;
+    }
+    hasMoreSearchResults = true;
+    await loadMoreSearchResults();
+  }
+
+  Future<void> _loadSearchPage({
+    required String query,
+    required int page,
+    required int request,
+    required bool append,
+  }) async {
+    final paginatedResolver = _resolver is PaginatedProgressiveMusicResolver
+        ? _resolver as PaginatedProgressiveMusicResolver
+        : null;
+    final progressiveResolver = _resolver is ProgressiveMusicResolver
+        ? _resolver as ProgressiveMusicResolver
+        : null;
+    if (paginatedResolver != null) {
+      await for (final progress in paginatedResolver.searchPageProgressively(
+        query,
+        source,
+        page: page,
+      )) {
+        if (request != _searchRequest) {
+          return;
+        }
+        _applySearchProgress(progress, page: page, append: append);
+      }
+      return;
+    }
+    if (page == 1 && progressiveResolver != null) {
+      await for (final progress in progressiveResolver.searchProgressively(
+        query,
+        source,
+      )) {
+        if (request != _searchRequest) {
+          return;
+        }
+        _applySearchProgress(progress, page: 1, append: false);
+      }
+      return;
+    }
+    if (page == 1) {
+      final result = await _resolver.search(query, source);
+      if (request != _searchRequest) {
+        return;
+      }
+      _applySearchProgress(
+        MusicSearchProgress(candidates: result, isComplete: true),
+        page: 1,
+        append: false,
+      );
+    }
+  }
+
+  void _applySearchProgress(
+    MusicSearchProgress progress, {
+    required int page,
+    required bool append,
+  }) {
+    final visible = _visibleSearchCandidates(progress.candidates);
+    if (!append) {
+      _searchCandidatesByPage.removeWhere((key, _) => key != page);
+    }
+    _searchCandidatesByPage[page] = visible;
+    final pages = _searchCandidatesByPage.keys.toList()..sort();
+    candidates = const [];
+    for (final pageNumber in pages) {
+      candidates = _mergeSearchCandidates(
+        candidates,
+        _searchCandidatesByPage[pageNumber]!,
+      );
+    }
+    final playbackSession = _searchPlaybackSession;
+    if (playbackSession != null && playbackSession.request == _searchRequest) {
+      playbackSession.append(_playableSearchCandidates());
+      unawaited(_publishSearchPlaybackQueue());
+    }
+    hasMoreSearchResults = progress.hasNextPage;
+    if (progress.isComplete) {
+      if (progress.error != null) {
+        _failedSearchPage = page;
+        errorDetail = friendlyError(progress.error!);
+        errorMessage = null;
+      } else {
+        _searchPage = page;
+        _failedSearchPage = null;
+        if (page == 1 && candidates.isEmpty && !progress.hasNextPage) {
+          errorMessage = const MusicUiMessage(
+            MusicUiMessageCode.noOnlineMatchesFound,
+          );
+        }
+      }
+    }
+    notifyListeners();
+  }
+
+  List<MusicSearchCandidate> _mergeSearchCandidates(
+    List<MusicSearchCandidate> current,
+    List<MusicSearchCandidate> incoming,
+  ) {
+    final merged = <MusicSearchCandidate>[];
+    final seen = <String>{};
+    for (final candidate in [...current, ...incoming]) {
+      final key =
+          '${candidate.source.storageValue}|${candidate.platform}|${candidate.id}';
+      if (seen.add(key)) {
+        merged.add(candidate);
+      }
+    }
+    return List<MusicSearchCandidate>.unmodifiable(merged);
+  }
+
   void clearSearch() {
     _searchRequest += 1;
+    _searchQuery = '';
+    _searchPage = 0;
+    _failedSearchPage = null;
+    _searchCandidatesByPage.clear();
     isSearching = false;
+    isLoadingMoreSearch = false;
+    hasMoreSearchResults = false;
     candidates = const [];
     errorDetail = null;
     errorMessage = null;
@@ -478,7 +639,9 @@ class MusicController extends ChangeNotifier {
             return true;
           }
           if (hasGequhaiFullAudio) {
-            return _isVisibleGequhaiFullAudioCandidate(candidate);
+            return _isVisibleGequhaiFullAudioCandidate(candidate) ||
+                (candidate.source == MusicDataSource.gequhai &&
+                    candidate.isValidating);
           }
           return candidate.source != MusicDataSource.itunesPreview;
         })
@@ -560,6 +723,42 @@ class MusicController extends ChangeNotifier {
   }
 
   Future<void> playCandidate(MusicSearchCandidate candidate) async {
+    final isCurrentSearchCandidate = candidates.any(
+      (item) =>
+          SearchPlaybackSession.keyFor(item) ==
+          SearchPlaybackSession.keyFor(candidate),
+    );
+    final playableCandidates = _playableSearchCandidates();
+    _logHotlistPlayback(
+      'search-queue select request=$_searchRequest '
+      'visible=${candidates.length} playable=${playableCandidates.length} '
+      'current=$isCurrentSearchCandidate candidate=${candidate.id}',
+    );
+    if (isCurrentSearchCandidate && !candidate.isValidating) {
+      var session = _searchPlaybackSession;
+      if (session == null || session.request != _searchRequest) {
+        session = SearchPlaybackSession(
+          request: _searchRequest,
+          query: _searchQuery,
+          candidates: playableCandidates,
+        );
+        _searchPlaybackSession = session;
+      } else {
+        session.append(playableCandidates);
+      }
+      if (session.select(candidate)) {
+        await _playCandidate(candidate, fromSearchSession: true);
+        return;
+      }
+    }
+    _searchPlaybackSession = null;
+    await _playCandidate(candidate, fromSearchSession: false);
+  }
+
+  Future<void> _playCandidate(
+    MusicSearchCandidate candidate, {
+    required bool fromSearchSession,
+  }) async {
     if (candidate.source == MusicDataSource.itunesPreview) {
       statusMessage = const MusicUiMessage(
         MusicUiMessageCode.previewCannotDownload,
@@ -571,7 +770,10 @@ class MusicController extends ChangeNotifier {
     if (record != null) {
       record = await _refreshCachedCandidateMetadata(candidate, record);
     } else if (_isFullAudioSource(candidate.source)) {
-      await _playFullAudioStreamingCandidate(candidate);
+      await _playFullAudioStreamingCandidate(
+        candidate,
+        fromSearchSession: fromSearchSession,
+      );
       return;
     } else {
       await downloadCandidate(candidate);
@@ -581,6 +783,14 @@ class MusicController extends ChangeNotifier {
       return;
     }
     final track = trackFromCached(record);
+    if (fromSearchSession) {
+      await _playSearchTrack(track);
+      statusMessage = const MusicUiMessage(
+        MusicUiMessageCode.playingCachedFile,
+      );
+      notifyListeners();
+      return;
+    }
     final searchQueue = _searchCachedQueue();
     final searchIndex = searchQueue.indexWhere((item) => item.id == track.id);
     if (searchIndex != -1) {
@@ -603,8 +813,9 @@ class MusicController extends ChangeNotifier {
   }
 
   Future<void> _playFullAudioStreamingCandidate(
-    MusicSearchCandidate candidate,
-  ) async {
+    MusicSearchCandidate candidate, {
+    required bool fromSearchSession,
+  }) async {
     final startedAt = DateTime.now();
     errorDetail = null;
     errorMessage = null;
@@ -649,13 +860,34 @@ class MusicController extends ChangeNotifier {
             ? Duration(seconds: resolved.duration)
             : null,
       );
+      final streamingRequest = ++_streamingPlaybackRequest;
+      _activeStreamingMediaId = track.id;
+      _activeStreamingCachedRecord = null;
+      _metadataRequest += 1;
+      _metadataTrackId = track.id;
+      final lyrics = resolved.lyrics;
+      currentMetadata = TrackMetadata(
+        artworkUri: track.artworkUri,
+        lyrics: lyrics == null ? const [] : parseLrcLines(lyrics.text),
+        source: lyrics?.source ?? resolved.source.storageValue,
+      );
+      metadataError = null;
+      isLoadingMetadata = currentMetadata.lyrics.isEmpty;
+      notifyListeners();
       final playFuture = playbackUseCase.playTrack(
         track,
         index: 0,
         fallbackQueue: [track],
         queueTracks: [track],
       );
-      unawaited(_watchFullAudioStreaming(handle, startedAt));
+      unawaited(
+        _watchFullAudioStreaming(
+          handle,
+          startedAt,
+          mediaId: track.id,
+          streamingRequest: streamingRequest,
+        ),
+      );
       final loaded = await playFuture;
       if (!loaded) {
         await handle.session.cancel(deletePartFile: true);
@@ -667,14 +899,13 @@ class MusicController extends ChangeNotifier {
       _activeQueueSource = const PlaybackQueueSource.searchCache();
       _activeQueueTrackIds = [track.id];
       await _savePlaybackState(currentTrackId: track.id);
-      await playbackUseCase.applyPlaybackMode(playbackMode);
-      final lyrics = resolved.lyrics;
-      _metadataTrackId = track.id;
-      currentMetadata = TrackMetadata(
-        artworkUri: track.artworkUri,
-        lyrics: lyrics == null ? const [] : parseLrcLines(lyrics.text),
-        source: lyrics?.source ?? resolved.source.storageValue,
+      await playbackUseCase.applyPlaybackMode(
+        playbackMode,
+        managedQueue: fromSearchSession,
       );
+      if (fromSearchSession) {
+        await _publishSearchPlaybackQueue();
+      }
       statusMessage = const MusicUiMessage(
         MusicUiMessageCode.playingFullAudioStream,
       );
@@ -693,10 +924,162 @@ class MusicController extends ChangeNotifier {
     }
   }
 
+  Future<void> _playSearchTrack(Track track) async {
+    _clearActiveStreamingTarget();
+    await playbackUseCase.playTrack(
+      track,
+      index: 0,
+      fallbackQueue: [track],
+      queueTracks: [track],
+    );
+    _activeQueueSource = const PlaybackQueueSource.searchCache();
+    _activeQueueTrackIds = [
+      for (final candidate in _searchPlaybackSession?.candidates ?? const [])
+        _mediaIdForSearchCandidate(candidate),
+    ];
+    await playbackUseCase.applyPlaybackMode(playbackMode, managedQueue: true);
+    await _publishSearchPlaybackQueue();
+    await _savePlaybackState(currentTrackId: track.id);
+  }
+
+  List<MusicSearchCandidate> _playableSearchCandidates() {
+    return candidates
+        .where(
+          (candidate) =>
+              !candidate.isValidating &&
+              (_cachedRecordForCandidate(candidate) != null ||
+                  _isFullAudioSource(candidate.source)),
+        )
+        .toList(growable: false);
+  }
+
+  String _mediaIdForSearchCandidate(MusicSearchCandidate candidate) {
+    final transientId =
+        'stream:${candidate.source.storageValue}:${candidate.id}';
+    final currentCandidate = _searchPlaybackSession?.current;
+    if (currentCandidate != null &&
+        SearchPlaybackSession.keyFor(currentCandidate) ==
+            SearchPlaybackSession.keyFor(candidate) &&
+        audioHandler.mediaItem.value?.id == transientId) {
+      return transientId;
+    }
+    final cached = _cachedRecordForCandidate(candidate);
+    if (cached != null) {
+      return cached.cacheId;
+    }
+    return transientId;
+  }
+
+  MediaItem _mediaItemForSearchCandidate(MusicSearchCandidate candidate) {
+    final cached = _cachedRecordForCandidate(candidate);
+    if (cached != null) {
+      return mediaItemFromTrack(trackFromCached(cached));
+    }
+    return MediaItem(
+      id: _mediaIdForSearchCandidate(candidate),
+      title: candidate.name.isEmpty ? candidate.query : candidate.name,
+      artist: candidate.artist,
+      album: candidate.album.isEmpty ? null : candidate.album,
+      artUri: artworkUriFromText(candidate.coverUrl),
+      duration: candidate.duration > 0
+          ? Duration(seconds: candidate.duration)
+          : null,
+    );
+  }
+
+  Future<void> _publishSearchPlaybackQueue() async {
+    final session = _searchPlaybackSession;
+    if (session == null || session.currentIndex == -1) {
+      return;
+    }
+    final items = [
+      for (final candidate in session.candidates)
+        _mediaItemForSearchCandidate(candidate),
+    ];
+    _activeQueueTrackIds = [for (final item in items) item.id];
+    _logHotlistPlayback(
+      'search-queue publish count=${items.length} '
+      'currentIndex=${session.currentIndex}',
+    );
+    await audioHandler.publishDisplayQueue(
+      items,
+      currentIndex: session.currentIndex,
+    );
+  }
+
+  Future<bool> _handleSearchNextRequested() {
+    return _advanceSearchPlayback(automatic: false, forward: true);
+  }
+
+  Future<bool> _handleSearchPreviousRequested() {
+    return _advanceSearchPlayback(automatic: false, forward: false);
+  }
+
+  Future<bool> _handleSearchPlaybackCompleted() {
+    return _advanceSearchPlayback(automatic: true, forward: true);
+  }
+
+  Future<bool> _handleSearchQueueItemRequested(int index) async {
+    final session = _searchPlaybackSession;
+    if (session == null) {
+      return false;
+    }
+    final candidate = session.candidateAt(index);
+    if (candidate == null) {
+      return true;
+    }
+    session.select(candidate);
+    return _switchSearchPlaybackTo(candidate, restartIfCurrent: false);
+  }
+
+  Future<bool> _advanceSearchPlayback({
+    required bool automatic,
+    required bool forward,
+  }) async {
+    final session = _searchPlaybackSession;
+    if (session == null) {
+      return false;
+    }
+    final candidate = forward
+        ? session.next(playbackMode, automatic: automatic)
+        : session.previous(playbackMode);
+    if (candidate == null) {
+      return !automatic;
+    }
+    return _switchSearchPlaybackTo(candidate, restartIfCurrent: automatic);
+  }
+
+  Future<bool> _switchSearchPlaybackTo(
+    MusicSearchCandidate candidate, {
+    required bool restartIfCurrent,
+  }) async {
+    if (_isSwitchingSearchTrack) {
+      return true;
+    }
+    _isSwitchingSearchTrack = true;
+    try {
+      final mediaId = _mediaIdForSearchCandidate(candidate);
+      if (audioHandler.mediaItem.value?.id == mediaId) {
+        if (restartIfCurrent) {
+          await playbackUseCase.seek(Duration.zero);
+        }
+        await audioHandler.play();
+        await _publishSearchPlaybackQueue();
+        return true;
+      }
+      await _playCandidate(candidate, fromSearchSession: true);
+      return true;
+    } finally {
+      _isSwitchingSearchTrack = false;
+    }
+  }
+
   Future<void> _watchFullAudioStreaming(
     StreamingPlaybackHandle handle,
-    DateTime startedAt,
-  ) async {
+    DateTime startedAt, {
+    required String mediaId,
+    required int streamingRequest,
+  }) async {
     var firstByteLogged = false;
     var lastLoggedBytes = 0;
     final promoteFuture = handle.session.promoteWhenComplete();
@@ -745,6 +1128,11 @@ class MusicController extends ChangeNotifier {
           'full-audio transient-failed '
           '${friendlyError(handle.session.fetchError!)}',
         );
+        _finishStreamingMetadataWait(
+          mediaId,
+          streamingRequest,
+          error: handle.session.fetchError,
+        );
         return;
       }
       if (!handle.session.isComplete) {
@@ -760,12 +1148,97 @@ class MusicController extends ChangeNotifier {
       );
       if (!_isDisposed) {
         notifyListeners();
-        unawaited(_primeMetadataAndReloadCache(cached));
+        if (_isActiveStreamingRequest(mediaId, streamingRequest)) {
+          _activeStreamingCachedRecord = cached;
+          await _loadStreamingMetadata(
+            cached,
+            mediaId: mediaId,
+            streamingRequest: streamingRequest,
+          );
+        } else {
+          unawaited(_primeMetadataAndReloadCache(cached));
+        }
       }
     } catch (exception) {
       _logHotlistPlayback(
         'full-audio promote-failed ${friendlyError(exception)}',
       );
+      _finishStreamingMetadataWait(mediaId, streamingRequest, error: exception);
+    }
+  }
+
+  bool _isActiveStreamingRequest(String mediaId, int streamingRequest) {
+    return !_isDisposed &&
+        _streamingPlaybackRequest == streamingRequest &&
+        _activeStreamingMediaId == mediaId &&
+        audioHandler.mediaItem.value?.id == mediaId;
+  }
+
+  void _finishStreamingMetadataWait(
+    String mediaId,
+    int streamingRequest, {
+    Object? error,
+  }) {
+    if (!_isActiveStreamingRequest(mediaId, streamingRequest)) {
+      return;
+    }
+    isLoadingMetadata = false;
+    if (error != null && currentMetadata.lyrics.isEmpty) {
+      metadataError = friendlyError(error);
+    }
+    notifyListeners();
+  }
+
+  Future<void> _loadStreamingMetadata(
+    CachedTrack cached, {
+    required String mediaId,
+    required int streamingRequest,
+    bool bypassMetadataMiss = false,
+  }) async {
+    if (!_isActiveStreamingRequest(mediaId, streamingRequest)) {
+      return;
+    }
+    final metadataRequest = ++_metadataRequest;
+    _metadataTrackId = mediaId;
+    metadataError = null;
+    isLoadingMetadata = currentMetadata.lyrics.isEmpty;
+    notifyListeners();
+    try {
+      final metadata = bypassMetadataMiss
+          ? await metadataUseCase.loadBypassingMetadataMiss(cached)
+          : await metadataUseCase.load(cached);
+      if (metadataRequest != _metadataRequest ||
+          !_isActiveStreamingRequest(mediaId, streamingRequest)) {
+        return;
+      }
+      final previous = currentMetadata;
+      currentMetadata = TrackMetadata(
+        artworkUri: metadata.artworkUri ?? previous.artworkUri,
+        lyrics: metadata.lyrics.isNotEmpty ? metadata.lyrics : previous.lyrics,
+        source: metadata.source.isNotEmpty ? metadata.source : previous.source,
+        artworkMiss: metadata.artworkMiss,
+        lyricsMiss: metadata.lyricsMiss,
+        lyricsProviderMisses: metadata.lyricsProviderMisses,
+      );
+      final active = audioHandler.mediaItem.value;
+      if (active?.id == mediaId &&
+          currentMetadata.artworkUri != null &&
+          active?.artUri != currentMetadata.artworkUri) {
+        await audioHandler.updateCurrentMediaItem(
+          active!.copyWith(artUri: currentMetadata.artworkUri),
+        );
+      }
+    } catch (exception) {
+      if (metadataRequest == _metadataRequest &&
+          _isActiveStreamingRequest(mediaId, streamingRequest)) {
+        metadataError = friendlyError(exception);
+      }
+    } finally {
+      if (metadataRequest == _metadataRequest &&
+          _isActiveStreamingRequest(mediaId, streamingRequest)) {
+        isLoadingMetadata = false;
+        notifyListeners();
+      }
     }
   }
 
@@ -775,6 +1248,8 @@ class MusicController extends ChangeNotifier {
     List<Track>? queueTracks,
     PlaybackQueueSource? queueSource,
   }) async {
+    _searchPlaybackSession = null;
+    _clearActiveStreamingTarget();
     final queue = (queueTracks ?? cachedTracks).isEmpty
         ? <Track>[track]
         : queueTracks ?? cachedTracks;
@@ -804,6 +1279,8 @@ class MusicController extends ChangeNotifier {
   Future<void> previous() => playbackUseCase.previous();
 
   Future<void> stop() async {
+    _searchPlaybackSession = null;
+    _clearActiveStreamingTarget();
     await playbackUseCase.stop();
     _activeQueueTrackIds = const [];
     await _clearPlaybackState();
@@ -861,7 +1338,10 @@ class MusicController extends ChangeNotifier {
   Future<void> setPlaybackMode(PlaybackMode mode) async {
     playbackMode = mode;
     notifyListeners();
-    await playbackUseCase.applyPlaybackMode(mode);
+    await playbackUseCase.applyPlaybackMode(
+      mode,
+      managedQueue: _searchPlaybackSession != null,
+    );
     await _savePlaybackState();
     await _syncOhosControlState();
   }
@@ -878,10 +1358,19 @@ class MusicController extends ChangeNotifier {
 
   Future<void> loadMetadataForCurrentTrack() async {
     final track = currentTrack;
-    if (track == null) {
+    if (track != null) {
+      await _loadMetadataForTrack(track);
       return;
     }
-    await _loadMetadataForTrack(track);
+    final cached = _activeStreamingCachedRecord;
+    final mediaId = _activeStreamingMediaId;
+    if (cached != null && mediaId != null) {
+      await _loadStreamingMetadata(
+        cached,
+        mediaId: mediaId,
+        streamingRequest: _streamingPlaybackRequest,
+      );
+    }
   }
 
   List<Track> tracksForPlaylist(MusicPlaylist playlist) {
@@ -1081,6 +1570,12 @@ class MusicController extends ChangeNotifier {
     );
   }
 
+  void _clearActiveStreamingTarget() {
+    _streamingPlaybackRequest += 1;
+    _activeStreamingMediaId = null;
+    _activeStreamingCachedRecord = null;
+  }
+
   CachedTrack? _cachedRecordForCandidate(MusicSearchCandidate candidate) {
     for (final record in _cachedRecords) {
       final music = record.music;
@@ -1253,10 +1748,11 @@ class MusicController extends ChangeNotifier {
 
   Future<void> autoRecoverMetadataForCurrentTrack() async {
     final track = currentTrack;
-    if (track == null || currentLyrics.isNotEmpty || isLoadingMetadata) {
+    final targetId = track?.id ?? currentMetadataTargetId;
+    if (targetId == null || currentLyrics.isNotEmpty || isLoadingMetadata) {
       return;
     }
-    if (!_autoMetadataRecoveryAttempted.add(track.id)) {
+    if (!_autoMetadataRecoveryAttempted.add(targetId)) {
       return;
     }
     final hasActiveLyricsMiss =
@@ -1271,6 +1767,30 @@ class MusicController extends ChangeNotifier {
   }) async {
     final track = currentTrack;
     if (track == null) {
+      final cached = _activeStreamingCachedRecord;
+      final mediaId = _activeStreamingMediaId;
+      if (cached == null || mediaId == null) {
+        return;
+      }
+      isLoadingMetadata = true;
+      metadataError = null;
+      notifyListeners();
+      var refreshed = cached;
+      try {
+        refreshed = await _resolveAndUpdateCachedMetadata(cached);
+      } catch (_) {
+        // 已落盘音频仍可继续使用元数据 provider 补歌词。
+      }
+      if (!_isActiveStreamingRequest(mediaId, _streamingPlaybackRequest)) {
+        return;
+      }
+      _activeStreamingCachedRecord = refreshed;
+      await _loadStreamingMetadata(
+        refreshed,
+        mediaId: mediaId,
+        streamingRequest: _streamingPlaybackRequest,
+        bypassMetadataMiss: bypassMetadataMiss,
+      );
       return;
     }
     final request = ++_metadataRequest;
@@ -1374,6 +1894,7 @@ class MusicController extends ChangeNotifier {
 
   MusicSearchCandidate _candidateFromCached(CachedTrack record) {
     final music = record.music;
+    final trustedAttempt = _trustedCachedKuwoAttempt(music);
     return MusicSearchCandidate(
       query: music.query.trim().isNotEmpty ? music.query : music.name,
       source: music.source,
@@ -1388,9 +1909,41 @@ class MusicController extends ChangeNotifier {
       link: '',
       coverUrl: music.coverUrl,
       qualities: [music.quality],
-      score: 100,
-      raw: const {},
+      score: trustedAttempt?.matchConfidence ?? 100,
+      raw: trustedAttempt == null
+          ? const {}
+          : {
+              'validationStatus': 'ready',
+              'clientReady': true,
+              'urlType': MediaUrlType.directAudio.storageValue,
+              'mediaValidation': trustedAttempt.mediaValidation,
+              'mediaContentLength': trustedAttempt.mediaContentLength,
+            },
     );
+  }
+
+  SourceAttempt? _trustedCachedKuwoAttempt(ResolvedMusic music) {
+    if (music.source != MusicDataSource.kuwoFullAudio ||
+        music.urlType != MediaUrlType.directAudio ||
+        !music.canCacheAudio) {
+      return null;
+    }
+    for (final attempt in music.sourceAttempts.reversed) {
+      if (attempt.source == music.source &&
+          attempt.stage == 'media_validation' &&
+          attempt.status == SourceAttemptStatus.ok &&
+          attempt.clientReady &&
+          attempt.mediaUrlType == MediaUrlType.directAudio &&
+          attempt.candidateId == music.id &&
+          attempt.candidateTitle.trim() == music.name.trim() &&
+          attempt.candidateArtist.trim() == music.artist.trim() &&
+          attempt.mediaUrl == music.url &&
+          attempt.matchConfidence != null &&
+          attempt.mediaValidation.trim().isNotEmpty) {
+        return attempt;
+      }
+    }
+    return null;
   }
 
   Future<ResolvedMusic> _resolveHotlistOrdinaryFromCandidates(
@@ -1492,6 +2045,11 @@ class MusicController extends ChangeNotifier {
       lyrics: resolved.lyrics ?? current.lyrics,
       panLink: current.panLink || resolved.panLink,
       duration: resolved.duration > 0 ? resolved.duration : current.duration,
+      urlType: current.urlType,
+      canCacheAudio: current.canCacheAudio,
+      sourceAttempts: current.sourceAttempts.isNotEmpty
+          ? current.sourceAttempts
+          : resolved.sourceAttempts,
     );
   }
 
@@ -1751,6 +2309,10 @@ class MusicController extends ChangeNotifier {
     audioHandler.onOhosLoopModeRequested = null;
     audioHandler.onOhosToggleFavoriteRequested = null;
     audioHandler.onToggleFavoriteRequested = null;
+    audioHandler.onSkipToNextRequested = null;
+    audioHandler.onSkipToPreviousRequested = null;
+    audioHandler.onSkipToQueueItemRequested = null;
+    audioHandler.onPlaybackCompleted = null;
     unawaited(_mediaItemSubscription.cancel());
     unawaited(_streamingPlaybackCache.close());
     super.dispose();
@@ -1758,7 +2320,7 @@ class MusicController extends ChangeNotifier {
 }
 
 MusicDataSource _selectableSearchSource(MusicDataSource _) {
-  return MusicDataSource.gequhai;
+  return MusicDataSource.auto;
 }
 
 bool _isFullAudioSource(MusicDataSource source) {
@@ -1767,7 +2329,5 @@ bool _isFullAudioSource(MusicDataSource source) {
 }
 
 bool _isVisibleGequhaiFullAudioCandidate(MusicSearchCandidate candidate) {
-  return candidate.source == MusicDataSource.gequhai &&
-      candidate.raw['clientReady'] == true &&
-      candidate.raw['urlType'] == MediaUrlType.directAudio.storageValue;
+  return candidate.source == MusicDataSource.gequhai && candidate.isClientReady;
 }

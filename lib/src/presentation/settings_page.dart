@@ -179,9 +179,9 @@ class SourceSettingsPage extends StatelessWidget {
               child: ListView(
                 children: [
                   RadioListTile<MusicDataSource>(
-                    value: MusicDataSource.gequhai,
-                    title: Text(strings.gequhaiSource),
-                    subtitle: Text(strings.gequhaiDescription),
+                    value: MusicDataSource.auto,
+                    title: Text(strings.autoSource),
+                    subtitle: Text(strings.autoSourceDescription),
                   ),
                 ],
               ),

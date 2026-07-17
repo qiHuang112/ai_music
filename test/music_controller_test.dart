@@ -20,7 +20,7 @@ import 'package:flutter_test/flutter_test.dart';
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
-  test('initialize migrates unavailable product sources to gequhai', () async {
+  test('initialize migrates unavailable product sources to auto', () async {
     final handler = _SpyAudioHandler();
     final settingsStore = _FakeSettingsStore(
       settings: const MusicAppSettings(source: MusicDataSource.source2t58),
@@ -38,8 +38,8 @@ void main() {
       await controller.initialize();
       await Future<void>.delayed(Duration.zero);
 
-      expect(controller.source, MusicDataSource.gequhai);
-      expect(settingsStore.savedSettings?.source, MusicDataSource.gequhai);
+      expect(controller.source, MusicDataSource.auto);
+      expect(settingsStore.savedSettings?.source, MusicDataSource.auto);
     } finally {
       controller.dispose();
       await handler.dispose();
@@ -620,6 +620,172 @@ void main() {
     },
   );
 
+  test('paginated search keeps page one while appending page two', () async {
+    final handler = _SpyAudioHandler();
+    final resolver = _PaginatedSearchResolver({
+      1: [_candidate(id: 'page-1', name: '第一页')],
+      2: [_candidate(id: 'page-2', name: '第二页')],
+    });
+    final controller = MusicController(
+      audioHandler: handler,
+      resolver: resolver,
+      cacheStore: _FakeCacheStore(cached: const []),
+      playlistStore: _FakePlaylistStore(),
+      settingsStore: _FakeSettingsStore(),
+      metadataRepository: _StaticMetadataRepository(),
+    );
+
+    try {
+      await controller.initialize();
+      await controller.search('周杰伦');
+
+      expect(controller.candidates.map((item) => item.id), ['page-1']);
+      expect(controller.hasMoreSearchResults, isTrue);
+
+      await controller.loadMoreSearchResults();
+
+      expect(controller.candidates.map((item) => item.id), [
+        'page-1',
+        'page-2',
+      ]);
+      expect(controller.hasMoreSearchResults, isFalse);
+      expect(resolver.requestedPages, [1, 2]);
+    } finally {
+      controller.dispose();
+      await handler.dispose();
+    }
+  });
+
+  test('load more stops after one empty provider page', () async {
+    final handler = _SpyAudioHandler();
+    final resolver = _PaginatedSearchResolver({
+      1: [_candidate(id: 'page-1', name: '第一页')],
+      2: const [],
+      3: [_candidate(id: 'page-3', name: '第三页')],
+    });
+    final controller = MusicController(
+      audioHandler: handler,
+      resolver: resolver,
+      cacheStore: _FakeCacheStore(cached: const []),
+      playlistStore: _FakePlaylistStore(),
+      settingsStore: _FakeSettingsStore(),
+      metadataRepository: _StaticMetadataRepository(),
+    );
+
+    try {
+      await controller.initialize();
+      await controller.search('周杰伦');
+
+      await controller.loadMoreSearchResults();
+
+      expect(resolver.requestedPages, [1, 2]);
+      expect(controller.candidates.map((item) => item.id), ['page-1']);
+      expect(controller.hasMoreSearchResults, isTrue);
+
+      await controller.loadMoreSearchResults();
+
+      expect(resolver.requestedPages, [1, 2, 3]);
+      expect(controller.candidates.map((item) => item.id), [
+        'page-1',
+        'page-3',
+      ]);
+    } finally {
+      controller.dispose();
+      await handler.dispose();
+    }
+  });
+
+  test(
+    'active search playback queue appends later pages and advances lazily',
+    () async {
+      final handler = _SpyAudioHandler();
+      final first = _cachedTrack(id: 'page-1', name: '第一页');
+      final second = _cachedTrack(id: 'page-2', name: '第二页');
+      final firstCandidate = _candidate(id: 'page-1', name: '第一页');
+      final secondCandidate = _candidate(id: 'page-2', name: '第二页');
+      final resolver = _PaginatedSearchResolver({
+        1: [firstCandidate],
+        2: [secondCandidate],
+      });
+      final controller = MusicController(
+        audioHandler: handler,
+        resolver: resolver,
+        cacheStore: _FakeCacheStore(cached: [first, second]),
+        playlistStore: _FakePlaylistStore(),
+        settingsStore: _FakeSettingsStore(),
+        metadataRepository: _StaticMetadataRepository(),
+      );
+
+      try {
+        await controller.initialize();
+        await controller.search('周杰伦');
+        await controller.playCandidate(firstCandidate);
+
+        expect(handler.queue.value.map((item) => item.id), [first.cacheId]);
+        expect(resolver.resolveIds, ['page-1']);
+
+        await controller.loadMoreSearchResults();
+
+        expect(resolver.resolveIds, ['page-1']);
+        expect(handler.queue.value.map((item) => item.id), [
+          first.cacheId,
+          second.cacheId,
+        ]);
+
+        final handled = await handler.onSkipToNextRequested!();
+
+        expect(handled, isTrue);
+        expect(resolver.resolveIds, ['page-1', 'page-2']);
+        expect(handler.mediaItem.value?.id, second.cacheId);
+        expect(handler.loadedIds, [second.cacheId]);
+      } finally {
+        controller.dispose();
+        await handler.dispose();
+      }
+    },
+  );
+
+  test('later page validation snapshots remove failed pending rows', () async {
+    final handler = _SpyAudioHandler();
+    final ready = _candidate(id: 'page-2-ready', name: '可播放');
+    final pending = _candidate(
+      id: 'page-2-failed',
+      name: '最终失败',
+      raw: const {'validationStatus': 'validating'},
+    );
+    final resolver = _PaginatedSearchResolver(
+      {
+        1: [_candidate(id: 'page-1', name: '第一页')],
+        2: [ready],
+      },
+      intermediatePages: {
+        2: [ready, pending],
+      },
+    );
+    final controller = MusicController(
+      audioHandler: handler,
+      resolver: resolver,
+      cacheStore: _FakeCacheStore(cached: const []),
+      playlistStore: _FakePlaylistStore(),
+      settingsStore: _FakeSettingsStore(),
+      metadataRepository: _StaticMetadataRepository(),
+    );
+
+    try {
+      await controller.initialize();
+      await controller.search('周杰伦');
+      await controller.loadMoreSearchResults();
+
+      expect(controller.candidates.map((item) => item.id), [
+        'page-1',
+        'page-2-ready',
+      ]);
+    } finally {
+      controller.dispose();
+      await handler.dispose();
+    }
+  });
+
   test('clearSearch ignores delayed stale search results', () async {
     final handler = _SpyAudioHandler();
     final resolver = _CompletingSearchResolver();
@@ -652,6 +818,32 @@ void main() {
       await handler.dispose();
     }
   });
+
+  test(
+    'search timeout is reported as a friendly retryable source error',
+    () async {
+      final handler = _SpyAudioHandler();
+      final controller = MusicController(
+        audioHandler: handler,
+        resolver: _TimeoutSearchResolver(),
+        cacheStore: _FakeCacheStore(cached: const []),
+        playlistStore: _FakePlaylistStore(),
+        settingsStore: _FakeSettingsStore(),
+        metadataRepository: _StaticMetadataRepository(),
+      );
+
+      try {
+        await controller.initialize();
+        await controller.search('Mojito');
+
+        expect(controller.candidates, isEmpty);
+        expect(controller.errorDetail, '源站连接超时，请稍后重试。');
+      } finally {
+        controller.dispose();
+        await handler.dispose();
+      }
+    },
+  );
 
   test('new search supersedes an in-flight search', () async {
     final handler = _SpyAudioHandler();
@@ -1432,6 +1624,228 @@ void main() {
   );
 
   test(
+    'promoted Kuwo stream reuses trusted match evidence to recover same song lyrics',
+    () async {
+      final root = await Directory.systemTemp.createTemp(
+        'ai_music_controller_kuwo_lyrics_recovery_',
+      );
+      final transientRoot = await Directory.systemTemp.createTemp(
+        'ai_music_controller_kuwo_lyrics_recovery_transient_',
+      );
+      final handler = _SpyAudioHandler();
+      final cacheStore = CachedTrackStore(rootProvider: () async => root);
+      final resolver = _TrustedKuwoRecoveryResolver(
+        'https://audio.example.test/angel.mp3',
+        lyricsOnResolve: 2,
+      );
+      final streaming = StreamingPlaybackCache(
+        cacheStore: cacheStore,
+        progressiveCache: ProgressiveAudioCache(
+          cacheStore: cacheStore,
+          rootProvider: () async => root,
+          client: _FakeProgressiveHttpClient(
+            _controllerValidMp3Bytes(48 * 1024),
+            chunkSize: 4096,
+          ),
+        ),
+        transientStore: TransientStreamingCacheStore(
+          rootProvider: () async => transientRoot,
+        ),
+      );
+      final controller = MusicController(
+        audioHandler: handler,
+        resolver: resolver,
+        cacheStore: cacheStore,
+        playlistStore: _FakePlaylistStore(),
+        settingsStore: _FakeSettingsStore(),
+        metadataRepository: _CachedLyricsMetadataRepository(),
+        streamingPlaybackCache: streaming,
+      );
+      final candidate = _candidate(
+        id: 'MUSIC_10355',
+        name: 'Angel',
+        artist: 'Sarah McLachlan',
+        source: MusicDataSource.kuwoFullAudio,
+        platform: 'kuwo',
+        score: 180,
+      );
+
+      try {
+        await controller.initialize();
+        await controller.playCandidate(candidate);
+        final streamingMediaId = handler.mediaItem.value?.id;
+
+        for (var i = 0; i < 80; i += 1) {
+          if ((await cacheStore.listCached()).isNotEmpty &&
+              !controller.isLoadingMetadata) {
+            break;
+          }
+          await Future<void>.delayed(const Duration(milliseconds: 25));
+        }
+
+        expect(streamingMediaId, 'stream:source_kuwo_full_audio:MUSIC_10355');
+        expect(controller.currentLyrics, isEmpty);
+
+        await controller.recoverMetadataForCurrentTrack(
+          bypassMetadataMiss: true,
+        );
+
+        expect(handler.mediaItem.value?.id, streamingMediaId);
+        expect(resolver.resolveScores, [180, 180]);
+        expect(
+          controller.currentLyrics.map((line) => line.text),
+          contains('补齐歌词'),
+        );
+        expect(controller.metadataError, isNull);
+        final cached = await cacheStore.listCached();
+        expect(cached, hasLength(1));
+        expect(cached.single.music.sourceAttempts.single.matchConfidence, 180);
+
+        await controller.recoverMetadataForCurrentTrack(
+          bypassMetadataMiss: true,
+        );
+
+        expect(handler.mediaItem.value?.id, streamingMediaId);
+        expect(resolver.resolveScores, [180, 180, 180]);
+        expect(controller.metadataError, isNull);
+      } finally {
+        await streaming.close();
+        controller.dispose();
+        await handler.dispose();
+        await root.delete(recursive: true);
+        await transientRoot.delete(recursive: true);
+      }
+    },
+  );
+
+  test(
+    'trusted Kuwo cache with no lyrics keeps a neutral empty state',
+    () async {
+      final handler = _SpyAudioHandler();
+      final resolver = _TrustedKuwoRecoveryResolver(
+        'https://audio.example.test/instrumental.mp3',
+      );
+      final cacheStore = _DownloadCacheStore();
+      final cached = _trustedKuwoCachedTrack(
+        id: 'MUSIC_20001',
+        name: 'Instrumental',
+        artist: 'Test Artist',
+        score: 180,
+      );
+      cacheStore.cached.add(cached);
+      final controller = MusicController(
+        audioHandler: handler,
+        resolver: resolver,
+        cacheStore: cacheStore,
+        playlistStore: _FakePlaylistStore(),
+        settingsStore: _FakeSettingsStore(),
+        metadataRepository: _CachedLyricsMetadataRepository(),
+      );
+
+      try {
+        await controller.initialize();
+        await controller.playTrack(trackFromCached(cached));
+        await controller.recoverMetadataForCurrentTrack(
+          bypassMetadataMiss: true,
+        );
+
+        expect(resolver.resolveScores, [180]);
+        expect(controller.currentLyrics, isEmpty);
+        expect(controller.metadataError, isNull);
+      } finally {
+        controller.dispose();
+        await handler.dispose();
+      }
+    },
+  );
+
+  test(
+    'first streamed search selection publishes the complete search queue',
+    () async {
+      final root = await Directory.systemTemp.createTemp(
+        'ai_music_controller_search_stream_queue_',
+      );
+      final transientRoot = await Directory.systemTemp.createTemp(
+        'ai_music_controller_search_stream_queue_transient_',
+      );
+      final candidates = [
+        _candidate(
+          id: 'stream-1',
+          name: '第一首',
+          source: MusicDataSource.kuwoFullAudio,
+          platform: 'kuwo',
+        ),
+        _candidate(
+          id: 'stream-2',
+          name: '第二首',
+          source: MusicDataSource.kuwoFullAudio,
+          platform: 'kuwo',
+        ),
+        _candidate(
+          id: 'stream-3',
+          name: '第三首',
+          source: MusicDataSource.kuwoFullAudio,
+          platform: 'kuwo',
+        ),
+      ];
+      final handler = _SpyAudioHandler();
+      final cacheStore = CachedTrackStore(rootProvider: () async => root);
+      final streaming = StreamingPlaybackCache(
+        cacheStore: cacheStore,
+        progressiveCache: ProgressiveAudioCache(
+          cacheStore: cacheStore,
+          rootProvider: () async => root,
+          client: _FakeProgressiveHttpClient(
+            _controllerValidMp3Bytes(48 * 1024),
+            chunkSize: 4096,
+          ),
+        ),
+        transientStore: TransientStreamingCacheStore(
+          rootProvider: () async => transientRoot,
+        ),
+      );
+      final controller = MusicController(
+        audioHandler: handler,
+        resolver: _SearchableKuwoFullAudioMusicResolver(
+          'https://audio.example.test/song.mp3',
+          candidates,
+        ),
+        cacheStore: cacheStore,
+        playlistStore: _FakePlaylistStore(),
+        settingsStore: _FakeSettingsStore(),
+        metadataRepository: _StaticMetadataRepository(),
+        streamingPlaybackCache: streaming,
+      );
+
+      try {
+        await controller.initialize();
+        await controller.search('Angel');
+        await controller.playCandidate(candidates[1]);
+
+        expect(handler.queue.value.map((item) => item.title), [
+          '第一首',
+          '第二首',
+          '第三首',
+        ]);
+        expect(handler.currentQueueIndexOverride, 1);
+        for (var i = 0; i < 80; i += 1) {
+          if ((await cacheStore.listCached()).isNotEmpty) {
+            break;
+          }
+          await Future<void>.delayed(const Duration(milliseconds: 25));
+        }
+        expect(await cacheStore.listCached(), hasLength(1));
+      } finally {
+        await streaming.close();
+        controller.dispose();
+        await handler.dispose();
+        await root.delete(recursive: true);
+        await transientRoot.delete(recursive: true);
+      }
+    },
+  );
+
+  test(
     'playCandidate streams Gequhai player audio without download task',
     () async {
       final root = await Directory.systemTemp.createTemp(
@@ -1440,7 +1854,7 @@ void main() {
       final transientRoot = await Directory.systemTemp.createTemp(
         'ai_music_controller_gequhai_transient_',
       );
-      final handler = _SpyAudioHandler();
+      final handler = _SpyAudioHandler()..loadGate = Completer<void>();
       final cacheStore = CachedTrackStore(rootProvider: () async => root);
       final streaming = StreamingPlaybackCache(
         cacheStore: cacheStore,
@@ -1460,6 +1874,12 @@ void main() {
         audioHandler: handler,
         resolver: _KuwoFullAudioMusicResolver(
           'https://cdn.gequhai.test/audio/38173.mp3',
+          lyrics: const ResolvedLyrics(
+            source: 'gequhai',
+            text: '[00:01.00]哎呀 流式歌词',
+            lines: 1,
+            timed: true,
+          ),
         ),
         cacheStore: cacheStore,
         playlistStore: _FakePlaylistStore(),
@@ -1478,7 +1898,18 @@ void main() {
       try {
         await controller.initialize();
 
-        await controller.playCandidate(candidate);
+        final play = controller.playCandidate(candidate);
+        for (var i = 0; i < 80 && handler.mediaItem.value == null; i += 1) {
+          await Future<void>.delayed(const Duration(milliseconds: 10));
+        }
+
+        final lyricsBeforePlayerLoad = controller.currentLyrics
+            .map((line) => line.text)
+            .toList(growable: false);
+        handler.loadGate!.complete();
+        await play;
+
+        expect(lyricsBeforePlayerLoad, ['哎呀 流式歌词']);
 
         expect(handler.loadedIds, ['stream:source_gequhai:38173']);
         expect(handler.playCalls, 1);
@@ -1753,6 +2184,7 @@ class _SpyAudioHandler extends MusicAudioHandler {
   int playCalls = 0;
   int skipNextCalls = 0;
   int mediaItemUpdateCount = 0;
+  Completer<void>? loadGate;
 
   @override
   Duration get currentPosition => currentPositionOverride;
@@ -1778,6 +2210,11 @@ class _SpyAudioHandler extends MusicAudioHandler {
     if (items.isNotEmpty) {
       mediaItem.add(items[initialIndex].mediaItem);
     }
+    final gate = loadGate;
+    if (gate != null) {
+      await gate.future;
+      loadGate = null;
+    }
     if (playWhenReady) {
       await play();
     }
@@ -1799,6 +2236,24 @@ class _SpyAudioHandler extends MusicAudioHandler {
   Future<void> updateCurrentMediaItem(MediaItem updated) async {
     mediaItemUpdateCount += 1;
     mediaItem.add(updated);
+  }
+
+  @override
+  Future<void> publishDisplayQueue(
+    List<MediaItem> items, {
+    required int currentIndex,
+  }) async {
+    queue.add(List<MediaItem>.unmodifiable(items));
+    currentQueueIndexOverride = currentIndex;
+  }
+
+  @override
+  Future<void> setManagedQueueMode({
+    required AudioServiceRepeatMode repeatMode,
+    required AudioServiceShuffleMode shuffleMode,
+  }) async {
+    this.repeatMode = repeatMode;
+    this.shuffleMode = shuffleMode;
   }
 
   @override
@@ -1847,6 +2302,27 @@ class _StaticMetadataRepository extends TrackMetadataRepository {
   @override
   Future<void> delete(String cacheId) async {
     deletedIds.add(cacheId);
+  }
+}
+
+class _CachedLyricsMetadataRepository extends TrackMetadataRepository {
+  @override
+  Future<TrackMetadata> load(CachedTrack track) async {
+    return _metadata(track);
+  }
+
+  @override
+  Future<TrackMetadata> loadBypassingMetadataMiss(CachedTrack track) async {
+    return _metadata(track);
+  }
+
+  TrackMetadata _metadata(CachedTrack track) {
+    if (track.music.lyrics == null) {
+      return const TrackMetadata();
+    }
+    return const TrackMetadata(
+      lyrics: [LyricLine(time: Duration(seconds: 1), text: '补齐歌词')],
+    );
   }
 }
 
@@ -2124,9 +2600,10 @@ class _PreviewMusicResolver extends _FakeMusicResolver {
 }
 
 class _KuwoFullAudioMusicResolver extends _FakeMusicResolver {
-  _KuwoFullAudioMusicResolver(this.url);
+  _KuwoFullAudioMusicResolver(this.url, {this.lyrics});
 
   final String url;
+  final ResolvedLyrics? lyrics;
   final resolveIds = <String>[];
 
   @override
@@ -2145,6 +2622,7 @@ class _KuwoFullAudioMusicResolver extends _FakeMusicResolver {
       duration: 187,
       urlType: MediaUrlType.directAudio,
       canCacheAudio: true,
+      lyrics: lyrics,
       sourceAttempts: [
         SourceAttempt(
           query: candidate.query,
@@ -2164,6 +2642,86 @@ class _KuwoFullAudioMusicResolver extends _FakeMusicResolver {
         ),
       ],
     );
+  }
+}
+
+class _TrustedKuwoRecoveryResolver extends _FakeMusicResolver {
+  _TrustedKuwoRecoveryResolver(this.url, {this.lyricsOnResolve});
+
+  final String url;
+  final int? lyricsOnResolve;
+  final List<double> resolveScores = [];
+
+  @override
+  Future<ResolvedMusic> resolve(MusicSearchCandidate candidate) async {
+    resolveScores.add(candidate.score);
+    if (candidate.score < 150) {
+      throw const SourceDownloadException(
+        '候选歌曲匹配度不足，已阻止完整播放和缓存。',
+        failureCode: 'low_match_confidence',
+      );
+    }
+    final includeLyrics =
+        lyricsOnResolve != null && resolveScores.length >= lyricsOnResolve!;
+    final resolvedUrl = resolveScores.length == 1
+        ? url
+        : '$url?refresh=${resolveScores.length}';
+    return ResolvedMusic(
+      query: candidate.query,
+      source: candidate.source,
+      platform: candidate.platform,
+      id: candidate.id,
+      name: candidate.name,
+      artist: candidate.artist,
+      album: candidate.album,
+      url: resolvedUrl,
+      quality: const MusicQuality(format: 'mp3', bitrate: '128'),
+      duration: candidate.duration,
+      urlType: MediaUrlType.directAudio,
+      canCacheAudio: true,
+      lyrics: includeLyrics
+          ? const ResolvedLyrics(
+              source: 'test',
+              text: '[00:01.00]补齐歌词',
+              lines: 1,
+              timed: true,
+            )
+          : null,
+      sourceAttempts: [
+        SourceAttempt(
+          query: candidate.query,
+          source: candidate.source,
+          stage: 'media_validation',
+          status: SourceAttemptStatus.ok,
+          reasonCode: 'direct_audio_ready',
+          candidateId: candidate.id,
+          candidateTitle: candidate.name,
+          candidateArtist: candidate.artist,
+          matchConfidence: candidate.score,
+          mediaUrl: resolvedUrl,
+          mediaUrlType: MediaUrlType.directAudio,
+          mediaContentType: 'audio/mpeg',
+          mediaContentLength: 49152,
+          clientReady: true,
+          mediaValidation: 'HEAD 200 audio/mpeg; Range 206 bytes 0-0/49152',
+        ),
+      ],
+    );
+  }
+}
+
+class _SearchableKuwoFullAudioMusicResolver
+    extends _KuwoFullAudioMusicResolver {
+  _SearchableKuwoFullAudioMusicResolver(super.url, this.candidates);
+
+  final List<MusicSearchCandidate> candidates;
+
+  @override
+  Future<List<MusicSearchCandidate>> search(
+    String query,
+    MusicDataSource source,
+  ) async {
+    return candidates;
   }
 }
 
@@ -2312,6 +2870,16 @@ class _CompletingSearchResolver extends _FakeMusicResolver {
   }
 }
 
+class _TimeoutSearchResolver extends _FakeMusicResolver {
+  @override
+  Future<List<MusicSearchCandidate>> search(
+    String query,
+    MusicDataSource source,
+  ) {
+    throw TimeoutException('Future not completed');
+  }
+}
+
 class _SequencedSearchResolver extends _FakeMusicResolver {
   final _searchCompleters = <Completer<List<MusicSearchCandidate>>>[];
 
@@ -2327,6 +2895,46 @@ class _SequencedSearchResolver extends _FakeMusicResolver {
 
   void complete(int index, List<MusicSearchCandidate> candidates) {
     _searchCompleters[index].complete(candidates);
+  }
+}
+
+class _PaginatedSearchResolver extends _FakeMusicResolver
+    implements PaginatedProgressiveMusicResolver {
+  _PaginatedSearchResolver(this.pages, {this.intermediatePages = const {}});
+
+  final Map<int, List<MusicSearchCandidate>> pages;
+  final Map<int, List<MusicSearchCandidate>> intermediatePages;
+  final List<int> requestedPages = [];
+  final List<String> resolveIds = [];
+
+  @override
+  Future<ResolvedMusic> resolve(MusicSearchCandidate candidate) async {
+    resolveIds.add(candidate.id);
+    throw UnimplementedError();
+  }
+
+  @override
+  Stream<MusicSearchProgress> searchPageProgressively(
+    String query,
+    MusicDataSource source, {
+    required int page,
+  }) async* {
+    requestedPages.add(page);
+    final intermediate = intermediatePages[page];
+    if (intermediate != null) {
+      yield MusicSearchProgress(
+        candidates: intermediate,
+        isComplete: false,
+        page: page,
+        hasNextPage: true,
+      );
+    }
+    yield MusicSearchProgress(
+      candidates: pages[page] ?? const [],
+      isComplete: true,
+      page: page,
+      hasNextPage: pages.containsKey(page + 1),
+    );
   }
 }
 
@@ -2387,6 +2995,8 @@ MusicSearchCandidate _candidate({
   String coverUrl = '',
   MusicDataSource source = MusicDataSource.buguyy,
   String platform = 'buguyy',
+  double score = 100,
+  Map<String, dynamic> raw = const {},
 }) {
   return MusicSearchCandidate(
     query: name,
@@ -2402,8 +3012,57 @@ MusicSearchCandidate _candidate({
     link: '',
     coverUrl: coverUrl,
     qualities: const [MusicQuality(format: 'mp3')],
-    score: 100,
-    raw: const {},
+    score: score,
+    raw: raw,
+  );
+}
+
+CachedTrack _trustedKuwoCachedTrack({
+  required String id,
+  required String name,
+  required String artist,
+  required double score,
+}) {
+  final url = 'https://audio.example.test/$id.mp3';
+  final music = ResolvedMusic(
+    query: name,
+    source: MusicDataSource.kuwoFullAudio,
+    platform: 'kuwo',
+    id: id,
+    name: name,
+    artist: artist,
+    album: '',
+    url: url,
+    quality: const MusicQuality(format: 'mp3', bitrate: '128'),
+    duration: 200,
+    urlType: MediaUrlType.directAudio,
+    canCacheAudio: true,
+    sourceAttempts: [
+      SourceAttempt(
+        query: name,
+        source: MusicDataSource.kuwoFullAudio,
+        stage: 'media_validation',
+        status: SourceAttemptStatus.ok,
+        reasonCode: 'direct_audio_ready',
+        candidateId: id,
+        candidateTitle: name,
+        candidateArtist: artist,
+        matchConfidence: score,
+        mediaUrl: url,
+        mediaUrlType: MediaUrlType.directAudio,
+        mediaContentType: 'audio/mpeg',
+        mediaContentLength: 49152,
+        clientReady: true,
+        mediaValidation: 'HEAD 200 audio/mpeg; Range 206 bytes 0-0/49152',
+      ),
+    ],
+  );
+  return CachedTrack(
+    cacheId: cacheIdForResolved(music),
+    music: music,
+    filePath: '/tmp/$id.mp3',
+    sizeBytes: 49152,
+    fromCache: true,
   );
 }
 

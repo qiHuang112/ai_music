@@ -30,6 +30,7 @@ void main() {
         final music = _resolvedMusic(url: source.audioUri.toString());
         final session = await progressive.open(music);
         final client = HttpClient();
+        final download = Stopwatch()..start();
         final firstSound = Stopwatch()..start();
         final request = await client.getUrl(session.proxyUri);
         request.headers.set(HttpHeaders.rangeHeader, 'bytes=0-1023');
@@ -49,7 +50,6 @@ void main() {
           'bytes 0-1023/${source.bytes.length}',
         );
         expect(bytes, 1024);
-        expect(firstSound.elapsedMilliseconds, lessThan(250));
         expect(session.isComplete, isFalse);
         expect(await session.partFile.exists(), isTrue);
         expect(logs.single, contains('progressive proxy url='));
@@ -57,9 +57,255 @@ void main() {
         final firstSize = await session.partFile.length();
         await session.changes.first.timeout(const Duration(seconds: 2));
         expect(await session.partFile.length(), greaterThan(firstSize));
+        await session.changes
+            .firstWhere((_) => session.isComplete)
+            .timeout(const Duration(seconds: 3));
+        download.stop();
+        expect(firstSound.elapsed, lessThan(download.elapsed));
 
         client.close(force: true);
       } finally {
+        await progressive.close();
+        await source.close();
+        await root.delete(recursive: true);
+      }
+    },
+  );
+
+  test('valid initial 206 stays on the ranged upstream response', () async {
+    final root = await Directory.systemTemp.createTemp(
+      'ai_music_prog_valid_range_',
+    );
+    final source = await _SlowAudioSource.start(
+      _validMp3Bytes(32 * 1024),
+      chunkSize: 4096,
+      chunkDelay: Duration.zero,
+    );
+    final cacheStore = CachedTrackStore(rootProvider: () async => root);
+    final progressive = ProgressiveAudioCache(
+      cacheStore: cacheStore,
+      rootProvider: () async => root,
+    );
+
+    try {
+      final session = await progressive.open(
+        _resolvedMusic(url: source.audioUri.toString()),
+      );
+      final client = HttpClient();
+      final request = await client.getUrl(session.proxyUri);
+      request.headers.set(HttpHeaders.rangeHeader, 'bytes=0-1023');
+      final response = await request.close();
+
+      expect(response.statusCode, HttpStatus.partialContent);
+      await response.drain<void>();
+      await session.promoteWhenComplete();
+      expect(source.rangeRequests, 1);
+      expect(source.fullRequests, 0);
+      client.close(force: true);
+    } finally {
+      await progressive.close();
+      await source.close();
+      await root.delete(recursive: true);
+    }
+  });
+
+  test(
+    'capped initial 206 fails closed and never promotes a partial file',
+    () async {
+      final root = await Directory.systemTemp.createTemp(
+        'ai_music_prog_capped_initial_range_',
+      );
+      final source = await _SlowAudioSource.start(
+        _validMp3Bytes(96 * 1024),
+        chunkSize: 4096,
+        chunkDelay: Duration.zero,
+        initialRangeCapBytes: 32 * 1024,
+      );
+      final cacheStore = CachedTrackStore(rootProvider: () async => root);
+      final progressive = ProgressiveAudioCache(
+        cacheStore: cacheStore,
+        rootProvider: () async => root,
+      );
+
+      try {
+        final session = await progressive.open(
+          _resolvedMusic(url: source.audioUri.toString()),
+        );
+
+        await expectLater(
+          session.promoteWhenComplete(),
+          throwsA(isA<StateError>()),
+        );
+
+        expect(session.isComplete, isFalse);
+        expect(
+          session.fetchError,
+          isA<SourceDownloadException>().having(
+            (error) => error.failureCode,
+            'failureCode',
+            'incomplete_audio_response',
+          ),
+        );
+        expect(session.downloadedBytes, 32 * 1024);
+        expect(session.totalBytes, source.bytes.length);
+        expect(await cacheStore.listCached(), isEmpty);
+      } finally {
+        await progressive.close();
+        await source.close();
+        await root.delete(recursive: true);
+      }
+    },
+  );
+
+  test(
+    'far seek proxies an aligned upstream range before background catches up',
+    () async {
+      final root = await Directory.systemTemp.createTemp(
+        'ai_music_prog_far_seek_',
+      );
+      final source = await _SlowAudioSource.start(
+        _validMp3Bytes(256 * 1024),
+        chunkSize: 1024,
+        chunkDelay: const Duration(milliseconds: 80),
+      );
+      final cacheStore = CachedTrackStore(rootProvider: () async => root);
+      final progressive = ProgressiveAudioCache(
+        cacheStore: cacheStore,
+        rootProvider: () async => root,
+        firstByteTimeout: const Duration(milliseconds: 180),
+      );
+
+      try {
+        final session = await progressive.open(
+          _resolvedMusic(url: source.audioUri.toString()),
+        );
+        final client = HttpClient();
+        const start = 128 * 1024;
+        const end = start + 1023;
+        final request = await client.getUrl(session.proxyUri);
+        request.headers.set(HttpHeaders.rangeHeader, 'bytes=$start-$end');
+        final response = await request.close();
+        final bytes = await response.expand((chunk) => chunk).toList();
+
+        expect(response.statusCode, HttpStatus.partialContent);
+        expect(
+          response.headers.value(HttpHeaders.contentRangeHeader),
+          'bytes $start-$end/${source.bytes.length}',
+        );
+        expect(bytes, source.bytes.sublist(start, end + 1));
+        expect(source.requestedRanges, contains('bytes=$start-$end'));
+        expect(session.isComplete, isFalse);
+        client.close(force: true);
+      } finally {
+        await progressive.close();
+        await source.close();
+        await root.delete(recursive: true);
+      }
+    },
+  );
+
+  test(
+    'far seek rejects a 206 whose total differs from the known stream length',
+    () async {
+      final root = await Directory.systemTemp.createTemp(
+        'ai_music_prog_range_total_mismatch_',
+      );
+      final source = await _SlowAudioSource.start(
+        _validMp3Bytes(256 * 1024),
+        chunkSize: 1024,
+        chunkDelay: const Duration(milliseconds: 80),
+        rangeTotalDeltaAfterFirst: 1,
+      );
+      final cacheStore = CachedTrackStore(rootProvider: () async => root);
+      final logs = <String>[];
+      final progressive = ProgressiveAudioCache(
+        cacheStore: cacheStore,
+        rootProvider: () async => root,
+        firstByteTimeout: const Duration(milliseconds: 180),
+        logger: logs.add,
+      );
+      final client = HttpClient();
+
+      try {
+        final session = await progressive.open(
+          _resolvedMusic(url: source.audioUri.toString()),
+        );
+        final warmup = await client.getUrl(session.proxyUri);
+        warmup.headers.set(HttpHeaders.rangeHeader, 'bytes=0-0');
+        await (await warmup.close()).drain<void>();
+        expect(session.totalBytes, source.bytes.length);
+
+        const start = 192 * 1024;
+        const end = start + 1023;
+        final request = await client.getUrl(session.proxyUri);
+        request.headers.set(HttpHeaders.rangeHeader, 'bytes=$start-$end');
+        final response = await request.close();
+        await response.drain<void>();
+
+        expect(response.statusCode, HttpStatus.badGateway);
+        expect(
+          logs,
+          contains(
+            contains(
+              'knownTotal=${source.bytes.length} '
+              'receivedTotal=${source.bytes.length + 1}',
+            ),
+          ),
+        );
+        expect(await cacheStore.listCached(), isEmpty);
+      } finally {
+        client.close(force: true);
+        await progressive.close();
+        await source.close();
+        await root.delete(recursive: true);
+      }
+    },
+  );
+
+  test(
+    'far seek is not blocked by an active open-ended proxy request',
+    () async {
+      final root = await Directory.systemTemp.createTemp(
+        'ai_music_prog_concurrent_seek_',
+      );
+      final source = await _SlowAudioSource.start(
+        _validMp3Bytes(256 * 1024),
+        chunkSize: 1024,
+        chunkDelay: const Duration(milliseconds: 80),
+      );
+      final cacheStore = CachedTrackStore(rootProvider: () async => root);
+      final progressive = ProgressiveAudioCache(
+        cacheStore: cacheStore,
+        rootProvider: () async => root,
+      );
+      final client = HttpClient();
+      StreamIterator<List<int>>? initialChunks;
+
+      try {
+        final session = await progressive.open(
+          _resolvedMusic(url: source.audioUri.toString()),
+        );
+        final initialRequest = await client.getUrl(session.proxyUri);
+        initialRequest.headers.set(HttpHeaders.rangeHeader, 'bytes=0-');
+        final initialResponse = await initialRequest.close();
+        initialChunks = StreamIterator<List<int>>(initialResponse);
+        expect(await initialChunks.moveNext(), isTrue);
+
+        const start = 192 * 1024;
+        const end = start + 1023;
+        final seekRequest = await client.getUrl(session.proxyUri);
+        seekRequest.headers.set(HttpHeaders.rangeHeader, 'bytes=$start-$end');
+        final seekResponse = await seekRequest.close().timeout(
+          const Duration(seconds: 1),
+        );
+        final bytes = await seekResponse.expand((chunk) => chunk).toList();
+
+        expect(seekResponse.statusCode, HttpStatus.partialContent);
+        expect(bytes, source.bytes.sublist(start, end + 1));
+        expect(session.isComplete, isFalse);
+      } finally {
+        await initialChunks?.cancel();
+        client.close(force: true);
         await progressive.close();
         await source.close();
         await root.delete(recursive: true);
@@ -286,6 +532,62 @@ void main() {
   );
 
   test(
+    'failed stream leaves no formal cache and same cache key can recover',
+    () async {
+      final root = await Directory.systemTemp.createTemp(
+        'ai_music_prog_recover_',
+      );
+      final failingSource = await _FailingAudioSource.start();
+      final workingSource = await _SlowAudioSource.start(
+        _validMp3Bytes(24 * 1024),
+        chunkSize: 4096,
+        chunkDelay: Duration.zero,
+      );
+      final cacheStore = CachedTrackStore(rootProvider: () async => root);
+      final progressive = ProgressiveAudioCache(
+        cacheStore: cacheStore,
+        rootProvider: () async => root,
+      );
+      final client = HttpClient();
+
+      try {
+        final failed = await progressive.open(
+          _resolvedMusic(url: failingSource.audioUri.toString()),
+        );
+        final failedResponse = await (await client.getUrl(
+          failed.proxyUri,
+        )).close();
+
+        expect(failedResponse.statusCode, HttpStatus.badGateway);
+        expect(failed.fetchError, isA<HttpException>());
+        expect(await cacheStore.listCached(), isEmpty);
+        await failedResponse.drain<void>();
+
+        final recovered = await progressive.open(
+          _resolvedMusic(url: workingSource.audioUri.toString()),
+        );
+        final request = await client.getUrl(recovered.proxyUri);
+        request.headers.set(HttpHeaders.rangeHeader, 'bytes=0-1023');
+        final recoveredResponse = await request.close();
+
+        expect(recoveredResponse.statusCode, HttpStatus.partialContent);
+        await recoveredResponse.drain<void>();
+        final cached = await recovered.promoteWhenComplete();
+
+        expect(cached.cacheId, cacheIdForResolved(recovered.music));
+        expect(await cacheStore.listCached(), hasLength(1));
+        expect(await File(cached.filePath).exists(), isTrue);
+      } finally {
+        client.close(force: true);
+        await progressive.close();
+        await failingSource.close();
+        await workingSource.close();
+        await root.delete(recursive: true);
+      }
+    },
+  );
+
+  test(
     'upstream range failure falls back to full GET for seekable proxy playback',
     () async {
       final root = await Directory.systemTemp.createTemp(
@@ -315,7 +617,7 @@ void main() {
           (sum, chunk) => sum + chunk.length,
         );
 
-        expect(source.rangeRequests, 1);
+        expect(source.rangeRequests, 2);
         expect(source.fullRequests, 1);
         expect(response.statusCode, HttpStatus.partialContent);
         expect(
@@ -443,7 +745,14 @@ void main() {
       final response = await (await client.getUrl(session.proxyUri)).close();
 
       expect(response.statusCode, HttpStatus.badGateway);
-      expect(session.fetchError, isA<AudioValidationException>());
+      expect(
+        session.fetchError,
+        isA<SourceDownloadException>().having(
+          (error) => error.failureCode,
+          'failureCode',
+          'incomplete_audio_response',
+        ),
+      );
       expect(session.isComplete, isFalse);
       expect(session.promoteWhenComplete(), throwsA(isA<StateError>()));
       expect(await cacheStore.listCached(), isEmpty);
@@ -595,6 +904,15 @@ void main() {
       expect(listed.single.filePath, cached.filePath);
       expect(logs.any((log) => log.startsWith('progressive complete')), isTrue);
       expect(logs.any((log) => log.startsWith('progressive promoted')), isTrue);
+
+      final promotedRequest = await client.getUrl(session.proxyUri);
+      promotedRequest.headers.set(HttpHeaders.rangeHeader, 'bytes=1024-2047');
+      final promotedResponse = await promotedRequest.close();
+      final promotedBytes = await promotedResponse
+          .expand((chunk) => chunk)
+          .toList();
+      expect(promotedResponse.statusCode, HttpStatus.partialContent);
+      expect(promotedBytes, source.bytes.sublist(1024, 2048));
 
       client.close(force: true);
     } finally {
@@ -861,16 +1179,29 @@ class _StaticAudioSource {
 }
 
 class _SlowAudioSource {
-  const _SlowAudioSource._(this._server, this.bytes, this.audioUri);
+  _SlowAudioSource._(
+    this._server,
+    this.bytes,
+    this.audioUri, {
+    this.rangeTotalDeltaAfterFirst,
+    this.initialRangeCapBytes,
+  });
 
   final HttpServer _server;
   final List<int> bytes;
   final Uri audioUri;
+  int rangeRequests = 0;
+  int fullRequests = 0;
+  final int? rangeTotalDeltaAfterFirst;
+  final int? initialRangeCapBytes;
+  final List<String> requestedRanges = <String>[];
 
   static Future<_SlowAudioSource> start(
     List<int> bytes, {
     required int chunkSize,
     required Duration chunkDelay,
+    int? rangeTotalDeltaAfterFirst,
+    int? initialRangeCapBytes,
   }) async {
     final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
     final source = _SlowAudioSource._(
@@ -882,6 +1213,8 @@ class _SlowAudioSource {
         port: server.port,
         path: '/song.mp3',
       ),
+      rangeTotalDeltaAfterFirst: rangeTotalDeltaAfterFirst,
+      initialRangeCapBytes: initialRangeCapBytes,
     );
     unawaited(source._serve(chunkSize: chunkSize, chunkDelay: chunkDelay));
     return source;
@@ -894,40 +1227,72 @@ class _SlowAudioSource {
     required Duration chunkDelay,
   }) async {
     await for (final request in _server) {
-      final range = request.headers.value(HttpHeaders.rangeHeader);
-      final start = range == null
-          ? 0
-          : int.parse(RegExp(r'bytes=(\d+)-').firstMatch(range)!.group(1)!);
-      if (start >= bytes.length) {
-        request.response.statusCode = HttpStatus.requestedRangeNotSatisfiable;
-        request.response.headers.set(
-          HttpHeaders.contentRangeHeader,
-          'bytes */${bytes.length}',
-        );
-        await request.response.close();
-        continue;
-      }
-      request.response.statusCode = range == null
-          ? HttpStatus.ok
-          : HttpStatus.partialContent;
-      request.response.headers.contentType = ContentType('audio', 'mpeg');
-      request.response.headers.contentLength = bytes.length - start;
-      request.response.headers.set(HttpHeaders.acceptRangesHeader, 'bytes');
-      if (range != null) {
-        request.response.headers.set(
-          HttpHeaders.contentRangeHeader,
-          'bytes $start-${bytes.length - 1}/${bytes.length}',
-        );
-      }
-      for (var offset = start; offset < bytes.length; offset += chunkSize) {
-        if (chunkDelay > Duration.zero) {
-          await Future<void>.delayed(chunkDelay);
-        }
-        final end = min(offset + chunkSize, bytes.length);
-        request.response.add(bytes.sublist(offset, end));
-        await request.response.flush();
-      }
-      await request.response.close();
+      unawaited(
+        _serveRequest(request, chunkSize: chunkSize, chunkDelay: chunkDelay),
+      );
     }
+  }
+
+  Future<void> _serveRequest(
+    HttpRequest request, {
+    required int chunkSize,
+    required Duration chunkDelay,
+  }) async {
+    final range = request.headers.value(HttpHeaders.rangeHeader);
+    final rangeMatch = range == null
+        ? null
+        : RegExp(r'^bytes=(\d+)-(\d*)$').firstMatch(range);
+    final start = rangeMatch == null ? 0 : int.parse(rangeMatch.group(1)!);
+    final requestedEnd = rangeMatch?.group(2);
+    final requestedRangeEnd = requestedEnd == null || requestedEnd.isEmpty
+        ? bytes.length - 1
+        : min(int.parse(requestedEnd), bytes.length - 1);
+    if (range == null) {
+      fullRequests += 1;
+    } else {
+      rangeRequests += 1;
+      requestedRanges.add(range);
+    }
+    final end =
+        range != null &&
+            rangeRequests == 1 &&
+            (requestedEnd == null || requestedEnd.isEmpty) &&
+            initialRangeCapBytes != null
+        ? min(start + initialRangeCapBytes! - 1, requestedRangeEnd)
+        : requestedRangeEnd;
+    if (start >= bytes.length) {
+      request.response.statusCode = HttpStatus.requestedRangeNotSatisfiable;
+      request.response.headers.set(
+        HttpHeaders.contentRangeHeader,
+        'bytes */${bytes.length}',
+      );
+      await request.response.close();
+      return;
+    }
+    request.response.statusCode = range == null
+        ? HttpStatus.ok
+        : HttpStatus.partialContent;
+    request.response.headers.contentType = ContentType('audio', 'mpeg');
+    request.response.headers.contentLength = end - start + 1;
+    request.response.headers.set(HttpHeaders.acceptRangesHeader, 'bytes');
+    if (range != null) {
+      final reportedTotal =
+          rangeRequests > 1 && rangeTotalDeltaAfterFirst != null
+          ? bytes.length + rangeTotalDeltaAfterFirst!
+          : bytes.length;
+      request.response.headers.set(
+        HttpHeaders.contentRangeHeader,
+        'bytes $start-$end/$reportedTotal',
+      );
+    }
+    for (var offset = start; offset <= end; offset += chunkSize) {
+      if (chunkDelay > Duration.zero) {
+        await Future<void>.delayed(chunkDelay);
+      }
+      final chunkEnd = min(offset + chunkSize, end + 1);
+      request.response.add(bytes.sublist(offset, chunkEnd));
+      await request.response.flush();
+    }
+    await request.response.close();
   }
 }

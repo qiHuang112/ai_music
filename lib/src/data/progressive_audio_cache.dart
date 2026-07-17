@@ -465,24 +465,42 @@ class ProgressiveAudioCache {
 
   Future<void> _serve(HttpServer server) async {
     await for (final request in server) {
+      unawaited(_handleRequest(request));
+    }
+  }
+
+  Future<void> _handleRequest(HttpRequest request) async {
+    try {
       final token = _sessionTokenFrom(request.uri);
       if (token == null) {
         request.response.statusCode = HttpStatus.notFound;
         await request.response.close();
-        continue;
+        return;
       }
       if (_retiredTokens.contains(token)) {
         request.response.statusCode = HttpStatus.gone;
         await request.response.close();
-        continue;
+        return;
       }
       final session = _sessions[token];
       if (session == null) {
         request.response.statusCode = HttpStatus.notFound;
         await request.response.close();
-        continue;
+        return;
       }
       unawaited(_handleSessionRequest(session, request));
+    } catch (error) {
+      _logger?.call('progressive proxy routing failed error=$error');
+      try {
+        request.response.statusCode = HttpStatus.badGateway;
+      } catch (_) {
+        // Headers may already be committed by a partially handled request.
+      }
+      try {
+        await request.response.close();
+      } catch (_) {
+        // The client may have disconnected before routing completed.
+      }
     }
   }
 
@@ -492,11 +510,17 @@ class ProgressiveAudioCache {
   ) async {
     try {
       await session.handle(request);
-    } catch (_) {
+    } catch (error) {
+      _logger?.call('progressive proxy request failed error=$error');
+      try {
+        request.response.statusCode = HttpStatus.badGateway;
+      } catch (_) {
+        // Headers may already be committed for a stream that disconnected.
+      }
       try {
         await request.response.close();
       } catch (_) {
-        // A disconnected client can close the response before the handler.
+        // The client may have already closed the seek request.
       }
     }
   }
@@ -545,6 +569,7 @@ class ProgressiveAudioSession {
   final ResolvedMusic music;
   final Uri proxyUri;
   final File partFile;
+  File? _promotedFile;
   final CachedTrackStore _cacheStore;
   final HttpClient _client;
   final Duration _firstByteTimeout;
@@ -597,6 +622,15 @@ class ProgressiveAudioSession {
       return;
     }
 
+    var rangeProxyFailed = false;
+    if (range != null && start > _downloadedBytes) {
+      final proxied = await _proxyUpstreamRange(request.response, range);
+      if (proxied) {
+        return;
+      }
+      rangeProxyFailed = true;
+    }
+
     final ready = await _waitForBytes(start + 1, timeout: _firstByteTimeout);
     final currentTotal = _totalBytes;
     if (!ready && _fetchError != null) {
@@ -614,7 +648,15 @@ class ProgressiveAudioSession {
       return;
     }
     if (!ready) {
-      request.response.statusCode = HttpStatus.gatewayTimeout;
+      request.response.statusCode = rangeProxyFailed
+          ? HttpStatus.badGateway
+          : HttpStatus.gatewayTimeout;
+      if (rangeProxyFailed) {
+        request.response.headers.set(
+          HttpHeaders.contentRangeHeader,
+          'bytes */${currentTotal ?? '*'}',
+        );
+      }
       await request.response.close();
       return;
     }
@@ -651,6 +693,7 @@ class ProgressiveAudioSession {
       throw StateError('Progressive fetch did not complete.');
     }
     final cached = await _cacheStore.adoptCompleteDownload(music, partFile);
+    _promotedFile = File(cached.filePath);
     _logger?.call(
       'progressive promoted cacheId=${cached.cacheId} file=${cached.filePath}',
     );
@@ -708,10 +751,12 @@ class ProgressiveAudioSession {
         _notifyChanged();
       }
       await sink.flush();
-      if (_totalBytes != null && _downloadedBytes != _totalBytes) {
-        throw AudioValidationException(
-          'progressive HTTP body truncated: '
-          'received $_downloadedBytes of $_totalBytes bytes',
+      final expectedBytes = _totalBytes;
+      if (expectedBytes != null && _downloadedBytes != expectedBytes) {
+        throw SourceDownloadException(
+          '流式音频响应不完整，未写入正式缓存。',
+          failureCode: 'incomplete_audio_response',
+          sourceAttempts: music.sourceAttempts,
         );
       }
       _complete = true;
@@ -742,6 +787,83 @@ class ProgressiveAudioSession {
     return request.close();
   }
 
+  Future<bool> _proxyUpstreamRange(
+    HttpResponse localResponse,
+    _RangeRequest range,
+  ) async {
+    HttpClientResponse? upstream;
+    StreamIterator<List<int>>? chunks;
+    try {
+      final request = await _client.getUrl(Uri.parse(music.url));
+      request.headers.set(HttpHeaders.userAgentHeader, _userAgent);
+      request.headers.set(
+        HttpHeaders.rangeHeader,
+        'bytes=${range.start}-${range.end ?? ''}',
+      );
+      upstream = await request.close();
+      final contentRange = _parseContentRange(
+        upstream.headers.value(HttpHeaders.contentRangeHeader),
+      );
+      final knownTotal = _totalBytes;
+      final expectedEnd = range.end == null
+          ? null
+          : min(range.end!, (contentRange?.total ?? 1) - 1);
+      final aligned =
+          upstream.statusCode == HttpStatus.partialContent &&
+          contentRange != null &&
+          contentRange.start == range.start &&
+          (expectedEnd == null || contentRange.end == expectedEnd) &&
+          (knownTotal == null || contentRange.total == knownTotal);
+      if (!aligned || !_validateResponseContentType(upstream)) {
+        await upstream.drain<void>();
+        _logger?.call(
+          'progressive range rejected status=${upstream.statusCode} '
+          'requested=${range.start}-${range.end ?? ''} '
+          'knownTotal=$knownTotal receivedTotal=${contentRange?.total} '
+          'contentRange=${upstream.headers.value(HttpHeaders.contentRangeHeader)}',
+        );
+        return false;
+      }
+
+      chunks = StreamIterator<List<int>>(upstream);
+      if (!await chunks.moveNext()) {
+        _logger?.call(
+          'progressive range rejected empty body requested=${range.start}-${range.end ?? ''}',
+        );
+        return false;
+      }
+      _validateFirstChunk(chunks.current, true);
+
+      _totalBytes ??= contentRange.total;
+      localResponse.statusCode = HttpStatus.partialContent;
+      localResponse.headers.contentType = ContentType('audio', _audioSubtype());
+      localResponse.headers.set(HttpHeaders.acceptRangesHeader, 'bytes');
+      localResponse.headers.set(
+        HttpHeaders.contentRangeHeader,
+        'bytes ${contentRange.start}-${contentRange.end}/${contentRange.total}',
+      );
+      localResponse.contentLength = contentRange.end - contentRange.start + 1;
+      localResponse.add(chunks.current);
+      while (await chunks.moveNext()) {
+        _cancelToken.throwIfCanceled();
+        localResponse.add(chunks.current);
+      }
+      await localResponse.close();
+      _logger?.call(
+        'progressive range proxied bytes=${contentRange.start}-${contentRange.end}/${contentRange.total}',
+      );
+      return true;
+    } catch (error) {
+      _logger?.call(
+        'progressive range failed requested=${range.start}-${range.end ?? ''} '
+        'error=$error',
+      );
+      return false;
+    } finally {
+      await chunks?.cancel();
+    }
+  }
+
   bool _isUsableInitialRangeResponse(HttpClientResponse response) {
     if (response.statusCode == HttpStatus.ok) {
       return true;
@@ -760,13 +882,36 @@ class ProgressiveAudioSession {
     return total != null && total > 0;
   }
 
+  _ContentRange? _parseContentRange(String? header) {
+    if (header == null) {
+      return null;
+    }
+    final match = RegExp(
+      r'^bytes\s+(\d+)-(\d+)/(\d+)$',
+    ).firstMatch(header.trim());
+    if (match == null) {
+      return null;
+    }
+    final start = int.tryParse(match.group(1)!);
+    final end = int.tryParse(match.group(2)!);
+    final total = int.tryParse(match.group(3)!);
+    if (start == null ||
+        end == null ||
+        total == null ||
+        start > end ||
+        end >= total) {
+      return null;
+    }
+    return _ContentRange(start: start, end: end, total: total);
+  }
+
   Future<void> _pipeAvailableBytes(
     HttpResponse response,
     int start,
     int? end,
   ) async {
     var offset = start;
-    final opened = await partFile.open(mode: FileMode.read);
+    final opened = await (_promotedFile ?? partFile).open(mode: FileMode.read);
     try {
       while (!_cancelToken.isCanceled) {
         final wanted = end == null
@@ -811,6 +956,8 @@ class ProgressiveAudioSession {
         if (deadline != null) {
           return false;
         }
+      } on StateError {
+        return false;
       }
     }
     return _downloadedBytes >= byteCount;
@@ -922,6 +1069,18 @@ class _RangeRequest {
 
   final int start;
   final int? end;
+}
+
+class _ContentRange {
+  const _ContentRange({
+    required this.start,
+    required this.end,
+    required this.total,
+  });
+
+  final int start;
+  final int end;
+  final int total;
 }
 
 bool _hasAudioMagic(List<int> bytes) {

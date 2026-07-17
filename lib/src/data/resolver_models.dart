@@ -91,6 +91,12 @@ class MusicSearchCandidate {
 
   String get sourceLabel => source.label;
 
+  bool get isValidating => raw['validationStatus'] == 'validating';
+
+  bool get isClientReady =>
+      raw['clientReady'] == true &&
+      raw['urlType'] == MediaUrlType.directAudio.storageValue;
+
   String get qualityLabel {
     final quality = _bestQuality(qualities, 'flac');
     return quality?.label ?? '';
@@ -458,11 +464,15 @@ class MusicSearchProgress {
   const MusicSearchProgress({
     required this.candidates,
     required this.isComplete,
+    this.page = 1,
+    this.hasNextPage = false,
     this.error,
   });
 
   final List<MusicSearchCandidate> candidates;
   final bool isComplete;
+  final int page;
+  final bool hasNextPage;
   final Object? error;
 }
 
@@ -471,6 +481,14 @@ abstract class ProgressiveMusicResolver {
     String query,
     MusicDataSource source,
   );
+}
+
+abstract class PaginatedProgressiveMusicResolver {
+  Stream<MusicSearchProgress> searchPageProgressively(
+    String query,
+    MusicDataSource source, {
+    required int page,
+  });
 }
 
 class ResolverHttpResponse {

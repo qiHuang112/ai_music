@@ -100,6 +100,8 @@ class _MusicHomePageState extends State<MusicHomePage> {
                       child: _OnlineSearchPanel(
                         candidates: controller.candidates,
                         isSearching: controller.isSearching,
+                        isLoadingMore: controller.isLoadingMoreSearch,
+                        hasMore: controller.hasMoreSearchResults,
                         isCandidateBusy: controller.isCandidateDownloading,
                         isCandidateCached: controller.isCandidateCached,
                         error:
@@ -109,7 +111,9 @@ class _MusicHomePageState extends State<MusicHomePage> {
                             ) ??
                             controller.errorDetail,
                         onRetry: () =>
-                            controller.search(_searchController.text),
+                            controller.retrySearchPage(_searchController.text),
+                        onLoadMore: () =>
+                            unawaited(controller.loadMoreSearchResults()),
                         onSelect: controller.downloadCandidate,
                         onPlay: controller.playCandidate,
                       ),
@@ -338,20 +342,26 @@ class _OnlineSearchPanel extends StatelessWidget {
   const _OnlineSearchPanel({
     required this.candidates,
     required this.isSearching,
+    required this.isLoadingMore,
+    required this.hasMore,
     required this.isCandidateBusy,
     required this.isCandidateCached,
     required this.error,
     required this.onRetry,
+    required this.onLoadMore,
     required this.onSelect,
     required this.onPlay,
   });
 
   final List<MusicSearchCandidate> candidates;
   final bool isSearching;
+  final bool isLoadingMore;
+  final bool hasMore;
   final bool Function(MusicSearchCandidate candidate) isCandidateBusy;
   final bool Function(MusicSearchCandidate candidate) isCandidateCached;
   final String? error;
   final VoidCallback onRetry;
+  final VoidCallback onLoadMore;
   final ValueChanged<MusicSearchCandidate> onSelect;
   final ValueChanged<MusicSearchCandidate> onPlay;
 
@@ -388,116 +398,141 @@ class _OnlineSearchPanel extends StatelessWidget {
               ),
             if (candidates.isNotEmpty)
               Expanded(
-                child: ListView.separated(
-                  padding: EdgeInsets.zero,
-                  itemCount: candidates.length,
-                  separatorBuilder: (_, _) => const Divider(height: 1),
-                  itemBuilder: (context, index) {
-                    final candidate = candidates[index];
-                    final artistCorrection = _candidateArtistCorrection(
-                      strings,
-                      candidate,
-                    );
-                    final isBusy = isCandidateBusy(candidate);
-                    final isCached = isCandidateCached(candidate);
-                    final isFullAudio =
-                        candidate.source == MusicDataSource.kuwoFullAudio ||
-                        candidate.source == MusicDataSource.gequhai;
-                    final canPlay = isCached || isFullAudio;
-                    final canDownload = isFullAudio;
-                    return ListTile(
-                      leading: CircleAvatar(
-                        backgroundColor: colors.secondaryContainer,
-                        foregroundColor: colors.onSecondaryContainer,
-                        child: isBusy
-                            ? const SizedBox.square(
-                                dimension: 18,
-                                child: CircularProgressIndicator(
-                                  strokeWidth: 2,
-                                ),
-                              )
-                            : Text(
-                                _sourceMarker(candidate),
-                                style: Theme.of(context).textTheme.labelSmall
-                                    ?.copyWith(
-                                      color: colors.onSecondaryContainer,
-                                      fontWeight: FontWeight.w700,
-                                    ),
-                              ),
-                      ),
-                      title: Text(
-                        candidate.name.isEmpty
-                            ? candidate.keyword
-                            : candidate.name,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                      subtitle: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            _candidateSubtitle(
-                              strings,
-                              candidate,
-                              isCached: isCached,
-                              isFullAudio: isFullAudio,
+                child: NotificationListener<ScrollNotification>(
+                  onNotification: (notification) {
+                    if (notification.metrics.extentAfter < 200 &&
+                        hasMore &&
+                        !isLoadingMore) {
+                      onLoadMore();
+                    }
+                    return false;
+                  },
+                  child: ListView.separated(
+                    padding: EdgeInsets.zero,
+                    itemCount: candidates.length + (isLoadingMore ? 1 : 0),
+                    separatorBuilder: (_, _) => const Divider(height: 1),
+                    itemBuilder: (context, index) {
+                      if (index == candidates.length) {
+                        return const Padding(
+                          padding: EdgeInsets.all(16),
+                          child: Center(
+                            child: SizedBox.square(
+                              dimension: 22,
+                              child: CircularProgressIndicator(strokeWidth: 2),
                             ),
-                            maxLines: 2,
-                            overflow: TextOverflow.ellipsis,
                           ),
-                          if (artistCorrection != null) ...[
-                            const SizedBox(height: 2),
+                        );
+                      }
+                      final candidate = candidates[index];
+                      final artistCorrection = _candidateArtistCorrection(
+                        strings,
+                        candidate,
+                      );
+                      final isBusy = isCandidateBusy(candidate);
+                      final isCached = isCandidateCached(candidate);
+                      final isValidating = candidate.isValidating;
+                      final isFullAudio =
+                          candidate.source == MusicDataSource.kuwoFullAudio ||
+                          candidate.source == MusicDataSource.gequhai;
+                      final canPlay =
+                          !isValidating && (isCached || isFullAudio);
+                      final canDownload = !isValidating && isFullAudio;
+                      return ListTile(
+                        leading: CircleAvatar(
+                          backgroundColor: colors.secondaryContainer,
+                          foregroundColor: colors.onSecondaryContainer,
+                          child: isBusy || isValidating
+                              ? const SizedBox.square(
+                                  dimension: 18,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2,
+                                  ),
+                                )
+                              : Text(
+                                  _sourceMarker(candidate),
+                                  style: Theme.of(context).textTheme.labelSmall
+                                      ?.copyWith(
+                                        color: colors.onSecondaryContainer,
+                                        fontWeight: FontWeight.w700,
+                                      ),
+                                ),
+                        ),
+                        title: Text(
+                          candidate.name.isEmpty
+                              ? candidate.keyword
+                              : candidate.name,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                        subtitle: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
                             Text(
-                              artistCorrection,
-                              maxLines: 1,
+                              _candidateSubtitle(
+                                strings,
+                                candidate,
+                                isCached: isCached,
+                                isFullAudio: isFullAudio,
+                              ),
+                              maxLines: 2,
                               overflow: TextOverflow.ellipsis,
-                              style: Theme.of(context).textTheme.bodySmall
-                                  ?.copyWith(color: colors.tertiary),
+                            ),
+                            if (artistCorrection != null) ...[
+                              const SizedBox(height: 2),
+                              Text(
+                                artistCorrection,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: Theme.of(context).textTheme.bodySmall
+                                    ?.copyWith(color: colors.tertiary),
+                              ),
+                            ],
+                            const SizedBox(height: 4),
+                            _SearchStatusChip(
+                              label: isValidating
+                                  ? strings.validatingAudio
+                                  : isCached
+                                  ? strings.statusCompleted
+                                  : isFullAudio
+                                  ? strings.downloadable
+                                  : strings.notDownloadable,
+                              tone: isCached || (isFullAudio && !isValidating)
+                                  ? _SearchStatusTone.ready
+                                  : _SearchStatusTone.limited,
                             ),
                           ],
-                          const SizedBox(height: 4),
-                          _SearchStatusChip(
-                            label: isCached
-                                ? strings.statusCompleted
-                                : isFullAudio
-                                ? strings.downloadable
-                                : strings.notDownloadable,
-                            tone: isCached || isFullAudio
-                                ? _SearchStatusTone.ready
-                                : _SearchStatusTone.limited,
-                          ),
-                        ],
-                      ),
-                      trailing: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          if (canPlay)
-                            IconButton(
-                              tooltip: strings.play,
-                              onPressed: isBusy
-                                  ? null
-                                  : () => onPlay(candidate),
-                              icon: const Icon(Icons.play_arrow),
-                            ),
-                          if (canDownload)
-                            IconButton(
-                              tooltip: isCached
-                                  ? strings.downloadAgain
-                                  : strings.download,
-                              onPressed: isBusy
-                                  ? null
-                                  : () => onSelect(candidate),
-                              icon: const Icon(Icons.download_for_offline),
-                            ),
-                        ],
-                      ),
-                      onTap: isBusy
-                          ? null
-                          : canPlay
-                          ? () => onPlay(candidate)
-                          : null,
-                    );
-                  },
+                        ),
+                        trailing: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            if (canPlay)
+                              IconButton(
+                                tooltip: strings.play,
+                                onPressed: isBusy
+                                    ? null
+                                    : () => onPlay(candidate),
+                                icon: const Icon(Icons.play_arrow),
+                              ),
+                            if (canDownload)
+                              IconButton(
+                                tooltip: isCached
+                                    ? strings.downloadAgain
+                                    : strings.download,
+                                onPressed: isBusy
+                                    ? null
+                                    : () => onSelect(candidate),
+                                icon: const Icon(Icons.download_for_offline),
+                              ),
+                          ],
+                        ),
+                        onTap: isBusy
+                            ? null
+                            : canPlay
+                            ? () => onPlay(candidate)
+                            : null,
+                      );
+                    },
+                  ),
                 ),
               ),
           ],

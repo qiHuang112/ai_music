@@ -471,7 +471,7 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(resolver.lastQuery, '周杰伦');
-    expect(resolver.lastSource, MusicDataSource.gequhai);
+    expect(resolver.lastSource, MusicDataSource.auto);
     expect(find.text('稻香 0'), findsOneWidget);
     expect(find.text('布谷'), findsWidgets);
     expect(find.textContaining('BuguYY'), findsNothing);
@@ -528,6 +528,64 @@ void main() {
       expect(find.byType(LinearProgressIndicator), findsNothing);
     },
   );
+
+  testWidgets('validating search candidates stay visible but cannot play', (
+    tester,
+  ) async {
+    final resolver = _ProgressiveMusicResolver();
+    await tester.pumpWidget(_app(resolver: resolver));
+    await tester.pumpAndSettle();
+
+    await tester.enterText(find.byType(TextField), '陈奕迅');
+    await tester.tap(find.byTooltip('在线搜索'));
+    await tester.pump();
+
+    resolver.emit(
+      MusicSearchProgress(
+        candidates: [
+          _candidate(
+            name: '十年',
+            artist: '陈奕迅',
+            source: MusicDataSource.gequhai,
+            platform: 'gequhai',
+            raw: const {'validationStatus': 'validating', 'clientReady': false},
+          ),
+        ],
+        isComplete: false,
+      ),
+    );
+    await tester.pump();
+
+    expect(find.text('十年'), findsOneWidget);
+    expect(find.text('校验中'), findsOneWidget);
+    expect(find.byTooltip('播放'), findsNothing);
+  });
+
+  testWidgets('search list loads the next page once near the bottom', (
+    tester,
+  ) async {
+    final resolver = _PaginatedWidgetMusicResolver({
+      1: [
+        for (var index = 0; index < 14; index += 1)
+          _candidate(id: 'page-1-$index', name: '第一页 $index', artist: '周杰伦'),
+      ],
+      2: [_candidate(id: 'page-2', name: '第二页结果', artist: '周杰伦')],
+    });
+    await tester.pumpWidget(_app(resolver: resolver));
+    await tester.pumpAndSettle();
+
+    await tester.enterText(find.byType(TextField), '周杰伦');
+    await tester.tap(find.byTooltip('在线搜索'));
+    await tester.pumpAndSettle();
+
+    expect(resolver.requestedPages, [1]);
+    await tester.drag(find.byType(ListView).first, const Offset(0, -1200));
+    await tester.pumpAndSettle();
+
+    expect(resolver.requestedPages, [1, 2]);
+    expect(find.text('第一页 13'), findsOneWidget);
+    expect(find.text('第二页结果'), findsOneWidget);
+  });
 
   testWidgets('flac source does not repeat flac in candidate subtitle', (
     tester,
@@ -971,20 +1029,20 @@ void main() {
     await tester.tap(find.text('Music Source'));
     await tester.pumpAndSettle();
 
-    expect(find.text('Auto'), findsNothing);
+    expect(find.text('Auto'), findsOneWidget);
     expect(find.text('BuguYY'), findsNothing);
     expect(find.text('FLAC'), findsNothing);
     expect(find.text('2t58.com'), findsNothing);
     expect(find.text('22a5.com'), findsNothing);
-    expect(find.text('Gequhai'), findsOneWidget);
+    expect(find.text('Gequhai'), findsNothing);
     expect(find.text('Gequbao'), findsNothing);
     expect(find.text('Kuwo Full Audio'), findsNothing);
 
-    await tester.tap(find.text('Gequhai'));
+    await tester.tap(find.text('Auto'));
     await tester.pumpAndSettle();
 
     expect(settings.savedSource, isNull);
-    expect(settings.settings.source, MusicDataSource.gequhai);
+    expect(settings.settings.source, MusicDataSource.auto);
   });
 
   testWidgets('search results hide preview-only candidates', (tester) async {
@@ -2327,6 +2385,29 @@ class _ProgressiveMusicResolver extends _FakeMusicResolver
     if (progress.isComplete) {
       _controller.close();
     }
+  }
+}
+
+class _PaginatedWidgetMusicResolver extends _FakeMusicResolver
+    implements PaginatedProgressiveMusicResolver {
+  _PaginatedWidgetMusicResolver(this.pages);
+
+  final Map<int, List<MusicSearchCandidate>> pages;
+  final List<int> requestedPages = [];
+
+  @override
+  Stream<MusicSearchProgress> searchPageProgressively(
+    String query,
+    MusicDataSource source, {
+    required int page,
+  }) async* {
+    requestedPages.add(page);
+    yield MusicSearchProgress(
+      candidates: pages[page] ?? const [],
+      isComplete: true,
+      page: page,
+      hasNextPage: pages.containsKey(page + 1),
+    );
   }
 }
 

@@ -2,6 +2,8 @@ import 'dart:io';
 
 import 'package:ai_music/src/application/music_controller.dart';
 import 'package:ai_music/src/application/music_mappers.dart';
+import 'package:ai_music/src/data/hotlist.dart';
+import 'package:ai_music/src/data/hotlist_playlists.dart';
 import 'package:ai_music/src/data/lyrics_artwork.dart';
 import 'package:ai_music/src/data/music_cache.dart';
 import 'package:ai_music/src/data/music_playlists.dart';
@@ -51,6 +53,8 @@ void main() {
           ],
         ),
       ),
+      hotlistRepository: _EmptyHotlistRepository(),
+      hotlistPlaylistStore: _EmptyHotlistPlaylistStore(),
     );
 
     try {
@@ -119,6 +123,8 @@ void main() {
       settingsStore: _FakeSettingsStore(),
       playbackStateStore: _FakePlaybackStateStore(),
       metadataRepository: metadata,
+      hotlistRepository: _EmptyHotlistRepository(),
+      hotlistPlaylistStore: _EmptyHotlistPlaylistStore(),
     );
 
     try {
@@ -177,6 +183,8 @@ void main() {
       metadataRepository: _StaticMetadataRepository(
         metadata: const TrackMetadata(),
       ),
+      hotlistRepository: _EmptyHotlistRepository(),
+      hotlistPlaylistStore: _EmptyHotlistPlaylistStore(),
     );
 
     try {
@@ -214,6 +222,48 @@ void main() {
     }
   });
 
+  testWidgets('player page does not expose a stop button', (tester) async {
+    final cached = _cachedTrack();
+    final handler = _SpyAudioHandler();
+    final controller = MusicController(
+      audioHandler: handler,
+      resolver: _FakeMusicResolver(),
+      cacheStore: _FakeCacheStore(cached: [cached]),
+      playlistStore: _FakePlaylistStore(),
+      settingsStore: _FakeSettingsStore(),
+      playbackStateStore: _FakePlaybackStateStore(),
+      metadataRepository: _StaticMetadataRepository(
+        metadata: const TrackMetadata(),
+      ),
+      hotlistRepository: _EmptyHotlistRepository(),
+      hotlistPlaylistStore: _EmptyHotlistPlaylistStore(),
+    );
+
+    try {
+      final track = trackFromCached(cached);
+      controller.cachedTracks = [track];
+      handler.queue.add([mediaItemFromTrack(track)]);
+      handler.emit(mediaItemFromTrack(track));
+
+      await tester.pumpWidget(
+        AppStringsScope(
+          language: AppLanguage.zh,
+          child: MaterialApp(
+            theme: ThemeData.dark(useMaterial3: true),
+            home: PlayerPage(controller: controller),
+          ),
+        ),
+      );
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 300));
+
+      expect(find.byTooltip('停止'), findsNothing);
+    } finally {
+      controller.dispose();
+      await handler.dispose();
+    }
+  });
+
   testWidgets('player page slider drag does not skip tracks', (tester) async {
     final cached = _cachedTrack();
     final handler = _SpyAudioHandler();
@@ -227,6 +277,8 @@ void main() {
       metadataRepository: _StaticMetadataRepository(
         metadata: const TrackMetadata(),
       ),
+      hotlistRepository: _EmptyHotlistRepository(),
+      hotlistPlaylistStore: _EmptyHotlistPlaylistStore(),
     );
 
     try {
@@ -283,6 +335,8 @@ void main() {
         metadataRepository: _StaticMetadataRepository(
           metadata: const TrackMetadata(),
         ),
+        hotlistRepository: _EmptyHotlistRepository(),
+        hotlistPlaylistStore: _EmptyHotlistPlaylistStore(),
       );
 
       try {
@@ -387,6 +441,22 @@ class _StaticMetadataRepository extends TrackMetadataRepository {
   @override
   Future<TrackMetadata> load(CachedTrack track) async {
     return metadata;
+  }
+}
+
+class _EmptyHotlistRepository extends HotlistRepository {
+  @override
+  Future<List<HotlistChart>> loadCharts({bool forceRefresh = false}) async {
+    return const [];
+  }
+}
+
+class _EmptyHotlistPlaylistStore extends HotlistPlaylistStore {
+  _EmptyHotlistPlaylistStore() : super(rootProvider: _unusedRootProvider);
+
+  @override
+  Future<List<HotlistPlaylist>> load() async {
+    return const [];
   }
 }
 

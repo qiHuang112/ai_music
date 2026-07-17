@@ -211,6 +211,7 @@ class AppStrings {
   String get playing => isZh ? '正在播放' : 'Playing';
   String get queuePlaying => isZh ? '播放中' : 'Playing';
   String get downloadable => isZh ? '可下载' : 'Downloadable';
+  String get validatingAudio => isZh ? '校验中' : 'Validating';
   String get notDownloadable => isZh ? '不可下载' : 'Not downloadable';
   String get cachedStatus => isZh ? '已缓存' : 'Cached';
   String get more => isZh ? '更多' : 'More';

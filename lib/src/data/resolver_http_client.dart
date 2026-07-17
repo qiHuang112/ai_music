@@ -5,9 +5,17 @@ import 'dart:io';
 import 'resolver_models.dart';
 
 class HttpMusicResolverClient implements MusicResolverHttp {
-  HttpMusicResolverClient({this.client});
+  HttpMusicResolverClient({
+    this.client,
+    this.connectTimeout = const Duration(seconds: 5),
+    this.responseTimeout = const Duration(seconds: 8),
+    this.retryAttempts = 1,
+  }) : assert(retryAttempts > 0);
 
   final HttpClient? client;
+  final Duration connectTimeout;
+  final Duration responseTimeout;
+  final int retryAttempts;
 
   @override
   Future<ResolverHttpResponse> get(
@@ -81,7 +89,7 @@ class HttpMusicResolverClient implements MusicResolverHttp {
     int? maxBodyBytes,
   }) async {
     Object? lastError;
-    final attempts = retry ? 3 : 1;
+    final attempts = retry ? retryAttempts : 1;
     for (var attempt = 0; attempt < attempts; attempt += 1) {
       try {
         return await _sendOnce(
@@ -114,7 +122,7 @@ class HttpMusicResolverClient implements MusicResolverHttp {
     try {
       final request = await httpClient
           .openUrl(method, uri)
-          .timeout(const Duration(seconds: 12));
+          .timeout(connectTimeout);
       for (final entry in headers.entries) {
         request.headers.set(entry.key, entry.value);
       }
@@ -123,10 +131,11 @@ class HttpMusicResolverClient implements MusicResolverHttp {
         request.add(body);
       }
 
-      final response = await request.close().timeout(
-        const Duration(seconds: 20),
-      );
-      final responseBody = await _readBody(response, maxBodyBytes);
+      final response = await request.close().timeout(responseTimeout);
+      final responseBody = await _readBody(
+        response,
+        maxBodyBytes,
+      ).timeout(responseTimeout);
       final headerMap = <String, String>{};
       response.headers.forEach((name, values) {
         if (values.isNotEmpty) {
