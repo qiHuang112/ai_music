@@ -1,6 +1,6 @@
 # AM-20260717-001 多源完整音频搜索动态聚合
 
-Status: accepted
+Status: merged
 Owner Lane: mobile-ai-music-developer
 Assist Lane: mobile-ai-music-product, mobile-ai-music-ux
 Source Thread: 019f6b0e-972c-7eb1-91cd-a43cdbfa7d1e
@@ -43,9 +43,9 @@ Code Quality Review Evidence: SocketException and all-candidate source-level val
 Full Verification Evidence: full suite 299/299, targeted suite 178/178, analyze 0, diff-check 0. Final APK `build/app/outputs/flutter-apk/app-debug.apk` SHA-256 `3204077023db2ef5cdccbcf4730a0d70a412d07dd2d79c6a3902446ac19ca98f`; Xiaomi 10 Pro pulled `base.apk` SHA-256 matches; `lastUpdateTime=2026-07-18 09:09:16`; evidence files `apk-final-32040770.sha256`, `device-apk-final-32040770.sha256`, `package-final-32040770.txt`.
 Blocking Findings: none
 Residual Risk: Exact real-device Gequhai SocketException/403 induction was intentionally not forced; deterministic resolver/coordinator tests cover circuit-open/circuit-skip and result retention, while the Xiaomi package covers ordinary bad-candidate fail-closed. BuguYY, FLAC, and 22a5 remain intentionally excluded under the no-bypass policy.
-Merge Evidence: pending
-Push Evidence: pending
-Product Notification Evidence: pending
+Merge Evidence: `origin/release/1.2.0` contains merge commit `9b8d7de21dac345ed95a99f987b548908b3359c3`.
+Push Evidence: initial remote branch verified at `origin/release/1.2.0@69a974dfba3efafdbfbc679a710947a07afef05b`; final closure ledger commit follows on the same branch.
+Product Notification Evidence: validated `type=status status=accepted` handoff sent to product thread `019f6b0e-a150-7892-aec8-d8aa8314d802` with merge/push, test, APK SHA, and Xiaomi install evidence.
 Knowledge Evidence: `docs/superpowers/specs/2026-07-17-multi-source-search-aggregation-design.md`; `docs/superpowers/specs/2026-07-18-am001-multi-source-search-requirement-r2.md`; `docs/codex_collab/knowledge/mobile-ai-music-ux/2026-07-18-am001-search-aggregation-ux-reconciliation.md`; `docs/superpowers/plans/2026-07-17-multi-source-search-aggregation.md`.
 
 ## 目标
@@ -83,13 +83,14 @@ Knowledge Evidence: `docs/superpowers/specs/2026-07-17-multi-source-search-aggre
 - 2026-07-18 09:00 type=review_request lane=mobile-ai-music-developer status=review_requested summary=按 R2 复审修复本地跨源同曲缓存重复显示；同一最终包补齐酷我与歌曲海各一首播放、seek state=3、transient-to-formal、未播放零缓存、尾部 loading、最终空态和默认 IME 恢复证据；62/62 targeted、294/294 full、analyze/diff 通过，APK/设备 SHA 为 f0a2d5661cd74daa7cfa0b56d14b20225f30540ce3ba0b7bd8b16ddb261e3b9b。
 - 2026-07-18 09:18 type=review_request lane=mobile-ai-music-developer status=review_requested summary=按 R3 复审仅补两项 P1：三页全空但 `hasNextPage=true` 后显示最终空态；SocketException/全候选源级校验失败传播到 coordinator 并熔断，普通坏候选仍只过滤本候选。178/178 targeted、299/299 full、analyze/diff 通过；新 APK/小米包 SHA 为 3204077023db2ef5cdccbcf4730a0d70a412d07dd2d79c6a3902446ac19ca98f。
 - 2026-07-18 09:25 type=review_result lane=mobile-ai-music-lead status=accepted summary=Spec Review 与 Code Quality Review accepted；UX accepted，fresh 178/299、analyze、diff-check、实时设备 APK SHA 通过，实现提交为 47f714e32bd08c45ae97a5489623e75889979d56。
+- 2026-07-18 09:40 type=status lane=mobile-ai-music-product status=accepted summary=负责人已合入并推送 origin/release/1.2.0，回传 299 full、APK/device SHA 与小米安装证据；AM-20260717-001 关闭。
 
 ## 版本与发布
 
 - Target Version: 1.2.0
 - Release Tag: pending
 - Android APK: `build/app/outputs/flutter-apk/app-debug.apk` SHA-256 `3204077023db2ef5cdccbcf4730a0d70a412d07dd2d79c6a3902446ac19ca98f`; installed on Xiaomi 10 Pro with matching device package SHA.
-- Push Status: not_ready
+- Push Status: pushed
 
 ## Review 结果
 

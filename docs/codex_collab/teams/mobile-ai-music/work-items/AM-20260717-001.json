@@ -3,7 +3,7 @@
   "team_key": "mobile-ai-music",
   "request_id": "AM-20260717-001",
   "abstract_request": "在 Auto 搜索中对歌曲海与酷我完整音频做严格校验后的多源动态聚合，保持稳定追加、独立分页熔断、动态播放队列和未播放不预下载。",
-  "state": "commit_ready",
+  "state": "merged",
   "requirement": {
     "revision": "sha256:5861c7a4f58e7d401e7a494ba51bc41af47d8ddbd96aea5484b659cecd569f65",
     "approved": true
@@ -36,11 +36,11 @@
     "evidence": "Repository docs authorize architect direct merge/push to target release branch after accepted review; origin git@github.com:qiHuang112/ai_music.git; release/1.2.0 absent remotely."
   },
   "submission": {
-    "remote_submitted": false,
-    "remote_status": null,
-    "remote_evidence": null,
-    "merged": false,
-    "merge_evidence": null
+    "remote_submitted": true,
+    "remote_status": "MERGED",
+    "remote_evidence": "origin/release/1.2.0@69a974dfba3efafdbfbc679a710947a07afef05b",
+    "merged": true,
+    "merge_evidence": "origin/release/1.2.0 contains merge commit 9b8d7de21dac345ed95a99f987b548908b3359c3"
   },
   "history": [
     {
@@ -118,6 +118,14 @@
     {
       "sequence": 19,
       "event": "commit_ready"
+    },
+    {
+      "sequence": 20,
+      "event": "remote_submit"
+    },
+    {
+      "sequence": 21,
+      "event": "mark_merged"
     }
   ]
 }
