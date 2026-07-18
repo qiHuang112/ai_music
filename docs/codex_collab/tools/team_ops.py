@@ -26,6 +26,10 @@ ALLOWED_TYPES = {
 }
 
 ALLOWED_LANES = {
+    "mobile-ai-music-product",
+    "mobile-ai-music-ux",
+    "mobile-ai-music-developer",
+    "mobile-ai-music-lead",
     "product",
     "architect",
     "android",

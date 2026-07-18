@@ -1,3 +1,5 @@
+import 'dart:async';
+import 'dart:io';
 import 'dart:math';
 
 import 'resolver_models.dart';
@@ -40,6 +42,56 @@ String prefix(String value) {
 
 String formatResolverError(Object error) {
   return error.toString();
+}
+
+String sourceFailureCode(Object error) {
+  if (error is TimeoutException || error is SocketException) {
+    return 'network_timeout';
+  }
+  if (error is SourceDownloadException && error.failureCode.isNotEmpty) {
+    return error.failureCode;
+  }
+  final text = formatResolverError(error).toLowerCase();
+  if (text.contains('429')) {
+    return 'provider_http_429';
+  }
+  if (text.contains('403')) {
+    return 'provider_http_403';
+  }
+  if (text.contains('timed out') || text.contains('timeout')) {
+    return 'network_timeout';
+  }
+  if (text.contains('defender') ||
+      text.contains('safeline') ||
+      text.contains('challenge') ||
+      text.contains('security')) {
+    return 'security_or_defender';
+  }
+  return '';
+}
+
+bool isSourceCircuitBreakerError(Object error) {
+  if (error is TimeoutException || error is SocketException) {
+    return true;
+  }
+  const blockingCodes = {
+    'provider_http_403',
+    'provider_http_429',
+    'security_or_defender',
+    'defender_challenge',
+    'security_verification',
+    'network_timeout',
+    'timeout',
+  };
+  final failureCode = sourceFailureCode(error).toLowerCase();
+  if (blockingCodes.contains(failureCode)) {
+    return true;
+  }
+  final text = formatResolverError(error).toLowerCase();
+  return text.contains('http 403') ||
+      text.contains('http 429') ||
+      text.contains('defender') ||
+      text.contains('security verification');
 }
 
 MediaUrlType classifyMediaUrl(String url) {

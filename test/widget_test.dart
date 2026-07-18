@@ -501,6 +501,12 @@ void main() {
       await tester.tap(find.byTooltip('在线搜索'));
       await tester.pump();
 
+      expect(find.byType(LinearProgressIndicator), findsOneWidget);
+      expect(
+        find.byKey(const ValueKey('search-append-progress')),
+        findsNothing,
+      );
+
       resolver.emit(
         MusicSearchProgress(
           candidates: [_candidate(name: '先回来的歌', artist: '歌手')],
@@ -510,7 +516,12 @@ void main() {
       await tester.pump();
 
       expect(find.text('先回来的歌'), findsOneWidget);
-      expect(find.byType(LinearProgressIndicator), findsOneWidget);
+      expect(find.byType(LinearProgressIndicator), findsNothing);
+      expect(
+        find.byKey(const ValueKey('search-append-progress')),
+        findsOneWidget,
+      );
+      expect(find.byIcon(Icons.travel_explore), findsOneWidget);
 
       resolver.emit(
         MusicSearchProgress(
@@ -526,6 +537,10 @@ void main() {
       expect(find.text('先回来的歌'), findsOneWidget);
       expect(find.text('后回来的歌'), findsOneWidget);
       expect(find.byType(LinearProgressIndicator), findsNothing);
+      expect(
+        find.byKey(const ValueKey('search-append-progress')),
+        findsNothing,
+      );
     },
   );
 
@@ -585,6 +600,25 @@ void main() {
     expect(resolver.requestedPages, [1, 2]);
     expect(find.text('第一页 13'), findsOneWidget);
     expect(find.text('第二页结果'), findsOneWidget);
+  });
+
+  testWidgets('three empty initial pages show final no-match state', (
+    tester,
+  ) async {
+    final resolver = _PaginatedWidgetMusicResolver(
+      {1: const [], 2: const [], 3: const []},
+      hasNextPages: const {1, 2, 3},
+    );
+    await tester.pumpWidget(_app(resolver: resolver));
+    await tester.pumpAndSettle();
+
+    await tester.enterText(find.byType(TextField), '没有这个结果');
+    await tester.tap(find.byTooltip('在线搜索'));
+    await tester.pumpAndSettle();
+
+    expect(resolver.requestedPages, [1, 2, 3]);
+    expect(find.text('没有找到在线结果'), findsOneWidget);
+    expect(find.text('搜索音乐'), findsNothing);
   });
 
   testWidgets('flac source does not repeat flac in candidate subtitle', (
@@ -2390,9 +2424,10 @@ class _ProgressiveMusicResolver extends _FakeMusicResolver
 
 class _PaginatedWidgetMusicResolver extends _FakeMusicResolver
     implements PaginatedProgressiveMusicResolver {
-  _PaginatedWidgetMusicResolver(this.pages);
+  _PaginatedWidgetMusicResolver(this.pages, {this.hasNextPages});
 
   final Map<int, List<MusicSearchCandidate>> pages;
+  final Set<int>? hasNextPages;
   final List<int> requestedPages = [];
 
   @override
@@ -2406,7 +2441,7 @@ class _PaginatedWidgetMusicResolver extends _FakeMusicResolver
       candidates: pages[page] ?? const [],
       isComplete: true,
       page: page,
-      hasNextPage: pages.containsKey(page + 1),
+      hasNextPage: hasNextPages?.contains(page) ?? pages.containsKey(page + 1),
     );
   }
 }

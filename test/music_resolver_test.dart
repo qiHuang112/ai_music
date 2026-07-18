@@ -610,6 +610,102 @@ void main() {
     );
   });
 
+  test('auto aggregates validated gequhai and kuwo results', () async {
+    const gequhaiAudio = 'https://cdn.gequhai.test/audio/326.mp3';
+    const kuwoAudio = 'https://cdn.kuwo.test/audio/night.mp3';
+    final http = _FakeResolverHttp(
+      onGet: (uri, _) async {
+        if (uri.host == 'www.gequhai.com' && uri.path.startsWith('/s/')) {
+          return _html(uri, '''
+            <table>
+              <tr><td><a href="/play/326">晴天</a></td><td>周杰伦</td></tr>
+              <tr><td><a href="/play/553">青花瓷</a></td><td>周杰伦</td></tr>
+            </table>
+          ''');
+        }
+        if (uri.host == 'www.gequhai.com' &&
+            (uri.path == '/play/326' || uri.path == '/play/553')) {
+          final id = uri.pathSegments.last;
+          final title = id == '326' ? '晴天' : '青花瓷';
+          return _html(uri, '''
+            <script>
+              window.play_id = '$id';
+              window.mp3_title = '$title';
+              window.mp3_author = '周杰伦';
+            </script>
+            <div id="content-lrc2">[00:01.00]$title</div>
+          ''');
+        }
+        if (uri.host == 'search.kuwo.cn') {
+          return _json(uri, {
+            'TOTAL': '1',
+            'abslist': [
+              {
+                'NAME': '夜曲',
+                'SONGNAME': '夜曲',
+                'ARTIST': '周杰伦',
+                'ALBUM': '十一月的萧邦',
+                'DURATION': '233',
+                'MUSICRID': 'MUSIC_NIGHT',
+                'FORMATS': 'MP3128',
+                'MINFO': 'level:h,bitrate:128,format:mp3,size:3.55Mb',
+                'ONLINE': '1',
+                'PAY': '0',
+                'COPYRIGHT': '0',
+              },
+            ],
+          });
+        }
+        if (uri.host == 'antiserver.kuwo.cn') {
+          return _json(uri, {'url': kuwoAudio});
+        }
+        fail('Unexpected GET $uri');
+      },
+      onPostForm: (uri, form, _) async {
+        return _json(uri, {
+          'code': 200,
+          'data': {
+            'url': gequhaiAudio.replaceFirst('326', form['id'] ?? '326'),
+          },
+        });
+      },
+      onHead: (uri, _) async => _response(
+        uri,
+        HttpStatus.ok,
+        headers: const {
+          'content-type': 'audio/mpeg',
+          'content-length': '3913543',
+        },
+      ),
+      onRange: (uri, start, end, _) async => _response(
+        uri,
+        HttpStatus.partialContent,
+        body: 'x',
+        headers: {
+          'content-type': 'audio/mpeg',
+          'content-range': uri.host == 'cdn.gequhai.test'
+              ? 'bytes 0-8191/3913543'
+              : 'bytes 0-0/3913543',
+        },
+      ),
+    );
+    final resolver = RemoteMusicResolver(httpClient: http);
+
+    final emissions = await resolver
+        .searchPageProgressively('周杰伦', MusicDataSource.auto, page: 1)
+        .toList();
+
+    expect(emissions.last.isComplete, isTrue);
+    expect(emissions.last.candidates.map((item) => item.source).toSet(), {
+      MusicDataSource.gequhai,
+      MusicDataSource.kuwoFullAudio,
+    });
+    expect(
+      emissions.last.candidates.every((item) => item.isClientReady),
+      isTrue,
+    );
+  });
+
   test(
     'auto returns no candidates when gequhai and Kuwo have no match',
     () async {
@@ -748,6 +844,29 @@ void main() {
         candidates.single.raw['queryMatchReason'],
         'title_exact_artist_near_match',
       );
+    },
+  );
+
+  test(
+    'auto parses whitespace artist title query for gequhai search',
+    () async {
+      final requestedSearchTerms = <String>[];
+      final resolver = RemoteMusicResolver(
+        httpClient: _naturalLanguageGequhaiHttp(
+          title: '哎呀',
+          artist: '王蓉',
+          id: '38173',
+          requestedSearchTerms: requestedSearchTerms,
+        ),
+      );
+
+      final candidates = await resolver.search('王蓉 哎呀', MusicDataSource.auto);
+
+      expect(requestedSearchTerms, ['哎呀']);
+      expect(candidates, hasLength(1));
+      expect(candidates.single.name, '哎呀');
+      expect(candidates.single.artist, '王蓉');
+      expect(candidates.single.raw['queryMatchReason'], 'artist_title_exact');
     },
   );
 
@@ -983,10 +1102,7 @@ void main() {
         platforms: const ['kuwo'],
       );
 
-      expect(
-        () => resolver.search('王力宏 龙的传人', MusicDataSource.auto),
-        throwsA(isA<StateError>()),
-      );
+      expect(await resolver.search('王力宏 龙的传人', MusicDataSource.auto), isEmpty);
     },
   );
 
@@ -1225,6 +1341,58 @@ void main() {
     );
   }
 
+  test(
+    'auto opens the gequhai circuit when every candidate validation hits socket timeout',
+    () async {
+      var gequhaiSearchCalls = 0;
+      final http = _autoGequhaiValidationFailureHttp(
+        onGequhaiHead: (uri, _) async {
+          throw const SocketException('Connection timed out');
+        },
+        onGequhaiSearch: () => gequhaiSearchCalls += 1,
+      );
+      final resolver = RemoteMusicResolver(httpClient: http);
+
+      final first = await resolver
+          .searchPageProgressively('周杰伦', MusicDataSource.auto, page: 1)
+          .toList();
+      final second = await resolver
+          .searchPageProgressively('周杰伦', MusicDataSource.auto, page: 1)
+          .toList();
+
+      expect(first.last.candidates, hasLength(1));
+      expect(second.last.candidates, hasLength(1));
+      expect(gequhaiSearchCalls, 1);
+    },
+  );
+
+  test(
+    'auto opens the gequhai circuit when every candidate media HEAD is forbidden',
+    () async {
+      var gequhaiSearchCalls = 0;
+      final http = _autoGequhaiValidationFailureHttp(
+        onGequhaiHead: (uri, _) async => _response(
+          uri,
+          HttpStatus.forbidden,
+          headers: const {'content-type': 'text/html'},
+        ),
+        onGequhaiSearch: () => gequhaiSearchCalls += 1,
+      );
+      final resolver = RemoteMusicResolver(httpClient: http);
+
+      final first = await resolver
+          .searchPageProgressively('周杰伦', MusicDataSource.auto, page: 1)
+          .toList();
+      final second = await resolver
+          .searchPageProgressively('周杰伦', MusicDataSource.auto, page: 1)
+          .toList();
+
+      expect(first.last.candidates, hasLength(1));
+      expect(second.last.candidates, hasLength(1));
+      expect(gequhaiSearchCalls, 1);
+    },
+  );
+
   test('gequhai search returns exact playable result', () async {
     const audioUrl = 'https://cdn.gequhai.test/audio/6330.mp3';
     final http = _FakeResolverHttp(
@@ -1366,12 +1534,11 @@ void main() {
         ),
       ]);
       expect(progress.first.candidates, hasLength(2));
-      expect(progress.first.isComplete, isFalse);
       expect(
-        progress.first.candidates.map(
-          (candidate) => candidate.raw['validationStatus'],
-        ),
-        everyElement('validating'),
+        progress
+            .expand((item) => item.candidates)
+            .every((candidate) => candidate.isClientReady),
+        isTrue,
       );
       expect(progress.last.candidates, hasLength(2));
       expect(progress.last.isComplete, isTrue);
@@ -2094,31 +2261,31 @@ void main() {
     await expectLater(
       resolver.search('全部失败', MusicDataSource.auto),
       throwsA(
-        isA<StateError>()
+        isA<MultiSourceSearchFailure>()
             .having(
-              (error) => error.message,
+              (error) => error.toString(),
               'message',
               contains('GET failed www.gequhai.com'),
             )
             .having(
-              (error) => error.message,
+              (error) => error.toString(),
               'message',
-              isNot(contains('buguyy failed:')),
+              isNot(contains('buguyy')),
             )
             .having(
-              (error) => error.message,
+              (error) => error.toString(),
               'message',
-              isNot(contains('flac failed:')),
+              isNot(contains('flac')),
             )
             .having(
-              (error) => error.message,
+              (error) => error.toString(),
               'message',
-              contains('kuwo full audio failed:'),
+              contains('source_kuwo_full_audio'),
             )
             .having(
-              (error) => error.message,
+              (error) => error.toString(),
               'message',
-              isNot(contains('itunes preview failed:')),
+              isNot(contains('itunes_preview')),
             ),
       ),
     );
@@ -2385,6 +2552,194 @@ void main() {
         resolved.sourceAttempts.single.mediaValidation,
         contains('Range 206 bytes 0-0/2860000'),
       );
+    },
+  );
+
+  test(
+    'kuwo exact artist search expands the official artist catalog',
+    () async {
+      final convertedIds = <String>[];
+      var artistPageCalls = 0;
+      final http = _FakeResolverHttp(
+        onGet: (uri, _) async {
+          if (uri.host == 'www.gequhai.com') {
+            return _response(
+              uri,
+              HttpStatus.tooManyRequests,
+              body: '<html>rate limited</html>',
+            );
+          }
+          if (uri.host == 'search.kuwo.cn') {
+            return _json(uri, {
+              'abslist': [
+                {
+                  'NAME': '蝙蝠',
+                  'SONGNAME': '蝙蝠',
+                  'ARTIST': '麻园诗人',
+                  'ARTISTID': '0',
+                  'ALBUM': '',
+                  'DURATION': '180',
+                  'MUSICRID': 'MUSIC_KEYWORD',
+                  'FORMATS': 'MP3128',
+                  'MINFO': 'level:h,bitrate:128,format:mp3,size:3Mb',
+                  'ONLINE': '1',
+                  'PAY': '0',
+                  'COPYRIGHT': '0',
+                },
+                for (var index = 0; index < 7; index += 1)
+                  {
+                    'NAME': '泸沽湖',
+                    'SONGNAME': '泸沽湖 (DJ ${index + 1}版)',
+                    'ARTIST': '麻园诗人',
+                    'ARTISTID': '20517',
+                    'ALBUM': '',
+                    'DURATION': '180',
+                    'MUSICRID': 'MUSIC_DJ_$index',
+                    'FORMATS': 'MP3128',
+                    'MINFO': 'level:h,bitrate:128,format:mp3,size:3Mb',
+                    'ONLINE': '1',
+                    'PAY': '0',
+                    'COPYRIGHT': '0',
+                  },
+              ],
+            });
+          }
+          if (uri.host == 'm.kuwo.cn' && uri.path == '/artist/content') {
+            artistPageCalls += 1;
+            expect(uri.queryParameters['name'], '麻园诗人');
+            return _html(uri, '''
+              <div class="artistTop" data-artistid="20517"></div>
+              <div class="tools" data-music='{"id":"MUSIC_38616083","name":"泸沽湖","artist":"麻园诗人","album":"不爱说话的人"}'></div>
+              <div class="tools" data-music='{"id":"MUSIC_203563338","name":"现在现在","artist":"麻园诗人","album":"现在现在"}'></div>
+              <div class="tools" data-music='{"id":"MUSIC_67335721","name":"昆明","artist":"麻园诗人","album":"昆明"}'></div>
+              <div class="tools" data-music='{"id":"MUSIC_266537474","name":"西充","artist":"麻园诗人","album":"西充"}'></div>
+            ''');
+          }
+          if (uri.host == 'antiserver.kuwo.cn') {
+            final id = uri.queryParameters['rid']!;
+            convertedIds.add(id);
+            return _json(uri, {'url': 'https://audio.kuwo.test/$id.mp3'});
+          }
+          fail('Unexpected GET $uri');
+        },
+        onHead: (uri, _) async {
+          final total = uri.path.contains('MUSIC_266537474')
+              ? '181521'
+              : '3937377';
+          return _response(
+            uri,
+            HttpStatus.ok,
+            headers: {'content-type': 'audio/mpeg', 'content-length': total},
+          );
+        },
+        onRange: (uri, start, end, _) async {
+          final total = uri.path.contains('MUSIC_266537474')
+              ? '181521'
+              : '3937377';
+          return _response(
+            uri,
+            HttpStatus.partialContent,
+            body: 'x',
+            headers: {
+              'content-type': 'audio/mpeg',
+              'content-range': 'bytes 0-0/$total',
+            },
+          );
+        },
+      );
+      final resolver = RemoteMusicResolver(httpClient: http);
+
+      final progress = await resolver
+          .searchPageProgressively('麻园诗人', MusicDataSource.auto, page: 1)
+          .toList();
+
+      expect(artistPageCalls, 1);
+      expect(progress.last.candidates.map((item) => item.name), [
+        '蝙蝠',
+        '泸沽湖',
+        '现在现在',
+        '昆明',
+      ]);
+      expect(convertedIds, {
+        'MUSIC_KEYWORD',
+        'MUSIC_38616083',
+        'MUSIC_203563338',
+        'MUSIC_67335721',
+        'MUSIC_266537474',
+      });
+    },
+  );
+
+  test(
+    'kuwo artist and title query falls back to the verified artist catalog',
+    () async {
+      final requestedArtistPages = <String>[];
+      final http = _FakeResolverHttp(
+        onGet: (uri, _) async {
+          if (uri.host == 'search.kuwo.cn') {
+            expect(uri.queryParameters['all'], '王蓉 哎呀');
+            return _json(uri, {
+              'abslist': [
+                {
+                  'NAME': '哎呀',
+                  'SONGNAME': '哎呀',
+                  'ARTIST': '不正不歪',
+                  'DURATION': '180',
+                  'MUSICRID': 'MUSIC_WRONG',
+                  'FORMATS': 'MP3128',
+                  'MINFO': 'level:h,bitrate:128,format:mp3,size:2Mb',
+                  'ONLINE': '1',
+                  'PAY': '0',
+                  'COPYRIGHT': '0',
+                },
+              ],
+            });
+          }
+          if (uri.host == 'm.kuwo.cn' && uri.path == '/artist/content') {
+            requestedArtistPages.add(uri.queryParameters['name']!);
+            return _html(uri, '''
+              <div class="artistTop" data-artistid="586"></div>
+              <div class="tools" data-music='{"id":"MUSIC_110068","name":"哎呀","artist":"王蓉","album":"多爱"}'></div>
+              <div class="tools" data-music='{"id":"MUSIC_OTHER","name":"我不是黄蓉","artist":"王蓉","album":"多爱"}'></div>
+            ''');
+          }
+          if (uri.host == 'antiserver.kuwo.cn') {
+            expect(uri.queryParameters['rid'], 'MUSIC_110068');
+            return _json(uri, {
+              'url': 'https://audio.kuwo.test/MUSIC_110068.mp3',
+            });
+          }
+          fail('Unexpected GET $uri');
+        },
+        onHead: (uri, _) async => _response(
+          uri,
+          HttpStatus.ok,
+          headers: const {
+            'content-type': 'audio/mpeg',
+            'content-length': '3913543',
+          },
+        ),
+        onRange: (uri, _, _, _) async => _response(
+          uri,
+          HttpStatus.partialContent,
+          headers: const {
+            'content-type': 'audio/mpeg',
+            'content-range': 'bytes 0-0/3913543',
+          },
+        ),
+      );
+      final resolver = RemoteMusicResolver(httpClient: http);
+
+      final candidates = await resolver.search(
+        '王蓉 哎呀',
+        MusicDataSource.kuwoFullAudio,
+      );
+
+      expect(requestedArtistPages, ['王蓉']);
+      expect(candidates, hasLength(1));
+      expect(candidates.single.id, 'MUSIC_110068');
+      expect(candidates.single.name, '哎呀');
+      expect(candidates.single.artist, '王蓉');
     },
   );
 
@@ -2843,6 +3198,95 @@ ResolverHttpResponse _response(
     finalUrl: uri,
     headers: headers,
     cookies: cookies,
+  );
+}
+
+_FakeResolverHttp _autoGequhaiValidationFailureHttp({
+  required Future<ResolverHttpResponse> Function(
+    Uri uri,
+    Map<String, String> headers,
+  )
+  onGequhaiHead,
+  required void Function() onGequhaiSearch,
+}) {
+  const kuwoAudioUrl = 'https://kuwo.example.test/valid.mp3';
+  const gequhaiAudioUrl = 'https://cdn.gequhai.test/audio/6330.mp3';
+  return _FakeResolverHttp(
+    onGet: (uri, _) async {
+      if (uri.host == 'www.gequhai.com') {
+        if (uri.path.startsWith('/s/')) {
+          onGequhaiSearch();
+          return _html(uri, '''
+            <table>
+              <tr><td><a href="/play/6330">稻香</a></td><td>周杰伦</td></tr>
+            </table>
+          ''');
+        }
+        if (uri.path == '/play/6330') {
+          return _html(uri, '''
+            <script>
+              window.play_id = '6330';
+              window.mp3_title = '稻香';
+              window.mp3_author = '周杰伦';
+            </script>
+          ''');
+        }
+      }
+      if (uri.host == 'search.kuwo.cn') {
+        return _json(uri, {
+          'TOTAL': '1',
+          'abslist': [
+            {
+              'NAME': '蜗牛',
+              'SONGNAME': '蜗牛',
+              'ARTIST': '周杰伦',
+              'ALBUM': '',
+              'DURATION': '216',
+              'MUSICRID': 'MUSIC_367887397',
+              'FORMATS': 'MP3128',
+              'MINFO': 'level:h,bitrate:128,format:mp3,size:3.31Mb',
+              'ONLINE': '1',
+              'PAY': '0',
+              'COPYRIGHT': '0',
+            },
+          ],
+        });
+      }
+      if (uri.host == 'antiserver.kuwo.cn') {
+        return _json(uri, {'url': kuwoAudioUrl});
+      }
+      fail('Unexpected GET $uri');
+    },
+    onPostForm: (uri, form, _) async {
+      expect(uri.toString(), 'https://www.gequhai.com/api/music');
+      expect(form, {'id': '6330', 'type': '0'});
+      return _json(uri, {
+        'code': 200,
+        'data': {'url': gequhaiAudioUrl},
+      });
+    },
+    onHead: (uri, headers) async {
+      if (uri.toString() == gequhaiAudioUrl) {
+        return onGequhaiHead(uri, headers);
+      }
+      return _response(
+        uri,
+        HttpStatus.ok,
+        headers: const {
+          'content-type': 'audio/mpeg',
+          'content-length': '3465906',
+        },
+      );
+    },
+    onRange: (uri, start, end, _) async => _response(
+      uri,
+      HttpStatus.partialContent,
+      body: 'x',
+      headers: const {
+        'content-type': 'audio/mpeg',
+        'content-range': 'bytes 0-0/3465906',
+      },
+    ),
   );
 }
 

@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:math';
 
 import 'candidate_scorer.dart';
 import 'resolver_models.dart';
@@ -20,12 +21,14 @@ class KuwoFullAudioResolver {
   static const _minimumMatchScore = 210.0;
   static const _minimumArtistMatchScore = 120.0;
   static const _minimumTitleMatchScore = 150.0;
+  static const _minimumFullAudioBytes = 1000000;
   static const _progressivePageSize = 8;
   static const _validationConcurrency = 2;
 
   final MusicResolverHttp _http;
   final CandidateScorer _scorer;
   final Map<String, ResolvedMusic> _preparedResolutions = {};
+  final Map<String, List<Map<String, dynamic>>> _artistCatalogs = {};
 
   Future<List<MusicSearchCandidate>> search(String query) async {
     final result = await _searchPage(query, page: 1, limit: 30);
@@ -47,6 +50,7 @@ class KuwoFullAudioResolver {
     }
     if (page == 1) {
       _preparedResolutions.clear();
+      _artistCatalogs.remove(_normalizeTitle(trimmed));
     }
     final searchPage = await _searchPage(
       trimmed,
@@ -66,6 +70,7 @@ class KuwoFullAudioResolver {
 
     final completed = List<bool>.filled(original.length, false);
     final playable = List<MusicSearchCandidate?>.filled(original.length, null);
+    final failures = <Object>[];
     yield MusicSearchProgress(
       candidates: [
         for (final candidate in original)
@@ -100,6 +105,8 @@ class KuwoFullAudioResolver {
           candidate,
           resolved,
         );
+      } else if (result.error != null) {
+        failures.add(result.error!);
       }
       fillWorkers();
       yield MusicSearchProgress(
@@ -110,10 +117,17 @@ class KuwoFullAudioResolver {
       );
     }
 
+    final ready = playable.whereType<MusicSearchCandidate>().toList(
+      growable: false,
+    );
+    if (ready.isEmpty &&
+        failures.length == original.length &&
+        failures.every(isSourceCircuitBreakerError)) {
+      throw _sourceFailureFrom(failures.first);
+    }
+
     yield MusicSearchProgress(
-      candidates: playable.whereType<MusicSearchCandidate>().toList(
-        growable: false,
-      ),
+      candidates: ready,
       isComplete: true,
       page: page,
       hasNextPage: searchPage.hasNextPage,
@@ -128,6 +142,11 @@ class KuwoFullAudioResolver {
     final trimmed = query.trim();
     if (trimmed.isEmpty) {
       return const _KuwoSearchPage();
+    }
+    final catalogKey = _normalizeTitle(trimmed);
+    final cachedCatalog = _artistCatalogs[catalogKey];
+    if (page > 1 && cachedCatalog != null) {
+      return _catalogPage(cachedCatalog, trimmed, page);
     }
     final scopedSong = _scopedSongFor(trimmed);
     final searchTerm = scopedSong?.title ?? trimmed;
@@ -159,12 +178,49 @@ class KuwoFullAudioResolver {
     }
 
     final items = _parseAbslist(response.body);
-    final candidates =
+    var candidates =
         items
             .map((item) => _candidateFromItem(item, trimmed))
             .where(_isTrustedFullAudioCandidate)
             .toList(growable: false)
           ..sort((a, b) => b.score.compareTo(a.score));
+    if (page == 1 && scopedSong == null) {
+      final artistTitle = _artistTitleQuery(trimmed);
+      final exactArtistId = _exactArtistId(items, trimmed);
+      var catalog = const <Map<String, dynamic>>[];
+      if (artistTitle != null) {
+        catalog = await _loadArtistCatalog(
+          artistTitle.artist,
+          expectedArtistId: '',
+        );
+        catalog = catalog
+            .where(
+              (item) =>
+                  _normalizeTitle(item['name']) ==
+                  _normalizeTitle(artistTitle.title),
+            )
+            .toList(growable: false);
+      } else if (exactArtistId.isNotEmpty || _hasExactArtist(items, trimmed)) {
+        catalog = await _loadArtistCatalog(
+          trimmed,
+          expectedArtistId: exactArtistId,
+        );
+        if (catalog.isNotEmpty && candidates.isNotEmpty) {
+          final seenIds = <String>{};
+          catalog = [
+            for (final candidate in candidates)
+              if (seenIds.add(candidate.id))
+                Map<String, dynamic>.from(candidate.raw),
+            for (final item in catalog)
+              if (seenIds.add(item['musicRid']?.toString() ?? '')) item,
+          ];
+        }
+      }
+      if (catalog.isNotEmpty) {
+        _artistCatalogs[catalogKey] = catalog;
+        return _catalogPage(catalog, trimmed, page);
+      }
+    }
     // ignore: avoid_print
     print(
       '[AI Music][resolver] Kuwo search query="$trimmed" page=$page '
@@ -176,6 +232,122 @@ class KuwoFullAudioResolver {
     return _KuwoSearchPage(
       candidates: candidates,
       hasNextPage: items.length >= limit,
+    );
+  }
+
+  Future<List<Map<String, dynamic>>> _loadArtistCatalog(
+    String artist, {
+    required String expectedArtistId,
+  }) async {
+    final uri = Uri.https('m.kuwo.cn', '/artist/content', {'name': artist});
+    late final ResolverHttpResponse response;
+    try {
+      response = await _http.get(uri, headers: _searchHeaders);
+    } catch (_) {
+      return const [];
+    }
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      return const [];
+    }
+    final pageArtistId = RegExp(
+      r'''data-artistid=["'](\d+)["']''',
+    ).firstMatch(response.body)?.group(1);
+    if (pageArtistId == null ||
+        (expectedArtistId.isNotEmpty && pageArtistId != expectedArtistId)) {
+      return const [];
+    }
+    final catalog = <Map<String, dynamic>>[];
+    final seen = <String>{};
+    for (final match in RegExp(
+      r"""data-music\s*=\s*'([^']+)'""",
+    ).allMatches(response.body)) {
+      try {
+        final decoded = jsonDecode(_decodeHtmlAttribute(match.group(1)!));
+        if (decoded is! Map) {
+          continue;
+        }
+        final musicRid = decoded['id']?.toString().trim() ?? '';
+        final itemArtist = _cleanText(decoded['artist']);
+        if (!musicRid.startsWith('MUSIC_') ||
+            _normalizeTitle(itemArtist) != _normalizeTitle(artist) ||
+            !seen.add(musicRid)) {
+          continue;
+        }
+        catalog.add({
+          'name': decoded['name'],
+          'songName': decoded['name'],
+          'artist': itemArtist,
+          'artistId': pageArtistId,
+          'album': decoded['album'],
+          'duration': 180,
+          'musicRid': musicRid,
+          'formats': 'MP3128',
+          'minfo': 'level:h,bitrate:128,format:mp3',
+          'online': '1',
+          'pay': '0',
+          'copyright': '0',
+          'artistCatalog': true,
+        });
+      } catch (_) {
+        continue;
+      }
+    }
+    return List.unmodifiable(catalog);
+  }
+
+  _KuwoSearchPage _catalogPage(
+    List<Map<String, dynamic>> catalog,
+    String query,
+    int page,
+  ) {
+    final offset = (page - 1) * _progressivePageSize;
+    if (offset >= catalog.length) {
+      return const _KuwoSearchPage();
+    }
+    final end = min(offset + _progressivePageSize, catalog.length);
+    final candidates = catalog
+        .sublist(offset, end)
+        .map((item) => _candidateFromItem(item, query))
+        .where(_isTrustedFullAudioCandidate)
+        .toList(growable: false);
+    return _KuwoSearchPage(
+      candidates: candidates,
+      hasNextPage: end < catalog.length,
+    );
+  }
+
+  String _exactArtistId(List<Map<String, dynamic>> items, String query) {
+    final normalizedQuery = _normalizeTitle(query);
+    for (final item in items) {
+      if (_normalizeTitle(item['artist']) == normalizedQuery) {
+        final artistId = item['artistId']?.toString().trim() ?? '';
+        if ((int.tryParse(artistId) ?? 0) > 0) {
+          return artistId;
+        }
+      }
+    }
+    return '';
+  }
+
+  bool _hasExactArtist(List<Map<String, dynamic>> items, String query) {
+    final normalizedQuery = _normalizeTitle(query);
+    return items.any(
+      (item) => _normalizeTitle(item['artist']) == normalizedQuery,
+    );
+  }
+
+  _ArtistTitleQuery? _artistTitleQuery(String query) {
+    final tokens = query
+        .trim()
+        .split(RegExp(r'[\s,，/]+'))
+        .where((token) => token.isNotEmpty)
+        .toList(growable: false);
+    if (tokens.length < 2) {
+      return null;
+    }
+    return _ArtistTitleQuery(
+      artist: tokens.first,
+      title: tokens.skip(1).join(' '),
     );
   }
 
@@ -200,7 +372,7 @@ class KuwoFullAudioResolver {
         '[AI Music][resolver] Kuwo validation failed id=${candidate.id} '
         'name="${candidate.name}" error=${formatResolverError(error)}',
       );
-      return _IndexedResolution(index, null);
+      return _IndexedResolution(index, null, error);
     }
   }
 
@@ -392,7 +564,23 @@ class KuwoFullAudioResolver {
     final head = await _http.head(mediaUri, headers: _mediaHeaders);
     final headType = _header(head, 'content-type').toLowerCase();
     final headLength = _parsePositiveIntHeader(_header(head, 'content-length'));
-    if (head.statusCode == 403 || head.statusCode == 410) {
+    if (_looksLikeDefender(head.body)) {
+      return _MediaValidation.failed(
+        'security_or_defender',
+        headType,
+        headLength,
+        'HEAD ${head.statusCode} defender',
+      );
+    }
+    if (head.statusCode == 403 || head.statusCode == 429) {
+      return _MediaValidation.failed(
+        'provider_http_${head.statusCode}',
+        headType,
+        headLength,
+        'HEAD ${head.statusCode}',
+      );
+    }
+    if (head.statusCode == 410) {
       return _MediaValidation.failed(
         'browser_only',
         headType,
@@ -425,11 +613,35 @@ class KuwoFullAudioResolver {
         'HEAD invalid content-length',
       );
     }
+    if (headLength != null && headLength < _minimumFullAudioBytes) {
+      return _MediaValidation.failed(
+        'audio_too_short',
+        headType,
+        headLength,
+        'HEAD ${head.statusCode} $headType length=$headLength',
+      );
+    }
 
     final range = await _http.range(mediaUri, headers: _mediaHeaders);
     final rangeType = _header(range, 'content-type').toLowerCase();
     final contentRange = _header(range, 'content-range');
     final rangeTotal = _parseRangeTotal(contentRange);
+    if (_looksLikeDefender(range.body)) {
+      return _MediaValidation.failed(
+        'security_or_defender',
+        rangeType,
+        headLength,
+        'Range ${range.statusCode} defender',
+      );
+    }
+    if (range.statusCode == 403 || range.statusCode == 429) {
+      return _MediaValidation.failed(
+        'provider_http_${range.statusCode}',
+        rangeType,
+        headLength,
+        'Range ${range.statusCode}',
+      );
+    }
     if (range.statusCode != 206 ||
         !rangeType.startsWith('audio/') ||
         !contentRange.startsWith('bytes 0-0/') ||
@@ -440,6 +652,14 @@ class KuwoFullAudioResolver {
             : 'non_audio_content',
         rangeType,
         headLength,
+        'Range ${range.statusCode} $rangeType $contentRange',
+      );
+    }
+    if (rangeTotal < _minimumFullAudioBytes) {
+      return _MediaValidation.failed(
+        'audio_too_short',
+        rangeType,
+        rangeTotal,
         'Range ${range.statusCode} $rangeType $contentRange',
       );
     }
@@ -550,6 +770,7 @@ class KuwoFullAudioResolver {
                 'name': item['name'] ?? item['NAME'],
                 'songName': item['songName'] ?? item['SONGNAME'],
                 'artist': item['artist'] ?? item['ARTIST'],
+                'artistId': item['artistId'] ?? item['ARTISTID'],
                 'album': item['album'] ?? item['ALBUM'],
                 'duration': item['duration'] ?? item['DURATION'],
                 'musicRid': item['musicRid'] ?? item['MUSICRID'] ?? item['rid'],
@@ -571,6 +792,7 @@ class KuwoFullAudioResolver {
             'name': _field(block, 'NAME'),
             'songName': _field(block, 'SONGNAME'),
             'artist': _field(block, 'ARTIST'),
+            'artistId': _field(block, 'ARTISTID'),
             'album': _field(block, 'ALBUM'),
             'duration': int.tryParse(_field(block, 'DURATION')) ?? 0,
             'musicRid': _field(block, 'MUSICRID'),
@@ -736,6 +958,37 @@ String _cleanText(Object? value) {
       .trim();
 }
 
+String _decodeHtmlAttribute(String value) {
+  return value
+      .replaceAll('&quot;', '"')
+      .replaceAll('&#34;', '"')
+      .replaceAll('&#39;', "'")
+      .replaceAll('&lt;', '<')
+      .replaceAll('&gt;', '>')
+      .replaceAll('&amp;', '&');
+}
+
+bool _looksLikeDefender(String body) {
+  final lower = body.toLowerCase();
+  return lower.contains('just a moment') ||
+      lower.contains('safeline') ||
+      lower.contains('challenge') ||
+      lower.contains('security verification') ||
+      lower.contains('too many requests') ||
+      lower.contains('403 forbidden');
+}
+
+SourceDownloadException _sourceFailureFrom(Object error) {
+  if (error is SourceDownloadException && error.failureCode.isNotEmpty) {
+    return error;
+  }
+  final failureCode = sourceFailureCode(error);
+  return SourceDownloadException(
+    failureCode == 'network_timeout' ? '源站响应超时，请稍后再试。' : '源站暂时不可用。',
+    failureCode: failureCode.isEmpty ? 'network_timeout' : failureCode,
+  );
+}
+
 String _normalizeTitle(Object? value) {
   return _cleanText(value)
       .replaceAll(RegExp(r'[（(][^（）()]{1,24}[）)]'), '')
@@ -839,10 +1092,11 @@ List<MusicSearchCandidate> _validationSnapshot(
 }
 
 class _IndexedResolution {
-  const _IndexedResolution(this.index, this.resolved);
+  const _IndexedResolution(this.index, this.resolved, [this.error]);
 
   final int index;
   final ResolvedMusic? resolved;
+  final Object? error;
 }
 
 class _KuwoSearchPage {
@@ -869,6 +1123,13 @@ class _ScopedSong {
   final String title;
   final String artist;
   final String musicRid;
+}
+
+class _ArtistTitleQuery {
+  const _ArtistTitleQuery({required this.artist, required this.title});
+
+  final String artist;
+  final String title;
 }
 
 class _MediaValidation {

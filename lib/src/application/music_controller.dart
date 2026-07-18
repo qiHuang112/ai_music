@@ -31,6 +31,9 @@ import 'settings_controller.dart';
 /// 搜索、下载、播放、歌单和元数据的核心流程分别下沉到 use case。
 /// 这里保留 ChangeNotifier 状态，是为了让页面只依赖一个稳定入口。
 class MusicController extends ChangeNotifier {
+  static const _maximumInitialSearchPages = 3;
+  static const _minimumInitialSearchResults = 8;
+
   MusicController({
     required this.audioHandler,
     MusicResolver? resolver,
@@ -162,6 +165,11 @@ class MusicController extends ChangeNotifier {
       List<String>.unmodifiable(_hotlistRepository.logs);
   List<String> get hotlistPlaybackLogs =>
       List<String>.unmodifiable(_hotlistPlaybackLogs);
+
+  bool get isInitialSearchLoading => isSearching && candidates.isEmpty;
+
+  bool get isAppendingSearchResults =>
+      isLoadingMoreSearch || (isSearching && candidates.isNotEmpty);
 
   Stream<PlaybackState> get playbackStateStream => audioHandler.playbackState;
   Stream<MediaItem?> get mediaItemStream => audioHandler.mediaItem;
@@ -438,15 +446,40 @@ class MusicController extends ChangeNotifier {
     errorDetail = null;
     errorMessage = null;
     statusMessage = null;
-    candidates = const [];
+    final cachedMatches = _cachedSearchCandidates(trimmed);
+    if (cachedMatches.isEmpty) {
+      candidates = const [];
+    } else {
+      _searchCandidatesByPage[0] = cachedMatches;
+      candidates = cachedMatches;
+    }
     notifyListeners();
     try {
-      await _loadSearchPage(
-        query: trimmed,
-        page: 1,
-        request: request,
-        append: false,
-      );
+      for (var page = 1; page <= _maximumInitialSearchPages; page += 1) {
+        await _loadSearchPage(
+          query: trimmed,
+          page: page,
+          request: request,
+          append: page > 1,
+        );
+        if (request != _searchRequest ||
+            candidates.length >= _minimumInitialSearchResults ||
+            !hasMoreSearchResults ||
+            errorDetail != null) {
+          break;
+        }
+      }
+      if (request == _searchRequest &&
+          candidates.isEmpty &&
+          errorDetail == null) {
+        final reachedInitialBound = _searchPage >= _maximumInitialSearchPages;
+        if (!hasMoreSearchResults || reachedInitialBound) {
+          hasMoreSearchResults = false;
+          errorMessage = const MusicUiMessage(
+            MusicUiMessageCode.noOnlineMatchesFound,
+          );
+        }
+      }
     } catch (exception) {
       if (request != _searchRequest) {
         return;
@@ -560,7 +593,7 @@ class MusicController extends ChangeNotifier {
   }) {
     final visible = _visibleSearchCandidates(progress.candidates);
     if (!append) {
-      _searchCandidatesByPage.removeWhere((key, _) => key != page);
+      _searchCandidatesByPage.removeWhere((key, _) => key != 0 && key != page);
     }
     _searchCandidatesByPage[page] = visible;
     final pages = _searchCandidatesByPage.keys.toList()..sort();
@@ -600,15 +633,53 @@ class MusicController extends ChangeNotifier {
     List<MusicSearchCandidate> incoming,
   ) {
     final merged = <MusicSearchCandidate>[];
-    final seen = <String>{};
+    final exactSeen = <String>{};
+    final cachedIdentitySeen = <String>{};
+    final cachedIdentities = <String>{
+      for (final candidate in [...current, ...incoming])
+        if (candidate.raw['localCache'] == true)
+          multiSourceCandidateKey(candidate),
+    };
     for (final candidate in [...current, ...incoming]) {
-      final key =
+      final exactKey =
           '${candidate.source.storageValue}|${candidate.platform}|${candidate.id}';
-      if (seen.add(key)) {
-        merged.add(candidate);
+      if (!exactSeen.add(exactKey)) {
+        continue;
       }
+      final identity = multiSourceCandidateKey(candidate);
+      if (candidate.raw['localCache'] == true &&
+          !cachedIdentitySeen.add(identity)) {
+        continue;
+      }
+      if (candidate.raw['localCache'] != true &&
+          cachedIdentities.contains(identity)) {
+        continue;
+      }
+      merged.add(candidate);
     }
     return List<MusicSearchCandidate>.unmodifiable(merged);
+  }
+
+  List<MusicSearchCandidate> _cachedSearchCandidates(String query) {
+    final normalizedQuery = _normalizeCachedSearchText(query);
+    if (normalizedQuery.isEmpty) {
+      return const [];
+    }
+    return _mergeSearchCandidates(const [], [
+      for (final record in _cachedRecords)
+        if (_cachedTrackMatchesQuery(record, normalizedQuery))
+          _candidateFromCached(record),
+    ]);
+  }
+
+  bool _cachedTrackMatchesQuery(CachedTrack record, String normalizedQuery) {
+    final music = record.music;
+    final artist = _normalizeCachedSearchText(music.artist);
+    final title = _normalizeCachedSearchText(music.name);
+    return artist.contains(normalizedQuery) ||
+        title.contains(normalizedQuery) ||
+        '$artist$title'.contains(normalizedQuery) ||
+        '$title$artist'.contains(normalizedQuery);
   }
 
   void clearSearch() {
@@ -639,23 +710,20 @@ class MusicController extends ChangeNotifier {
             return true;
           }
           if (hasGequhaiFullAudio) {
-            return _isVisibleGequhaiFullAudioCandidate(candidate) ||
+            return candidate.source == MusicDataSource.kuwoFullAudio ||
+                _isVisibleGequhaiFullAudioCandidate(candidate) ||
                 (candidate.source == MusicDataSource.gequhai &&
                     candidate.isValidating);
           }
           return candidate.source != MusicDataSource.itunesPreview;
         })
         .toList(growable: false);
-    visible.sort((a, b) {
-      final priority = _searchCandidatePriority(
-        a,
-      ).compareTo(_searchCandidatePriority(b));
-      if (priority != 0) {
-        return priority;
-      }
-      return b.score.compareTo(a.score);
-    });
-    return visible;
+    return List<MusicSearchCandidate>.unmodifiable([
+      for (var priority = 0; priority < 3; priority += 1)
+        ...visible.where(
+          (candidate) => _searchCandidatePriority(candidate) == priority,
+        ),
+    ]);
   }
 
   int _searchCandidatePriority(MusicSearchCandidate candidate) {
@@ -1911,8 +1979,9 @@ class MusicController extends ChangeNotifier {
       qualities: [music.quality],
       score: trustedAttempt?.matchConfidence ?? 100,
       raw: trustedAttempt == null
-          ? const {}
+          ? const {'localCache': true}
           : {
+              'localCache': true,
               'validationStatus': 'ready',
               'clientReady': true,
               'urlType': MediaUrlType.directAudio.storageValue,
@@ -2330,4 +2399,11 @@ bool _isFullAudioSource(MusicDataSource source) {
 
 bool _isVisibleGequhaiFullAudioCandidate(MusicSearchCandidate candidate) {
   return candidate.source == MusicDataSource.gequhai && candidate.isClientReady;
+}
+
+String _normalizeCachedSearchText(String value) {
+  return value
+      .toLowerCase()
+      .replaceAll(RegExp(r'[\s\u00a0&＆/,，、·•・的]+'), '')
+      .trim();
 }

@@ -1,0 +1,123 @@
+{
+  "schema_version": 1,
+  "team_key": "mobile-ai-music",
+  "request_id": "AM-20260717-001",
+  "abstract_request": "在 Auto 搜索中对歌曲海与酷我完整音频做严格校验后的多源动态聚合，保持稳定追加、独立分页熔断、动态播放队列和未播放不预下载。",
+  "state": "commit_ready",
+  "requirement": {
+    "revision": "sha256:5861c7a4f58e7d401e7a494ba51bc41af47d8ddbd96aea5484b659cecd569f65",
+    "approved": true
+  },
+  "development": {
+    "status": "core_80_feedback_received",
+    "core_80_feedback_received": true
+  },
+  "ux": {
+    "status": "user_approved",
+    "revision": "sha256:e159044beea3520bf21750ff900fd6252a13c04d5d853f9696b16d19f2e0e759",
+    "approved": true
+  },
+  "authorization": {
+    "valid": true,
+    "requirement_revision": "sha256:5861c7a4f58e7d401e7a494ba51bc41af47d8ddbd96aea5484b659cecd569f65",
+    "ux_revision": "sha256:e159044beea3520bf21750ff900fd6252a13c04d5d853f9696b16d19f2e0e759"
+  },
+  "full_flow": {
+    "complete": true
+  },
+  "review": {
+    "round": 1,
+    "approved": true,
+    "issues": []
+  },
+  "submission_route": {
+    "inspected": true,
+    "kind": "ordinary_branch",
+    "evidence": "Repository docs authorize architect direct merge/push to target release branch after accepted review; origin git@github.com:qiHuang112/ai_music.git; release/1.2.0 absent remotely."
+  },
+  "submission": {
+    "remote_submitted": false,
+    "remote_status": null,
+    "remote_evidence": null,
+    "merged": false,
+    "merge_evidence": null
+  },
+  "history": [
+    {
+      "sequence": 1,
+      "event": "demand_received"
+    },
+    {
+      "sequence": 2,
+      "event": "product_draft"
+    },
+    {
+      "sequence": 3,
+      "event": "approve_requirement"
+    },
+    {
+      "sequence": 4,
+      "event": "start_parallel"
+    },
+    {
+      "sequence": 5,
+      "event": "core_80_ready"
+    },
+    {
+      "sequence": 6,
+      "event": "revise_requirement"
+    },
+    {
+      "sequence": 7,
+      "event": "approve_requirement"
+    },
+    {
+      "sequence": 8,
+      "event": "start_parallel"
+    },
+    {
+      "sequence": 9,
+      "event": "core_80_ready"
+    },
+    {
+      "sequence": 10,
+      "event": "core_80_feedback"
+    },
+    {
+      "sequence": 11,
+      "event": "approve_ux"
+    },
+    {
+      "sequence": 12,
+      "event": "start_full_flow"
+    },
+    {
+      "sequence": 13,
+      "event": "revise_ux"
+    },
+    {
+      "sequence": 14,
+      "event": "approve_ux"
+    },
+    {
+      "sequence": 15,
+      "event": "start_full_flow"
+    },
+    {
+      "sequence": 16,
+      "event": "complete_full_flow"
+    },
+    {
+      "sequence": 17,
+      "event": "approve_review"
+    },
+    {
+      "sequence": 18,
+      "event": "inspect_submission_route"
+    },
+    {
+      "sequence": 19,
+      "event": "commit_ready"
+    }
+  ]
+}
