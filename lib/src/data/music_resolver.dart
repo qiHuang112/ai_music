@@ -6,6 +6,7 @@ export 'flac_resolver.dart';
 export 'gequhai_player_audio_resolver.dart';
 export 'itunes_preview_resolver.dart';
 export 'kuwo_full_audio_resolver.dart';
+export 'multi_source_search_coordinator.dart';
 export 'resolver_http_client.dart';
 export 'resolver_models.dart';
 export 'source_22a5_resolver.dart';
@@ -20,6 +21,7 @@ import 'flac_resolver.dart';
 import 'gequhai_player_audio_resolver.dart';
 import 'itunes_preview_resolver.dart';
 import 'kuwo_full_audio_resolver.dart';
+import 'multi_source_search_coordinator.dart';
 import 'resolver_http_client.dart';
 import 'resolver_models.dart';
 import 'resolver_utils.dart';
@@ -61,6 +63,21 @@ class RemoteMusicResolver
     _gequhai = GequhaiPlayerAudioResolver(httpClient: http);
     _kuwoFullAudio = KuwoFullAudioResolver(httpClient: http, scorer: scorer);
     _itunesPreview = ItunesPreviewResolver(httpClient: http, scorer: scorer);
+    _autoSearch = MultiSourceSearchCoordinator(
+      logger: _logResolver,
+      providers: [
+        MultiSourceSearchProvider(
+          source: MusicDataSource.gequhai,
+          searchPage: (query, {required page}) =>
+              _gequhai.searchPageProgressively(query, page: page),
+        ),
+        MultiSourceSearchProvider(
+          source: MusicDataSource.kuwoFullAudio,
+          searchPage: (query, {required page}) =>
+              _kuwoFullAudio.searchPageProgressively(query, page: page),
+        ),
+      ],
+    );
   }
 
   final String _prefer;
@@ -70,9 +87,7 @@ class RemoteMusicResolver
   late final GequhaiPlayerAudioResolver _gequhai;
   late final KuwoFullAudioResolver _kuwoFullAudio;
   late final ItunesPreviewResolver _itunesPreview;
-  DateTime? _gequhaiRetryAfter;
-  String _activeAutoQuery = '';
-  MusicDataSource? _activeAutoSource;
+  late final MultiSourceSearchCoordinator _autoSearch;
 
   @override
   Future<List<MusicSearchCandidate>> search(
@@ -191,71 +206,18 @@ class RemoteMusicResolver
     String query, {
     required int page,
   }) async* {
-    if (page == 1 || _activeAutoQuery != query) {
-      _activeAutoQuery = query;
-      _activeAutoSource = null;
-    }
     _logResolver(
       '[AI Music][resolver] search query="$query" source=auto page=$page',
     );
-
-    Object? gequhaiError;
-    final retryAfter = _gequhaiRetryAfter;
-    final gequhaiCircuitOpen =
-        retryAfter != null && DateTime.now().isBefore(retryAfter);
-    final shouldTryGequhai =
-        _activeAutoSource != MusicDataSource.kuwoFullAudio &&
-        !gequhaiCircuitOpen;
-    if (shouldTryGequhai) {
-      try {
-        await for (final progress in _gequhai.searchPageProgressively(
-          query,
-          page: page,
-        )) {
-          yield progress;
-          if (progress.isComplete && progress.candidates.isNotEmpty) {
-            _activeAutoSource = MusicDataSource.gequhai;
-            _gequhaiRetryAfter = null;
-            return;
-          }
-        }
-      } catch (error) {
-        gequhaiError = error;
-        _gequhaiRetryAfter = DateTime.now().add(const Duration(minutes: 2));
+    await for (final progress in _autoSearch.searchPage(query, page: page)) {
+      if (progress.isComplete) {
         _logResolver(
-          '[AI Music][resolver] auto gequhai failed query="$query" '
-          'page=$page error=${formatResolverError(error)}',
+          '[AI Music][resolver] search done query="$query" source=auto '
+          'page=$page count=${progress.candidates.length} '
+          'hasNextPage=${progress.hasNextPage}',
         );
       }
-    }
-
-    _activeAutoSource = MusicDataSource.kuwoFullAudio;
-    var fallbackReady = false;
-    Object? fallbackError;
-    try {
-      await for (final progress in _kuwoFullAudio.searchPageProgressively(
-        query,
-        page: page,
-      )) {
-        if (progress.isComplete) {
-          fallbackReady = progress.candidates.isNotEmpty;
-          fallbackError = progress.error;
-        }
-        yield progress;
-      }
-    } catch (error) {
-      fallbackError = error;
-    }
-    if (!fallbackReady && (fallbackError != null || gequhaiError != null)) {
-      yield MusicSearchProgress(
-        candidates: const [],
-        isComplete: true,
-        page: page,
-        error: _autoFallbackError(
-          gequhaiError: gequhaiError,
-          kuwoError: fallbackError,
-        ),
-      );
+      yield progress;
     }
   }
 
@@ -444,16 +406,6 @@ Future<ResolvedMusic> _unsupportedResolve(MusicSearchCandidate candidate) {
       ],
     ),
   );
-}
-
-StateError _autoFallbackError({Object? gequhaiError, Object? kuwoError}) {
-  final messages = <String>[
-    if (gequhaiError != null)
-      'gequhai failed: ${formatResolverError(gequhaiError)}',
-    if (kuwoError != null)
-      'kuwo full audio failed: ${formatResolverError(kuwoError)}',
-  ];
-  return StateError(messages.join('; '));
 }
 
 void _logResolver(String message) {

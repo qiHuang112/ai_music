@@ -89,6 +89,29 @@ class TeamOpsWorkflowTest(unittest.TestCase):
         self.assertFalse(result.ok)
         self.assertTrue(any("Workflow" in error for error in result.errors))
 
+    def test_registered_mobile_team_roles_are_valid_lanes(self) -> None:
+        path = self._write_request(**{"Owner Lane": "mobile-ai-music-developer"})
+
+        result = team_ops.validate_request_file(path)
+
+        self.assertTrue(result.ok, result.errors)
+        for lane in (
+            "mobile-ai-music-product",
+            "mobile-ai-music-ux",
+            "mobile-ai-music-developer",
+            "mobile-ai-music-lead",
+        ):
+            message = f"""type: status
+request: AM-20260711-999
+lane: {lane}
+thread: 019f6b0e-a150-7892-aec8-d8aa8314d802
+status: in_progress
+summary: 当前四角色团队正在推进已登记任务。
+next_action: mobile-ai-music-developer 完成后回 mobile-ai-music-lead，带测试证据。
+"""
+            message_result = team_ops.validate_message_text(message)
+            self.assertTrue(message_result.ok, message_result.errors)
+
     def test_design_gate_accepts_complete_request(self) -> None:
         path = self._write_request()
 

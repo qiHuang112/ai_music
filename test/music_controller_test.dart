@@ -623,7 +623,10 @@ void main() {
   test('paginated search keeps page one while appending page two', () async {
     final handler = _SpyAudioHandler();
     final resolver = _PaginatedSearchResolver({
-      1: [_candidate(id: 'page-1', name: '第一页')],
+      1: [
+        for (var index = 1; index <= 8; index += 1)
+          _candidate(id: 'page-1-$index', name: '第一页$index'),
+      ],
       2: [_candidate(id: 'page-2', name: '第二页')],
     });
     final controller = MusicController(
@@ -639,15 +642,13 @@ void main() {
       await controller.initialize();
       await controller.search('周杰伦');
 
-      expect(controller.candidates.map((item) => item.id), ['page-1']);
+      expect(controller.candidates, hasLength(8));
       expect(controller.hasMoreSearchResults, isTrue);
 
       await controller.loadMoreSearchResults();
 
-      expect(controller.candidates.map((item) => item.id), [
-        'page-1',
-        'page-2',
-      ]);
+      expect(controller.candidates, hasLength(9));
+      expect(controller.candidates.last.id, 'page-2');
       expect(controller.hasMoreSearchResults, isFalse);
       expect(resolver.requestedPages, [1, 2]);
     } finally {
@@ -656,10 +657,336 @@ void main() {
     }
   });
 
+  test('initial search automatically fills a useful result batch', () async {
+    final handler = _SpyAudioHandler();
+    final resolver = _PaginatedSearchResolver({
+      1: [
+        for (var index = 1; index <= 4; index += 1)
+          _candidate(id: 'page-1-$index', name: '第一页$index'),
+      ],
+      2: [
+        for (var index = 1; index <= 3; index += 1)
+          _candidate(id: 'page-2-$index', name: '第二页$index'),
+      ],
+      3: [
+        for (var index = 1; index <= 2; index += 1)
+          _candidate(id: 'page-3-$index', name: '第三页$index'),
+      ],
+      4: [_candidate(id: 'page-4-1', name: '第四页1')],
+    });
+    final controller = MusicController(
+      audioHandler: handler,
+      resolver: resolver,
+      cacheStore: _FakeCacheStore(cached: const []),
+      playlistStore: _FakePlaylistStore(),
+      settingsStore: _FakeSettingsStore(),
+      metadataRepository: _StaticMetadataRepository(),
+    );
+
+    try {
+      await controller.initialize();
+      await controller.search('周杰伦');
+
+      expect(resolver.requestedPages, [1, 2, 3]);
+      expect(controller.candidates, hasLength(9));
+      expect(controller.hasMoreSearchResults, isTrue);
+    } finally {
+      controller.dispose();
+      await handler.dispose();
+    }
+  });
+
+  test(
+    'initial search skips an empty validated page to find results',
+    () async {
+      final handler = _SpyAudioHandler();
+      final resolver = _PaginatedSearchResolver({
+        1: const [],
+        2: [_candidate(id: 'mayuan-bat', name: '蝙蝠', artist: '麻园诗人')],
+      });
+      final controller = MusicController(
+        audioHandler: handler,
+        resolver: resolver,
+        cacheStore: _FakeCacheStore(cached: const []),
+        playlistStore: _FakePlaylistStore(),
+        settingsStore: _FakeSettingsStore(),
+        metadataRepository: _StaticMetadataRepository(),
+      );
+
+      try {
+        await controller.initialize();
+        await controller.search('麻园诗人');
+
+        expect(resolver.requestedPages, [1, 2]);
+        expect(controller.candidates.map((item) => item.id), ['mayuan-bat']);
+        expect(controller.errorMessage, isNull);
+      } finally {
+        controller.dispose();
+        await handler.dispose();
+      }
+    },
+  );
+
+  test(
+    'initial search shows no-match after three empty pages still report more',
+    () async {
+      final handler = _SpyAudioHandler();
+      final resolver = _PaginatedSearchResolver(
+        {1: const [], 2: const [], 3: const []},
+        hasNextPages: const {1, 2, 3},
+      );
+      final controller = MusicController(
+        audioHandler: handler,
+        resolver: resolver,
+        cacheStore: _FakeCacheStore(cached: const []),
+        playlistStore: _FakePlaylistStore(),
+        settingsStore: _FakeSettingsStore(),
+        metadataRepository: _StaticMetadataRepository(),
+      );
+
+      try {
+        await controller.initialize();
+        await controller.search('没有这个结果');
+
+        expect(resolver.requestedPages, [1, 2, 3]);
+        expect(controller.candidates, isEmpty);
+        expect(
+          controller.errorMessage?.code,
+          MusicUiMessageCode.noOnlineMatchesFound,
+        );
+        expect(controller.hasMoreSearchResults, isFalse);
+        expect(controller.hasSearchState, isTrue);
+      } finally {
+        controller.dispose();
+        await handler.dispose();
+      }
+    },
+  );
+
+  test(
+    'multi-source progress switches to background loading and keeps append order',
+    () async {
+      final handler = _SpyAudioHandler();
+      final resolver = _ControlledProgressiveSearchResolver();
+      final cachedFirst = _trustedKuwoCachedTrack(
+        id: 'kuwo-first',
+        name: '先返回',
+        artist: 'artist',
+        score: 100,
+      );
+      final controller = MusicController(
+        audioHandler: handler,
+        resolver: resolver,
+        cacheStore: _FakeCacheStore(cached: [cachedFirst]),
+        playlistStore: _FakePlaylistStore(),
+        settingsStore: _FakeSettingsStore(),
+        metadataRepository: _StaticMetadataRepository(),
+      );
+      final kuwo = _candidate(
+        id: 'kuwo-first',
+        name: '先返回',
+        source: MusicDataSource.kuwoFullAudio,
+        platform: 'kuwo',
+        score: 100,
+        raw: const {'clientReady': true, 'urlType': 'direct_audio'},
+      );
+      final gequhai = _candidate(
+        id: 'gequhai-second',
+        name: '后追加',
+        source: MusicDataSource.gequhai,
+        platform: 'gequhai',
+        score: 300,
+        raw: const {'clientReady': true, 'urlType': 'direct_audio'},
+      );
+
+      try {
+        await controller.initialize();
+        final search = controller.search('周杰伦');
+        await Future<void>.delayed(Duration.zero);
+
+        expect(controller.isInitialSearchLoading, isTrue);
+        expect(controller.isAppendingSearchResults, isFalse);
+
+        resolver.emit(
+          MusicSearchProgress(candidates: [kuwo], isComplete: false),
+        );
+        await Future<void>.delayed(Duration.zero);
+
+        expect(controller.isInitialSearchLoading, isFalse);
+        expect(controller.isAppendingSearchResults, isTrue);
+        expect(controller.candidates.map((item) => item.id), ['kuwo-first']);
+
+        await controller.playCandidate(kuwo);
+        expect(handler.queue.value.map((item) => item.title), ['先返回']);
+
+        resolver.emit(
+          MusicSearchProgress(candidates: [kuwo, gequhai], isComplete: true),
+        );
+        await search;
+
+        expect(controller.isAppendingSearchResults, isFalse);
+        expect(controller.candidates.map((item) => item.id), [
+          'kuwo-first',
+          'gequhai-second',
+        ]);
+        await Future<void>.delayed(Duration.zero);
+        expect(handler.queue.value.map((item) => item.title), ['先返回', '后追加']);
+        expect(resolver.resolveIds, ['kuwo-first']);
+        expect(controller.activeDownloadTasks, isEmpty);
+      } finally {
+        controller.dispose();
+        await handler.dispose();
+      }
+    },
+  );
+
+  test(
+    'search publishes all matching complete cache before remote completion',
+    () async {
+      final handler = _SpyAudioHandler();
+      final resolver = _CompletingSearchResolver();
+      final cached = [
+        _cachedTrack(id: 'jay-qinghuaci', name: '青花瓷', artist: '周杰伦'),
+        _cachedTrack(id: 'jay-qilixiang', name: '七里香', artist: '周杰伦'),
+        _cachedTrack(id: 'wangrong-aiya', name: '哎呀', artist: '王蓉'),
+      ];
+      final controller = MusicController(
+        audioHandler: handler,
+        resolver: resolver,
+        cacheStore: _FakeCacheStore(cached: cached),
+        playlistStore: _FakePlaylistStore(),
+        settingsStore: _FakeSettingsStore(),
+        metadataRepository: _StaticMetadataRepository(),
+      );
+
+      try {
+        await controller.initialize();
+        final search = controller.search('周杰伦');
+        await Future<void>.delayed(Duration.zero);
+
+        expect(controller.isSearching, isTrue);
+        expect(controller.isInitialSearchLoading, isFalse);
+        expect(controller.candidates.map((item) => item.name), ['青花瓷', '七里香']);
+
+        await controller.playCandidate(controller.candidates.first);
+        expect(handler.loadedIds, [cached.first.cacheId]);
+
+        resolver.complete(const []);
+        await search;
+
+        expect(controller.candidates.map((item) => item.name), ['青花瓷', '七里香']);
+        expect(controller.errorMessage, isNull);
+      } finally {
+        controller.dispose();
+        await handler.dispose();
+      }
+    },
+  );
+
+  test(
+    'artist title query keeps one cached row when remote returns the same song',
+    () async {
+      final handler = _SpyAudioHandler();
+      final resolver = _CompletingSearchResolver();
+      final cached = _cachedTrack(
+        id: 'wangrong-aiya-cache',
+        name: '哎呀',
+        artist: '王蓉',
+      );
+      final controller = MusicController(
+        audioHandler: handler,
+        resolver: resolver,
+        cacheStore: _FakeCacheStore(cached: [cached]),
+        playlistStore: _FakePlaylistStore(),
+        settingsStore: _FakeSettingsStore(),
+        metadataRepository: _StaticMetadataRepository(),
+      );
+
+      try {
+        await controller.initialize();
+        final search = controller.search('王蓉 哎呀');
+        await Future<void>.delayed(Duration.zero);
+
+        expect(controller.candidates.map((item) => item.name), ['哎呀']);
+
+        resolver.complete([
+          _candidate(
+            id: 'MUSIC_110068',
+            name: '哎呀',
+            artist: '王蓉',
+            source: MusicDataSource.kuwoFullAudio,
+            platform: 'kuwo',
+            raw: const {'clientReady': true, 'urlType': 'direct_audio'},
+          ),
+        ]);
+        await search;
+
+        expect(controller.candidates, hasLength(1));
+        expect(controller.candidates.single.id, 'wangrong-aiya-cache');
+        expect(
+          controller.isCandidateCached(controller.candidates.single),
+          isTrue,
+        );
+      } finally {
+        controller.dispose();
+        await handler.dispose();
+      }
+    },
+  );
+
+  test(
+    'search keeps one local cached row for the same song across sources',
+    () async {
+      final handler = _SpyAudioHandler();
+      final resolver = _CompletingSearchResolver();
+      final gequhai = _cachedTrack(
+        id: 'gequhai-aiya',
+        name: '哎呀',
+        artist: '王蓉',
+        source: MusicDataSource.gequhai,
+        platform: 'gequhai',
+      );
+      final kuwo = _cachedTrack(
+        id: 'kuwo-aiya',
+        name: '哎呀',
+        artist: '王蓉',
+        source: MusicDataSource.kuwoFullAudio,
+        platform: 'kuwo',
+      );
+      final controller = MusicController(
+        audioHandler: handler,
+        resolver: resolver,
+        cacheStore: _FakeCacheStore(cached: [gequhai, kuwo]),
+        playlistStore: _FakePlaylistStore(),
+        settingsStore: _FakeSettingsStore(),
+        metadataRepository: _StaticMetadataRepository(),
+      );
+
+      try {
+        await controller.initialize();
+        final search = controller.search('王蓉');
+        await Future<void>.delayed(Duration.zero);
+
+        expect(controller.candidates.map((item) => item.id), ['gequhai-aiya']);
+
+        resolver.complete(const []);
+        await search;
+
+        expect(controller.candidates.map((item) => item.id), ['gequhai-aiya']);
+      } finally {
+        controller.dispose();
+        await handler.dispose();
+      }
+    },
+  );
+
   test('load more stops after one empty provider page', () async {
     final handler = _SpyAudioHandler();
     final resolver = _PaginatedSearchResolver({
-      1: [_candidate(id: 'page-1', name: '第一页')],
+      1: [
+        for (var index = 1; index <= 8; index += 1)
+          _candidate(id: 'page-1-$index', name: '第一页$index'),
+      ],
       2: const [],
       3: [_candidate(id: 'page-3', name: '第三页')],
     });
@@ -679,16 +1006,14 @@ void main() {
       await controller.loadMoreSearchResults();
 
       expect(resolver.requestedPages, [1, 2]);
-      expect(controller.candidates.map((item) => item.id), ['page-1']);
+      expect(controller.candidates, hasLength(8));
       expect(controller.hasMoreSearchResults, isTrue);
 
       await controller.loadMoreSearchResults();
 
       expect(resolver.requestedPages, [1, 2, 3]);
-      expect(controller.candidates.map((item) => item.id), [
-        'page-1',
-        'page-3',
-      ]);
+      expect(controller.candidates, hasLength(9));
+      expect(controller.candidates.last.id, 'page-3');
     } finally {
       controller.dispose();
       await handler.dispose();
@@ -696,7 +1021,7 @@ void main() {
   });
 
   test(
-    'active search playback queue appends later pages and advances lazily',
+    'active search playback queue includes auto-prefetched pages and advances lazily',
     () async {
       final handler = _SpyAudioHandler();
       final first = _cachedTrack(id: 'page-1', name: '第一页');
@@ -721,7 +1046,10 @@ void main() {
         await controller.search('周杰伦');
         await controller.playCandidate(firstCandidate);
 
-        expect(handler.queue.value.map((item) => item.id), [first.cacheId]);
+        expect(handler.queue.value.map((item) => item.id), [
+          first.cacheId,
+          second.cacheId,
+        ]);
         expect(resolver.resolveIds, ['page-1']);
 
         await controller.loadMoreSearchResults();
@@ -2870,6 +3198,31 @@ class _CompletingSearchResolver extends _FakeMusicResolver {
   }
 }
 
+class _ControlledProgressiveSearchResolver extends _FakeMusicResolver
+    implements ProgressiveMusicResolver {
+  final _controller = StreamController<MusicSearchProgress>();
+  final List<String> resolveIds = [];
+
+  @override
+  Stream<MusicSearchProgress> searchProgressively(
+    String query,
+    MusicDataSource source,
+  ) => _controller.stream;
+
+  @override
+  Future<ResolvedMusic> resolve(MusicSearchCandidate candidate) async {
+    resolveIds.add(candidate.id);
+    throw UnimplementedError();
+  }
+
+  void emit(MusicSearchProgress progress) {
+    _controller.add(progress);
+    if (progress.isComplete) {
+      unawaited(_controller.close());
+    }
+  }
+}
+
 class _TimeoutSearchResolver extends _FakeMusicResolver {
   @override
   Future<List<MusicSearchCandidate>> search(
@@ -2900,10 +3253,15 @@ class _SequencedSearchResolver extends _FakeMusicResolver {
 
 class _PaginatedSearchResolver extends _FakeMusicResolver
     implements PaginatedProgressiveMusicResolver {
-  _PaginatedSearchResolver(this.pages, {this.intermediatePages = const {}});
+  _PaginatedSearchResolver(
+    this.pages, {
+    this.intermediatePages = const {},
+    this.hasNextPages,
+  });
 
   final Map<int, List<MusicSearchCandidate>> pages;
   final Map<int, List<MusicSearchCandidate>> intermediatePages;
+  final Set<int>? hasNextPages;
   final List<int> requestedPages = [];
   final List<String> resolveIds = [];
 
@@ -2933,7 +3291,7 @@ class _PaginatedSearchResolver extends _FakeMusicResolver
       candidates: pages[page] ?? const [],
       isComplete: true,
       page: page,
-      hasNextPage: pages.containsKey(page + 1),
+      hasNextPage: hasNextPages?.contains(page) ?? pages.containsKey(page + 1),
     );
   }
 }
@@ -3069,15 +3427,18 @@ CachedTrack _trustedKuwoCachedTrack({
 CachedTrack _cachedTrack({
   required String id,
   required String name,
+  String artist = 'artist',
   String coverUrl = '',
+  MusicDataSource source = MusicDataSource.buguyy,
+  String platform = 'buguyy',
 }) {
   final music = ResolvedMusic(
     query: name,
-    source: MusicDataSource.buguyy,
-    platform: 'buguyy',
+    source: source,
+    platform: platform,
     id: id,
     name: name,
-    artist: 'artist',
+    artist: artist,
     album: '',
     url: 'https://cdn.example.test/$id.mp3',
     quality: const MusicQuality(format: 'mp3'),

@@ -64,7 +64,9 @@ class GequhaiPlayerAudioResolver {
         _searchPageCursors[page] ??
         _SearchPageCursor(providerPage: page, offset: 0);
     final intent = _GequhaiSearchIntent.parse(trimmed);
-    final searchTerms = <String>{trimmed, intent.searchTerm};
+    final searchTerms = intent.artistHint.isNotEmpty && trimmed.contains('的')
+        ? <String>{trimmed, intent.searchTerm}
+        : <String>{intent.searchTerm, trimmed};
     var lastHasNextPage = false;
     for (final searchTerm in searchTerms) {
       var searchUri = Uri.parse(
@@ -145,6 +147,7 @@ class GequhaiPlayerAudioResolver {
         pageCandidates.length,
         null,
       );
+      final failures = <Object>[];
       yield MusicSearchProgress(
         candidates: [
           for (final candidate in pageCandidates)
@@ -182,6 +185,8 @@ class GequhaiPlayerAudioResolver {
             candidate,
             resolved,
           );
+        } else if (result.error != null) {
+          failures.add(result.error!);
         }
         fillWorkers();
         yield MusicSearchProgress(
@@ -203,6 +208,11 @@ class GequhaiPlayerAudioResolver {
         );
         return;
       }
+      if (pageCandidates.isNotEmpty &&
+          failures.length == pageCandidates.length &&
+          failures.every(isSourceCircuitBreakerError)) {
+        throw _sourceFailureFrom(failures.first);
+      }
     }
     yield MusicSearchProgress(
       candidates: const [],
@@ -218,8 +228,8 @@ class GequhaiPlayerAudioResolver {
   ) async {
     try {
       return _IndexedResolution(index, await _resolveFresh(candidate));
-    } catch (_) {
-      return _IndexedResolution(index, null);
+    } catch (error) {
+      return _IndexedResolution(index, null, error);
     }
   }
 
@@ -514,8 +524,24 @@ class GequhaiPlayerAudioResolver {
     final head = await _http.head(mediaUri, headers: _mediaHeaders);
     final headType = _header(head, HttpHeaders.contentTypeHeader).toLowerCase();
     final headLength = _parsePositiveInt(_header(head, 'content-length'));
+    if (_looksLikeDefender(head.body)) {
+      return _MediaValidation.failed(
+        'security_or_defender',
+        headType,
+        headLength,
+        'HEAD ${head.statusCode} defender',
+      );
+    }
     if (head.statusCode == HttpStatus.forbidden ||
-        head.statusCode == HttpStatus.gone) {
+        head.statusCode == HttpStatus.tooManyRequests) {
+      return _MediaValidation.failed(
+        'provider_http_${head.statusCode}',
+        headType,
+        headLength,
+        'HEAD ${head.statusCode}',
+      );
+    }
+    if (head.statusCode == HttpStatus.gone) {
       return _MediaValidation.failed(
         'browser_playable_only',
         headType,
@@ -560,6 +586,23 @@ class GequhaiPlayerAudioResolver {
     ).toLowerCase();
     final contentRange = _header(range, HttpHeaders.contentRangeHeader);
     final rangeTotal = _parseRangeTotal(contentRange);
+    if (_looksLikeDefender(range.body)) {
+      return _MediaValidation.failed(
+        'security_or_defender',
+        rangeType,
+        headLength,
+        'Range ${range.statusCode} defender',
+      );
+    }
+    if (range.statusCode == HttpStatus.forbidden ||
+        range.statusCode == HttpStatus.tooManyRequests) {
+      return _MediaValidation.failed(
+        'provider_http_${range.statusCode}',
+        rangeType,
+        headLength,
+        'Range ${range.statusCode}',
+      );
+    }
     if (range.statusCode != HttpStatus.partialContent ||
         !rangeType.startsWith('audio/') ||
         !contentRange.startsWith('bytes 0-8191/') ||
@@ -747,10 +790,11 @@ List<MusicSearchCandidate> _validationSnapshot(
 }
 
 class _IndexedResolution {
-  const _IndexedResolution(this.index, this.resolved);
+  const _IndexedResolution(this.index, this.resolved, [this.error]);
 
   final int index;
   final ResolvedMusic? resolved;
+  final Object? error;
 }
 
 class _SearchPageCursor {
@@ -1009,6 +1053,17 @@ class _GequhaiSearchIntent {
     final trimmed = query.trim();
     final possessive = RegExp(r'^(.{2,20})的(.{1,40})$').firstMatch(trimmed);
     if (possessive == null) {
+      final tokens = trimmed
+          .split(RegExp(r'[\s,，/]+'))
+          .where((token) => token.isNotEmpty)
+          .toList(growable: false);
+      if (tokens.length >= 2) {
+        return _GequhaiSearchIntent(
+          searchTerm: tokens.skip(1).join(' '),
+          titleQuery: tokens.skip(1).join(' '),
+          artistHint: tokens.first,
+        );
+      }
       return _GequhaiSearchIntent(
         searchTerm: trimmed,
         titleQuery: trimmed,
@@ -1063,7 +1118,19 @@ bool _looksLikeDefender(String html) {
   return lower.contains('just a moment') ||
       lower.contains('security') ||
       lower.contains('安全验证') ||
+      lower.contains('too many requests') ||
       lower.contains('403 forbidden');
+}
+
+SourceDownloadException _sourceFailureFrom(Object error) {
+  if (error is SourceDownloadException && error.failureCode.isNotEmpty) {
+    return error;
+  }
+  final failureCode = sourceFailureCode(error);
+  return SourceDownloadException(
+    failureCode == 'network_timeout' ? '源站响应超时，请稍后再试。' : '源站暂时不可用。',
+    failureCode: failureCode.isEmpty ? 'network_timeout' : failureCode,
+  );
 }
 
 String _extractJsString(String html, String name) {

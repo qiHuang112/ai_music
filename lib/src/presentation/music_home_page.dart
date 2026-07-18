@@ -90,7 +90,7 @@ class _MusicHomePageState extends State<MusicHomePage> {
                 children: [
                   _SearchHeader(
                     controller: _searchController,
-                    isSearching: controller.isSearching,
+                    isSearching: controller.isInitialSearchLoading,
                     onChanged: _handleSearchChanged,
                     onSearch: () => controller.search(_searchController.text),
                     onSubmitted: controller.search,
@@ -99,8 +99,8 @@ class _MusicHomePageState extends State<MusicHomePage> {
                     Expanded(
                       child: _OnlineSearchPanel(
                         candidates: controller.candidates,
-                        isSearching: controller.isSearching,
-                        isLoadingMore: controller.isLoadingMoreSearch,
+                        isSearching: controller.isInitialSearchLoading,
+                        isLoadingMore: controller.isAppendingSearchResults,
                         hasMore: controller.hasMoreSearchResults,
                         isCandidateBusy: controller.isCandidateDownloading,
                         isCandidateCached: controller.isCandidateCached,
@@ -414,6 +414,7 @@ class _OnlineSearchPanel extends StatelessWidget {
                     itemBuilder: (context, index) {
                       if (index == candidates.length) {
                         return const Padding(
+                          key: ValueKey('search-append-progress'),
                           padding: EdgeInsets.all(16),
                           child: Center(
                             child: SizedBox.square(
