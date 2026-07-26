@@ -49,10 +49,10 @@ NCUX-R1/R2 只作防回退 lineage，不再约束为单歌曲海或 `3+3+2` 分�
 
 | Line | Owner | Independent Clone | Writable Scope | Integrator-Owned Exclusions | Status |
 | --- | --- | --- | --- | --- | --- |
-| R1 公开歌源低压研究及接入 | Nietzsche `019f9db3-15af-7142-a16e-20e263b9dcb8` | `/Users/huangqi/AIHome/projects/ai_music_android_native_AM-20260726-001_provider_research` | `data/source/providers/**`、provider-specific tests、低压研究脚本与来源状态表 | 聚合仓库、UI、播放/cache、Gradle、Manifest、app wiring | changes_requested_strict_admission_query_duration |
-| R2 多 Provider 聚合与分页 | Bernoulli `019f9db3-5046-7f62-ba44-a2cd5579f6f2` | `/Users/huangqi/AIHome/projects/ai_music_android_native_AM-20260726-001_provider_aggregation` | `domain/source/**`、聚合 repository/use case、查询结构化、去重/备用源/健康度/批量分页及 tests | provider-specific adapters、UI、Media3/cache、Gradle、Manifest | overlaid_shared_cursor_and_composition_active |
+| R1 公开歌源低压研究及接入 | Nietzsche `019f9db3-15af-7142-a16e-20e263b9dcb8` | `/Users/huangqi/AIHome/projects/ai_music_android_native_AM-20260726-001_provider_research` | `data/source/providers/**`、provider-specific tests、低压研究脚本与来源状态表 | 聚合仓库、UI、播放/cache、Gradle、Manifest、app wiring | accepted_overlaid_44_targeted_334_full |
+| R2 多 Provider 聚合与分页 | Bernoulli `019f9db3-5046-7f62-ba44-a2cd5579f6f2` | `/Users/huangqi/AIHome/projects/ai_music_android_native_AM-20260726-001_provider_aggregation` | `domain/source/**`、聚合 repository/use case、查询结构化、去重/备用源/健康度/批量分页及 tests | provider-specific adapters、UI、Media3/cache、Gradle、Manifest | accepted_overlaid_atomic_loader_29 |
 | R3 Flutter UX 等价迁移 | Kepler `019f9db3-6d06-7c60-bdee-9968ae2b8c72` | `/Users/huangqi/AIHome/projects/ai_music_android_native_AM-20260726-001_flutter_ux_parity` | `ui/**`、Compose screenshot/layout tests、Flutter 只读对照证据 | data/domain/provider、playback/cache、Gradle、Manifest、Flutter 文件 | overlaid_targeted_green_pending_integration_review |
-| R4 自动化与证据 | Raman `019f9db3-8cb4-70c1-bc08-e89e20baba82` | `/Users/huangqi/AIHome/projects/ai_music_android_native_AM-20260726-001_rapid_qa` | `docs/qa/**`、`src/androidTest/**`、evidence contracts/scripts、test resources | production provider、UI、playback/cache、Gradle、Manifest | changes_requested_real_pressure_scenarios |
+| R4 自动化与证据 | Raman `019f9db3-8cb4-70c1-bc08-e89e20baba82` | `/Users/huangqi/AIHome/projects/ai_music_android_native_AM-20260726-001_rapid_qa` | `docs/qa/**`、`src/androidTest/**`、evidence contracts/scripts、test resources | production provider、UI、playback/cache、Gradle、Manifest | accepted_overlaid_validator_31_production_8_red |
 
 统一开发集成者独占：`MainActivity.kt`、`ui/AiMusicApp.kt`、`composition/**`、
 `AndroidManifest.xml`、Gradle/settings、共享模型装配和最终冲突解决。四条执行线
@@ -69,14 +69,15 @@ NCUX-R1/R2 只作防回退 lineage，不再约束为单歌曲海或 `3+3+2` 分�
 
 ## 下一集成点
 
-R2 与 R3 已精确叠加统一工程：alternate-only tail 回改后 R2 targeted
-`17/17`，shared opaque-cursor loader `4/4`，R3 presentation/assembly `7/7`，
-组合 focused `28/28` 且 AndroidTest compile 通过。下一事件是 integrator
-RED-GREEN 完成唯一 production multi-provider composition、SourceSettings 门禁与
-alternate-source playback fallback；compatibility cursor 不得成为生产真值。
-R1 严格准入、查询解释和时长回改 accepted 后立即叠加；R4 修复真实压力场景门禁。
-共享 Gequhai 同步补齐每源单并发、1.5 秒间隔、三次失败后 15 分钟冷却。四线不互
-等，不安装中间 APK。
+R1、R2、R3、R4 与共享 Gequhai safety/transport 已精确叠加统一工程。负责人
+fresh 证据为 R1 targeted `44/44`、独立 full JVM `334/334`，R2 aggregator +
+atomic multi-round loader `29/29`，Gequhai repository/safety/transport `59/59`，
+R4 validator/legacy evidence `31/31` 且 production contract 诚实保持 `1 pass /
+8 RED`。下一事件是 integrator 完成唯一 production multi-provider composition：
+MainActivity 使用真实 page-loader factory，旧 SourceSettings 只迁移一次并默认启用
+`source_gequhai` 与 `source_kuwo_full_audio`，source id/label 全链一致，validated
+alternate 进入 Media3 播放故障切换而非停在 observer sidecar。随后立即跑联合
+targeted、AndroidTest compile 与 fresh full；四线不互等，不安装中间 APK。
 
 ## Rapid v2 启动事实
 
@@ -135,6 +136,25 @@ R1 严格准入、查询解释和时长回改 accepted 后立即叠加；R4 修�
 - 首次 UX 替换仍超过 15 分钟无 revision/hash，已在同一 NCUX-R3 任务/线程内再次
   替换执行者，只交 revision/hash、最小可见差异、能力依赖、direct implementation
   与 screenshot/XML QA；未新建团队、线程或 request。
+- R2 的一次加载更多现在会在 loader 内跨 Provider round 累积，只有得到 6-12 条
+  或所有 cursor 耗尽后的唯一 1-5 尾批才向 UI 回调；fresh aggregator + loader
+  `29/29`，不再暴露中间空 success page。
+- R1 Kuwo 正式复审 accepted：歌名、歌手、组合与自然语言语义、财经非音乐
+  fail-closed、真实 8192-byte Range、每源单并发/1.5 秒、三失败 15 分钟冷却和
+  保护即时暂停均成立；targeted `44/44`、full JVM `334/334`，公开请求总数仍为
+  `5`、review-cycle 为 `0`。切片已精确叠加。
+- R4 正式复审 accepted：全部 QA tests 中 validator/legacy evidence `31/31`
+  通过，production contract 九项中八项继续按预期 RED；即时暂停必须绑定同源
+  真实 request timestamp，重复 Provider、失败时间和 artifact 内容绕过均被拒绝。
+  两个生成 `__pycache__` 未叠加。
+- Gequhai shared safety 与 bounded transport 正式复审 accepted：fresh `59/59`，
+  只读取最多 8192 原始 Range bytes 并以实际 byte count 准入，忽略 Range 的
+  `200`、空/截断 `206` 均 fail closed；redirect/retry 关闭，等待共享 gate 的旧
+  请求在取消 generation 变化后不能发出。
+- Integrator 已新增 production RED：真实 factory 必须返回
+  `MultiProviderSearchPageLoader`，两源使用独立 enable gate；旧设备仅有歌曲海
+  的 settings 首次升级时加入 `source_kuwo_full_audio`，用户随后主动关闭后不得
+  在重启时再次启用。播放 alternate failover 仍是下一项独占 wiring。
 
 ## 历史 Native R1/R2 证据
 
