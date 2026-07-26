@@ -49,7 +49,7 @@ NCUX-R1/R2 只作防回退 lineage，不再约束为单歌曲海或 `3+3+2` 分�
 
 | Line | Owner | Independent Clone | Writable Scope | Integrator-Owned Exclusions | Status |
 | --- | --- | --- | --- | --- | --- |
-| R1 公开歌源低压研究及接入 | Nietzsche `019f9db3-15af-7142-a16e-20e263b9dcb8` | `/Users/huangqi/AIHome/projects/ai_music_android_native_AM-20260726-001_provider_research` | `data/source/providers/**`、provider-specific tests、低压研究脚本与来源状态表 | 聚合仓库、UI、播放/cache、Gradle、Manifest、app wiring | Kuwo/BuguYY accepted_overlaid；GD protection_stopped；shortlist round 1 no_provider_passed；独立健康 failure domain 仍缺 |
+| R1 公开歌源低压研究及接入 | Nietzsche `019f9db3-15af-7142-a16e-20e263b9dcb8` | `/Users/huangqi/AIHome/projects/ai_music_android_native_AM-20260726-001_provider_research` | `data/source/providers/**`、provider-specific tests、低压研究脚本与来源状态表 | 聚合仓库、UI、播放/cache、Gradle、Manifest、app wiring | Kuwo/BuguYY accepted_overlaid；GD protection_stopped；shortlist round 1 no_provider_passed；OpenFlac browser-search round 2 active |
 | R2 多 Provider 聚合与分页 | Bernoulli `019f9db3-5046-7f62-ba44-a2cd5579f6f2` | `/Users/huangqi/AIHome/projects/ai_music_android_native_AM-20260726-001_provider_aggregation` | `domain/source/**`、聚合 repository/use case、查询结构化、去重/备用源/健康度/批量分页及 tests | provider-specific adapters、UI、Media3/cache、Gradle、Manifest | accepted_overlaid_atomic_loader_29 |
 | R3 Flutter UX 等价迁移 | Kepler `019f9db3-6d06-7c60-bdee-9968ae2b8c72` | `/Users/huangqi/AIHome/projects/ai_music_android_native_AM-20260726-001_flutter_ux_parity` | `ui/**`、Compose screenshot/layout tests、Flutter 只读对照证据 | data/domain/provider、playback/cache、Gradle、Manifest、Flutter 文件 | ncux_r3_accepted_direct_delta_and_runtime_wiring_active |
 | R4 自动化与证据 | Raman `019f9db3-8cb4-70c1-bc08-e89e20baba82` | `/Users/huangqi/AIHome/projects/ai_music_android_native_AM-20260726-001_rapid_qa` | `docs/qa/**`、`src/androidTest/**`、evidence contracts/scripts、test resources | production provider、UI、playback/cache、Gradle、Manifest | failure-domain gate accepted_overlaid；validator 38/38；production 1 pass/8 expected RED |
@@ -245,6 +245,12 @@ failure-domain 证据前，不得解锁唯一功能候选安装。
   `fc1888087cfe87bb37ee9524e31502eb1b7e2581dae1e451541c77e5455b50ae`。
   OpenFlac 未建立自然搜索协议；music.znnu.com 命中 VIP/受限解析停止信号；
   ws.mba 与 wsyyww.com 含登录/注册；gggmusic 首次连接失败。五站均不实现。
+- OpenFlac 是 round 1 唯一入口干净、无登录/防护且疑似 QQ 上游的候选，
+  因而在同一 R1 内进入窄 round 2：只通过普通 Chrome 页面真实搜索框输入
+  “外婆”并观察实际导航/网络，最多 `8` 个外部请求、单并发、请求起点间隔
+  至少 `1.5` 秒；禁止枚举脚本/API 或使用搜索结果固定 id。只有自然链命中
+  周杰伦《外婆》才允许执行一组严格 HEAD/实际 8 KiB Range、歌词、封面和
+  URL lifetime 验证；登录/防护/付费/DRM/网盘信号立即停止。
 
 ## 历史 Native R1/R2 证据
 
