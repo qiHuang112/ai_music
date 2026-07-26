@@ -57,6 +57,8 @@ Workflow: superpowers-v1 continuous-agile
 
 六切片统一候选 `e371b7b` 的首轮 Gate 2 已进入同一 Epic 六项修复批次，并绑定 semantic R2 `4ac5d1f8`：中文 IME composing/commit、子页系统 Back、edge-to-edge 状态栏、短时使用后歌源退化、有界批量分页、完整同步歌词详情。开发按系统化调试/TDD并行复现；UX 只补状态栏与歌词页增量规范，不作为开发前置。不建窄 request。S6 停止设备点按并保留已通过的 Media3/缓存/失败隔离证据。每个切片完成即叠加；六项 fresh tests/lint/build、双 review 与串行设备证据全通过后，只安装一次新的修复候选并通知 Product/用户复验。
 
+当前 R2 修复候选已提交并推送为 `f4afca41e047229a7ea57cb2e576b713ee8b093a`，唯一一次 preserve-data 安装已完成且设备窗口已释放。当前候选已通过 Back、edge-to-edge、真实搜狗中文 commit、产品状态、重复失败熔断和失败不污染 formal cache；歌曲海 App 请求超时且低压主机探测发生 TLS `SSL_ERROR_SYSCALL`，因此在线搜索分页到 Media3 播放/seek、歌词和队列的当前包闭环为 `external_blocked`。不得通过 helper、注入或伪数据绕过；歌曲海 TLS 恢复后在同一已安装包上补采闭环，不重装。
+
 ## 启动基线证据
 
 - Integration clone：`codex/native-unified-epic-20260726@d948a893f5d14d53942fbbaedf333a974e2ae015`，启动时工作区干净。
@@ -101,3 +103,10 @@ Workflow: superpowers-v1 continuous-agile
 - Product 已将 `DISC-0012` integrated 并冻结 semantic R2 `sha256:4ac5d1f892808c4fb3550bfbbdda66328407c64a8770942b2ada2d7601aa0628`。R2 把六项现场 finding 收敛为上述五条 P1，继承 semantic R1 与旧 whole-Epic snapshot 的历史边界，不扩大数据源、搜索、缓存或播放合同。
 - UX 已回传并由负责人 feasibility accepted `NCUX-20260726-R2`，文档 `docs/codex_collab/knowledge/mobile-ai-music-ux/2026-07-26-native-compose-incremental-diff-r2.md`，SHA-256 `62c08ae173a620fece21873e50f22c1b9422d5d63be0a15dfcac3d7ef3830957`。直接实现范围为统一 Back/edge-to-edge、稳定三行歌词入口、保留真实 timestamp 的完整列表、手动滚动后两秒恢复跟随和复用现有 seek；无 API 控件继续隐藏。Product/UX 均已 acknowledge `DISC-0012`，严格 discovery check 为 `unresolved_count=0`。
 - 团队 canonical work item 已通过正式状态机 `revise_requirement -> approve_requirement -> start_parallel` 重绑 semantic R2；最终仍为 `parallel_in_progress`，submission authorization 保持失效，未把设计规范通过误写成真实 UI 或提交授权。
+- R2 最终统一 diff 经 fresh JVM `290/290`、AndroidTest compile、lint、assemble、QA validator `6/6`、diff-check 与 Spec/Code Quality 双 review accepted；负责人提交并推送 `codex/native-unified-epic-20260726@f4afca41e047229a7ea57cb2e576b713ee8b093a`，工作区与远端一致。
+- 最终候选 APK 与小米 10 Pro `base.apk` SHA-256 均为 `c3117e44efc44d9c2cc509bb1f3369ffbe062570caae0ffe4f25b9e4cb8c2975`；唯一 preserve-data 安装成功，`lastUpdateTime=2026-07-26 15:06:28`，最终默认输入法为搜狗。
+- 设备 QA 结论为 `external_blocked`：当前包导航、edge-to-edge、搜狗“周杰伦的外婆”完整 commit、产品状态、重复失败熔断和 formal cache 不污染通过；歌曲海可见 App 请求超时且单次主机探测 TLS 失败，无法合法进入新搜索结果后的分页、Media3/backward seek、歌词/队列闭环。证据根目录为 `/Users/huangqi/AIHome/evidence/AM-20260726-001-f4afca41-20260726T070544Z`。
+- 正式 evidence validator 对阻断态返回 exit `1`：schema 只接受完整 `pass`，且当前阻断态 manifest 未满足正式完整字段。输出已原样保留，禁止伪造 pass；设备已恢复搜狗、退出 App，并记录 `device_window_released=true`。
+- Product 已按 semantic R2 完成一次性只读 Gate 2 review，结论为 `blocked / external_blocked`，未代签用户体验。Artifact index `73/73` 通过；P1-1 与 P1-2 的中文输入/失败隔离局部证据有效，P1-2 在线结果/分页恢复、P1-3 歌词详情、P1-4 当前候选播放/seek/缓存转正/队列、P1-5 正式 manifest 均未通过。
+- 另确认 QA schema 的 `requirementSha256` 仍写死 superseded R1 `b8414836`。同一 Epic 已派离线 RED-GREEN 将 schema/test/fixture/runbook 绑定升级到 R2 `4ac5d1f8`，但不放宽 `verdict: pass` 或任何完整主路径门禁；该修正不触碰设备、不重装，也不改变歌曲海 TLS 外部阻断。
+- 上述 R2 evidence-contract 修正经负责人 review accepted：QA tests `7/7`、diff-check 通过，五文件精确提交并推送 `codex/native-unified-epic-20260726@96093aa771e3a89ff11d523ed99fcacfeaa9b8ee`，本地与远端一致、工作区干净。当前 blocked manifest 已不再出现 `E_REQUIREMENT_HASH`，仍保留 `E_VERDICT`、完整音频 admission、Media3/seek 与缓存转正失败码；已安装 APK 仍绑定应用候选 `f4afca41` / `c3117e44`。
