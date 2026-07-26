@@ -27,12 +27,14 @@ Status: active
 
 ### 0.1 Android Native 事件驱动全速交付（2026-07-26）
 
-- `/Users/huangqi/AIHome/ai_music` 继续作为团队管理根；唯一交付工程切换为 `/Users/huangqi/AIHome/ai_music_android_native`，基线分支 `codex/native-unified-milestone`。
-- Flutter、旧歌源专项和小爱专项仅作历史来源或回退输入；HarmonyOS/iOS 只研究。新实现统一进入 Android Native Epic，不再为窄修复创建互相等待的小 request。
-- 产品维护最多五条 P1 验收和历史替代关系；UX 以用户批准的三张 Product Design 图维护 Native Compose 增量差异；开发作为统一集成者管理歌曲海搜索、Media3 播放、缓存下载、产品数据层、Compose UI、QA 证据六个独立完整 clone 子任务。
-- 六个子任务必须互斥写集，公共构建、Manifest、应用装配和最终冲突只由开发集成 clone 修改。每四小时或任一切片先完成即集成；15 分钟没有新事实就收窄或替换对应 Agent。
+- `/Users/huangqi/AIHome/ai_music` 继续作为团队管理根；唯一交付工程为 `/Users/huangqi/AIHome/ai_music_android_native`，当前集成分支 `codex/native-unified-epic-20260726`，冻结起点 `96093aa771e3a89ff11d523ed99fcacfeaa9b8ee`。
+- 当前活跃工作流是 `ai-music-rapid-delivery-v2`，状态只允许 `active`、`integrating`、`candidate_ready`、`needs_user_acceptance`、`complete`。`superpowers-v1` 仅作历史/关闭谱系兼容，不得用于活跃 Epic。
+- Flutter、旧歌源专项和小爱专项仅作历史来源、回退输入或 UX 等价合同；本轮不改 Flutter。HarmonyOS/iOS 只研究。新实现统一进入 Android Native Epic，不再为窄修复创建互相等待的小 request。
+- 产品维护最多五条 P1 验收和历史替代关系；UX 维护 Flutter/Compose 同状态等价合同；开发作为统一集成者，在自己的持久任务内管理公开歌源低压研究及接入、多 Provider 聚合与分页、Flutter 播放/歌词/进度 UX 等价迁移、自动化与证据四条执行线。
+- 四条执行线必须使用独立完整 clone 和互斥写集；公共构建、Manifest、应用装配、共享模型组装和最终冲突只由开发集成 clone 修改。任一切片完成即集成；15 分钟没有新事实就收窄或在同一任务内替换对应执行者。
+- 公开来源只允许低压普通访问，不绕过验证码、防护、登录、付费或 DRM。单 Provider 最多 1 个并发、全局最多 2 个并发，同源请求间隔至少 1.5 秒，单轮最多 20 次请求；连续 3 次传输失败冷却 15 分钟，403、429 或防护页立即暂停该 Provider，其他执行线继续。
 - 测试、lint、构建、review、commit 和 push 都触发下一动作，不是停点。普通 Gradle、ADB、loopback/socket、debug 构建和非破坏性安装由团队自行执行。
-- 中间包不得反复安装。逻辑主路径约 80% 且 fresh tests/lint/build、完整搜索、Media3 播放、边播 seek、下载转正、歌词封面、队列、失败隔离和 evidence manifest 全通过后，只安装一次小米 10 Pro debug 包进入用户逻辑验收；最终真实 UI 全接线后再安装一次进入真实 UI 验收。
+- 中间包不得安装。至少两个公开 Provider 通过严格完整音频准入，且 fresh tests/lint/build、完整搜索、聚合分页、Media3 播放、边播 seek、下载转正、歌词封面、队列、失败隔离和 evidence manifest 全通过后，只安装一次小米 10 Pro 功能候选进入用户逻辑验收；最终真实 UI 全接线后再安装一次进入真实 UI 验收。
 
 ### 0.2 模型继承规则（2026-07-26）
 
@@ -96,30 +98,30 @@ next_action: <谁下一步做什么，完成后回给谁，带什么证据>
 python3 docs/codex_collab/tools/team_ops.py validate-message --file /tmp/ai-music-message.txt
 python3 docs/codex_collab/tools/team_ops.py validate-message --file /tmp/ai-music-message.txt --request-file docs/codex_collab/requests/AM-YYYYMMDD-NNN.md
 python3 docs/codex_collab/tools/team_ops.py validate-request docs/codex_collab/requests/AM-YYYYMMDD-NNN.md
-python3 docs/codex_collab/tools/team_ops.py validate-workflow docs/codex_collab/requests/AM-YYYYMMDD-NNN.md --gate design
-python3 docs/codex_collab/tools/team_ops.py validate-workflow docs/codex_collab/requests/AM-YYYYMMDD-NNN.md --gate start
-python3 docs/codex_collab/tools/team_ops.py validate-workflow docs/codex_collab/requests/AM-YYYYMMDD-NNN.md --gate review
-python3 docs/codex_collab/tools/team_ops.py validate-workflow docs/codex_collab/requests/AM-YYYYMMDD-NNN.md --gate merge
-python3 docs/codex_collab/tools/team_ops.py validate-workflow docs/codex_collab/requests/AM-YYYYMMDD-NNN.md --gate close
+python3 docs/codex_collab/tools/team_ops.py validate-workflow docs/codex_collab/requests/AM-YYYYMMDD-NNN.md --gate active
+python3 docs/codex_collab/tools/team_ops.py validate-workflow docs/codex_collab/requests/AM-YYYYMMDD-NNN.md --gate integrating
+python3 docs/codex_collab/tools/team_ops.py validate-workflow docs/codex_collab/requests/AM-YYYYMMDD-NNN.md --gate candidate_ready
+python3 docs/codex_collab/tools/team_ops.py validate-workflow docs/codex_collab/requests/AM-YYYYMMDD-NNN.md --gate needs_user_acceptance
+python3 docs/codex_collab/tools/team_ops.py validate-workflow docs/codex_collab/requests/AM-YYYYMMDD-NNN.md --gate complete
 python3 docs/codex_collab/tools/team_ops.py scan --root /Users/huangqi/AIHome/ai_music --legacy-ok
 ```
 
 - 任何 lane 发送 `task`、`status`、`demo_ready`、`review_request`、`review_result`、`handoff`、`blocker` 前，先用 `validate-message` 检查消息。
-- `Workflow: superpowers-v1` request 的消息必须追加 `--request-file <任务单>`，让消息门禁按任务上下文启用 HEAD/测试/自测和双 review 约束；旧 request 不传该参数，避免迁移债务阻塞正在收口的任务。
+- `Workflow: ai-music-rapid-delivery-v2` request 的消息必须追加 `--request-file <任务单>`，让消息门禁按活跃状态启用 HEAD、测试、自测和 review 约束；历史 request 不传该参数，避免迁移债务阻塞正在收口的任务。
 - 任何 lane 创建或更新 request 后，先用 `validate-request` 检查任务单。
 - Architect 每次巡检、review 收口或合入前，至少运行一次 `scan --legacy-ok`；新任务不得依赖 `legacy-ok` 通过。
 - 如果脚本失败，先修消息或账本，再继续投递；如果暴露的是旧账迁移债务，把它记录为账本维护项，不要把新任务混进去。
 - 脚本检查的是最低协作门槛，不替代真实实现、自测、review 和产品取舍。
 
-### 4.1 Superpowers 五道门禁
+### 4.1 Rapid Delivery v2 五状态
 
-- 2026-07-11 及以后新建的 request 必须使用 `Workflow: superpowers-v1`。旧任务继续开发时迁移，不批量改写历史。
-- `design`：检查目标、风险、用户可感知性、所需 skill 和设计文档；缺设计不能开工。
-- `start`：检查实施计划、独立 `Project Path`、基线 commit 和 TDD 模式；计划含 `TODO/TBD/待补` 时不能开工。
-- `review`：检查 HEAD、RED/GREEN、Bug 根因、targeted tests、owner 自测、主路径自测、基线和 scope diff；缺证据不能发 `review_request`。
-- `merge`：检查规格符合性和代码质量两个 review 都是 `accepted`，完整验证通过且没有 blocking finding；缺一项不能合入。
-- `close`：检查 merge、push、Product 通知和知识沉淀证据；只合入未通知、只推送未归档都不能关闭任务。
-- 详细设计见 `docs/superpowers/specs/2026-07-11-ai-music-team-workflow-design.md`。任务计划写入 `docs/superpowers/plans/`，跨 lane 只发送任务摘要和文件路径，不复制完整计划或历史聊天。
+- 活跃 Epic 必须使用 `Workflow: ai-music-rapid-delivery-v2`；`superpowers-v1` 仅允许历史/关闭记录继续保留，不批量改写历史。
+- `active`：目标、冻结起点、独立完整 clone、互斥写集、最多五条 P1 和执行 owner 已明确，执行线已启动。
+- `integrating`：任一切片完成即进入统一工程，持续保留 HEAD、RED/GREEN、fresh targeted/full tests 和 scope diff 证据；finding 自动回到对应执行线。
+- `candidate_ready`：至少两个公开 Provider 及完整业务闭环通过 fresh tests/lint/build、双 review 和 evidence manifest，才允许候选。
+- `needs_user_acceptance`：只用于一次功能候选或最终真实 UI 候选已安装、必须由用户验收的合法停点。
+- `complete`：需求与最终真实 UI 均已验收，合入、push、通知和知识沉淀全部完成。
+- `systematic-debugging`、`test-driven-development`、双 review 和完成前验证继续作为内部工程方法，但不得制造额外审批层或中间停点。
 
 ## 5. 等待 SLA
 

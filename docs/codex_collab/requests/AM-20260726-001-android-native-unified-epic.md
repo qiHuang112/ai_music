@@ -1,60 +1,62 @@
 # AM-20260726-001 Android Native 统一全速交付
 
-Status: in_progress
+Status: active
 Owner Lane: mobile-ai-music-developer
 Assist Lane: mobile-ai-music-product, mobile-ai-music-ux
 Source Thread: 019f6b0e-a150-7892-aec8-d8aa8314d802
 Product Return Thread: 019f6b0e-a150-7892-aec8-d8aa8314d802
 Target Version: native-1.0.0
-Base Branch: codex/native-unified-milestone
+Base Branch: codex/native-unified-epic-20260726
 Work Branch: codex/native-unified-epic-20260726
 Project Path: /Users/huangqi/AIHome/projects/ai_music_android_native_AM-20260726-001_unified_epic
 Merge Branch: codex/native-unified-milestone
 Created: 2026-07-26
 Updated: 2026-07-26
-Workflow: superpowers-v1
+Workflow: ai-music-rapid-delivery-v2
 Work Type: epic
 Risk Level: P1
 User Visible: yes
 Design Doc: docs/codex_collab/epics/AM-20260726-001-android-native-unified-delivery.md
-Requirement Doc: docs/superpowers/specs/2026-07-26-android-native-unified-epic-requirement-r2.md
+Requirement Doc: docs/codex_collab/epics/AM-20260726-001-rapid-delivery-v2-bootstrap-requirement.md
 Implementation Plan: docs/codex_collab/epics/AM-20260726-001-android-native-unified-delivery.md
 Required Skills: create-agile-project-team role, test-driven-development, systematic-debugging, product-design:image-to-code, verification-before-completion, ai-music-team-ops
 TDD Mode: required
 TDD Exception: none
 TDD Exception Review: not_applicable
-Baseline Commit: d948a893f5d14d53942fbbaedf333a974e2ae015
-Head Commit: e371b7be97e24c5d3369e6cf15f3278401fa9693
-Requirement Revision: sha256:4ac5d1f892808c4fb3550bfbbdda66328407c64a8770942b2ada2d7601aa0628 user_approved_semantic_r2_2026-07-26
-Requirement Lineage Evidence: semantic R2 `sha256:4ac5d1f892808c4fb3550bfbbdda66328407c64a8770942b2ada2d7601aa0628` integrates the six Gate 2 findings into exactly five P1 points without widening the data-source or playback contracts. It supersedes stable semantic R1 `sha256:b8414836fa8ced7574f0463d497d2c22029828cc0e60c4c99771d93e734131ee`; user-approved whole-Epic snapshot `sha256:005b75f7adf7814268a3df760bc1c3ffca4317cd32407a5f63cd1214169bdcc8` remains historical lineage only.
-UX Revision: NCUX-20260726-R2 sha256:62c08ae173a620fece21873e50f22c1b9422d5d63be0a15dfcac3d7ef3830957 accepted_for_native_implementation
-Logic Acceptance: changes_requested_user_native_batch
-Design Approval: prior_three_image_direction_accepted; NCUX-20260726-R2 feasibility_accepted
+Baseline Commit: 96093aa771e3a89ff11d523ed99fcacfeaa9b8ee
+Head Commit: 96093aa771e3a89ff11d523ed99fcacfeaa9b8ee
+Requirement Revision: sha256:bfd213c5f8f42ea9715adcf35f00b57bf372038b620d95271b481133d79546a0 user_approved_rapid_delivery_v2_bootstrap
+Requirement Lineage Evidence: rapid-delivery-v2 bootstrap `sha256:bfd213c5f8f42ea9715adcf35f00b57bf372038b620d95271b481133d79546a0` supersedes semantic R2 `sha256:4ac5d1f892808c4fb3550bfbbdda66328407c64a8770942b2ada2d7601aa0628` for active execution. It preserves prior Back/IME/cache corrections while adding at least two public Providers, 6-12 atomic pagination and mandatory Flutter UX equivalence.
+UX Revision: pending_rapid_v2_flutter_equivalence_contract; NCUX-20260726-R2 retained as historical Native delta
+Logic Acceptance: not_started_rapid_delivery_v2
+Design Approval: user_approved_flutter_player_lyrics_progress_loading_as_mandatory_native_contract
 Implemented UI Acceptance: required not_started
-Development Status: six_finding_parallel_red_green_starting_device_frozen
+Development Status: active_four_disjoint_execution_lines_starting_from_96093aa_no_device_install
 Discovery Evidence: DISC-0011 and DISC-0012 are integrated by Product and UX; discovery inbox strict check reports unresolved_count=0.
-Root Cause Evidence: Flutter narrow-request delivery replaced by one Native Epic to remove waiting chains and demo-data gaps.
-Research Evidence: native baseline contains strict Gequhai, Media3 playback, progressive cache and automation contracts at `d948a89`.
-Red Evidence: baseline demo data is present in `SearchPresenter.kt` (`SampleSearchPresenter/sampleResult`) and `AiMusicApp.kt` (`demoQueueTracks/InMemoryPlaybackController` and demo hotlist); real repository interfaces are absent.
-Green Evidence: all six slices integrated; strict HTTPS redirect admission, corrupt formal-cache self-healing, shared writer leases, reducer-style product state, persisted source admission with generation-safe immediate overrides, Compose automation semantics, 8 KiB Range evidence, and independent hotlist/download executors completed RED/GREEN.
-Targeted Tests: final fresh JVM 253/253 with zero failures/errors/skips; QA evidence validator 6/6; AndroidTest compile passed.
-Self Test Evidence: lead fresh `./gradlew testDebugUnitTest compileDebugAndroidTestKotlin lintDebug assembleDebug --no-daemon --max-workers=2` BUILD SUCCESSFUL; QA validator 6/6 and diff-check passed. Debug APK and installed Xiaomi Mi 10 Pro `base.apk` SHA-256 both `fef9c3651e56be0850c05590ad5470809c8dbf7b21384aad5696667e2be2c2f6`; preserve-data `install -r` succeeded once, `lastUpdateTime=2026-07-26 13:09:31`, and Sogou IME remained default.
-Product Main Path Evidence: Gate 2 failed on reliable Chinese query entry and the user then identified five additional Native gaps: system Back exits from child pages, status bar is non-immersive black/white, search source degrades after short use, pagination yields too few results and often one item per load, and the Flutter lyrics-detail page is missing. Positive same-package evidence remains valid for Media3 state=3, real artwork/lyrics, single-track queue, 3,576,668-byte formal cache, transient growth without formal pollution, and provider-failure playback continuity.
-Baseline Freshness Evidence: product fresh check on 2026-07-26 confirmed clean primary `codex/native-unified-milestone@d948a893f5d14d53942fbbaedf333a974e2ae015` and clean integration `codex/native-unified-epic-20260726@d948a893f5d14d53942fbbaedf333a974e2ae015`.
-Scope Diff Evidence: exact Native scope contains 83 app source/test and QA contract files, 10,097 insertions and 1,151 deletions; generated pycache, APK/build outputs, management-root history, and unrelated files were excluded. Integration branch is clean at `e371b7be97e24c5d3369e6cf15f3278401fa9693` and matches its pushed remote ref.
-Spec Review Result: accepted; all prior findings and final source-admission/cache/evidence corrections closed with no remaining finding.
-Code Quality Review Result: accepted; final concurrency review closed writer-lease self-deadlock, stale refresh overwrite, source-setting immediate consistency/ABA, active-writer pruning, lifecycle, and fixture findings.
-Full Verification Evidence: final fresh JVM 253/253, QA validator 6/6, AndroidTest compile, lint, assemble, diff-check, Spec Review, and Code Quality Review all passed on the committed candidate. Device evidence manifest remains in collection.
-Blocking Findings: six-item same-Epic repair batch: Chinese IME composing/commit; child-route system Back; edge-to-edge/system-bar treatment; short-use source degradation; multi-result batch pagination; lyrics-detail page. Product/S6 device interaction must remain serialized and no intermediate APK may be installed.
-Process Validation Note: `Work Type: epic` start-gate support was added by RED/GREEN; `TeamOpsWorkflowTest.test_start_gate_accepts_epic_work_type`, all 18 team_ops tests, `validate-request --strict`, and `validate-workflow --gate start` pass.
-Merge Evidence: integration commit `e371b7be97e24c5d3369e6cf15f3278401fa9693` created on `codex/native-unified-epic-20260726`; merge to `codex/native-unified-milestone` remains after logic acceptance.
-Push Evidence: `codex/native-unified-epic-20260726` pushed to the Native primary repository and local HEAD equals `origin/codex/native-unified-epic-20260726`.
-Product Notification Evidence: `demo_ready` sent to mobile-ai-music-product immediately after the single logic-candidate installation; UX is not a prerequisite for this functional gate.
-Knowledge Evidence: QA runbook/schema/tests committed; live device evidence manifest collection pending.
+Root Cause Evidence: the online path still had a single Gequhai dependency and Compose used functional placeholders instead of the accepted Flutter progress, lyrics and loading contract.
+Research Evidence: Native `96093aa` already contains MusicSearchRepository, ProviderSearchCursorV1, FullAudioTrack, GequhaiSource/Repository and strict full-audio gates. Historical AM-20260717-001 contains a verified Gequhai+Kuwo aggregation seed with local-cache priority, cross-source dedupe, independent pagination/circuits and zero unplayed cache; reuse its contracts and revalidate Kuwo at low pressure rather than creating parallel models.
+Red Evidence: five pressure tests proved the old gate rejected `ai-music-rapid-delivery-v2`, its five states and the active Epic gate.
+Green Evidence: the compatibility layer now accepts v2 active work, rejects non-v2 active states, preserves strict legacy checks, and downgrades old migration debt only under explicit `--legacy-ok`.
+Targeted Tests: fresh `test_team_ops` 24/24; strict request validation and strict `active` workflow gate passed.
+Self Test Evidence: team manifest JSON, discovery unresolved=0, generic work-item compatibility, `scan --legacy-ok` and diff-check all passed; no Native build, ADB or installation was performed during bootstrap.
+Product Main Path Evidence: the prior single-provider candidate remained externally blocked at Gequhai TLS. The user approved replacing that dependency with at least two public Providers and mandatory Flutter/Compose UX equivalence while preserving all positive Media3/cache/IME/navigation evidence in the `96093aa` frozen start.
+Baseline Freshness Evidence: integration clone and `origin/codex/native-unified-epic-20260726` are clean and equal at `96093aa771e3a89ff11d523ed99fcacfeaa9b8ee`.
+Scope Diff Evidence: v2 bootstrap changes only management workflow, Epic/request/requirement, manifest, team Skill and validator/tests; Native business code remains unchanged at the frozen start.
+Spec Review Result: pending_rapid_delivery_v2_integrated_slice
+Code Quality Review Result: pending_rapid_delivery_v2_integrated_slice
+Full Verification Evidence: not_started_rapid_delivery_v2; candidate verification requires at least two public Providers and the complete approved path.
+Blocking Findings: none at v2 bootstrap; Gequhai TLS is a Provider-local external failure and cannot stop Kuwo revalidation, other public-source research, aggregation, Flutter UX parity or QA.
+Process Validation Note: rapid-delivery-v2 RED proved the old validator rejected the new workflow, five states and active gate; GREEN adds v2 plus historical alias compatibility without relaxing engineering evidence.
+Merge Evidence: prior Native application and QA baseline is frozen at `96093aa771e3a89ff11d523ed99fcacfeaa9b8ee`; v2 slices have not yet produced a new integration commit.
+Push Evidence: `codex/native-unified-epic-20260726` and its remote both point to frozen start `96093aa771e3a89ff11d523ed99fcacfeaa9b8ee`.
+Product Notification Evidence: user approved the full rapid-delivery-v2 plan in source task `019f4ed4-106e-7860-875d-a32f81629e4e`; next notification is only the qualifying function candidate.
+Knowledge Evidence: prior QA/evidence contracts and AM-20260717-001 multi-source evidence are reusable inputs; v2 provider status and Flutter/Compose comparison artifacts are pending execution.
 
 ## 目标与范围
 
-以 `docs/codex_collab/epics/AM-20260726-001-android-native-unified-delivery.md` 为唯一当前交付任务；产品维护最多五条 P1 验收，UX 维护三图到 Native Compose 的增量差异，开发统一集成六个互斥 clone 子任务。
+以 `docs/codex_collab/epics/AM-20260726-001-android-native-unified-delivery.md`
+为唯一当前交付任务；产品固化最多五条 P1，UX 冻结 Flutter/Compose 同状态等价
+合同，开发统一集成公开歌源、聚合分页、UX 等价、自动化证据四条互斥完整 clone。
 
 ## 消息记录
 
@@ -92,11 +94,13 @@ Knowledge Evidence: QA runbook/schema/tests committed; live device evidence mani
 - 2026-07-26 type=review_result lane=mobile-ai-music-product status=blocked summary=Product completed the one-time read-only semantic R2 Gate 2 review and returned external_blocked without substituting for user acceptance. Current-candidate Back/edge-to-edge, true Sogou commit, failure isolation, unchanged formal-cache digest, package binding and device release evidence remain valid; online results and bounded pagination, current-candidate Media3/backward seek/cache promotion/lyrics/queue and the formal manifest remain P1 blocked. Artifact index check passed 73/73.
 - 2026-07-26 type=changes_requested lane=mobile-ai-music-lead status=evidence_contract_fix summary=The blocked manifest still bound superseded R1 b8414836, and the QA schema itself hard-coded that R1 hash. Development was assigned an offline RED-GREEN update of schema/tests/fixtures/runbook to semantic R2 4ac5d1f8 while retaining pass-only verdict and every search/playback/cache/failure gate. No device, install or source retry is involved.
 - 2026-07-26 type=review_result lane=mobile-ai-music-lead status=accepted summary=The five-file Semantic R2 evidence-contract update passed concentrated review, fresh validator tests 7/7 and diff-check. Lead committed and pushed codex/native-unified-epic-20260726@96093aa771e3a89ff11d523ed99fcacfeaa9b8ee with local/remote parity and a clean worktree. E_REQUIREMENT_HASH is removed from the blocked run, while E_VERDICT and the complete search/playback/cache gates still reject it. The installed APK remains f4afca41/c3117e44 and no device operation occurred.
+- 2026-07-26 type=task lane=mobile-ai-music-lead status=active summary=User approved the Native rapid-delivery replacement plan. Active workflow is ai-music-rapid-delivery-v2, frozen start is Native 96093aa, and four disjoint execution lines replace the old waiting chain without creating a new request or installing an intermediate APK.
+- 2026-07-26 type=handoff lane=mobile-ai-music-lead status=active summary=Reuse audit found existing Native MusicSearchRepository, ProviderSearchCursorV1, FullAudioTrack and strict Gequhai gates, plus historical AM-20260717-001 Gequhai+Kuwo aggregation contracts. Development must revalidate and migrate the Kuwo seed first, without creating a parallel search model; other public-source research remains parallel and non-blocking.
 
 ## Review 结果
 
 - Reviewer Lane: mobile-ai-music-lead
-- Result: changes_requested
+- Result: active
 - Spec Findings: none
 - Code Quality Findings: none
-- Notes: Gate 2 六项修复批次正在同一 Epic 内并行 RED-GREEN；不建窄 request。Product 将直接用户反馈收敛为最多五条验收，UX 只补 edge-to-edge 与歌词页增量，开发逻辑与粗 UI 同步推进。S6 停止点按并保留现有正向证据；所有修复、fresh 验证与双 review 通过后只安装一次新的修复候选并串行复验。
+- Notes: rapid-delivery-v2 四条互斥执行线从 `96093aa` 启动；任一切片完成立即集成，至少两个公开 Provider 与完整路径通过前不安装中间 APK。

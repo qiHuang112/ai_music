@@ -50,6 +50,11 @@ ALLOWED_LANES = {
 }
 
 ALLOWED_MESSAGE_STATUSES = {
+    "active",
+    "integrating",
+    "candidate_ready",
+    "needs_user_acceptance",
+    "complete",
     "proposed",
     "assigned",
     "in_progress",
@@ -76,6 +81,11 @@ ALLOWED_MESSAGE_STATUSES = {
 }
 
 ALLOWED_REQUEST_STATUSES = {
+    "active",
+    "integrating",
+    "candidate_ready",
+    "needs_user_acceptance",
+    "complete",
     "proposed",
     "assigned",
     "in_progress",
@@ -98,9 +108,25 @@ ALLOWED_REQUEST_STATUSES = {
     "blocked",
 }
 
-WORKFLOW_NAME = "superpowers-v1"
+WORKFLOW_NAME = "ai-music-rapid-delivery-v2"
+LEGACY_WORKFLOW_NAMES = {"superpowers-v1"}
 WORKFLOW_REQUIRED_FROM = "2026-07-11"
-WORKFLOW_GATES = ("design", "start", "review", "merge", "close")
+RAPID_DELIVERY_STATUSES = (
+    "active",
+    "integrating",
+    "candidate_ready",
+    "needs_user_acceptance",
+    "complete",
+)
+LEGACY_TERMINAL_STATUSES = {
+    "historical_fallback",
+    "merged",
+    "pushed",
+    "notified",
+    "verified",
+}
+LEGACY_WORKFLOW_GATES = ("design", "start", "review", "merge", "close")
+WORKFLOW_GATES = LEGACY_WORKFLOW_GATES + RAPID_DELIVERY_STATUSES
 ALLOWED_WORK_TYPES = {"feature", "bugfix", "refactor", "research", "process", "release", "epic"}
 ALLOWED_RISK_LEVELS = {"P0", "P1", "P2", "P3"}
 ALLOWED_TDD_MODES = {"required", "exception", "not_applicable"}
@@ -212,16 +238,18 @@ def validate_message_text(
     summary = data.get("summary", "")
     next_action = data.get("next_action", "")
     message_workflow = data.get("workflow", "")
-    superpowers_message = message_workflow == WORKFLOW_NAME
+    governed_message = message_workflow in {WORKFLOW_NAME, *LEGACY_WORKFLOW_NAMES}
 
-    if message_workflow and message_workflow != WORKFLOW_NAME:
+    if message_workflow and not governed_message:
         result.error(f"消息 `workflow` 不在允许范围内: {message_workflow}")
+    request_workflow = ""
     if request_path is not None:
         if not request_path.is_file():
             result.error(f"消息 request 上下文文件不存在: {request_path}")
         else:
             request_text = request_path.read_text(encoding="utf-8")
             request_fields = parse_request_header(request_text)
+            request_workflow = request_fields.get("Workflow", "")
             context_request = parse_request_id(request_text)
             if context_request is None:
                 result.error(f"消息 request 上下文无法解析 requestId: {request_path}")
@@ -240,10 +268,19 @@ def validate_message_text(
                         "消息 `request` 与 `--request-file` 不匹配: "
                         f"{data.get('request', '')} != {context_request}"
                     )
-            superpowers_message = (
-                superpowers_message
-                or request_fields.get("Workflow") == WORKFLOW_NAME
-            )
+            if (
+                message_workflow
+                and request_workflow
+                and message_workflow != request_workflow
+            ):
+                result.error(
+                    "消息 `workflow` 与 `--request-file` 不匹配: "
+                    f"{message_workflow} != {request_workflow}"
+                )
+            governed_message = governed_message or request_workflow in {
+                WORKFLOW_NAME,
+                *LEGACY_WORKFLOW_NAMES,
+            }
 
     if msg_type and msg_type not in ALLOWED_TYPES:
         result.error(f"`type` 不在允许范围内: {msg_type}")
@@ -253,6 +290,16 @@ def validate_message_text(
         result.error("禁止用 `lane: all` 广播；只能发给相关 lane")
     if status and status not in ALLOWED_MESSAGE_STATUSES:
         result.error(f"`status` 不在允许范围内: {status}")
+    effective_workflow = message_workflow or request_workflow
+    if (
+        effective_workflow == WORKFLOW_NAME
+        and status
+        and status not in RAPID_DELIVERY_STATUSES
+    ):
+        result.error(
+            "`ai-music-rapid-delivery-v2` 消息只允许五状态: "
+            + ", ".join(RAPID_DELIVERY_STATUSES)
+        )
     if request and not re.match(r"^AM-[A-Za-z0-9-]+$", request):
         result.error(f"`request` 必须以 AM- 开头且不含空格: {request}")
     if data.get("thread") and not re.match(r"^[0-9a-f-]{10,}$", data["thread"]):
@@ -273,21 +320,29 @@ def validate_message_text(
         result.error("`blocker` 必须说明具体卡点、已尝试路径或需要谁支持")
     if msg_type == "review_result" and not re.search(r"accepted|changes_requested|blocked|P0|P1|P2|问题|无问题|修复", combined):
         result.error("`review_result` 必须包含明确结论或问题分级")
-    if superpowers_message and msg_type == "review_request":
+    if governed_message and msg_type == "review_request":
         if not re.search(r"(?i)\bHEAD\b|\bcommit\b|提交", combined):
             result.error("`review_request` 必须包含当前 HEAD 或 commit 证据")
         if not re.search(r"(?i)\btests?\b|测试", combined):
             result.error("`review_request` 必须包含已执行的测试证据")
         if not re.search(r"(?i)self[-_ ]?test|自测", combined):
             result.error("`review_request` 必须包含 owner 自测证据")
-    if superpowers_message and msg_type == "review_result":
+    if governed_message and msg_type == "review_result":
         if not re.search(r"(?i)\bspec\b|规格", combined):
             result.error("`review_result` 必须包含规格符合性结论")
         if not re.search(r"(?i)code quality|quality|代码质量", combined):
             result.error("`review_result` 必须包含代码质量结论")
     if msg_type == "demo_ready" and not re.search(r"体验|安装|包|路径|设备|验证|已知", combined):
         result.error("`demo_ready` 必须写清体验入口、平台/设备、包路径或已知限制")
-    if superpowers_message and status in {"accepted", "merged", "pushed", "verified"} and not re.search(
+    if governed_message and status in {
+        "candidate_ready",
+        "needs_user_acceptance",
+        "complete",
+        "accepted",
+        "merged",
+        "pushed",
+        "verified",
+    } and not re.search(
         r"(?i)证据|tests?|测试|sha|commit|\bHEAD\b|日志|截图|包", combined
     ):
         result.error("完成状态消息必须包含新鲜验证、commit/HEAD、包或日志证据")
@@ -362,12 +417,29 @@ def validate_request_file(path: Path, *, legacy_ok: bool = False) -> CheckResult
         ]
         for field_name in workflow_required:
             if not fields.get(field_name):
-                result.error(f"{path.name}: 新任务缺少 Superpowers 字段 `{field_name}:`")
+                result.error(f"{path.name}: 新任务缺少工作流字段 `{field_name}:`")
         workflow = fields.get("Workflow", "")
-        if workflow and workflow != WORKFLOW_NAME:
+        if workflow and workflow not in {WORKFLOW_NAME, *LEGACY_WORKFLOW_NAMES}:
             result.error(
                 f"{path.name}: 2026-07-11 以后新任务必须使用 `Workflow: {WORKFLOW_NAME}`"
             )
+        if workflow == WORKFLOW_NAME and status not in RAPID_DELIVERY_STATUSES:
+            result.error(
+                f"{path.name}: `{WORKFLOW_NAME}` 只允许五状态: "
+                + ", ".join(RAPID_DELIVERY_STATUSES)
+            )
+        if (
+            workflow in LEGACY_WORKFLOW_NAMES
+            and status not in LEGACY_TERMINAL_STATUSES
+        ):
+            message = (
+                f"{path.name}: legacy workflow `{workflow}` 只保留给历史/已关闭任务；"
+                f"活跃任务必须迁移到 `{WORKFLOW_NAME}`"
+            )
+            if legacy_ok:
+                result.warn(f"legacy: {message}")
+            else:
+                result.error(message)
 
     if status and status not in ALLOWED_REQUEST_STATUSES:
         result.error(f"{path.name}: Status 不在允许范围内: {status}")
@@ -457,6 +529,8 @@ def _validate_document(
 
 
 def workflow_gate_for_status(status: str) -> str:
+    if status in RAPID_DELIVERY_STATUSES:
+        return status
     if status == "proposed":
         return "design"
     if status in {"assigned", "in_progress"}:
@@ -481,8 +555,29 @@ def validate_workflow_file(path: Path, *, gate: str) -> CheckResult:
     fields = parse_request_header(text)
     project_root = _project_root_for_request(path)
 
-    if fields.get("Workflow") != WORKFLOW_NAME:
-        result.error(f"工作流门禁要求 `Workflow: {WORKFLOW_NAME}`")
+    workflow = fields.get("Workflow", "")
+    if workflow not in {WORKFLOW_NAME, *LEGACY_WORKFLOW_NAMES}:
+        result.error(
+            f"工作流门禁要求 `Workflow: {WORKFLOW_NAME}`；"
+            "旧值只作为历史兼容"
+        )
+    rapid_delivery = workflow == WORKFLOW_NAME
+    if rapid_delivery:
+        if gate not in RAPID_DELIVERY_STATUSES:
+            result.error(
+                f"`{WORKFLOW_NAME}` 门禁必须使用五状态: "
+                + ", ".join(RAPID_DELIVERY_STATUSES)
+            )
+        if fields.get("Status") != gate:
+            result.error(
+                f"`{WORKFLOW_NAME}` 的 `Status` 必须与门禁一致: "
+                f"{fields.get('Status', '')} != {gate}"
+            )
+    elif gate not in LEGACY_WORKFLOW_GATES:
+        result.error(
+            "legacy workflow 只接受历史门禁: "
+            + ", ".join(LEGACY_WORKFLOW_GATES)
+        )
 
     work_type = fields.get("Work Type", "")
     if work_type not in ALLOWED_WORK_TYPES:
@@ -513,7 +608,7 @@ def validate_workflow_file(path: Path, *, gate: str) -> CheckResult:
         result.error(f"`Project Path` 不存在: {project_path}")
     _require_commit(fields, "Baseline Commit", result)
 
-    if gate == "start":
+    if gate in {"start", "active"}:
         return result
 
     _require_commit(fields, "Head Commit", result)
@@ -538,6 +633,9 @@ def validate_workflow_file(path: Path, *, gate: str) -> CheckResult:
     if gate == "review":
         return result
 
+    if gate == "integrating":
+        return result
+
     if fields.get("Spec Review Result") != "accepted":
         result.error("`Spec Review Result` 必须是 accepted")
     if fields.get("Code Quality Review Result") != "accepted":
@@ -546,7 +644,7 @@ def validate_workflow_file(path: Path, *, gate: str) -> CheckResult:
     if fields.get("Blocking Findings", "").strip().lower() not in {"none", "无"}:
         result.error("`Blocking Findings` 必须为 none/无，才能通过 merge gate")
 
-    if gate == "merge":
+    if gate in {"merge", "candidate_ready", "needs_user_acceptance"}:
         return result
 
     _require_evidence(fields, "Merge Evidence", result)
@@ -605,7 +703,10 @@ def command_scan(args: argparse.Namespace) -> int:
         result.errors.extend(child.errors)
         result.warnings.extend(child.warnings)
         fields = parse_request_header(path.read_text(encoding="utf-8"))
-        if fields.get("Workflow") == WORKFLOW_NAME:
+        workflow_name = fields.get("Workflow")
+        if workflow_name == WORKFLOW_NAME or (
+            workflow_name in LEGACY_WORKFLOW_NAMES and not args.legacy_ok
+        ):
             workflow = validate_workflow_file(
                 path,
                 gate=workflow_gate_for_status(fields.get("Status", "")),
@@ -644,7 +745,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     workflow = subparsers.add_parser(
         "validate-workflow",
-        help="validate a Superpowers workflow gate for one request",
+        help="validate an AI Music rapid-delivery or legacy workflow gate",
     )
     workflow.add_argument("file")
     workflow.add_argument("--gate", choices=WORKFLOW_GATES, required=True)

@@ -7,6 +7,9 @@ from pathlib import Path
 from docs.codex_collab.tools import team_ops
 
 
+RAPID_WORKFLOW = "ai-music-rapid-delivery-v2"
+
+
 class TeamOpsWorkflowTest(unittest.TestCase):
     def setUp(self) -> None:
         self.temp_dir = tempfile.TemporaryDirectory()
@@ -81,13 +84,72 @@ class TeamOpsWorkflowTest(unittest.TestCase):
         path.write_text(self._request_text(**overrides), encoding="utf-8")
         return path
 
-    def test_new_request_requires_superpowers_workflow(self) -> None:
+    def test_new_request_requires_workflow(self) -> None:
         path = self._write_request(Workflow="")
 
         result = team_ops.validate_request_file(path)
 
         self.assertFalse(result.ok)
         self.assertTrue(any("Workflow" in error for error in result.errors))
+
+    def test_rapid_delivery_v2_active_request_and_message_are_valid(self) -> None:
+        path = self._write_request(Workflow=RAPID_WORKFLOW, Status="active")
+        message = f"""type: task
+request: AM-20260711-999
+workflow: {RAPID_WORKFLOW}
+lane: mobile-ai-music-developer
+thread: 019f6b0e-a150-7892-aec8-d8aa8314d802
+status: active
+summary: 原生快速交付已从冻结基线启动四条互斥执行线。
+next_action: mobile-ai-music-developer 每个切片完成后回 mobile-ai-music-lead，带 HEAD、写集和测试证据。
+"""
+
+        request_result = team_ops.validate_request_file(path)
+        message_result = team_ops.validate_message_text(message, request_path=path)
+
+        self.assertTrue(request_result.ok, request_result.errors)
+        self.assertTrue(message_result.ok, message_result.errors)
+
+    def test_rapid_delivery_v2_rejects_legacy_intermediate_status(self) -> None:
+        path = self._write_request(Workflow=RAPID_WORKFLOW, Status="in_progress")
+
+        result = team_ops.validate_request_file(path)
+
+        self.assertFalse(result.ok)
+        self.assertTrue(any("五状态" in error for error in result.errors))
+
+    def test_superpowers_remains_valid_only_for_historical_request(self) -> None:
+        active = self._write_request(Workflow="superpowers-v1", Status="in_progress")
+        active_result = team_ops.validate_request_file(active)
+
+        historical = self._write_request(
+            Workflow="superpowers-v1",
+            Status="historical_fallback",
+        )
+        historical_result = team_ops.validate_request_file(historical)
+
+        self.assertFalse(active_result.ok)
+        self.assertTrue(any("legacy" in error for error in active_result.errors))
+        self.assertTrue(historical_result.ok, historical_result.errors)
+
+    def test_legacy_ok_downgrades_active_superpowers_migration_debt(self) -> None:
+        path = self._write_request(Workflow="superpowers-v1", Status="in_progress")
+
+        result = team_ops.validate_request_file(path, legacy_ok=True)
+
+        self.assertTrue(result.ok, result.errors)
+        self.assertTrue(any("legacy" in warning for warning in result.warnings))
+
+    def test_rapid_delivery_v2_active_gate_accepts_epic(self) -> None:
+        path = self._write_request(
+            Workflow=RAPID_WORKFLOW,
+            Status="active",
+            **{"Work Type": "epic"},
+        )
+
+        result = team_ops.validate_workflow_file(path, gate="active")
+
+        self.assertTrue(result.ok, result.errors)
 
     def test_historical_fallback_request_status_is_valid(self) -> None:
         path = self._write_request(Status="historical_fallback")
@@ -97,7 +159,11 @@ class TeamOpsWorkflowTest(unittest.TestCase):
         self.assertTrue(result.ok, result.errors)
 
     def test_registered_mobile_team_roles_are_valid_lanes(self) -> None:
-        path = self._write_request(**{"Owner Lane": "mobile-ai-music-developer"})
+        path = self._write_request(
+            Workflow=RAPID_WORKFLOW,
+            Status="active",
+            **{"Owner Lane": "mobile-ai-music-developer"},
+        )
 
         result = team_ops.validate_request_file(path)
 
@@ -336,6 +402,14 @@ next_action: architect 请合入并回 product，带 commit 和推送证据。
         self.assertEqual(team_ops.workflow_gate_for_status("review_requested"), "review")
         self.assertEqual(team_ops.workflow_gate_for_status("accepted"), "merge")
         self.assertEqual(team_ops.workflow_gate_for_status("pushed"), "close")
+        for status in (
+            "active",
+            "integrating",
+            "candidate_ready",
+            "needs_user_acceptance",
+            "complete",
+        ):
+            self.assertEqual(team_ops.workflow_gate_for_status(status), status)
 
 
 if __name__ == "__main__":

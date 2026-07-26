@@ -1,71 +1,88 @@
 # AM-20260726-001 Android Native 统一全速交付 Epic
 
-Status: in_progress
+Status: active
 Owner: mobile-ai-music-负责人
 Integrator: mobile-ai-music-开发
 Management Root: /Users/huangqi/AIHome/ai_music
 Primary Repository: /Users/huangqi/AIHome/ai_music_android_native
-Baseline Branch: codex/native-unified-milestone
-Baseline Commit: d948a893f5d14d53942fbbaedf333a974e2ae015
+Baseline Branch: codex/native-unified-epic-20260726
+Baseline Commit: 96093aa771e3a89ff11d523ed99fcacfeaa9b8ee
 Integration Project Path: /Users/huangqi/AIHome/projects/ai_music_android_native_AM-20260726-001_unified_epic
 Integration Branch: codex/native-unified-epic-20260726
 Created: 2026-07-26
-Workflow: superpowers-v1 continuous-agile
+Workflow: ai-music-rapid-delivery-v2
 
 ## 用户目标
 
-从现有 Android Native 里程碑继续，移除 demo 数据并接入真实产品仓库，使真实搜索、完整音频播放、边播 seek、下载缓存转正、歌词封面、队列和失败隔离在 Compose UI 中闭环。Flutter 只保留历史和回退。
+从冻结 Native `96093aa` 继续，建立至少两个公开 Provider 的严格多源聚合，
+完成真实搜索、完整播放、边播 seek、下载缓存转正、歌词封面、队列和失败隔离。
+Flutter 不修改，但其已验收播放器、歌词、进度和加载状态是 Compose 强制等价合同。
 
 ## P1 验收
 
-唯一需求基线为 `docs/superpowers/specs/2026-07-26-android-native-unified-epic-requirement-r2.md`，SHA-256 `4ac5d1f892808c4fb3550bfbbdda66328407c64a8770942b2ada2d7601aa0628`。
+用户批准的 v2 bootstrap 基线为
+`docs/codex_collab/epics/AM-20260726-001-rapid-delivery-v2-bootstrap-requirement.md`，
+SHA-256 `bfd213c5f8f42ea9715adcf35f00b57bf372038b620d95271b481133d79546a0`。
+Product 只固化语义 revision，不重新打开已批准范围。
 
-1. 子页系统 Back 返回上一应用页面，只有根页可交还系统退出；Compose 全屏 edge-to-edge，状态栏和导航栏图标在当前背景上可读。
-2. 搜狗中文 composing/commit、连续搜索和切换查询可靠；单源异常不导致永久退化或污染。一次加载更多最多串行三个 provider cursor，候选预算固定为 `3+3+2=8`，跨源去重后至少两首才一次发布；到达边界仍不足时发布已有增量并正确保留或终止 cursor。
-3. 播放器可进入完整同步歌词详情，列表可滚动、当前行随 Media3 进度跟随，Back 回播放器；无歌词/失败使用中性态，且不展示未批准的收藏、歌单等假控件。
-4. 真实仓库、严格完整音频、Media3 播放与边播 seek、下载/缓存转正、封面、队列和失败隔离均不得回退。
-5. 最终候选通过 fresh tests/lint/build、双 review 和 evidence manifest 后，仅由单设备单 owner 串行安装与回归小米 10 Pro；中间包禁止安装。
+1. 歌曲海及至少一个第二公开 Provider 通过普通用户路径和完整音频门禁；低压
+   限流，不绕验证码、登录、防护、付费或 DRM，不接试听、网盘、HTML 或错歌。
+2. 歌名、歌手、自然语言完成多源聚合、同歌去重和备用源保留；首屏最多 12 条，
+   加载更多按 6-12 条原子批次发布，单源故障不影响其他来源。
+3. 完整音频首声、边播前后 seek、正式缓存原子转正/复用、换源续播，以及歌词、
+   封面、队列和 MediaSession metadata 形成真实闭环且失败不污染。
+4. Compose 播放/歌词/进度/轻量加载与 Flutter 已验收状态同屏对照通过；自定义
+   进度控件满足 4dp/14dp/40dp/24dp 尺寸和播放/缓冲/未加载三态。
+5. 至少两个 Provider 及完整主路径、fresh tests/lint/build、集中 review、
+   Flutter/Compose 对照和 evidence manifest 全通过后，只安装一次小米 10 Pro
+   功能候选；完整真实 UI 接线后再安装一次最终 UI 候选。
 
 ## 非目标与替代
 
-- Flutter UI 与 Flutter 业务实现：`historical_fallback_only`，由本 Epic 替代为 Android Native 交付。
+- Flutter UI 与业务不修改；状态、行为和视觉作为 Native 强制合同及紧急回退。
 - 旧歌源窄 request：`historical_input`，其严格校验、fail-closed 和缓存证据吸收到本 Epic，不继续形成独立等待链。
 - 小爱事项：`historical_or_replaced`，不阻塞当前 Native P1；未来如重启必须作为原生能力增量进入同一产品基线。
 - HarmonyOS/iOS：`research_only`，可并行沉淀协议和风险，不进入本 Epic 关键路径。
 
-## 六个互斥切片
+## 四条互斥执行线
 
-| Slice | Owner | Independent Clone | Writable Scope | Integrator-Owned Exclusions | Status |
+| Line | Owner | Independent Clone | Writable Scope | Integrator-Owned Exclusions | Status |
 | --- | --- | --- | --- | --- | --- |
-| S1 歌曲海搜索 | native-gequhai-search / Galileo | `/Users/huangqi/AIHome/projects/ai_music_android_native_AM-20260726-001_gequhai` | `domain/model/MusicSearchModels.kt`, `domain/repository/MusicSearchRepository.kt`, `domain/usecase/SearchMusicUseCase.kt`, `domain/usecase/MusicSearch.kt`, `data/source/**`, `data/repository/GequhaiMusicSearchRepository.kt` 及同路径 unit tests | app wiring、Gradle、Manifest、UI、缓存与播放器 | integrated_targeted_50_of_50 |
-| S2 Media3 播放 | native-media3-playback / Poincare | `/Users/huangqi/AIHome/projects/ai_music_android_native_AM-20260726-001_media3` | `playback/PlaybackService.kt`, `Media3PlaybackController.kt`, `PlaybackController.kt`, `PlaybackControllerCloseGate.kt`, `Media3ReconnectStateMachine.kt` 及对应 tests | progressive cache、UI、app wiring、Gradle、Manifest | slice_complete_integrated |
-| S3 缓存下载 | native-cache-download / Anscombe | `/Users/huangqi/AIHome/projects/ai_music_android_native_AM-20260726-001_cache_download` | `cache/**`, `playback/ProgressiveCache*`, `HttpRangeSource.kt`, `RangePlaybackContract.kt`, `CacheWriterLeaseRegistry.kt` 及对应 tests | Media3 controller/service、UI、app wiring、Gradle、Manifest | slice_complete_integrated_shared_cache_green |
-| S4 产品数据层 | native-product-data / Bernoulli | `/Users/huangqi/AIHome/projects/ai_music_android_native_AM-20260726-001_product_data` | 新建 `domain/repository/{Library,Download,Hotlist,SourceSettings}Repository.kt`, `data/{library,download,hotlist,settings}/**` 及同路径 tests | 搜索、播放器、缓存、UI、app wiring、Gradle、Manifest | integrated_slice_195_of_195_composition_green |
-| S5 Compose UI | native-compose-ui / Harvey | `/Users/huangqi/AIHome/projects/ai_music_android_native_AM-20260726-001_compose_ui` | `ui/**`, `ui/presentation/**` 及 `src/test/**/ui/**` | data/domain/playback/cache、MainActivity、Gradle、Manifest、androidTest | slice_complete_integrated |
-| S6 QA 证据 | native-qa-evidence / Lagrange | `/Users/huangqi/AIHome/projects/ai_music_android_native_AM-20260726-001_qa_evidence` | `docs/qa/**`, `src/androidTest/**`, `src/test/resources/contracts/**`, evidence manifest schema/scripts | production Kotlin、Gradle、Manifest、app wiring | slice_complete_integrated |
+| R1 公开歌源低压研究及接入 | developer-managed provider agents | `/Users/huangqi/AIHome/projects/ai_music_android_native_AM-20260726-001_provider_research` | `data/source/providers/**`、provider-specific tests、低压研究脚本与来源状态表 | 聚合仓库、UI、播放/cache、Gradle、Manifest、app wiring | starting_from_96093aa |
+| R2 多 Provider 聚合与分页 | developer-managed aggregation agent | `/Users/huangqi/AIHome/projects/ai_music_android_native_AM-20260726-001_provider_aggregation` | `domain/source/**`、聚合 repository/use case、查询结构化、去重/备用源/健康度/批量分页及 tests | provider-specific adapters、UI、Media3/cache、Gradle、Manifest | starting_from_96093aa |
+| R3 Flutter UX 等价迁移 | developer-managed UX parity agent | `/Users/huangqi/AIHome/projects/ai_music_android_native_AM-20260726-001_flutter_ux_parity` | `ui/**`、Compose screenshot/layout tests、Flutter 只读对照证据 | data/domain/provider、playback/cache、Gradle、Manifest、Flutter 文件 | starting_from_96093aa |
+| R4 自动化与证据 | developer-managed QA agent | `/Users/huangqi/AIHome/projects/ai_music_android_native_AM-20260726-001_rapid_qa` | `docs/qa/**`、`src/androidTest/**`、evidence contracts/scripts、test resources | production provider、UI、playback/cache、Gradle、Manifest | starting_from_96093aa |
 
-统一开发集成者独占：`MainActivity.kt`、`ui/AiMusicApp.kt` 的跨层装配、`composition/**`、`AndroidManifest.xml`、Gradle/settings、依赖版本和最终冲突解决。子 Agent 不得修改这些共享文件。
+统一开发集成者独占：`MainActivity.kt`、`ui/AiMusicApp.kt`、`composition/**`、
+`AndroidManifest.xml`、Gradle/settings、共享模型装配和最终冲突解决。四条执行线
+必须从 `96093aa` 建立独立完整 clone，禁止 worktree。
 
 ## 事件驱动集成
 
-- 任一切片完成或距上次集成四小时，以先到者触发 integration。
+- 任一切片完成立即触发 integration，不等待其他执行线。
 - 任一切片 15 分钟无新增事实，开发立即收窄、替换 Agent 或切换替代路径；不得等待。
 - 每次集成先验证互斥写集与基线新鲜度，再运行匹配测试；全量 tests/lint/build 只在稳定候选与验收点执行。
-- 中间 APK 不安装。第一次设备安装只发生在逻辑验收候选；第二次只发生在最终真实 UI 验收候选。
+- 单个 Provider 外部故障只冻结该 Provider，其他 Provider、聚合、播放、UX 和 QA
+  继续。中间 APK 不安装；第一次设备安装只发生在功能候选，第二次只发生在最终
+  真实 UI 候选。
 
 ## 下一集成点
 
-六切片统一候选 `e371b7b` 的首轮 Gate 2 已进入同一 Epic 六项修复批次，并绑定 semantic R2 `4ac5d1f8`：中文 IME composing/commit、子页系统 Back、edge-to-edge 状态栏、短时使用后歌源退化、有界批量分页、完整同步歌词详情。开发按系统化调试/TDD并行复现；UX 只补状态栏与歌词页增量规范，不作为开发前置。不建窄 request。S6 停止设备点按并保留已通过的 Media3/缓存/失败隔离证据。每个切片完成即叠加；六项 fresh tests/lint/build、双 review 与串行设备证据全通过后，只安装一次新的修复候选并通知 Product/用户复验。
+从 `96093aa` 启动四条 v2 执行线。R1 先用固定样本“外婆、一丝不挂、稻香、
+哎呀、剩下的果实”和负样本“东方财富”低压筛选第二合法 Provider；R2 并行建立
+统一 Provider 接口、12 条首屏和 6-12 条原子分页；R3 直接迁移 Flutter 已验收
+歌词/进度/轻量加载状态；R4 先补多源、视觉对照和完整 manifest RED 合同。任一
+切片完成立即交统一工程 review/集成，不等待四线齐套，不安装中间 APK。
 
-当前 R2 修复候选已提交并推送为 `f4afca41e047229a7ea57cb2e576b713ee8b093a`，唯一一次 preserve-data 安装已完成且设备窗口已释放。当前候选已通过 Back、edge-to-edge、真实搜狗中文 commit、产品状态、重复失败熔断和失败不污染 formal cache；歌曲海 App 请求超时且低压主机探测发生 TLS `SSL_ERROR_SYSCALL`，因此在线搜索分页到 Media3 播放/seek、歌词和队列的当前包闭环为 `external_blocked`。不得通过 helper、注入或伪数据绕过；歌曲海 TLS 恢复后在同一已安装包上补采闭环，不重装。
+## 历史 Native R1/R2 证据
 
-## 启动基线证据
+以下记录只证明 `96093aa` 冻结起点的既有能力和来路，不是 v2 当前执行线状态。
 
-- Integration clone：`codex/native-unified-epic-20260726@d948a893f5d14d53942fbbaedf333a974e2ae015`，启动时工作区干净。
+- Integration clone：`codex/native-unified-epic-20260726@d948a893f5d14d53942fbbaedf333a974e2ae015`，当时工作区干净。
 - Fresh `testDebugUnitTest + lintDebug + assembleDebug`：`BUILD SUCCESSFUL`，JVM tests `176/176`，未安装 APK。
 - Baseline APK SHA-256：`2e979cde5b51927a9a991651d1a0f2de95b2a4d77201b7f9ff251d0a341a284c`。
 - Demo 数据缺口已定位：`SearchPresenter.kt` 的 `SampleSearchPresenter/sampleResult`，`AiMusicApp.kt` 的 `demoQueueTracks/InMemoryPlaybackController` 及热榜 demo 列表。
-- 开发集成线程已进入 active；六个完整 clone、六条独立 `codex/` 分支和六个继承用户全局默认的 Agent 均已启动，起点均为 `d948a893f5d14d53942fbbaedf333a974e2ae015`。
+- 旧 R1 开发集成曾启动六个完整 clone、六条独立 `codex/` 分支和六个继承用户全局默认的 Agent，起点均为 `d948a893f5d14d53942fbbaedf333a974e2ae015`；这些执行线已被 v2 四线替代。
 - 启动后写集证据：S1 已修改 Gequhai 生产/测试；S2 已写 PlaybackController RED test；S3 已新增 CacheInventory 生产/测试；S4 已新增 Library repository RED test；S6 已新增 evidence manifest 压力契约与 QA tests。S5 已启动分析且尚未产生工作区 diff。
 - S1 已完成并在统一仓通过搜索定向 `50/50`；S4 的四个真实仓库与受控热榜源已完成，切片测试 `195/195`，并在统一仓完成 `ProductDataComposition` 首个 RED/GREEN。
 - S2、S6 已完成并叠加到统一工作区，统一验证仍在继续；S3、S5 保持并行。统一仓当前只有未提交集成 diff，未进行 ADB 或中间包安装。

@@ -34,17 +34,17 @@
 python3 docs/codex_collab/tools/team_ops.py validate-message --file /tmp/ai-music-message.txt
 python3 docs/codex_collab/tools/team_ops.py validate-message --file /tmp/ai-music-message.txt --request-file docs/codex_collab/requests/AM-YYYYMMDD-NNN.md
 python3 docs/codex_collab/tools/team_ops.py validate-request docs/codex_collab/requests/AM-YYYYMMDD-NNN.md
-python3 docs/codex_collab/tools/team_ops.py validate-workflow docs/codex_collab/requests/AM-YYYYMMDD-NNN.md --gate <design|start|review|merge|close>
+python3 docs/codex_collab/tools/team_ops.py validate-workflow docs/codex_collab/requests/AM-YYYYMMDD-NNN.md --gate <active|integrating|candidate_ready|needs_user_acceptance|complete>
 python3 docs/codex_collab/tools/team_ops.py scan --root /Users/huangqi/AIHome/ai_music --legacy-ok
 ```
 
 - 跨 lane 消息先过 `validate-message`，避免缺 owner、缺回传、无效等待或广播无关 lane。
-- 新 Superpowers request 的消息使用 `--request-file` 绑定任务上下文；旧 request 不强制迁移成双 review 消息，避免打断当前收口。
+- Rapid Delivery v2 活跃 request 的消息使用 `--request-file` 绑定任务上下文；历史 request 不强制迁移，避免打断当前收口。
 - 新建或更新任务单先过 `validate-request`，避免任务没有版本、分支、独立工程路径和唯一 owner。
-- 2026-07-11 及以后新建的 request 使用 `Workflow: superpowers-v1`，并在设计、开工、review、合入和关闭前运行对应 `validate-workflow` 门禁。
+- 当前活跃 Epic 使用 `Workflow: ai-music-rapid-delivery-v2`，并在五个状态切换前运行对应 `validate-workflow` 门禁；`superpowers-v1` 仅保留历史或关闭记录。
 - 架构师巡检和合入前运行 `scan --legacy-ok`；旧账只作为迁移提醒，新任务必须按硬规则补齐。
 
-## Superpowers 适配
+## 工程方法
 
 - 新功能先用 `brainstorming` 明确设计，再用 `writing-plans` 写可执行计划；Product 已给出明确设计和实施指令时，可以把该指令记录为批准，不额外制造等待。
 - Bug 先用 `systematic-debugging` 找根因；功能、修复和重构默认使用 `test-driven-development`。
@@ -52,7 +52,7 @@ python3 docs/codex_collab/tools/team_ops.py scan --root /Users/huangqi/AIHome/ai
 - 所有完成声明使用 `verification-before-completion` 提供新鲜命令输出、HEAD/commit 和设备或包证据。
 - 两个以上独立任务按 `dispatching-parallel-agents` 思路并行分配给独立 lane/独立工程；共享文件或共享状态的任务串行。
 - AI Music 不采用 `using-git-worktrees`；继续执行独立 clone/`Project Path` 规则。
-- 完整设计见 `docs/superpowers/specs/2026-07-11-ai-music-team-workflow-design.md`。
+- 这些方法服务于 Rapid Delivery v2 的连续执行，不构成额外审批层或中间停点。
 
 ## 工作流
 
@@ -194,10 +194,10 @@ python3 docs/codex_collab/tools/team_ops.py scan --root /Users/huangqi/AIHome/ai
 ```text
 type: task|status|demo_ready|review_request|review_result|handoff|blocker
 request: AM-YYYYMMDD-NNN
-workflow: superpowers-v1  # 新工作流可显式填写；或 validate-message 传 --request-file
+workflow: ai-music-rapid-delivery-v2
 lane: product|android|ios|ohos|architect|ui|qa|release-manager|source-researcher|playlist-researcher|streaming-researcher|xiaoai-researcher|qa-researcher
 thread: <codex-thread-id>
-status: proposed|assigned|in_progress|review|ready_to_try|accepted|blocked
+status: active|integrating|candidate_ready|needs_user_acceptance|complete
 summary: <中文事实摘要>
 next_action: <中文下一步>
 ```

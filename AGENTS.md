@@ -25,12 +25,14 @@ AI Music 当前只使用 `mobile-ai-music` 四角色敏捷团队：
 
 ## 当前交付主线
 
-- 唯一产品交付主线是 `/Users/huangqi/AIHome/ai_music_android_native` 的 Android Native 工程，基线分支 `codex/native-unified-milestone`。所有新功能从该主线最新确认 HEAD 继续。
-- `/Users/huangqi/AIHome/ai_music` 是协作管理根；其中 Flutter 实现只保留历史证据和紧急回退，不再作为新功能主线。旧歌源专项和小爱专项只作为原生 Epic 的历史输入或替代项，不再继续创建互相等待的窄 request。
+- 唯一产品交付主线是 `/Users/huangqi/AIHome/ai_music_android_native` 的 Android Native 工程，当前集成分支 `codex/native-unified-epic-20260726`，冻结起点 `96093aa771e3a89ff11d523ed99fcacfeaa9b8ee`。所有新功能从该分支最新确认 HEAD 继续。
+- `/Users/huangqi/AIHome/ai_music` 是协作管理根；其中 Flutter 实现只保留历史证据、紧急回退和必须追平的播放/歌词/进度 UX 合同，不得修改为本轮交付代码。旧歌源专项和小爱专项只作为原生 Epic 的历史输入或替代项，不再继续创建互相等待的窄 request。
 - HarmonyOS 与 iOS 当前只允许研究、协议验证和风险沉淀，不得阻塞 Android Native P1。
-- Android Native 以单一 Epic 持续集成。开发是统一集成者，可自行管理六个互斥写集子 Agent；每个子 Agent 必须使用独立完整 clone，禁止 worktree。
-- 每四小时或任一独立切片完成即集成，以先到者为准；任何子任务 15 分钟没有新增事实，开发必须收窄范围、替换 Agent 或切换替代实现。
-- 逻辑验收前禁止重复安装中间包。达到约 80% 真实核心逻辑并通过 fresh tests/lint/build、搜索/播放/边播 seek/下载转正/歌词封面/队列/失败隔离/evidence manifest 后，只安装一次小米 10 Pro debug 包并进入用户逻辑验收；最终真实 UI 全接线后再安装一次进入真实 UI 验收。
+- 当前唯一活跃工作流是 `ai-music-rapid-delivery-v2`，状态只允许 `active`、`integrating`、`candidate_ready`、`needs_user_acceptance`、`complete`。`superpowers-v1` 仅可出现在历史或关闭记录中，不得驱动活跃 Epic。
+- Android Native 以单一 Epic 持续集成。负责人只负责派工、集成、review、stage、commit 和 push，不承担日常功能开发；开发是统一集成者，在自己的持久任务内管理公开歌源、多 Provider 聚合、Flutter UX 等价迁移、自动化与证据四条互斥写集执行线。
+- 四条执行线必须使用独立完整 clone，禁止 worktree。任一独立切片完成即进入统一工程集成；任何执行线 15 分钟没有新增事实，开发必须收窄范围或在同一任务内替换执行者。
+- 公开歌源研究必须低压、合法且 fail closed：不得绕过验证码、防护、登录、付费或 DRM；不得把网盘、试听、HTML、防护页或错误歌手冒充完整音频。单 Provider 最多 1 个并发，全局最多 2 个并发；单轮研究最多 20 次请求，同源请求间隔至少 1.5 秒。连续 3 次传输失败冷却 15 分钟，遇到 403、429 或防护页立即暂停该来源，其他 Provider 继续。
+- 逻辑验收前禁止安装中间包。至少两个公开 Provider 通过严格完整音频准入，并且 fresh tests/lint/build、完整搜索、聚合分页、Media3 播放、边播 seek、下载转正、歌词封面、队列、失败隔离和 evidence manifest 全通过后，只安装一次小米 10 Pro 功能候选并进入用户逻辑验收；最终真实 UI 全接线后再安装一次进入真实 UI 验收。
 
 ## 自动执行
 

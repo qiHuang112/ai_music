@@ -32,13 +32,24 @@
     "hide_internal_routing_in_user_output": true
   },
   "workflow_policy": {
+    "active_workflow": "ai-music-rapid-delivery-v2",
+    "legacy_workflows": [
+      "superpowers-v1"
+    ],
+    "states": [
+      "active",
+      "integrating",
+      "candidate_ready",
+      "needs_user_acceptance",
+      "complete"
+    ],
     "experience_gates": [
       "requirement",
       "logic_acceptance",
       "design_approval",
       "implemented_ui_acceptance"
     ],
-    "core_80_commit_allowed": false,
+    "slice_integration_commit_allowed": true,
     "ux_approval_is_revision_bound_submission_authorization": true,
     "review_round_limit": null,
     "allowed_pause_reasons": [
@@ -97,16 +108,39 @@
     "management_root": "/Users/huangqi/AIHome/ai_music",
     "primary_repository": "/Users/huangqi/AIHome/ai_music_android_native",
     "primary_platform": "android_native",
-    "baseline_branch": "codex/native-unified-milestone",
-    "flutter_status": "historical_fallback_only",
+    "baseline_branch": "codex/native-unified-epic-20260726",
+    "baseline_commit": "96093aa771e3a89ff11d523ed99fcacfeaa9b8ee",
+    "flutter_status": "behavior_visual_contract_and_fallback_no_edits",
     "legacy_source_and_xiaoai_status": "historical_or_replaced",
     "harmonyos_ios_status": "research_only",
     "single_epic_delivery": true,
-    "developer_integrator_subagent_count": 6,
+    "developer_integrator_subagent_count": 4,
+    "execution_lines": [
+      "public_provider_low_pressure_research_and_integration",
+      "multi_provider_aggregation_and_pagination",
+      "flutter_playback_lyrics_progress_ux_parity_to_compose",
+      "automation_and_evidence"
+    ],
     "subagent_isolation": "independent_full_clone_disjoint_write_scope_no_worktree",
-    "integration_trigger": "four_hours_or_independent_slice_complete_whichever_first",
+    "integration_trigger": "independent_slice_complete",
     "stale_slice_action_minutes": 15,
     "intermediate_device_install_allowed": false,
+    "minimum_public_provider_count": 2,
+    "provider_research_policy": {
+      "per_provider_concurrency": 1,
+      "global_concurrency": 2,
+      "same_provider_min_interval_seconds": 1.5,
+      "max_requests_per_round": 20,
+      "transport_failure_cooldown_after": 3,
+      "cooldown_minutes": 15,
+      "pause_immediately_on": [
+        "http_403",
+        "http_429",
+        "captcha_or_protection"
+      ],
+      "bypass_protection_allowed": false
+    },
+    "function_candidate_gate": "two_public_providers_and_full_search_playback_progressive_seek_cache_promotion_lyrics_artwork_queue_failure_isolation_plus_fresh_tests_lint_build_evidence",
     "logic_acceptance_device": "Xiaomi Mi 10 Pro",
     "final_ui_acceptance_device": "Xiaomi Mi 10 Pro"
   },
