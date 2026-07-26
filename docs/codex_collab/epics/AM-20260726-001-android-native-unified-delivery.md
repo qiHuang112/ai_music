@@ -49,7 +49,7 @@ NCUX-R1/R2 只作防回退 lineage，不再约束为单歌曲海或 `3+3+2` 分�
 
 | Line | Owner | Independent Clone | Writable Scope | Integrator-Owned Exclusions | Status |
 | --- | --- | --- | --- | --- | --- |
-| R1 公开歌源低压研究及接入 | Nietzsche `019f9db3-15af-7142-a16e-20e263b9dcb8` | `/Users/huangqi/AIHome/projects/ai_music_android_native_AM-20260726-001_provider_research` | `data/source/providers/**`、provider-specific tests、低压研究脚本与来源状态表 | 聚合仓库、UI、播放/cache、Gradle、Manifest、app wiring | Kuwo accepted_overlaid；BuguYY 接入 changes_requested；GD 双域执行者已按 15 分钟规则替换并收窄为 5 请求探测 |
+| R1 公开歌源低压研究及接入 | Nietzsche `019f9db3-15af-7142-a16e-20e263b9dcb8` | `/Users/huangqi/AIHome/projects/ai_music_android_native_AM-20260726-001_provider_research` | `data/source/providers/**`、provider-specific tests、低压研究脚本与来源状态表 | 聚合仓库、UI、播放/cache、Gradle、Manifest、app wiring | Kuwo accepted_overlaid；BuguYY provider slice accepted_pending_overlay；GD protection_stopped；独立上游 shortlist replacement active |
 | R2 多 Provider 聚合与分页 | Bernoulli `019f9db3-5046-7f62-ba44-a2cd5579f6f2` | `/Users/huangqi/AIHome/projects/ai_music_android_native_AM-20260726-001_provider_aggregation` | `domain/source/**`、聚合 repository/use case、查询结构化、去重/备用源/健康度/批量分页及 tests | provider-specific adapters、UI、Media3/cache、Gradle、Manifest | accepted_overlaid_atomic_loader_29 |
 | R3 Flutter UX 等价迁移 | Kepler `019f9db3-6d06-7c60-bdee-9968ae2b8c72` | `/Users/huangqi/AIHome/projects/ai_music_android_native_AM-20260726-001_flutter_ux_parity` | `ui/**`、Compose screenshot/layout tests、Flutter 只读对照证据 | data/domain/provider、playback/cache、Gradle、Manifest、Flutter 文件 | ncux_r3_accepted_direct_delta_and_runtime_wiring_active |
 | R4 自动化与证据 | Raman `019f9db3-8cb4-70c1-bc08-e89e20baba82` | `/Users/huangqi/AIHome/projects/ai_music_android_native_AM-20260726-001_rapid_qa` | `docs/qa/**`、`src/androidTest/**`、evidence contracts/scripts、test resources | production provider、UI、playback/cache、Gradle、Manifest | accepted_overlaid_validator_31_production_8_red |
@@ -86,13 +86,15 @@ NCUX-20260726-R3 `6f3b60bb...`、alternate playback、真实 metadata/seek lifec
 AndroidTest compile、lint、assemble、diff-check 全通过，QA validator
 `8/8 + 25/25`，production contract 仍诚实保持 `1 pass / 8 expected RED`。
 
-下一事件是 BuguYY 切片 GREEN 后立即窄复审并叠加。负责人 fresh BuguYY
-`26` 项中当前有 `3` 项失败：有界响应读取错误地要求完整读满 1 MiB、真实
-`244.520113` 秒被 floor 为 `244`，以及一个未清线程 interrupt 的测试隔离问题。
-同时 R4 必须新增可审计的 Provider failure-domain 门禁，保证共享 Kuwo 上游的
-Kuwo 与 BuguYY 不会单独满足“至少两个相互独立 Provider”。GD 替换执行者第一轮
-只允许最多 `5` 个请求确认双域可达性、后端同源性和普通公开协议；两线均不触发
-中间 APK 安装。
+下一事件是将 accepted BuguYY 八文件精确叠加并完成第三来源
+SearchComposition、ProductDataComposition、source settings、label 与 alternate
+注册。负责人 fresh BuguYY `28/28`，短响应 EOF、时长取整和测试 interrupt 隔离
+均已关闭。R4 同步新增可审计的 Provider failure-domain 门禁，保证共享 Kuwo
+上游的 Kuwo 与 BuguYY 不会单独满足“至少两个相互独立 Provider”。
+
+GD 替换执行者在第一轮 `2/5` 请求即按保护规则停域：两个入口均返回 `200`
+应用 HTML，但都注入 Cloudflare challenge-platform；因此不再探测 API、样本、
+HEAD 或 Range，两域本轮不可准入。以上事件均不触发中间 APK 安装。
 
 ## Rapid v2 启动事实
 
@@ -205,6 +207,22 @@ Kuwo 与 BuguYY 不会单独满足“至少两个相互独立 Provider”。GD �
   复用同一 R1 任务和 Project Path。第一轮总请求上限为 `5`：两个域入口、公开
   说明/API discover 与一个固定“外婆”样本；403/429/防护立即停，先只回可达性、
   是否同后端、是否存在公开搜索/完整音频协议以及继续/停止结论。
+- BuguYY 回改经负责人 fresh non-incremental single-worker `28/28` 通过并完成
+  Spec/Code Quality 窄复审 accepted。普通 HTTPS 搜索/geturl、严格身份、
+  `HEAD 200 audio` 正长度、与 HEAD total 一致且实际 `8192` 字节的 Range、
+  歌词封面、节流/冷却/保护暂停和整操作 cancellation generation 均可叠加；
+  生产核心 SHA-256 为 repository `d5185138...`、protocol `cf8a360a...`、
+  transport `89390f76...`。
+- GD 替换执行者实际只发送 `2` 个请求，间隔 `24` 秒。`.xyz` 与 `.org` 均返回
+  `200 text/html`、`5039` 字节且前 `94` 行一致，共享部署时间、资源版本、
+  Cloudflare 与 challenge-platform 路径。按“防护立即停止”规则未请求固定样本、
+  API、HEAD 或 Range；公开搜索、完整音频协议和源站独立性均未证明，结论为
+  `protection_stopped_protocol_unproven`，不得准入或计独立 Provider。
+- GD 执行者随后被替换为同一 R1 下的公开候选 shortlist 研究，不建新 request。
+  每轮先列最多 `5` 个排除网盘/登录/付费/DRM/防护的候选，每站只请求一次普通
+  入口；干净可达后才用固定“外婆”样本和严格 8 KiB 门禁，整轮总请求少于 `20`。
+  目标优先为与 Kuwo/BuguYY 不同 failure domain 的健康 Provider；Gequhai 只做
+  一次低压健康重验。BuguYY 叠加和统一 fresh 不等待该研究。
 
 ## 历史 Native R1/R2 证据
 
