@@ -49,10 +49,10 @@ NCUX-R1/R2 只作防回退 lineage，不再约束为单歌曲海或 `3+3+2` 分�
 
 | Line | Owner | Independent Clone | Writable Scope | Integrator-Owned Exclusions | Status |
 | --- | --- | --- | --- | --- | --- |
-| R1 公开歌源低压研究及接入 | Nietzsche `019f9db3-15af-7142-a16e-20e263b9dcb8` | `/Users/huangqi/AIHome/projects/ai_music_android_native_AM-20260726-001_provider_research` | `data/source/providers/**`、provider-specific tests、低压研究脚本与来源状态表 | 聚合仓库、UI、播放/cache、Gradle、Manifest、app wiring | Kuwo accepted_overlaid；BuguYY provider slice accepted_pending_overlay；GD protection_stopped；独立上游 shortlist replacement active |
+| R1 公开歌源低压研究及接入 | Nietzsche `019f9db3-15af-7142-a16e-20e263b9dcb8` | `/Users/huangqi/AIHome/projects/ai_music_android_native_AM-20260726-001_provider_research` | `data/source/providers/**`、provider-specific tests、低压研究脚本与来源状态表 | 聚合仓库、UI、播放/cache、Gradle、Manifest、app wiring | Kuwo/BuguYY accepted_overlaid；GD protection_stopped；shortlist round 1 no_provider_passed；独立健康 failure domain 仍缺 |
 | R2 多 Provider 聚合与分页 | Bernoulli `019f9db3-5046-7f62-ba44-a2cd5579f6f2` | `/Users/huangqi/AIHome/projects/ai_music_android_native_AM-20260726-001_provider_aggregation` | `domain/source/**`、聚合 repository/use case、查询结构化、去重/备用源/健康度/批量分页及 tests | provider-specific adapters、UI、Media3/cache、Gradle、Manifest | accepted_overlaid_atomic_loader_29 |
 | R3 Flutter UX 等价迁移 | Kepler `019f9db3-6d06-7c60-bdee-9968ae2b8c72` | `/Users/huangqi/AIHome/projects/ai_music_android_native_AM-20260726-001_flutter_ux_parity` | `ui/**`、Compose screenshot/layout tests、Flutter 只读对照证据 | data/domain/provider、playback/cache、Gradle、Manifest、Flutter 文件 | ncux_r3_accepted_direct_delta_and_runtime_wiring_active |
-| R4 自动化与证据 | Raman `019f9db3-8cb4-70c1-bc08-e89e20baba82` | `/Users/huangqi/AIHome/projects/ai_music_android_native_AM-20260726-001_rapid_qa` | `docs/qa/**`、`src/androidTest/**`、evidence contracts/scripts、test resources | production provider、UI、playback/cache、Gradle、Manifest | accepted_overlaid_validator_31_production_8_red |
+| R4 自动化与证据 | Raman `019f9db3-8cb4-70c1-bc08-e89e20baba82` | `/Users/huangqi/AIHome/projects/ai_music_android_native_AM-20260726-001_rapid_qa` | `docs/qa/**`、`src/androidTest/**`、evidence contracts/scripts、test resources | production provider、UI、playback/cache、Gradle、Manifest | failure-domain gate accepted_overlaid；validator 38/38；production 1 pass/8 expected RED |
 
 统一开发集成者独占：`MainActivity.kt`、`ui/AiMusicApp.kt`、`composition/**`、
 `AndroidManifest.xml`、Gradle/settings、共享模型装配和最终冲突解决。四条执行线
@@ -86,15 +86,19 @@ NCUX-20260726-R3 `6f3b60bb...`、alternate playback、真实 metadata/seek lifec
 AndroidTest compile、lint、assemble、diff-check 全通过，QA validator
 `8/8 + 25/25`，production contract 仍诚实保持 `1 pass / 8 expected RED`。
 
-下一事件是将 accepted BuguYY 八文件精确叠加并完成第三来源
-SearchComposition、ProductDataComposition、source settings、label 与 alternate
-注册。负责人 fresh BuguYY `28/28`，短响应 EOF、时长取整和测试 interrupt 隔离
-均已关闭。R4 同步新增可审计的 Provider failure-domain 门禁，保证共享 Kuwo
-上游的 Kuwo 与 BuguYY 不会单独满足“至少两个相互独立 Provider”。
+BuguYY 八文件、第三来源 SearchComposition/ProductDataComposition/source
+settings/label/alternate 注册和 R4 failure-domain 门禁均已叠加。统一 fresh 为
+targeted `103/103`、full JVM `493/493`（61 suites）、validator `38/38`、
+AndroidTest compile、lint、assemble、JSON 与 diff-check 全通过；production
+contract 继续诚实保持 `1 pass / 8 expected RED`。APK SHA-256
+`233037d5121d21551473ee81226d2626604c301ffe09f3a0d10cdd7e535f2bde`，
+未安装。
 
-GD 替换执行者在第一轮 `2/5` 请求即按保护规则停域：两个入口均返回 `200`
-应用 HTML，但都注入 Cloudflare challenge-platform；因此不再探测 API、样本、
-HEAD 或 Range，两域本轮不可准入。以上事件均不触发中间 APK 安装。
+GD 替换执行者在第一轮 `2/5` 请求即按保护规则停域。其后 shortlist round 1
+保守计 `12` 次外部请求，五站均未建立严格“外婆”身份或完整音频协议；首批
+搜索工具调用无法证明 `1.5` 秒间隔，已作为协议偏差记录且不作准入证据。
+当前代码候选可进入最终集中 review，但在 Gequhai 或新来源形成独立健康
+failure-domain 证据前，不得解锁唯一功能候选安装。
 
 ## Rapid v2 启动事实
 
@@ -223,6 +227,24 @@ HEAD 或 Range，两域本轮不可准入。以上事件均不触发中间 APK �
   入口；干净可达后才用固定“外婆”样本和严格 8 KiB 门禁，整轮总请求少于 `20`。
   目标优先为与 Kuwo/BuguYY 不同 failure domain 的健康 Provider；Gequhai 只做
   一次低压健康重验。BuguYY 叠加和统一 fresh 不等待该研究。
+- R4 failure-domain 五文件经负责人 fresh `38/38` 和窄 Spec/Code Quality review
+  accepted：每个 Provider 必须绑定 `provider_origin/v1`、`failureDomainId` 与
+  `originEvidenceIds`；共享 domain 或共享 authority 均报
+  `E_PROVIDER_FAILURE_DOMAIN_INDEPENDENCE`，缺失/错绑 origin 报
+  `E_PROVIDER_ORIGIN_EVIDENCE`。Production contract 继续诚实保持
+  `1 pass / 8 expected RED`，所有 `__pycache__` 排除。
+- BuguYY、第三来源 composition/settings/label/alternate 和 R4 门禁叠加后，
+  负责人 fresh 联合 Gradle targeted `103/103`、validator `38/38`、JSON 与
+  diff-check 通过；早期集中 review 未发现新增 P1/P2。统一 full JVM、
+  AndroidTest compile、lint、assemble 与最终双 review 已立即触发。
+- 统一 fresh 已完成：full JVM `493/493`（61 suites）、AndroidTest compile、
+  lint、assemble 全通过，APK SHA-256 为 `233037d5...2bde`，未安装。Production
+  contract 的 `8` 项 expected RED 继续阻断候选安装，没有用 BuguYY/Kuwo
+  共享故障域虚构独立 Provider。
+- 公开 shortlist round 1 结论为 `no_provider_passed`，报告 sha256
+  `fc1888087cfe87bb37ee9524e31502eb1b7e2581dae1e451541c77e5455b50ae`。
+  OpenFlac 未建立自然搜索协议；music.znnu.com 命中 VIP/受限解析停止信号；
+  ws.mba 与 wsyyww.com 含登录/注册；gggmusic 首次连接失败。五站均不实现。
 
 ## 历史 Native R1/R2 证据
 
