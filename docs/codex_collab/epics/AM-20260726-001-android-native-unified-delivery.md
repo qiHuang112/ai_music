@@ -49,10 +49,10 @@ NCUX-R1/R2 只作防回退 lineage，不再约束为单歌曲海或 `3+3+2` 分�
 
 | Line | Owner | Independent Clone | Writable Scope | Integrator-Owned Exclusions | Status |
 | --- | --- | --- | --- | --- | --- |
-| R1 公开歌源低压研究及接入 | Nietzsche `019f9db3-15af-7142-a16e-20e263b9dcb8` | `/Users/huangqi/AIHome/projects/ai_music_android_native_AM-20260726-001_provider_research` | `data/source/providers/**`、provider-specific tests、低压研究脚本与来源状态表 | 聚合仓库、UI、播放/cache、Gradle、Manifest、app wiring | active_red_kuwo_migration_contract |
-| R2 多 Provider 聚合与分页 | Bernoulli `019f9db3-5046-7f62-ba44-a2cd5579f6f2` | `/Users/huangqi/AIHome/projects/ai_music_android_native_AM-20260726-001_provider_aggregation` | `domain/source/**`、聚合 repository/use case、查询结构化、去重/备用源/健康度/批量分页及 tests | provider-specific adapters、UI、Media3/cache、Gradle、Manifest | active_red_independent_cursor_atomic_batch |
-| R3 Flutter UX 等价迁移 | Kepler `019f9db3-6d06-7c60-bdee-9968ae2b8c72` | `/Users/huangqi/AIHome/projects/ai_music_android_native_AM-20260726-001_flutter_ux_parity` | `ui/**`、Compose screenshot/layout tests、Flutter 只读对照证据 | data/domain/provider、playback/cache、Gradle、Manifest、Flutter 文件 | active_red_buffered_progress_contract |
-| R4 自动化与证据 | Raman `019f9db3-8cb4-70c1-bc08-e89e20baba82` | `/Users/huangqi/AIHome/projects/ai_music_android_native_AM-20260726-001_rapid_qa` | `docs/qa/**`、`src/androidTest/**`、evidence contracts/scripts、test resources | production provider、UI、playback/cache、Gradle、Manifest | active_red_6_of_9_expected_failures |
+| R1 公开歌源低压研究及接入 | Nietzsche `019f9db3-15af-7142-a16e-20e263b9dcb8` | `/Users/huangqi/AIHome/projects/ai_music_android_native_AM-20260726-001_provider_research` | `data/source/providers/**`、provider-specific tests、低压研究脚本与来源状态表 | 聚合仓库、UI、播放/cache、Gradle、Manifest、app wiring | active_red_query_modes_rate_circuit |
+| R2 多 Provider 聚合与分页 | Bernoulli `019f9db3-5046-7f62-ba44-a2cd5579f6f2` | `/Users/huangqi/AIHome/projects/ai_music_android_native_AM-20260726-001_provider_aggregation` | `domain/source/**`、聚合 repository/use case、查询结构化、去重/备用源/健康度/批量分页及 tests | provider-specific adapters、UI、Media3/cache、Gradle、Manifest | accepted_pending_unified_overlay |
+| R3 Flutter UX 等价迁移 | Kepler `019f9db3-6d06-7c60-bdee-9968ae2b8c72` | `/Users/huangqi/AIHome/projects/ai_music_android_native_AM-20260726-001_flutter_ux_parity` | `ui/**`、Compose screenshot/layout tests、Flutter 只读对照证据 | data/domain/provider、playback/cache、Gradle、Manifest、Flutter 文件 | active_red_buffered_progress_and_wiring |
+| R4 自动化与证据 | Raman `019f9db3-8cb4-70c1-bc08-e89e20baba82` | `/Users/huangqi/AIHome/projects/ai_music_android_native_AM-20260726-001_rapid_qa` | `docs/qa/**`、`src/androidTest/**`、evidence contracts/scripts、test resources | production provider、UI、playback/cache、Gradle、Manifest | active_red_expanded_provider_and_journey_gates |
 
 统一开发集成者独占：`MainActivity.kt`、`ui/AiMusicApp.kt`、`composition/**`、
 `AndroidManifest.xml`、Gradle/settings、共享模型装配和最终冲突解决。四条执行线
@@ -69,11 +69,11 @@ NCUX-R1/R2 只作防回退 lineage，不再约束为单歌曲海或 `3+3+2` 分�
 
 ## 下一集成点
 
-从 `96093aa` 启动四条 v2 执行线。R1 先用固定样本“外婆、一丝不挂、稻香、
-哎呀、剩下的果实”和负样本“东方财富”低压筛选第二合法 Provider；R2 并行建立
-统一 Provider 接口、12 条首屏和 6-12 条原子分页；R3 直接迁移 Flutter 已验收
-歌词/进度/轻量加载状态；R4 先补多源、视觉对照和完整 manifest RED 合同。任一
-切片完成立即交统一工程 review/集成，不等待四线齐套，不安装中间 APK。
+R2 聚合领域切片已通过集中 Spec/Code Quality 复审：负责人 fresh targeted
+`16/16`、full JVM `306/306`。下一事件是把两文件精确叠加统一工程，并由集成者
+RED-GREEN 完成唯一 shared cursor/composition 适配；compatibility cursor 不得
+成为生产真值。R1 继续 Kuwo 查询模式、节流和熔断回改；R3/R4 继续补生产装配与
+完整证据门禁。四线不互等，不安装中间 APK。
 
 ## Rapid v2 启动事实
 
@@ -92,6 +92,21 @@ NCUX-R1/R2 只作防回退 lineage，不再约束为单歌曲海或 `3+3+2` 分�
   生成的 `__pycache__` 必须在切片 handoff 前排除。
 - 当前没有 ADB、安装、stage、commit 或 push。首个集成事件优先接收 R2
   cursor/12 首屏/6-12 批次可运行切片，随后接 R1 Kuwo 低压普通路径事实。
+- R2 首轮 review 发现 success page 返回未前进 cursor 会永久卡住加载更多并阻止
+  合法尾批。三项 RED/GREEN 已覆盖空页、重复/无效候选和释放 1-5 尾批；停滞
+  Provider 现在按协议错误局部隔离。负责人复审 accepted，生产/测试文件 SHA-256
+  分别为 `a2d296125243100eba89d3d156996f7e5eb819a1224024d0afdb9675ebb544c9`
+  和 `ddf6d6ec505ee8efb83d933bca047b58aba23669a7d90ec6970f1ae9531cf393`。
+- R1 早期 review 已锁定单 token 歌名/歌手查询不可达，以及每源单并发、1.5 秒
+  间隔、三次传输失败冷却和 403 立即暂停缺口；对应 RED/GREEN 不阻塞其他线。
+- R3 的三段进度尚缺 `PlaybackState.bufferedPositionMs` 到
+  `PlaybackPresentationSnapshot` 的生产装配；该 shared wiring 仅由集成者处理。
+- R4 需把 Provider 低压约束、首声早于下载、未下载区双向 seek、备用源续播、
+  离线复用、缓存零污染及 MediaSession 一致性纳入真实 artifact-bound 门禁，
+  不允许自报布尔值替代证据。
+- NCUX-R3 自启动 15 分钟仍无 revision/hash，已在同一 UX 任务和线程内替换执行，
+  仅交 Flutter/Compose 等价 revision/hash、最小差异、能力依赖和 QA 清单；不建
+  新 request，也不阻塞四线。
 
 ## 历史 Native R1/R2 证据
 

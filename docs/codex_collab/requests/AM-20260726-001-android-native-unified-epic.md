@@ -31,7 +31,7 @@ UX Revision: pending_rapid_v2_flutter_equivalence_contract; NCUX-20260726-R2 ret
 Logic Acceptance: not_started_rapid_delivery_v2
 Design Approval: user_approved_flutter_player_lyrics_progress_loading_as_mandatory_native_contract
 Implemented UI Acceptance: required not_started
-Development Status: active_four_disjoint_clones_at_96093aa_all_have_red_next_integration_r2_cursor_then_r1_kuwo_no_device_install
+Development Status: r2_domain_slice_accepted_pending_unified_overlay_r1_r3_r4_active_no_device_install
 Discovery Evidence: DISC-0011 and DISC-0012 are integrated by Product and UX; discovery inbox strict check reports unresolved_count=0.
 Root Cause Evidence: the online path still had a single Gequhai dependency and Compose used functional placeholders instead of the accepted Flutter progress, lyrics and loading contract.
 Research Evidence: Native `96093aa` already contains MusicSearchRepository, ProviderSearchCursorV1, FullAudioTrack, GequhaiSource/Repository and strict full-audio gates. Historical AM-20260717-001 contains a verified Gequhai+Kuwo aggregation seed with local-cache priority, cross-source dedupe, independent pagination/circuits and zero unplayed cache; reuse its contracts and revalidate Kuwo at low pressure rather than creating parallel models.
@@ -42,10 +42,10 @@ Self Test Evidence: team manifest JSON, discovery unresolved=0, generic work-ite
 Product Main Path Evidence: the prior single-provider candidate remained externally blocked at Gequhai TLS. The user approved replacing that dependency with at least two public Providers and mandatory Flutter/Compose UX equivalence while preserving all positive Media3/cache/IME/navigation evidence in the `96093aa` frozen start.
 Baseline Freshness Evidence: integration clone and `origin/codex/native-unified-epic-20260726` are clean and equal at `96093aa771e3a89ff11d523ed99fcacfeaa9b8ee`.
 Scope Diff Evidence: v2 bootstrap changes only management workflow, Epic/request/requirement, manifest, team Skill and validator/tests; Native business code remains unchanged at the frozen start.
-Spec Review Result: pending_rapid_delivery_v2_integrated_slice
-Code Quality Review Result: pending_rapid_delivery_v2_integrated_slice
+Spec Review Result: r2_domain_slice_accepted; r1_query_rate_circuit_r3_buffer_wiring_r4_evidence_gates_active
+Code Quality Review Result: r2_domain_slice_accepted_no_findings; remaining_lines_pending_handoff
 Full Verification Evidence: not_started_rapid_delivery_v2; candidate verification requires at least two public Providers and the complete approved path.
-Blocking Findings: none at v2 bootstrap; Gequhai TLS is a Provider-local external failure and cannot stop Kuwo revalidation, other public-source research, aggregation, Flutter UX parity or QA.
+Blocking Findings: no Epic-wide external blocker; active in-scope P1 findings are R1 query/rate/circuit contracts, R3 production buffered-position wiring and R4 complete artifact-bound evidence gates. Gequhai TLS remains Provider-local only.
 Process Validation Note: rapid-delivery-v2 RED proved the old validator rejected the new workflow, five states and active gate; GREEN adds v2 plus historical alias compatibility without relaxing engineering evidence.
 Merge Evidence: prior Native application and QA baseline is frozen at `96093aa771e3a89ff11d523ed99fcacfeaa9b8ee`; v2 slices have not yet produced a new integration commit.
 Push Evidence: `codex/native-unified-epic-20260726` and its remote both point to frozen start `96093aa771e3a89ff11d523ed99fcacfeaa9b8ee`.
@@ -98,11 +98,15 @@ Knowledge Evidence: prior QA/evidence contracts and AM-20260717-001 multi-source
 - 2026-07-26 type=handoff lane=mobile-ai-music-lead status=active summary=Reuse audit found existing Native MusicSearchRepository, ProviderSearchCursorV1, FullAudioTrack and strict Gequhai gates, plus historical AM-20260717-001 Gequhai+Kuwo aggregation contracts. Development must revalidate and migrate the Kuwo seed first, without creating a parallel search model; other public-source research remains parallel and non-blocking.
 - 2026-07-26 type=handoff lane=mobile-ai-music-product status=active summary=Product froze canonical semantic V2 R1 sha256 798e260e with exactly five P1 points and zero unresolved discovery; bootstrap is approval evidence and all prior semantic/UX revisions are historical lineage.
 - 2026-07-26 type=status lane=mobile-ai-music-developer status=active summary=R1 Nietzsche, R2 Bernoulli, R3 Kepler and R4 Raman started four disjoint full clones at 96093aa with semantic V2 R1 binding. R1/R2/R3/R4 all have RED facts; R4 production contract has six expected failures and three existing gates pass. First integration is R2 independent cursor plus 12/6-12 batching, then R1 Kuwo low-pressure evidence; no ADB/install/Git write.
+- 2026-07-26 type=task_assignment lane=mobile-ai-music-lead status=active summary=NCUX-R3 exceeded 15 minutes without revision/hash and was replaced inside the same UX task/thread, reusing requirement 798e260e and existing Flutter/Compose audit without a new request or team.
+- 2026-07-26 type=review_result lane=mobile-ai-music-lead status=changes_requested summary=R2 fresh 13/13 exposed a missing stalled-cursor gate: a success page that returned its input cursor could loop forever and prevent another source's legal final tail. Three precise RED scenarios were assigned without stopping R1/R3/R4.
+- 2026-07-26 type=review_result lane=mobile-ai-music-lead status=accepted summary=R2 stalled-cursor correction passed fresh targeted 16/16 and full JVM 306/306. Spec and Code Quality review accepted the two-file domain slice for immediate unified overlay; shared cursor/composition remains integrator-owned and no Git/device operation is authorized.
+- 2026-07-26 type=status lane=mobile-ai-music-lead status=active summary=Early review locked R1 single-token query plus rate/circuit gaps, R3 buffered-position production wiring, and R4 provider-pressure/full-journey artifact gates as active RED work. These findings do not block the accepted R2 overlay or other lines.
 
 ## Review 结果
 
 - Reviewer Lane: mobile-ai-music-lead
 - Result: active
-- Spec Findings: none
-- Code Quality Findings: none
-- Notes: rapid-delivery-v2 四条互斥执行线从 `96093aa` 启动；任一切片完成立即集成，至少两个公开 Provider 与完整路径通过前不安装中间 APK。
+- Spec Findings: R2 domain accepted; R1 query/rate/circuit, R3 production buffered wiring and R4 complete artifact-bound gates remain active.
+- Code Quality Findings: R2 accepted with no remaining finding; R1/R3/R4 await slice handoff and concentrated review.
+- Notes: R2 is authorized for immediate two-file overlay into the unified workspace. No intermediate APK, ADB, stage, commit or push is permitted until the corresponding integration review event.
