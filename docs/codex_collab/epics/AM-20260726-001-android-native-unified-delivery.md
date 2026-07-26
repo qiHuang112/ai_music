@@ -49,7 +49,7 @@ NCUX-R1/R2 只作防回退 lineage，不再约束为单歌曲海或 `3+3+2` 分�
 
 | Line | Owner | Independent Clone | Writable Scope | Integrator-Owned Exclusions | Status |
 | --- | --- | --- | --- | --- | --- |
-| R1 公开歌源低压研究及接入 | Nietzsche `019f9db3-15af-7142-a16e-20e263b9dcb8` | `/Users/huangqi/AIHome/projects/ai_music_android_native_AM-20260726-001_provider_research` | `data/source/providers/**`、provider-specific tests、低压研究脚本与来源状态表 | 聚合仓库、UI、播放/cache、Gradle、Manifest、app wiring | Kuwo accepted_overlaid；BuguYY/GD 双域低压准入 active |
+| R1 公开歌源低压研究及接入 | Nietzsche `019f9db3-15af-7142-a16e-20e263b9dcb8` | `/Users/huangqi/AIHome/projects/ai_music_android_native_AM-20260726-001_provider_research` | `data/source/providers/**`、provider-specific tests、低压研究脚本与来源状态表 | 聚合仓库、UI、播放/cache、Gradle、Manifest、app wiring | Kuwo accepted_overlaid；BuguYY research_pass_candidate、RED/GREEN 接入 active；GD 双域低压准入 active |
 | R2 多 Provider 聚合与分页 | Bernoulli `019f9db3-5046-7f62-ba44-a2cd5579f6f2` | `/Users/huangqi/AIHome/projects/ai_music_android_native_AM-20260726-001_provider_aggregation` | `domain/source/**`、聚合 repository/use case、查询结构化、去重/备用源/健康度/批量分页及 tests | provider-specific adapters、UI、Media3/cache、Gradle、Manifest | accepted_overlaid_atomic_loader_29 |
 | R3 Flutter UX 等价迁移 | Kepler `019f9db3-6d06-7c60-bdee-9968ae2b8c72` | `/Users/huangqi/AIHome/projects/ai_music_android_native_AM-20260726-001_flutter_ux_parity` | `ui/**`、Compose screenshot/layout tests、Flutter 只读对照证据 | data/domain/provider、playback/cache、Gradle、Manifest、Flutter 文件 | ncux_r3_accepted_direct_delta_and_runtime_wiring_active |
 | R4 自动化与证据 | Raman `019f9db3-8cb4-70c1-bc08-e89e20baba82` | `/Users/huangqi/AIHome/projects/ai_music_android_native_AM-20260726-001_rapid_qa` | `docs/qa/**`、`src/androidTest/**`、evidence contracts/scripts、test resources | production provider、UI、playback/cache、Gradle、Manifest | accepted_overlaid_validator_31_production_8_red |
@@ -182,6 +182,12 @@ assemble、diff-check 与双 review；四线不互等，不安装中间 APK。
   `HEAD 200 audio/*` 正长度、`Range 206` 正 total 与实际至少 8 KiB、歌词、
   封面、URL 有效期和故障分类。验证码、登录、403、429、防护、付费或 DRM
   立即停止；试听、网盘、HTML 和防护页不得计为完整音频。
+- BuguYY 首轮低压研究以 15 个请求完成：自然搜索“外婆”命中周杰伦并动态
+  解析 HTTPS MP3，`HEAD 200 audio/mpeg`、长度 `9783513`，`Range 206
+  bytes 0-8191/9783513` 且实际 `8192` 字节，歌词、封面和正时长齐全，
+  未观察到 403/429/防护。该事实触发立即 RED/GREEN 接入；由于媒体上游疑似
+  Kuwo，BuguYY 可作为独立 Provider 身份，但在候选证据中不得虚报为与 Kuwo
+  独立的 origin failure domain。GD 双域研究继续，不等待 BuguYY 实现。
 
 ## 历史 Native R1/R2 证据
 
