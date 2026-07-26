@@ -1,0 +1,167 @@
+{
+  "schema_version": 1,
+  "team_key": "mobile-ai-music",
+  "platform": "mobile",
+  "project_name": "ai-music",
+  "repository": "/Users/huangqi/AIHome/ai_music",
+  "management_root": "/Users/huangqi/AIHome/ai_music",
+  "status": "active",
+  "controller_role": "lead",
+  "model_policy": {
+    "mode": "inherit_user_global_default",
+    "applies_to": [
+      "product",
+      "ux",
+      "developer",
+      "lead"
+    ],
+    "explicit_task_override_allowed": false,
+    "write_model_or_thinking_to_dispatch_and_ledger": false,
+    "restart_active_tasks_on_default_change": false
+  },
+  "registration": {
+    "mode": "managed",
+    "managed_blocks": true
+  },
+  "task_policy": {
+    "persistent_task_count": 4,
+    "reuse_exact_bindings": true,
+    "archive_orphans_on_failure": true,
+    "async_handoffs": true,
+    "polling_allowed": false,
+    "hide_internal_routing_in_user_output": true
+  },
+  "workflow_policy": {
+    "experience_gates": [
+      "requirement",
+      "logic_acceptance",
+      "design_approval",
+      "implemented_ui_acceptance"
+    ],
+    "core_80_commit_allowed": false,
+    "ux_approval_is_revision_bound_submission_authorization": true,
+    "review_round_limit": null,
+    "allowed_pause_reasons": [
+      "completed",
+      "user_logic_acceptance_required",
+      "user_final_ui_acceptance_required"
+    ],
+    "allowed_blocking_reasons": [
+      "security_or_destructive_risk",
+      "missing_user_decision_at_acceptance_gate",
+      "external_dependency_without_workaround"
+    ],
+    "intermediate_milestones_auto_continue": true,
+    "dynamic_scope_discovery": true,
+    "design_and_implemented_ui_are_distinct": true,
+    "blocking_scope": "affected_lane_only",
+    "continuous_iteration": true,
+    "ux_draft_triggers_coarse_implementation": true,
+    "design_approval_distinct_from_implemented_ui_acceptance": true,
+    "user_return_stop_conditions": [
+      "requirement_truly_complete",
+      "user_logic_or_complete_ui_acceptance_required",
+      "final_real_ui_implementation_acceptance_required"
+    ],
+    "non_stop_milestones": [
+      "tests_passed",
+      "apk_built",
+      "specialty_work_complete",
+      "core_80_ready",
+      "review_accepted",
+      "staged",
+      "committed",
+      "pushed"
+    ]
+  },
+  "conversation_policy": {
+    "default_skill": "create-agile-project-team",
+    "role_mode_required": true,
+    "direct_developer_preview_allowed": true,
+    "capture_user_visible_decisions": true,
+    "product_ux_read_trigger": "next_turn",
+    "unresolved_blocks_revision_freeze": true,
+    "discovery_inbox": "docs/codex_collab/teams/mobile-ai-music/discovery-inbox.json",
+    "shared_change_record_required": true,
+    "lead_conflict_check_and_developer_sync_required": true,
+    "direct_user_logic_and_ui_iteration_allowed": true,
+    "ux_redesign_from_current_implementation_allowed": true,
+    "ux_may_design_unimplemented_features": true
+  },
+  "submission_policy": {
+    "owner_role": "lead",
+    "route": "inspect_repository",
+    "remote_submitted_is_merged": false
+  },
+  "delivery_policy": {
+    "management_root": "/Users/huangqi/AIHome/ai_music",
+    "primary_repository": "/Users/huangqi/AIHome/ai_music_android_native",
+    "primary_platform": "android_native",
+    "baseline_branch": "codex/native-unified-milestone",
+    "flutter_status": "historical_fallback_only",
+    "legacy_source_and_xiaoai_status": "historical_or_replaced",
+    "harmonyos_ios_status": "research_only",
+    "single_epic_delivery": true,
+    "developer_integrator_subagent_count": 6,
+    "subagent_isolation": "independent_full_clone_disjoint_write_scope_no_worktree",
+    "integration_trigger": "four_hours_or_independent_slice_complete_whichever_first",
+    "stale_slice_action_minutes": 15,
+    "intermediate_device_install_allowed": false,
+    "logic_acceptance_device": "Xiaomi Mi 10 Pro",
+    "final_ui_acceptance_device": "Xiaomi Mi 10 Pro"
+  },
+  "roles": {
+    "product": {
+      "kind": "product",
+      "display_name": "mobile-ai-music-产品",
+      "lane": "mobile-ai-music-product",
+      "agent": "mobile-ai-music-product",
+      "thread_id": "019f6b0e-8141-76d1-96c5-24a3807fd208",
+      "reports_to": "mobile-ai-music-负责人",
+      "knowledge_dir": "docs/codex_collab/knowledge/mobile-ai-music-product",
+      "can_stage": false,
+      "can_commit": false,
+      "can_push": false,
+      "can_submit": false
+    },
+    "ux": {
+      "kind": "ux",
+      "display_name": "mobile-ai-music-UX设计",
+      "lane": "mobile-ai-music-ux",
+      "agent": "mobile-ai-music-ux",
+      "thread_id": "019f6b0e-8c6a-7411-81fe-0d8e7176230b",
+      "reports_to": "mobile-ai-music-负责人",
+      "knowledge_dir": "docs/codex_collab/knowledge/mobile-ai-music-ux",
+      "can_stage": false,
+      "can_commit": false,
+      "can_push": false,
+      "can_submit": false
+    },
+    "developer": {
+      "kind": "developer",
+      "display_name": "mobile-ai-music-开发",
+      "lane": "mobile-ai-music-developer",
+      "agent": "mobile-ai-music-developer",
+      "thread_id": "019f6b0e-972c-7eb1-91cd-a43cdbfa7d1e",
+      "reports_to": "mobile-ai-music-负责人",
+      "knowledge_dir": "docs/codex_collab/knowledge/mobile-ai-music-developer",
+      "can_stage": false,
+      "can_commit": false,
+      "can_push": false,
+      "can_submit": false
+    },
+    "lead": {
+      "kind": "lead",
+      "display_name": "mobile-ai-music-负责人",
+      "lane": "mobile-ai-music-lead",
+      "agent": "mobile-ai-music-lead",
+      "thread_id": "019f6b0e-a150-7892-aec8-d8aa8314d802",
+      "reports_to": "user",
+      "knowledge_dir": "docs/codex_collab/knowledge/mobile-ai-music-lead",
+      "can_stage": true,
+      "can_commit": true,
+      "can_push": true,
+      "can_submit": true
+    }
+  }
+}

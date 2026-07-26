@@ -26,6 +26,10 @@ ALLOWED_TYPES = {
 }
 
 ALLOWED_LANES = {
+    "mobile-ai-music-product",
+    "mobile-ai-music-ux",
+    "mobile-ai-music-developer",
+    "mobile-ai-music-lead",
     "product",
     "architect",
     "android",
@@ -89,6 +93,7 @@ ALLOWED_REQUEST_STATUSES = {
     "notified",
     "verified",
     "device_verified",
+    "historical_fallback",
     "failed",
     "blocked",
 }
@@ -96,7 +101,7 @@ ALLOWED_REQUEST_STATUSES = {
 WORKFLOW_NAME = "superpowers-v1"
 WORKFLOW_REQUIRED_FROM = "2026-07-11"
 WORKFLOW_GATES = ("design", "start", "review", "merge", "close")
-ALLOWED_WORK_TYPES = {"feature", "bugfix", "refactor", "research", "process", "release"}
+ALLOWED_WORK_TYPES = {"feature", "bugfix", "refactor", "research", "process", "release", "epic"}
 ALLOWED_RISK_LEVELS = {"P0", "P1", "P2", "P3"}
 ALLOWED_TDD_MODES = {"required", "exception", "not_applicable"}
 PENDING_VALUES = {"", "pending", "todo", "tbd", "none", "n/a", "not_applicable"}
