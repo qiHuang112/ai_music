@@ -49,10 +49,10 @@ NCUX-R1/R2 只作防回退 lineage，不再约束为单歌曲海或 `3+3+2` 分�
 
 | Line | Owner | Independent Clone | Writable Scope | Integrator-Owned Exclusions | Status |
 | --- | --- | --- | --- | --- | --- |
-| R1 公开歌源低压研究及接入 | developer-managed provider agents | `/Users/huangqi/AIHome/projects/ai_music_android_native_AM-20260726-001_provider_research` | `data/source/providers/**`、provider-specific tests、低压研究脚本与来源状态表 | 聚合仓库、UI、播放/cache、Gradle、Manifest、app wiring | starting_from_96093aa |
-| R2 多 Provider 聚合与分页 | developer-managed aggregation agent | `/Users/huangqi/AIHome/projects/ai_music_android_native_AM-20260726-001_provider_aggregation` | `domain/source/**`、聚合 repository/use case、查询结构化、去重/备用源/健康度/批量分页及 tests | provider-specific adapters、UI、Media3/cache、Gradle、Manifest | starting_from_96093aa |
-| R3 Flutter UX 等价迁移 | developer-managed UX parity agent | `/Users/huangqi/AIHome/projects/ai_music_android_native_AM-20260726-001_flutter_ux_parity` | `ui/**`、Compose screenshot/layout tests、Flutter 只读对照证据 | data/domain/provider、playback/cache、Gradle、Manifest、Flutter 文件 | starting_from_96093aa |
-| R4 自动化与证据 | developer-managed QA agent | `/Users/huangqi/AIHome/projects/ai_music_android_native_AM-20260726-001_rapid_qa` | `docs/qa/**`、`src/androidTest/**`、evidence contracts/scripts、test resources | production provider、UI、playback/cache、Gradle、Manifest | starting_from_96093aa |
+| R1 公开歌源低压研究及接入 | Nietzsche `019f9db3-15af-7142-a16e-20e263b9dcb8` | `/Users/huangqi/AIHome/projects/ai_music_android_native_AM-20260726-001_provider_research` | `data/source/providers/**`、provider-specific tests、低压研究脚本与来源状态表 | 聚合仓库、UI、播放/cache、Gradle、Manifest、app wiring | active_red_kuwo_migration_contract |
+| R2 多 Provider 聚合与分页 | Bernoulli `019f9db3-5046-7f62-ba44-a2cd5579f6f2` | `/Users/huangqi/AIHome/projects/ai_music_android_native_AM-20260726-001_provider_aggregation` | `domain/source/**`、聚合 repository/use case、查询结构化、去重/备用源/健康度/批量分页及 tests | provider-specific adapters、UI、Media3/cache、Gradle、Manifest | active_red_independent_cursor_atomic_batch |
+| R3 Flutter UX 等价迁移 | Kepler `019f9db3-6d06-7c60-bdee-9968ae2b8c72` | `/Users/huangqi/AIHome/projects/ai_music_android_native_AM-20260726-001_flutter_ux_parity` | `ui/**`、Compose screenshot/layout tests、Flutter 只读对照证据 | data/domain/provider、playback/cache、Gradle、Manifest、Flutter 文件 | active_red_buffered_progress_contract |
+| R4 自动化与证据 | Raman `019f9db3-8cb4-70c1-bc08-e89e20baba82` | `/Users/huangqi/AIHome/projects/ai_music_android_native_AM-20260726-001_rapid_qa` | `docs/qa/**`、`src/androidTest/**`、evidence contracts/scripts、test resources | production provider、UI、playback/cache、Gradle、Manifest | active_red_6_of_9_expected_failures |
 
 统一开发集成者独占：`MainActivity.kt`、`ui/AiMusicApp.kt`、`composition/**`、
 `AndroidManifest.xml`、Gradle/settings、共享模型装配和最终冲突解决。四条执行线
@@ -74,6 +74,24 @@ NCUX-R1/R2 只作防回退 lineage，不再约束为单歌曲海或 `3+3+2` 分�
 统一 Provider 接口、12 条首屏和 6-12 条原子分页；R3 直接迁移 Flutter 已验收
 歌词/进度/轻量加载状态；R4 先补多源、视觉对照和完整 manifest RED 合同。任一
 切片完成立即交统一工程 review/集成，不等待四线齐套，不安装中间 APK。
+
+## Rapid v2 启动事实
+
+- 四个完整 clone 和独立 `codex/` 分支均从干净 `96093aa` 启动，统一绑定
+  semantic V2 R1 `798e260ea5695d64ff38597e05af01a70b6b76947302bcbf486315b0d2bdd59b`。
+- R1 已新增 Kuwo 迁移合同 RED，明确 HTTPS、无固定 `musicRid` seed、不预设
+  browser/script 可播和使用 8 KiB Range；低压普通路径实测继续。
+- R2 已新增多 Provider 聚合 RED，并证实现有 `ProviderSearchCursorV1` 只有
+  `page + candidateOffset`，不能表达各 Provider 独立 cursor；共享模型扩展只由
+  integrator 串行接入。现有 loader 仍为首屏 8、append threshold 2。
+- R3 已新增三段进度所需 `bufferedPositionMs` 和 4dp/14dp/40dp/24dp 稳定尺寸
+  RED，不修改 Flutter。
+- R4 production contract 9 项中 6 项按预期失败，覆盖第二 Provider、独立
+  cursor、6-12 原子批次、备用源、单源隔离、完整播放旅程和 Flutter/Compose
+  对照；8 KiB admission、首屏不超过 12 和 blocked manifest 拒绝已通过。
+  生成的 `__pycache__` 必须在切片 handoff 前排除。
+- 当前没有 ADB、安装、stage、commit 或 push。首个集成事件优先接收 R2
+  cursor/12 首屏/6-12 批次可运行切片，随后接 R1 Kuwo 低压普通路径事实。
 
 ## 历史 Native R1/R2 证据
 
