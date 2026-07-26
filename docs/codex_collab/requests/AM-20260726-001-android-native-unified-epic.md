@@ -1,6 +1,6 @@
 # AM-20260726-001 Android Native 统一全速交付
 
-Status: active
+Status: integrating
 Owner Lane: mobile-ai-music-developer
 Assist Lane: mobile-ai-music-product, mobile-ai-music-ux
 Source Thread: 019f6b0e-a150-7892-aec8-d8aa8314d802
@@ -31,23 +31,23 @@ UX Revision: pending_rapid_v2_flutter_equivalence_contract; NCUX-20260726-R2 ret
 Logic Acceptance: not_started_rapid_delivery_v2
 Design Approval: user_approved_flutter_player_lyrics_progress_loading_as_mandatory_native_contract
 Implemented UI Acceptance: required not_started
-Development Status: r2_domain_slice_accepted_pending_unified_overlay_r1_r3_r4_active_no_device_install
+Development Status: r2_r3_overlaid_shared_composition_active_r1_r4_changes_requested_no_device_install
 Discovery Evidence: DISC-0011 and DISC-0012 are integrated by Product and UX; discovery inbox strict check reports unresolved_count=0.
 Root Cause Evidence: the online path still had a single Gequhai dependency and Compose used functional placeholders instead of the accepted Flutter progress, lyrics and loading contract.
 Research Evidence: Native `96093aa` already contains MusicSearchRepository, ProviderSearchCursorV1, FullAudioTrack, GequhaiSource/Repository and strict full-audio gates. Historical AM-20260717-001 contains a verified Gequhai+Kuwo aggregation seed with local-cache priority, cross-source dedupe, independent pagination/circuits and zero unplayed cache; reuse its contracts and revalidate Kuwo at low pressure rather than creating parallel models.
 Red Evidence: five pressure tests proved the old gate rejected `ai-music-rapid-delivery-v2`, its five states and the active Epic gate.
 Green Evidence: the compatibility layer now accepts v2 active work, rejects non-v2 active states, preserves strict legacy checks, and downgrades old migration debt only under explicit `--legacy-ok`.
-Targeted Tests: fresh `test_team_ops` 24/24; strict request validation and strict `active` workflow gate passed.
-Self Test Evidence: team manifest JSON, discovery unresolved=0, generic work-item compatibility, `scan --legacy-ok` and diff-check all passed; no Native build, ADB or installation was performed during bootstrap.
+Targeted Tests: fresh unified R2/R3 focused tests 28/28 and AndroidTest compile passed; R1 Kuwo slice 24/24 passed before review findings; R4 validator tests 23/23 passed while the production contract remains intentionally RED at 8/9 failures; bootstrap `test_team_ops` remains 24/24.
+Self Test Evidence: R2 overlay plus alternate-only tail correction is GREEN at 17/17, the shared opaque-cursor loader is GREEN at 4/4, R3 presentation/assembly tests are GREEN at 7/7, and AndroidTest compiles. No Native stage, commit, push, ADB or installation has occurred in v2.
 Product Main Path Evidence: the prior single-provider candidate remained externally blocked at Gequhai TLS. The user approved replacing that dependency with at least two public Providers and mandatory Flutter/Compose UX equivalence while preserving all positive Media3/cache/IME/navigation evidence in the `96093aa` frozen start.
 Baseline Freshness Evidence: integration clone and `origin/codex/native-unified-epic-20260726` are clean and equal at `96093aa771e3a89ff11d523ed99fcacfeaa9b8ee`.
 Scope Diff Evidence: v2 bootstrap changes only management workflow, Epic/request/requirement, manifest, team Skill and validator/tests; Native business code remains unchanged at the frozen start.
-Spec Review Result: r2_domain_slice_accepted; r1_query_rate_circuit_r3_buffer_wiring_r4_evidence_gates_active
-Code Quality Review Result: r2_domain_slice_accepted_no_findings; remaining_lines_pending_handoff
-Full Verification Evidence: not_started_rapid_delivery_v2; candidate verification requires at least two public Providers and the complete approved path.
-Blocking Findings: no Epic-wide external blocker; active in-scope P1 findings are R1 query/rate/circuit contracts, R3 production buffered-position wiring and R4 complete artifact-bound evidence gates. Gequhai TLS remains Provider-local only.
+Spec Review Result: r2_domain_slice_and_alternate_only_correction_accepted; r3_buffered_position_overlay_targeted_green; r1_strict_admission_and_shared_provider_safety_changes_requested; r4_artifact_pressure_scenarios_changes_requested
+Code Quality Review Result: r2_overlay_no_remaining_slice_finding; r3_targeted_green_pending_concentrated_integration_review; r1_r4_pending_green_handoffs
+Full Verification Evidence: in_progress_rapid_delivery_v2; unified focused tests and AndroidTest compile pass, while the qualifying candidate still requires two production Providers, playback alternate fallback, complete fresh pipeline, dual review and bound evidence.
+Blocking Findings: no external Epic-wide blocker. In-scope P1 work remains: production multi-provider composition and independent cursor truth; alternate-source playback failover; R1 per-transport 8 KiB admission, immediate protection pause, multiword query and positive-duration handling; shared Gequhai 1.5-second/max-one transport gate with three-failure 15-minute cooldown; R4 real cooldown/protection evidence scenarios. Gequhai TLS remains Provider-local only.
 Process Validation Note: rapid-delivery-v2 RED proved the old validator rejected the new workflow, five states and active gate; GREEN adds v2 plus historical alias compatibility without relaxing engineering evidence.
-Merge Evidence: prior Native application and QA baseline is frozen at `96093aa771e3a89ff11d523ed99fcacfeaa9b8ee`; v2 slices have not yet produced a new integration commit.
+Merge Evidence: prior Native application and QA baseline is frozen at `96093aa771e3a89ff11d523ed99fcacfeaa9b8ee`; R2 and R3 are overlaid only in the dirty unified workspace, and v2 has not produced an integration commit.
 Push Evidence: `codex/native-unified-epic-20260726` and its remote both point to frozen start `96093aa771e3a89ff11d523ed99fcacfeaa9b8ee`.
 Product Notification Evidence: user approved the full rapid-delivery-v2 plan in source task `019f4ed4-106e-7860-875d-a32f81629e4e`; next notification is only the qualifying function candidate.
 Knowledge Evidence: prior QA/evidence contracts and AM-20260717-001 multi-source evidence are reusable inputs; v2 provider status and Flutter/Compose comparison artifacts are pending execution.
@@ -102,11 +102,17 @@ Knowledge Evidence: prior QA/evidence contracts and AM-20260717-001 multi-source
 - 2026-07-26 type=review_result lane=mobile-ai-music-lead status=changes_requested summary=R2 fresh 13/13 exposed a missing stalled-cursor gate: a success page that returned its input cursor could loop forever and prevent another source's legal final tail. Three precise RED scenarios were assigned without stopping R1/R3/R4.
 - 2026-07-26 type=review_result lane=mobile-ai-music-lead status=accepted summary=R2 stalled-cursor correction passed fresh targeted 16/16 and full JVM 306/306. Spec and Code Quality review accepted the two-file domain slice for immediate unified overlay; shared cursor/composition remains integrator-owned and no Git/device operation is authorized.
 - 2026-07-26 type=status lane=mobile-ai-music-lead status=active summary=Early review locked R1 single-token query plus rate/circuit gaps, R3 buffered-position production wiring, and R4 provider-pressure/full-journey artifact gates as active RED work. These findings do not block the accepted R2 overlay or other lines.
+- 2026-07-26 type=status lane=mobile-ai-music-developer status=integrating summary=R2 was precisely overlaid into the unified workspace at frozen HEAD 96093aa. An alternate-only stalled-provider loss was reproduced RED and fixed GREEN; unified R2 targeted tests are 17/17, and the production opaque-cursor loader owns independent provider cursor state instead of treating the compatibility cursor as truth.
+- 2026-07-26 type=review_result lane=mobile-ai-music-lead status=changes_requested summary=R1 Kuwo fresh tests passed 24/24, but review found three P1 gaps: per-candidate protection/transport failures can be masked by later success, whitespace queries force an invalid artist/title split, and a hard 90-600 second duration gate rejects valid complete tracks. Actual 8 KiB response bytes, immediate protection pause, multiword interpretations and positive real duration are required before overlay.
+- 2026-07-26 type=status lane=mobile-ai-music-lead status=integrating summary=R3 production buffered position is wired into the presentation snapshot and the custom 4dp/14dp/40dp/24dp progress control is overlaid. Combined R2/R3 focused tests pass 28/28 and AndroidTest compiles; concentrated integration review remains pending.
+- 2026-07-26 type=review_result lane=mobile-ai-music-lead status=changes_requested summary=R4 fresh validator tests pass 23/23 and the production contract remains intentionally RED, but review proved an all-no-scenario provider set can pass and a future cooldown end incorrectly delays evidence capture. GREEN must require real three-failure cooldown plus immediate 403/429/defender scenarios and bind artifacts to actual events before cooldown expiry.
+- 2026-07-26 type=review_result lane=mobile-ai-music-lead status=changes_requested summary=Shared Gequhai source safety still opens on the first timeout/connection/5xx for two minutes and lacks the v2 per-source transport gate. Integrator-owned RED/GREEN must enforce max-one concurrency, 1.5-second spacing, three failures before a 15-minute cooldown, reset on success, immediate protection pause and cancellation-neutral accounting.
+- 2026-07-26 type=task_assignment lane=mobile-ai-music-lead status=assigned summary=The first replacement UX execution exceeded the 15-minute no-fact threshold. A second executor replaced it inside the same NCUX-R3 task and thread, limited to revision/hash, minimal Flutter-to-Compose visible differences, capability dependencies and directly implementable UI plus screenshot/XML QA; no new request or team was created.
 
 ## Review 结果
 
 - Reviewer Lane: mobile-ai-music-lead
-- Result: active
-- Spec Findings: R2 domain accepted; R1 query/rate/circuit, R3 production buffered wiring and R4 complete artifact-bound gates remain active.
-- Code Quality Findings: R2 accepted with no remaining finding; R1/R3/R4 await slice handoff and concentrated review.
-- Notes: R2 is authorized for immediate two-file overlay into the unified workspace. No intermediate APK, ADB, stage, commit or push is permitted until the corresponding integration review event.
+- Result: integrating
+- Spec Findings: R2 domain and alternate-only correction accepted; R3 production buffered wiring is targeted GREEN. R1 strict provider admission, shared Gequhai safety, production multi-provider composition/playback fallback and R4 real pressure scenarios remain active P1 work.
+- Code Quality Findings: R2 has no remaining slice finding; R3 awaits concentrated integration review; R1/R4 await corrected handoffs.
+- Notes: R2/R3 are overlaid but not committed. No intermediate APK, ADB, stage, commit or push is permitted until a coherent integration batch passes the complete fresh pipeline and dual review.

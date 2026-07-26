@@ -1,6 +1,6 @@
 # AM-20260726-001 Android Native 统一全速交付 Epic
 
-Status: active
+Status: integrating
 Owner: mobile-ai-music-负责人
 Integrator: mobile-ai-music-开发
 Management Root: /Users/huangqi/AIHome/ai_music
@@ -49,10 +49,10 @@ NCUX-R1/R2 只作防回退 lineage，不再约束为单歌曲海或 `3+3+2` 分�
 
 | Line | Owner | Independent Clone | Writable Scope | Integrator-Owned Exclusions | Status |
 | --- | --- | --- | --- | --- | --- |
-| R1 公开歌源低压研究及接入 | Nietzsche `019f9db3-15af-7142-a16e-20e263b9dcb8` | `/Users/huangqi/AIHome/projects/ai_music_android_native_AM-20260726-001_provider_research` | `data/source/providers/**`、provider-specific tests、低压研究脚本与来源状态表 | 聚合仓库、UI、播放/cache、Gradle、Manifest、app wiring | active_red_query_modes_rate_circuit |
-| R2 多 Provider 聚合与分页 | Bernoulli `019f9db3-5046-7f62-ba44-a2cd5579f6f2` | `/Users/huangqi/AIHome/projects/ai_music_android_native_AM-20260726-001_provider_aggregation` | `domain/source/**`、聚合 repository/use case、查询结构化、去重/备用源/健康度/批量分页及 tests | provider-specific adapters、UI、Media3/cache、Gradle、Manifest | accepted_pending_unified_overlay |
-| R3 Flutter UX 等价迁移 | Kepler `019f9db3-6d06-7c60-bdee-9968ae2b8c72` | `/Users/huangqi/AIHome/projects/ai_music_android_native_AM-20260726-001_flutter_ux_parity` | `ui/**`、Compose screenshot/layout tests、Flutter 只读对照证据 | data/domain/provider、playback/cache、Gradle、Manifest、Flutter 文件 | active_red_buffered_progress_and_wiring |
-| R4 自动化与证据 | Raman `019f9db3-8cb4-70c1-bc08-e89e20baba82` | `/Users/huangqi/AIHome/projects/ai_music_android_native_AM-20260726-001_rapid_qa` | `docs/qa/**`、`src/androidTest/**`、evidence contracts/scripts、test resources | production provider、UI、playback/cache、Gradle、Manifest | active_red_expanded_provider_and_journey_gates |
+| R1 公开歌源低压研究及接入 | Nietzsche `019f9db3-15af-7142-a16e-20e263b9dcb8` | `/Users/huangqi/AIHome/projects/ai_music_android_native_AM-20260726-001_provider_research` | `data/source/providers/**`、provider-specific tests、低压研究脚本与来源状态表 | 聚合仓库、UI、播放/cache、Gradle、Manifest、app wiring | changes_requested_strict_admission_query_duration |
+| R2 多 Provider 聚合与分页 | Bernoulli `019f9db3-5046-7f62-ba44-a2cd5579f6f2` | `/Users/huangqi/AIHome/projects/ai_music_android_native_AM-20260726-001_provider_aggregation` | `domain/source/**`、聚合 repository/use case、查询结构化、去重/备用源/健康度/批量分页及 tests | provider-specific adapters、UI、Media3/cache、Gradle、Manifest | overlaid_shared_cursor_and_composition_active |
+| R3 Flutter UX 等价迁移 | Kepler `019f9db3-6d06-7c60-bdee-9968ae2b8c72` | `/Users/huangqi/AIHome/projects/ai_music_android_native_AM-20260726-001_flutter_ux_parity` | `ui/**`、Compose screenshot/layout tests、Flutter 只读对照证据 | data/domain/provider、playback/cache、Gradle、Manifest、Flutter 文件 | overlaid_targeted_green_pending_integration_review |
+| R4 自动化与证据 | Raman `019f9db3-8cb4-70c1-bc08-e89e20baba82` | `/Users/huangqi/AIHome/projects/ai_music_android_native_AM-20260726-001_rapid_qa` | `docs/qa/**`、`src/androidTest/**`、evidence contracts/scripts、test resources | production provider、UI、playback/cache、Gradle、Manifest | changes_requested_real_pressure_scenarios |
 
 统一开发集成者独占：`MainActivity.kt`、`ui/AiMusicApp.kt`、`composition/**`、
 `AndroidManifest.xml`、Gradle/settings、共享模型装配和最终冲突解决。四条执行线
@@ -69,11 +69,14 @@ NCUX-R1/R2 只作防回退 lineage，不再约束为单歌曲海或 `3+3+2` 分�
 
 ## 下一集成点
 
-R2 聚合领域切片已通过集中 Spec/Code Quality 复审：负责人 fresh targeted
-`16/16`、full JVM `306/306`。下一事件是把两文件精确叠加统一工程，并由集成者
-RED-GREEN 完成唯一 shared cursor/composition 适配；compatibility cursor 不得
-成为生产真值。R1 继续 Kuwo 查询模式、节流和熔断回改；R3/R4 继续补生产装配与
-完整证据门禁。四线不互等，不安装中间 APK。
+R2 与 R3 已精确叠加统一工程：alternate-only tail 回改后 R2 targeted
+`17/17`，shared opaque-cursor loader `4/4`，R3 presentation/assembly `7/7`，
+组合 focused `28/28` 且 AndroidTest compile 通过。下一事件是 integrator
+RED-GREEN 完成唯一 production multi-provider composition、SourceSettings 门禁与
+alternate-source playback fallback；compatibility cursor 不得成为生产真值。
+R1 严格准入、查询解释和时长回改 accepted 后立即叠加；R4 修复真实压力场景门禁。
+共享 Gequhai 同步补齐每源单并发、1.5 秒间隔、三次失败后 15 分钟冷却。四线不互
+等，不安装中间 APK。
 
 ## Rapid v2 启动事实
 
@@ -107,6 +110,31 @@ RED-GREEN 完成唯一 shared cursor/composition 适配；compatibility cursor �
 - NCUX-R3 自启动 15 分钟仍无 revision/hash，已在同一 UX 任务和线程内替换执行，
   仅交 Flutter/Compose 等价 revision/hash、最小差异、能力依赖和 QA 清单；不建
   新 request，也不阻塞四线。
+- R2 已叠加统一工作区，并在集成态发现停滞末源只返回已加载歌曲的合法 alternate
+  时被 failure publication 丢弃。该场景 RED/GREEN 后，alternateSources 非空会
+  作为局部成功返回；R2 targeted `17/17`。
+- Integrator 新增的 shared loader 以不透明页 token 持有各 Provider 独立 cursor，
+  targeted `4/4`；生产 `SearchComposition`、`MainActivity`、SourceSettings 和
+  playback fallback 尚未完成，因此 compatibility cursor 与 alternate sidecar
+  均不得被记为最终生产闭环。
+- R3 已叠加统一工作区，`PlaybackState.bufferedPositionMs` 进入 presentation
+  snapshot，自定义进度控件保留 4dp track、14dp thumb、40dp touch target 与
+  24dp parent margin。R2/R3 focused `28/28`、AndroidTest compile 通过；仍需
+  集中集成 review 与同状态真机证据。
+- R1 Kuwo fresh targeted `24/24` 后 review 为 changes_requested：候选级
+  403/429/defender 或 transport failure 不得被同次后续成功掩盖；空格查询必须
+  支持多种歌手/歌名解释；完整音频不得用 `90..600` 秒硬阈值。回改同时验证实际
+  Range body 为 8192 bytes，未 accepted 前禁止叠加。
+- 共享 Gequhai 仍在第一次 timeout/connection/5xx 后开启两分钟 circuit，且缺少
+  每源单并发与 1.5 秒间隔。Integrator-owned RED/GREEN 必须改为第三次传输失败后
+  15 分钟冷却、成功重置、403/429/defender 立即暂停、取消不记失败。
+- R4 fresh validator tests `23/23`；production contract 仍有 8/9 预期 RED。
+  Review 另证明全 Provider `pauseReason=none` 可错误通过，且把未来 cooldown end
+  当作 artifact not-before 会强制空等。门禁必须要求真实三失败冷却和即时防护
+  场景，并把证据绑定到实际事件而不是未来时间。
+- 首次 UX 替换仍超过 15 分钟无 revision/hash，已在同一 NCUX-R3 任务/线程内再次
+  替换执行者，只交 revision/hash、最小可见差异、能力依赖、direct implementation
+  与 screenshot/XML QA；未新建团队、线程或 request。
 
 ## 历史 Native R1/R2 证据
 
