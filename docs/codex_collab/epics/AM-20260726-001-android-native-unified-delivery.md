@@ -49,10 +49,10 @@ NCUX-R1/R2 只作防回退 lineage，不再约束为单歌曲海或 `3+3+2` 分�
 
 | Line | Owner | Independent Clone | Writable Scope | Integrator-Owned Exclusions | Status |
 | --- | --- | --- | --- | --- | --- |
-| R1 公开歌源低压研究及接入 | Nietzsche `019f9db3-15af-7142-a16e-20e263b9dcb8` | `/Users/huangqi/AIHome/projects/ai_music_android_native_AM-20260726-001_provider_research` | `data/source/providers/**`、provider-specific tests、低压研究脚本与来源状态表 | 聚合仓库、UI、播放/cache、Gradle、Manifest、app wiring | Kuwo/BuguYY accepted_overlaid；GD protection_stopped；shortlist round 1 no_provider_passed；OpenFlac/Gequhai final read-only health validation active |
+| R1 公开歌源低压研究及接入 | Nietzsche `019f9db3-15af-7142-a16e-20e263b9dcb8` | `/Users/huangqi/AIHome/projects/ai_music_android_native_AM-20260726-001_provider_research` | `data/source/providers/**`、provider-specific tests、低压研究脚本与来源状态表 | 聚合仓库、UI、播放/cache、Gradle、Manifest、app wiring | Kuwo/BuguYY accepted_overlaid；OpenFlac/GD stopped；顺序 Round 3 `22a5→2t58→gequbao` active；独立健康 failure domain 仍缺 |
 | R2 多 Provider 聚合与分页 | Bernoulli `019f9db3-5046-7f62-ba44-a2cd5579f6f2` | `/Users/huangqi/AIHome/projects/ai_music_android_native_AM-20260726-001_provider_aggregation` | `domain/source/**`、聚合 repository/use case、查询结构化、去重/备用源/健康度/批量分页及 tests | provider-specific adapters、UI、Media3/cache、Gradle、Manifest | accepted_overlaid_atomic_loader_29 |
-| R3 Flutter UX 等价迁移 | Kepler `019f9db3-6d06-7c60-bdee-9968ae2b8c72` | `/Users/huangqi/AIHome/projects/ai_music_android_native_AM-20260726-001_flutter_ux_parity` | `ui/**`、Compose screenshot/layout tests、Flutter 只读对照证据 | data/domain/provider、playback/cache、Gradle、Manifest、Flutter 文件 | ncux_r3_accepted_direct_delta_and_runtime_wiring_active |
-| R4 自动化与证据 | Raman `019f9db3-8cb4-70c1-bc08-e89e20baba82` | `/Users/huangqi/AIHome/projects/ai_music_android_native_AM-20260726-001_rapid_qa` | `docs/qa/**`、`src/androidTest/**`、evidence contracts/scripts、test resources | production provider、UI、playback/cache、Gradle、Manifest | failure-domain gate accepted_overlaid；validator 38/38；production 1 pass/8 expected RED |
+| R3 Flutter UX 等价迁移 | Kepler `019f9db3-6d06-7c60-bdee-9968ae2b8c72` | `/Users/huangqi/AIHome/projects/ai_music_android_native_AM-20260726-001_flutter_ux_parity` | `ui/**`、Compose screenshot/layout tests、Flutter 只读对照证据 | data/domain/provider、playback/cache、Gradle、Manifest、Flutter 文件 | NCUX-R3 seek pointer lifetime + metadata retry P1 RED-GREEN active |
+| R4 自动化与证据 | Raman `019f9db3-8cb4-70c1-bc08-e89e20baba82` | `/Users/huangqi/AIHome/projects/ai_music_android_native_AM-20260726-001_rapid_qa` | `docs/qa/**`、`src/androidTest/**`、evidence contracts/scripts、test resources | production provider、UI、playback/cache、Gradle、Manifest | origin evidence must bind actual HEAD/Range final authority；RED-GREEN active |
 
 统一开发集成者独占：`MainActivity.kt`、`ui/AiMusicApp.kt`、`composition/**`、
 `AndroidManifest.xml`、Gradle/settings、共享模型装配和最终冲突解决。四条执行线
@@ -97,8 +97,15 @@ contract 继续诚实保持 `1 pass / 8 expected RED`。APK SHA-256
 GD 替换执行者在第一轮 `2/5` 请求即按保护规则停域。其后 shortlist round 1
 保守计 `12` 次外部请求，五站均未建立严格“外婆”身份或完整音频协议；首批
 搜索工具调用无法证明 `1.5` 秒间隔，已作为协议偏差记录且不作准入证据。
-当前代码候选可进入最终集中 review，但在 Gequhai 或新来源形成独立健康
-failure-domain 证据前，不得解锁唯一功能候选安装。
+OpenFlac 普通 Chrome 根页自动首载最少 `62` 个外部 URL，在搜索前已超过
+`20` 请求硬上限，结论为 `stop_automatic_first_load_exceeded_hard_cap`。
+
+最终集中 review 为 changes_requested：代码侧共 `5` 个 P1 和 `1` 个 P2，
+覆盖 seek pointer coroutine 生命周期、metadata 真实重试、origin 证据与实际
+HEAD/Range authority 绑定、Kuwo 整操作取消、真实 transport 请求预算及游标
+进度、Kuwo 非 Range 响应大小上限。开发已在原统一工作区一次性 RED-GREEN。
+外部 R1 同步顺序验证 `22a5 → 2t58 → gequbao`，整轮少于 `20` 请求、先通过
+先停、不并行压站。代码回改与来源研究都通过前不得解锁唯一功能候选安装。
 
 ## Rapid v2 启动事实
 
@@ -256,6 +263,18 @@ failure-domain 证据前，不得解锁唯一功能候选安装。
   协议重验，不复用旧媒体 URL。OpenFlac 与 Gequhai 两条只读验证并行；任一自然
   命中周杰伦《外婆》并通过严格 HEAD、实际 8 KiB Range、歌词、封面和当前 URL
   证据，即作为第二健康独立故障域回传；两条都失败后不再重复探测。
+- OpenFlac 的最终普通 Chrome 首载实际观察到至少 `62` 个外部 URL，在页面搜索
+  前即超过 `20` 请求硬上限并永久停止；报告 sha256
+  `88296cc59ce4fa9ffedb65ec092d877a1fdf309d00f8497d9910d55070e125fd`。
+- 集中 Spec/Code Quality review 发现 `5` 个 P1、`1` 个 P2：进度拖动的
+  `pointerInput` 被 visual state 重启；同曲 metadata error 无真实 retry；
+  failure-domain 可由未绑定真实媒体 URL 的自声明 origin 伪绿；Kuwo gate
+  等待中的取消不贯穿整操作；loader 将 Provider invocation 误当 HTTP 请求预算
+  且预算耗尽不提交已前进 cursor；Kuwo catalog/conversion body 无大小上限。
+- 15 分钟规则将无新事实的 Gequhai B 执行替换为单线 Round 3，严格顺序
+  `22a5.com`、`2t58.com`、`gequbao.com`，整轮少于 `20` 请求。只允许普通
+  Chrome 自然搜索周杰伦《外婆》；保护、403/429、登录、付费或 DRM 立即停，
+  任一通过完整音频门禁即接入并停止后续站点。
 
 ## 历史 Native R1/R2 证据
 
