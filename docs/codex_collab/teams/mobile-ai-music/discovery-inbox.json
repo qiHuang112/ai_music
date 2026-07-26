@@ -1,0 +1,358 @@
+{
+  "schema_version": 1,
+  "team_key": "mobile-ai-music",
+  "next_sequence": 13,
+  "entries": [
+    {
+      "id": "DISC-0001",
+      "captured_at": "2026-07-16T22:04:48+08:00",
+      "source": "user_developer_direct",
+      "request_id": "AM-20260711-005",
+      "summary": "用户真机反馈歌曲海边下边播前后拖动后报错且播放恢复失败，搜索结果等待过久，并要求补分页搜索。",
+      "decisions": [
+        "P1 需保证未下完时前后 seek 与播放恢复稳定；搜索需尽快出现首批完整可播结果；分页必须补齐，具体交互待用户确认。"
+      ],
+      "evidence": [
+        "/Users/huangqi/AIHome/projects/ai_music_AM-20260711-005_gequhai_search_streaming/lib/src/data/progressive_audio_cache.dart;/Users/huangqi/AIHome/projects/ai_music_AM-20260711-005_gequhai_search_streaming/lib/src/data/gequhai_player_audio_resolver.dart"
+      ],
+      "targets": [
+        "product",
+        "ux"
+      ],
+      "acknowledgements": {
+        "product": {
+          "outcome": "superseded",
+          "evidence": "/Users/huangqi/AIHome/ai_music/docs/codex_collab/requests/AM-20260711-005-gequhai-search-streaming-regression.md#产品需求修订-am-005-r2-20260717",
+          "acknowledged_at": "2026-07-17T00:51:14+08:00"
+        },
+        "ux": {
+          "outcome": "superseded",
+          "evidence": "/Users/huangqi/AIHome/ai_music/docs/codex_collab/knowledge/mobile-ai-music-ux/2026-07-17-am005-discovery-reconciliation.md; /Users/huangqi/AIHome/projects/ai_music_AM-20260711-005_gequhai_search_streaming/docs/superpowers/specs/2026-07-16-am005-streaming-search-pagination-design.md",
+          "acknowledged_at": "2026-07-17T00:54:18+08:00"
+        }
+      }
+    },
+    {
+      "id": "DISC-0002",
+      "captured_at": "2026-07-16T22:10:22+08:00",
+      "source": "user_developer_direct",
+      "request_id": "AM-20260711-005",
+      "summary": "用户批准 AM-005 搜索提速、自动分页和边下边播 seek 恢复设计。",
+      "decisions": [
+        "采用首条校验成功即展示、滑到底自动逐页加载、搜索解析结果复用、未缓存 seek 透传严格 Range、播放器错误后用户触发单次重载；保持完整音频 fail-closed 与失败不写正式缓存。"
+      ],
+      "evidence": [
+        "/Users/huangqi/AIHome/projects/ai_music_AM-20260711-005_gequhai_search_streaming/docs/superpowers/specs/2026-07-16-am005-streaming-search-pagination-design.md"
+      ],
+      "targets": [
+        "product",
+        "ux"
+      ],
+      "acknowledgements": {
+        "product": {
+          "outcome": "integrated",
+          "evidence": "/Users/huangqi/AIHome/ai_music/docs/codex_collab/requests/AM-20260711-005-gequhai-search-streaming-regression.md#产品需求修订-am-005-r2-20260717",
+          "acknowledged_at": "2026-07-17T00:51:14+08:00"
+        },
+        "ux": {
+          "outcome": "integrated",
+          "evidence": "/Users/huangqi/AIHome/ai_music/docs/codex_collab/knowledge/mobile-ai-music-ux/2026-07-17-am005-discovery-reconciliation.md; /Users/huangqi/AIHome/projects/ai_music_AM-20260711-005_gequhai_search_streaming/evidence/qa-am005-final/20260716-streaming-pagination-fix/FINAL-EVIDENCE.md",
+          "acknowledged_at": "2026-07-17T00:54:18+08:00"
+        }
+      }
+    },
+    {
+      "id": "DISC-0003",
+      "captured_at": "2026-07-16T23:26:25+08:00",
+      "source": "user_developer_direct",
+      "request_id": "AM-20260711-005",
+      "summary": "用户确认搜索性能、动态搜索歌曲库、歌词稳定性和详情页播控的后续改进设计。",
+      "decisions": [
+        "搜索结果先展示校验中状态，采用有界并发校验，并移除通用 GET 的 12 秒三次重试放大器。",
+        "当前搜索的已验证结果形成动态歌曲库，后续分页结果继续追加，并严格按当前顺序、列表循环、单曲循环或随机模式播放。",
+        "搜索歌曲库按需解析和边下边播，不预下载整页；歌词在播放前绑定，缓存转正后继续兜底；详情页移除停止按钮。"
+      ],
+      "evidence": [
+        "/Users/huangqi/AIHome/projects/ai_music_AM-20260711-005_gequhai_search_streaming/docs/superpowers/specs/2026-07-16-am005-search-library-lyrics-design.md"
+      ],
+      "targets": [
+        "product",
+        "ux"
+      ],
+      "acknowledgements": {
+        "product": {
+          "outcome": "integrated",
+          "evidence": "/Users/huangqi/AIHome/ai_music/docs/codex_collab/requests/AM-20260711-005-gequhai-search-streaming-regression.md#产品需求修订-am-005-r2-20260717",
+          "acknowledged_at": "2026-07-17T00:51:14+08:00"
+        },
+        "ux": {
+          "outcome": "integrated",
+          "evidence": "/Users/huangqi/AIHome/ai_music/docs/codex_collab/knowledge/mobile-ai-music-ux/2026-07-17-am005-discovery-reconciliation.md; /Users/huangqi/AIHome/projects/ai_music_AM-20260711-005_gequhai_search_streaming/docs/superpowers/specs/2026-07-16-am005-search-library-lyrics-design.md",
+          "acknowledged_at": "2026-07-17T00:54:18+08:00"
+        }
+      }
+    },
+    {
+      "id": "DISC-0004",
+      "captured_at": "2026-07-17T00:46:08+08:00",
+      "source": "user_developer_direct",
+      "request_id": "AM-20260711-005",
+      "summary": "用户确认搜索结果动态追加；歌曲海超时或疑似限流时不得阻断周杰伦等常规搜索。",
+      "decisions": [
+        "搜索默认使用自动源；歌曲海错误后短时熔断并回退到备用完整音频源；分页按小批次严格验证，只展示版本可信且通过 HEAD 与 Range 206 的结果。"
+      ],
+      "evidence": [
+        "/Users/huangqi/AIHome/projects/ai_music_AM-20260711-005_gequhai_search_streaming/evidence/qa-am005-search-failover-20260717"
+      ],
+      "targets": [
+        "product",
+        "ux"
+      ],
+      "acknowledgements": {
+        "product": {
+          "outcome": "integrated",
+          "evidence": "/Users/huangqi/AIHome/ai_music/docs/codex_collab/requests/AM-20260711-005-gequhai-search-streaming-regression.md#产品需求修订-am-005-r2-20260717",
+          "acknowledged_at": "2026-07-17T00:51:14+08:00"
+        },
+        "ux": {
+          "outcome": "integrated",
+          "evidence": "/Users/huangqi/AIHome/ai_music/docs/codex_collab/knowledge/mobile-ai-music-ux/2026-07-17-am005-discovery-reconciliation.md; /Users/huangqi/AIHome/projects/ai_music_AM-20260711-005_gequhai_search_streaming/evidence/qa-am005-search-failover-20260717",
+          "acknowledged_at": "2026-07-17T00:54:18+08:00"
+        }
+      }
+    },
+    {
+      "id": "DISC-0005",
+      "captured_at": "2026-07-17T07:55:52+08:00",
+      "source": "user_developer_direct",
+      "request_id": null,
+      "summary": "Auto 搜索结果需要扩展多个完整音频来源",
+      "decisions": [
+        "用户要求除歌曲海外，把其他可用完整音频来源加入搜索，以增加结果数量；现有单源短路策略需改为多源动态追加，具体准入时机待确认。"
+      ],
+      "evidence": [
+        "/Users/huangqi/AIHome/projects/ai_music_AM-20260711-005_gequhai_search_streaming/lib/src/data/music_resolver.dart"
+      ],
+      "targets": [
+        "product",
+        "ux"
+      ],
+      "acknowledgements": {
+        "product": {
+          "outcome": "superseded",
+          "evidence": "/Users/huangqi/AIHome/ai_music/docs/codex_collab/requests/AM-20260717-001-multi-source-search-aggregation.md#验收标准; /Users/huangqi/AIHome/ai_music/docs/superpowers/specs/2026-07-17-multi-source-search-aggregation-design.md",
+          "acknowledged_at": "2026-07-17T08:23:59+08:00"
+        },
+        "ux": {
+          "outcome": "superseded",
+          "evidence": "/Users/huangqi/AIHome/ai_music/docs/codex_collab/knowledge/mobile-ai-music-ux/2026-07-18-am001-search-aggregation-ux-reconciliation.md",
+          "acknowledged_at": "2026-07-18T08:10:16+08:00"
+        }
+      }
+    },
+    {
+      "id": "DISC-0006",
+      "captured_at": "2026-07-17T07:57:25+08:00",
+      "source": "user_developer_direct",
+      "request_id": null,
+      "summary": "多源搜索采用严格校验后动态追加",
+      "decisions": [
+        "用户批准推荐方案：歌曲海结果优先展示，酷我完整音频仅在 HEAD+Range 和完整可缓存校验通过后动态追加；跨源同曲去重，不展示点击后才验证的不可播候选。"
+      ],
+      "evidence": [
+        "/Users/huangqi/AIHome/projects/ai_music_AM-20260711-005_gequhai_search_streaming/lib/src/data/music_resolver.dart"
+      ],
+      "targets": [
+        "product",
+        "ux"
+      ],
+      "acknowledgements": {
+        "product": {
+          "outcome": "integrated",
+          "evidence": "/Users/huangqi/AIHome/ai_music/docs/codex_collab/requests/AM-20260717-001-multi-source-search-aggregation.md#验收标准",
+          "acknowledged_at": "2026-07-17T08:23:59+08:00"
+        },
+        "ux": {
+          "outcome": "integrated",
+          "evidence": "/Users/huangqi/AIHome/ai_music/docs/codex_collab/knowledge/mobile-ai-music-ux/2026-07-18-am001-search-aggregation-ux-reconciliation.md",
+          "acknowledged_at": "2026-07-18T08:10:16+08:00"
+        }
+      }
+    },
+    {
+      "id": "DISC-0007",
+      "captured_at": "2026-07-17T08:10:51+08:00",
+      "source": "user_developer_direct",
+      "request_id": null,
+      "summary": "多源搜索书面规格已获用户确认",
+      "decisions": [
+        "用户两次明确确认 2026-07-17 多源完整音频搜索聚合规格，可据此进入实施计划；负责人需建立独立 request 和 Project Path，开发不得混入 AM-005。"
+      ],
+      "evidence": [
+        "/Users/huangqi/AIHome/ai_music/docs/superpowers/specs/2026-07-17-multi-source-search-aggregation-design.md"
+      ],
+      "targets": [
+        "product",
+        "ux"
+      ],
+      "acknowledgements": {
+        "product": {
+          "outcome": "integrated",
+          "evidence": "/Users/huangqi/AIHome/ai_music/docs/codex_collab/requests/AM-20260717-001-multi-source-search-aggregation.md#验收标准; /Users/huangqi/AIHome/ai_music/docs/superpowers/specs/2026-07-17-multi-source-search-aggregation-design.md; /Users/huangqi/AIHome/ai_music/docs/superpowers/plans/2026-07-17-multi-source-search-aggregation.md",
+          "acknowledged_at": "2026-07-17T08:24:00+08:00"
+        },
+        "ux": {
+          "outcome": "integrated",
+          "evidence": "/Users/huangqi/AIHome/ai_music/docs/codex_collab/knowledge/mobile-ai-music-ux/2026-07-18-am001-search-aggregation-ux-reconciliation.md",
+          "acknowledged_at": "2026-07-18T08:10:16+08:00"
+        }
+      }
+    },
+    {
+      "id": "DISC-0008",
+      "captured_at": "2026-07-17T22:39:06+08:00",
+      "source": "user_developer_direct",
+      "request_id": "AM-20260717-001",
+      "summary": "真机搜索必须批量返回并在来源不可达时保留完整可播结果",
+      "decisions": [
+        "用户实测周杰伦仅一首、王蓉无结果，明确否定一次下拉只增加一首；最新体验要求首屏呈现多首并动态追加。小米 10 Pro 直连歌曲海 TCP 超时，后续方案不得依赖 Mac 代理成功假设，且不得降低完整音频准入门槛。"
+      ],
+      "evidence": [
+        "/Users/huangqi/AIHome/projects/ai_music_AM-20260717-001_multi_source_search_aggregation/evidence/qa-am001-multi-source-20260717"
+      ],
+      "targets": [
+        "product",
+        "ux"
+      ],
+      "acknowledgements": {
+        "ux": {
+          "outcome": "integrated",
+          "evidence": "/Users/huangqi/AIHome/ai_music/docs/codex_collab/knowledge/mobile-ai-music-ux/2026-07-18-am001-search-aggregation-ux-reconciliation.md",
+          "acknowledged_at": "2026-07-18T08:10:16+08:00"
+        },
+        "product": {
+          "outcome": "integrated",
+          "evidence": "docs/superpowers/specs/2026-07-18-am001-multi-source-search-requirement-r2.md; docs/codex_collab/requests/AM-20260717-001-multi-source-search-aggregation.md; /Users/huangqi/AIHome/projects/ai_music_AM-20260717-001_multi_source_search_aggregation/evidence/qa-am001-multi-source-20260717",
+          "acknowledged_at": "2026-07-18T08:10:25+08:00"
+        }
+      }
+    },
+    {
+      "id": "DISC-0009",
+      "captured_at": "2026-07-17T22:54:47+08:00",
+      "source": "user_developer_direct",
+      "request_id": "AM-20260717-001",
+      "summary": "用户批准缓存聚合并扩展额外完整音频来源",
+      "decisions": [
+        "用户批准在线结果与本机完整缓存聚合；另批准评估并接入此前提及的三到四个来源，前提是严格限流、按需分页，遇到 403/429/防护立即熔断，不绕过安全验证、不用密集重试打扰源站。"
+      ],
+      "evidence": [
+        "/Users/huangqi/AIHome/projects/ai_music_AM-20260717-001_multi_source_search_aggregation/docs/superpowers/specs/2026-07-17-multi-source-search-aggregation-design.md"
+      ],
+      "targets": [
+        "product",
+        "ux"
+      ],
+      "acknowledgements": {
+        "ux": {
+          "outcome": "integrated",
+          "evidence": "/Users/huangqi/AIHome/ai_music/docs/codex_collab/knowledge/mobile-ai-music-ux/2026-07-18-am001-search-aggregation-ux-reconciliation.md",
+          "acknowledged_at": "2026-07-18T08:10:16+08:00"
+        },
+        "product": {
+          "outcome": "integrated",
+          "evidence": "docs/superpowers/specs/2026-07-18-am001-multi-source-search-requirement-r2.md; docs/codex_collab/requests/AM-20260717-001-multi-source-search-aggregation.md; /Users/huangqi/AIHome/projects/ai_music_AM-20260717-001_multi_source_search_aggregation/docs/superpowers/specs/2026-07-17-multi-source-search-aggregation-design.md",
+          "acknowledged_at": "2026-07-18T08:10:25+08:00"
+        }
+      }
+    },
+    {
+      "id": "DISC-0010",
+      "captured_at": "2026-07-18T19:38:29+08:00",
+      "source": "user_developer_direct",
+      "request_id": "AM-20260717-001",
+      "summary": "用户授权当前多源搜索包进入负责人 review/提交，并提出后续 UI 优化必须由 UX 基于当前真机效果使用 Product Design 产出优化设计稿，再交开发实现。",
+      "decisions": [
+        "当前 AM-20260717-001 不再扩大功能范围；负责人 review accepted 后可由负责人 stage/commit/push。后续另起 UI 优化输入：UX 直接基于当前小米 10 Pro 已装包与 r3 截图/XML，用 Product Design 输出优化设计稿，开发随后按设计稿实现。"
+      ],
+      "evidence": [
+        "/Users/huangqi/AIHome/projects/ai_music_AM-20260717-001_multi_source_search_aggregation/evidence/qa-am001-multi-source-20260717/r3-failure-retention-coldplay-clean-32040770.png",
+        "/Users/huangqi/AIHome/projects/ai_music_AM-20260717-001_multi_source_search_aggregation/evidence/qa-am001-multi-source-20260717/r3-final-empty-32040770.png"
+      ],
+      "targets": [
+        "product",
+        "ux"
+      ],
+      "acknowledgements": {
+        "product": {
+          "outcome": "integrated",
+          "evidence": "/Users/huangqi/AIHome/ai_music/docs/superpowers/specs/2026-07-18-am001-ui-product-design-requirement.md; /Users/huangqi/AIHome/ai_music/docs/codex_collab/requests/AM-20260718-001-ui-product-design-optimization.md",
+          "acknowledged_at": "2026-07-18T22:50:43+08:00"
+        },
+        "ux": {
+          "outcome": "integrated",
+          "evidence": "/Users/huangqi/AIHome/projects/ai_music_AM-20260718-001_ui_product_design/docs/superpowers/specs/2026-07-18-am001-ui-product-design-ux.md",
+          "acknowledged_at": "2026-07-18T23:17:12+08:00"
+        }
+      }
+    },
+    {
+      "id": "DISC-0011",
+      "captured_at": "2026-07-19T21:52:11+08:00",
+      "source": "user_developer_direct",
+      "request_id": null,
+      "summary": "用户确立开发-UX-用户持续迭代：可实现 UX 初稿后开发并行；用户可基于当前实现直接修订设计；设计可含未来能力但不得伪装成已可用；设计稿 UI 验收与真实代码完整 UI 验收分离。",
+      "decisions": [
+        "UX 记录增量差异并同步产品、负责人；负责人向开发派工；不因设计文档完成而停止。"
+      ],
+      "evidence": [
+        "docs/codex_collab/knowledge/mobile-ai-music-ux/continuous-iteration-protocol.md"
+      ],
+      "targets": [
+        "product",
+        "ux"
+      ],
+      "acknowledgements": {
+        "ux": {
+          "outcome": "integrated",
+          "evidence": "docs/codex_collab/knowledge/mobile-ai-music-ux/continuous-iteration-protocol.md",
+          "acknowledged_at": "2026-07-19T22:01:38+08:00"
+        },
+        "product": {
+          "outcome": "integrated",
+          "evidence": "/Users/huangqi/AIHome/ai_music/docs/codex_collab/knowledge/mobile-ai-music-product/continuous-requirement-iteration-protocol.md sha256:6e675023b99ea40a00c332aef0de84da61662710519102486424706fe6faae64; /Users/huangqi/AIHome/ai_music/docs/codex_collab/requests/AM-20260718-001-ui-product-design-optimization.md#工作流边界",
+          "acknowledged_at": "2026-07-19T22:11:00+08:00"
+        }
+      }
+    },
+    {
+      "id": "DISC-0012",
+      "captured_at": "2026-07-26T13:47:29+08:00",
+      "source": "user_developer_direct",
+      "request_id": "AM-20260726-001",
+      "summary": "首轮 Native 功能验收反馈：子页系统返回直接退桌面、状态栏未沉浸通顶、短时连续搜索后歌源退化、结果过少且加载更多逐条增长、缺少完整歌词详情页。",
+      "decisions": [
+        "并入同一 Android Native Epic 修复批次；不建窄 request、不安装中间包。产品将其收敛进最多五条验收，UX补导航/edge-to-edge/歌词页增量，开发按系统化调试与 TDD 修复。"
+      ],
+      "evidence": [
+        "docs/codex_collab/requests/AM-20260726-001-android-native-unified-epic.md"
+      ],
+      "targets": [
+        "product",
+        "ux"
+      ],
+      "acknowledgements": {
+        "product": {
+          "outcome": "integrated",
+          "evidence": "docs/superpowers/specs/2026-07-26-android-native-unified-epic-requirement-r2.md sha256:4ac5d1f892808c4fb3550bfbbdda66328407c64a8770942b2ada2d7601aa0628",
+          "acknowledged_at": "2026-07-26T13:54:50+08:00"
+        },
+        "ux": {
+          "outcome": "integrated",
+          "evidence": "docs/codex_collab/knowledge/mobile-ai-music-ux/2026-07-26-native-compose-incremental-diff-r2.md sha256:62c08ae173a620fece21873e50f22c1b9422d5d63be0a15dfcac3d7ef3830957",
+          "acknowledged_at": "2026-07-26T14:00:22+08:00"
+        }
+      }
+    }
+  ]
+}

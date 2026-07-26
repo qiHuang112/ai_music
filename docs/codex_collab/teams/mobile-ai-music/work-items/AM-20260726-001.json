@@ -1,0 +1,92 @@
+{
+  "schema_version": 1,
+  "team_key": "mobile-ai-music",
+  "request_id": "AM-20260726-001",
+  "abstract_request": "Android Native 统一全速交付 Epic：从 codex/native-unified-milestone@d948a89 继续，移除 demo 数据，接入真实仓库与 Compose UI，保留完整音频、seek、缓存门禁；六个互斥 clone 子任务持续集成，Flutter/旧歌源/小爱转历史或替代。",
+  "state": "parallel_in_progress",
+  "requirement": {
+    "revision": "sha256:4ac5d1f892808c4fb3550bfbbdda66328407c64a8770942b2ada2d7601aa0628",
+    "approved": true
+  },
+  "development": {
+    "status": "core_in_progress",
+    "core_80_feedback_received": false
+  },
+  "ux": {
+    "status": "in_progress",
+    "revision": null,
+    "approved": false
+  },
+  "authorization": {
+    "valid": false,
+    "requirement_revision": null,
+    "ux_revision": null
+  },
+  "full_flow": {
+    "complete": false
+  },
+  "implemented_ui": {
+    "status": "not_started",
+    "accepted": false,
+    "evidence": null
+  },
+  "review": {
+    "round": 0,
+    "approved": false,
+    "issues": []
+  },
+  "submission_route": {
+    "inspected": false,
+    "kind": null,
+    "evidence": null
+  },
+  "submission": {
+    "remote_submitted": false,
+    "remote_status": null,
+    "remote_evidence": null,
+    "merged": false,
+    "merge_evidence": null
+  },
+  "history": [
+    {
+      "sequence": 1,
+      "event": "demand_received"
+    },
+    {
+      "sequence": 2,
+      "event": "product_draft"
+    },
+    {
+      "sequence": 3,
+      "event": "approve_requirement"
+    },
+    {
+      "sequence": 4,
+      "event": "start_parallel"
+    },
+    {
+      "sequence": 5,
+      "event": "revise_requirement"
+    },
+    {
+      "sequence": 6,
+      "event": "approve_requirement"
+    },
+    {
+      "sequence": 7,
+      "event": "start_parallel"
+    },
+    {
+      "sequence": 8,
+      "event": "revise_requirement"
+    },
+    {
+      "sequence": 9,
+      "event": "approve_requirement"
+    },
+    {
+      "sequence": 10,
+      "event": "start_parallel"
+    }
+  ]
+}

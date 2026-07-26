@@ -18,11 +18,13 @@ Workflow: superpowers-v1 continuous-agile
 
 ## P1 验收
 
-1. `LibraryRepository`、`DownloadRepository`、`HotlistRepository`、`SourceSettingsRepository` 均使用真实持久化或真实来源，不再由 demo 数据驱动产品页面。
-2. 歌曲海搜索只发布严格校验的完整音频；PREVIEW、HTML、防护页、低置信匹配和失败来源 fail closed，且不会拖垮已有结果。
-3. Media3 完成搜索到播放、边播 seek、下载转正、正式缓存复用、歌词、封面和动态队列主路径，失败不污染正式缓存。
-4. Native Compose 首页、搜索、播放详情和队列按已批准三张 Product Design 图增量落地，并覆盖真实数据、加载、空态、失败保留和播放中状态。
-5. 逻辑验收候选具备 fresh tests/lint/build、完整主路径和 evidence manifest；只在该逻辑候选安装一次小米 10 Pro，最终真实 UI 全接线后再安装一次。
+唯一需求基线为 `docs/superpowers/specs/2026-07-26-android-native-unified-epic-requirement-r2.md`，SHA-256 `4ac5d1f892808c4fb3550bfbbdda66328407c64a8770942b2ada2d7601aa0628`。
+
+1. 子页系统 Back 返回上一应用页面，只有根页可交还系统退出；Compose 全屏 edge-to-edge，状态栏和导航栏图标在当前背景上可读。
+2. 搜狗中文 composing/commit、连续搜索和切换查询可靠；单源异常不导致永久退化或污染。一次加载更多最多串行三个 provider cursor，候选预算固定为 `3+3+2=8`，跨源去重后至少两首才一次发布；到达边界仍不足时发布已有增量并正确保留或终止 cursor。
+3. 播放器可进入完整同步歌词详情，列表可滚动、当前行随 Media3 进度跟随，Back 回播放器；无歌词/失败使用中性态，且不展示未批准的收藏、歌单等假控件。
+4. 真实仓库、严格完整音频、Media3 播放与边播 seek、下载/缓存转正、封面、队列和失败隔离均不得回退。
+5. 最终候选通过 fresh tests/lint/build、双 review 和 evidence manifest 后，仅由单设备单 owner 串行安装与回归小米 10 Pro；中间包禁止安装。
 
 ## 非目标与替代
 
@@ -53,7 +55,7 @@ Workflow: superpowers-v1 continuous-agile
 
 ## 下一集成点
 
-六切片已全部进入统一工程。当前 UI 装配编译通过即连续运行 fresh targeted/full tests、lint、assemble、diff-check 与集中 Spec/Code Quality review；finding 自动回改直至 accepted，随后由负责人完成首个 Native 集成提交/推送，不等待 UX 文档。
+六切片统一候选 `e371b7b` 的首轮 Gate 2 已进入同一 Epic 六项修复批次，并绑定 semantic R2 `4ac5d1f8`：中文 IME composing/commit、子页系统 Back、edge-to-edge 状态栏、短时使用后歌源退化、有界批量分页、完整同步歌词详情。开发按系统化调试/TDD并行复现；UX 只补状态栏与歌词页增量规范，不作为开发前置。不建窄 request。S6 停止设备点按并保留已通过的 Media3/缓存/失败隔离证据。每个切片完成即叠加；六项 fresh tests/lint/build、双 review 与串行设备证据全通过后，只安装一次新的修复候选并通知 Product/用户复验。
 
 ## 启动基线证据
 
@@ -73,3 +75,29 @@ Workflow: superpowers-v1 continuous-agile
 - S5 已完成并叠加，六切片全部进入统一工程；新增 `ProductDataPresenter`、真实下载/热榜/歌源页面，`MainActivity`/`AiMusicApp` 已接真实仓库，约 800 行不可达 demo 正在物理删除。
 - 联合 Spec review 的 storefront 冒充与非法 Range evidence 两项 P1 已完成 RED/GREEN 回改。
 - UI 装配编译通过后的统一 fresh tests/lint/assemble/diff-check 和集中双 review 已设置为立即触发事件；中间 APK 继续禁止安装。
+- 工作流/Epic 管理白名单已独立提交并推送 `main@4b484d3392cd5204056bf657d400756da24e5a71`，未带入 Native 业务代码。
+- 集中 Code Quality review 当前 5 个 P1 正在自动回改；已出现 `HttpRangeSource`、损坏正式缓存自愈和 fixture 修复的新 diff，开发未停工。
+- UX 在 action_required 后再次超过 15 分钟仍无 revision/hash；原执行已 superseded，并在同一 UX 任务/线程内以新 task_assignment 替换执行，继续复用三图范围，不重建团队、不建新 request。
+- 五项 Code Quality P1 的三个高风险项已完成回改：播放 URL 请求前及重定向后均执行 HTTPS 门禁，损坏/缺失正式缓存会在 writer lease 内隔离并回源重建，产品数据运行时使用单写与 generation 防迟到覆盖；fresh JVM `244/244`、AndroidTest compile 通过。当前仅补回新 Compose 页面设备自动化语义标签，随后继续 lint、assemble、diff-check 和双 review。
+- Compose 设备自动化语义标签与真实验证 fixture 已补齐；第二轮定向、fresh full、AndroidTest compile、lint、assemble 通过，未安装 APK。
+- 性能接缝已回改：最坏 8 秒的热榜只读请求从显式下载单线程拆到独立长期 executor，并补 `ProductDataPresenter` 测试；随后发现持久化歌源启用/停用尚未约束搜索入口，开发正按同一业务契约补跨层门禁与测试。
+- 第二轮 Spec review 确认上一轮四项 finding 均关闭，并新增两项有效 finding：显式下载在已持有同键 writer lease 时再次获取非可重入租约会自锁；证据校验仍允许过短 Range。开发正改为租约内直接读取进度，并将证据固定为批准的 `bytes=0-8191`，两项均以失败测试起步。
+- 上述窄改完成后必须重新运行 fresh full、AndroidTest compile、lint、assemble、diff-check 和 Spec/Code Quality 双 review；任一 finding 自动回改，全部 accepted 才允许负责人提交/推送。
+- 中间 APK 继续禁止安装；Native accepted 前只运行代码验证、review 与回改。
+- 最终 Spec/Code Quality 双 review 均 accepted；fresh JVM `253/253`、QA validator `6/6`、AndroidTest compile、lint、assemble、diff-check 全通过。
+- 负责人精确 stage 83 个 Native app source/test 与 QA contract 文件，排除 pycache、APK/build 产物和管理主仓历史；提交并推送 `codex/native-unified-epic-20260726@e371b7be97e24c5d3369e6cf15f3278401fa9693`，工作区与远端一致。
+- 新 HEAD 产物 SHA-256 为 `fef9c3651e56be0850c05590ad5470809c8dbf7b21384aad5696667e2be2c2f6`；唯一一次逻辑候选 `install -r` 在 `Mi 10 Pro` 成功，设备 `base.apk` SHA 一致，`lastUpdateTime=2026-07-26 13:09:31`，搜狗输入法保持默认。
+- Product 已收到 `demo_ready` 并进入功能验收；开发/S6只在当前已安装包采搜索完整音频、Media3 边播 seek、下载/缓存转正、歌词封面队列、失败隔离与不污染的完整 manifest，不得重装。
+- UX 替换执行再次超过 15 分钟无 revision/hash 后，已在同一任务/线程内再次 superseded 并替换；只交四项最小差异包，不阻塞本次逻辑候选。
+- UX 已回传 `NCUX-20260726-R1`，文件 SHA-256 `653e125079ff79e687c48adeea73366a5a615f3907ac56b950f50c2946e1872f`，正确绑定 requirement `b8414836` 与三张批准图。负责人 feasibility review accepted：S5 只实现三页信息层级、稳定尺寸、mini player 安全停靠、播放/队列当前态、Material 中文语义和安全区；未具备 repository/controller API 的未来能力必须隐藏。
+- Product Gate 2 `changes_requested`：证据 `search-waipo-final-candidate.png` 与 `search-waipo-candidate-retry.png` 显示搜狗候选 `外婆` 可见，但搜索框仍为 `周杰伦的waipo`/`周杰伦的wip`。源码审计定位到搜索输入仅提升纯 `String`，IME composing range 未贯穿状态链；开发必须先用真实 composing/commit RED 测试确认根因再做最小修复。
+- 同包正向证据继续有效：Media3 state=3、真实封面歌词、单曲队列、3,576,668-byte 正式缓存、transient 增长且 formal 不污染、provider connection 失败时既有播放继续。
+- 设备互斥规则立即生效：S6 停止所有点按，只整理现有证据；修复包进入复验时只允许一个 owner 操作小米 10 Pro，先完成 `周杰伦的外婆` 搜索、播放和 backward seek，再向 Product 交回设备。
+- 用户新增五项同 Epic finding：系统返回键在子页直接退桌面；状态栏黑底白字且未沉浸通顶；搜索短时使用后歌源被打崩；结果过少且加载更多常只增一条；缺少 Flutter 已有歌词详情页。它们与中文 IME P1 合并为一次修复批次，不建新 request。
+- 并行写集由开发统一管理：IME 输入状态、Back/edge-to-edge shell、歌源耐久、批量分页、歌词详情、QA 证据分别 RED-GREEN；共享 `AiMusicApp`/`MainActivity` 装配由 integrator 最后串行接线。中间 APK 禁止安装。
+- 用户五项反馈已捕获为 `DISC-0012`，等待 Product R2 与 UX 增量 revision 分别 integrated；该门禁不暂停开发。统一工程的 IME composition policy 与导航 controller 定向测试通过，AndroidTest 编译通过。
+- S1 根因审计确认单个候选 timeout/connection 曾被过早升级为整源熔断；候选批次现在只在全部 transport failure 时开启两分钟 circuit，403/429/defender/provider 5xx 仍立即熔断，普通坏候选继续 fail closed。S1 fresh targeted `53/53`，负责人已批准只叠加相对 `e371b7b` 的真实增量。
+- 本轮 UX 增量执行超过 15 分钟仍无 revision/hash，已在同一 UX 任务内按 stale 规则替换执行者；继续复用 `NCUX-20260726-R1`、三张批准图与 `DISC-0012`，不重建团队、不建新 request，也不阻塞 S5。
+- Product 已将 `DISC-0012` integrated 并冻结 semantic R2 `sha256:4ac5d1f892808c4fb3550bfbbdda66328407c64a8770942b2ada2d7601aa0628`。R2 把六项现场 finding 收敛为上述五条 P1，继承 semantic R1 与旧 whole-Epic snapshot 的历史边界，不扩大数据源、搜索、缓存或播放合同。
+- UX 已回传并由负责人 feasibility accepted `NCUX-20260726-R2`，文档 `docs/codex_collab/knowledge/mobile-ai-music-ux/2026-07-26-native-compose-incremental-diff-r2.md`，SHA-256 `62c08ae173a620fece21873e50f22c1b9422d5d63be0a15dfcac3d7ef3830957`。直接实现范围为统一 Back/edge-to-edge、稳定三行歌词入口、保留真实 timestamp 的完整列表、手动滚动后两秒恢复跟随和复用现有 seek；无 API 控件继续隐藏。Product/UX 均已 acknowledge `DISC-0012`，严格 discovery check 为 `unresolved_count=0`。
+- 团队 canonical work item 已通过正式状态机 `revise_requirement -> approve_requirement -> start_parallel` 重绑 semantic R2；最终仍为 `parallel_in_progress`，submission authorization 保持失效，未把设计规范通过误写成真实 UI 或提交授权。

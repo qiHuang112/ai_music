@@ -17,40 +17,40 @@ Work Type: epic
 Risk Level: P1
 User Visible: yes
 Design Doc: docs/codex_collab/epics/AM-20260726-001-android-native-unified-delivery.md
-Requirement Doc: docs/superpowers/specs/2026-07-26-android-native-unified-epic-requirement.md
+Requirement Doc: docs/superpowers/specs/2026-07-26-android-native-unified-epic-requirement-r2.md
 Implementation Plan: docs/codex_collab/epics/AM-20260726-001-android-native-unified-delivery.md
 Required Skills: create-agile-project-team role, test-driven-development, systematic-debugging, product-design:image-to-code, verification-before-completion, ai-music-team-ops
 TDD Mode: required
 TDD Exception: none
 TDD Exception Review: not_applicable
 Baseline Commit: d948a893f5d14d53942fbbaedf333a974e2ae015
-Head Commit: d948a893f5d14d53942fbbaedf333a974e2ae015
-Requirement Revision: sha256:b8414836fa8ced7574f0463d497d2c22029828cc0e60c4c99771d93e734131ee user_approved_directive_2026-07-26
-Requirement Lineage Evidence: user-approved whole-Epic snapshot `sha256:005b75f7adf7814268a3df760bc1c3ffca4317cd32407a5f63cd1214169bdcc8` became mutable when execution status and baseline evidence were appended; stable semantic R1 `sha256:b8414836fa8ced7574f0463d497d2c22029828cc0e60c4c99771d93e734131ee` preserves the same user goal, exactly five P1 acceptance points, and historical/replacement boundaries without adding capability scope.
-UX Revision: approved_three_product_design_images pending_native_increment_revision
-Logic Acceptance: required not_started
-Design Approval: prior_three_image_direction_accepted
+Head Commit: e371b7be97e24c5d3369e6cf15f3278401fa9693
+Requirement Revision: sha256:4ac5d1f892808c4fb3550bfbbdda66328407c64a8770942b2ada2d7601aa0628 user_approved_semantic_r2_2026-07-26
+Requirement Lineage Evidence: semantic R2 `sha256:4ac5d1f892808c4fb3550bfbbdda66328407c64a8770942b2ada2d7601aa0628` integrates the six Gate 2 findings into exactly five P1 points without widening the data-source or playback contracts. It supersedes stable semantic R1 `sha256:b8414836fa8ced7574f0463d497d2c22029828cc0e60c4c99771d93e734131ee`; user-approved whole-Epic snapshot `sha256:005b75f7adf7814268a3df760bc1c3ffca4317cd32407a5f63cd1214169bdcc8` remains historical lineage only.
+UX Revision: NCUX-20260726-R2 sha256:62c08ae173a620fece21873e50f22c1b9422d5d63be0a15dfcac3d7ef3830957 accepted_for_native_implementation
+Logic Acceptance: changes_requested_user_native_batch
+Design Approval: prior_three_image_direction_accepted; NCUX-20260726-R2 feasibility_accepted
 Implemented UI Acceptance: required not_started
-Development Status: all_six_slices_integrated_ui_compile_and_demo_removal_active
-Discovery Evidence: DISC-0011 integrated by product and UX; product inbox unresolved_count=0 in the 2026-07-26 Epic audit, so no requirement revision is needed.
+Development Status: six_finding_parallel_red_green_starting_device_frozen
+Discovery Evidence: DISC-0011 and DISC-0012 are integrated by Product and UX; discovery inbox strict check reports unresolved_count=0.
 Root Cause Evidence: Flutter narrow-request delivery replaced by one Native Epic to remove waiting chains and demo-data gaps.
 Research Evidence: native baseline contains strict Gequhai, Media3 playback, progressive cache and automation contracts at `d948a89`.
 Red Evidence: baseline demo data is present in `SearchPresenter.kt` (`SampleSearchPresenter/sampleResult`) and `AiMusicApp.kt` (`demoQueueTracks/InMemoryPlaybackController` and demo hotlist); real repository interfaces are absent.
-Green Evidence: S1 unified targeted 50/50; S4 slice 195/195; `ProductDataComposition` and shared `PlaybackCacheComposition` completed RED/GREEN; storefront identity and illegal Range evidence P1 review findings completed RED/GREEN.
-Targeted Tests: baseline fresh JVM tests 176/176; S1 unified targeted 50/50; S4 slice 195/195; composition matching tests passed.
-Self Test Evidence: `./gradlew testDebugUnitTest lintDebug assembleDebug --no-daemon --max-workers=2` BUILD SUCCESSFUL; baseline APK SHA-256 `2e979cde5b51927a9a991651d1a0f2de95b2a4d77201b7f9ff251d0a341a284c`; no ADB/install performed.
-Product Main Path Evidence: pending_logic_acceptance_candidate
+Green Evidence: all six slices integrated; strict HTTPS redirect admission, corrupt formal-cache self-healing, shared writer leases, reducer-style product state, persisted source admission with generation-safe immediate overrides, Compose automation semantics, 8 KiB Range evidence, and independent hotlist/download executors completed RED/GREEN.
+Targeted Tests: final fresh JVM 253/253 with zero failures/errors/skips; QA evidence validator 6/6; AndroidTest compile passed.
+Self Test Evidence: lead fresh `./gradlew testDebugUnitTest compileDebugAndroidTestKotlin lintDebug assembleDebug --no-daemon --max-workers=2` BUILD SUCCESSFUL; QA validator 6/6 and diff-check passed. Debug APK and installed Xiaomi Mi 10 Pro `base.apk` SHA-256 both `fef9c3651e56be0850c05590ad5470809c8dbf7b21384aad5696667e2be2c2f6`; preserve-data `install -r` succeeded once, `lastUpdateTime=2026-07-26 13:09:31`, and Sogou IME remained default.
+Product Main Path Evidence: Gate 2 failed on reliable Chinese query entry and the user then identified five additional Native gaps: system Back exits from child pages, status bar is non-immersive black/white, search source degrades after short use, pagination yields too few results and often one item per load, and the Flutter lyrics-detail page is missing. Positive same-package evidence remains valid for Media3 state=3, real artwork/lyrics, single-track queue, 3,576,668-byte formal cache, transient growth without formal pollution, and provider-failure playback continuity.
 Baseline Freshness Evidence: product fresh check on 2026-07-26 confirmed clean primary `codex/native-unified-milestone@d948a893f5d14d53942fbbaedf333a974e2ae015` and clean integration `codex/native-unified-epic-20260726@d948a893f5d14d53942fbbaedf333a974e2ae015`.
-Scope Diff Evidence: integration clone remains at HEAD `d948a89` with an unstaged integration worktree containing all S1-S6 slices plus integrator-owned product/playback composition, real `ProductDataPresenter` pages, MainActivity/AiMusicApp repository wiring, and physical demo removal.
-Spec Review Result: pending
-Code Quality Review Result: pending
-Full Verification Evidence: baseline unit/lint/debug build passed; logic candidate verification and evidence manifest pending.
-Blocking Findings: none
+Scope Diff Evidence: exact Native scope contains 83 app source/test and QA contract files, 10,097 insertions and 1,151 deletions; generated pycache, APK/build outputs, management-root history, and unrelated files were excluded. Integration branch is clean at `e371b7be97e24c5d3369e6cf15f3278401fa9693` and matches its pushed remote ref.
+Spec Review Result: accepted; all prior findings and final source-admission/cache/evidence corrections closed with no remaining finding.
+Code Quality Review Result: accepted; final concurrency review closed writer-lease self-deadlock, stale refresh overwrite, source-setting immediate consistency/ABA, active-writer pruning, lifecycle, and fixture findings.
+Full Verification Evidence: final fresh JVM 253/253, QA validator 6/6, AndroidTest compile, lint, assemble, diff-check, Spec Review, and Code Quality Review all passed on the committed candidate. Device evidence manifest remains in collection.
+Blocking Findings: six-item same-Epic repair batch: Chinese IME composing/commit; child-route system Back; edge-to-edge/system-bar treatment; short-use source degradation; multi-result batch pagination; lyrics-detail page. Product/S6 device interaction must remain serialized and no intermediate APK may be installed.
 Process Validation Note: `Work Type: epic` start-gate support was added by RED/GREEN; `TeamOpsWorkflowTest.test_start_gate_accepts_epic_work_type`, all 18 team_ops tests, `validate-request --strict`, and `validate-workflow --gate start` pass.
-Merge Evidence: pending
-Push Evidence: pending
-Product Notification Evidence: user issued explicit Native Epic directive on 2026-07-26.
-Knowledge Evidence: Epic and per-slice evidence pending.
+Merge Evidence: integration commit `e371b7be97e24c5d3369e6cf15f3278401fa9693` created on `codex/native-unified-epic-20260726`; merge to `codex/native-unified-milestone` remains after logic acceptance.
+Push Evidence: `codex/native-unified-epic-20260726` pushed to the Native primary repository and local HEAD equals `origin/codex/native-unified-epic-20260726`.
+Product Notification Evidence: `demo_ready` sent to mobile-ai-music-product immediately after the single logic-candidate installation; UX is not a prerequisite for this functional gate.
+Knowledge Evidence: QA runbook/schema/tests committed; live device evidence manifest collection pending.
 
 ## 目标与范围
 
@@ -68,11 +68,29 @@ Knowledge Evidence: Epic and per-slice evidence pending.
 - 2026-07-26 type=status lane=mobile-ai-music-lead status=action_required summary=UX exceeded the 15-minute no-fact threshold and was narrowed in place to return only revision/hash, three-image-to-Compose deltas, capability dependencies, and an S5-ready implementation list; no restart or duplicate assignment.
 - 2026-07-26 type=status lane=mobile-ai-music-developer status=in_progress summary=S3 completed and is integrated; shared playback/download cache composition is GREEN. S2+S3+S4 fresh joint tests and concentrated Spec/Code Quality review were triggered immediately without waiting for S5/S6; no APK installation.
 - 2026-07-26 type=status lane=mobile-ai-music-developer status=in_progress summary=S5 completed and all six slices are integrated. ProductDataPresenter and real download/hotlist/source pages are wired; MainActivity/AiMusicApp use real repositories while about 800 unreachable demo lines are removed. Two joint-review P1 findings are RED/GREEN; UI compile triggers the full pipeline and concentrated review without waiting for UX.
+- 2026-07-26 type=status lane=mobile-ai-music-lead status=pushed summary=Workflow/Epic management whitelist was committed and pushed independently to main@4b484d3392cd5204056bf657d400756da24e5a71 without Native business code.
+- 2026-07-26 type=status lane=mobile-ai-music-developer status=in_progress summary=All six slices remain integrated while five Code Quality P1 findings are automatically corrected; HttpRangeSource, corrupt-formal-cache recovery, and fixture diffs are present. Full tests, AndroidTest compile, lint, assemble, diff-check and dual review follow immediately; no intermediate install.
+- 2026-07-26 type=task_assignment lane=mobile-ai-music-lead status=assigned summary=UX exceeded the post-action_required 15-minute threshold without revision/hash. The stale execution was superseded and replaced inside the same UX task/thread, reusing the approved three-image scope and requirement without a new team or request.
+- 2026-07-26 type=status lane=mobile-ai-music-developer status=in_progress summary=Three high-risk Code Quality findings are fixed: HTTPS is revalidated after redirects, corrupt or missing formal cache is isolated and rebuilt under the writer lease, and product data uses a single-writer runtime with generation guards. Fresh JVM is 244/244 and AndroidTest compiles; Compose automation semantics are being restored before lint, assemble, diff-check and final dual review. No device install.
+- 2026-07-26 type=status lane=mobile-ai-music-developer status=in_progress summary=Compose automation semantics and real validation fixtures are restored; second-round targeted, fresh full, AndroidTest compile, lint and assemble pass without installation. Hotlist refresh now uses an independent long-lived executor instead of blocking explicit downloads, with ProductDataPresenter coverage. Persisted source enablement is being wired into search admission before the complete pipeline and final dual review rerun.
+- 2026-07-26 type=review_result lane=mobile-ai-music-developer status=changes_requested summary=Second-round Spec review closed the prior four findings and identified two valid blockers: explicit download can self-deadlock by reacquiring a non-reentrant same-key writer lease, and evidence validation accepts a shorter-than-approved Range. Both are in RED-GREEN correction before the complete verification rerun; no APK install.
+- 2026-07-26 type=review_result lane=mobile-ai-music-developer status=accepted summary=Final Spec and Code Quality reviews accepted after writer-lease, state merge, source-setting immediate consistency/ABA, active-writer pruning and 8 KiB Range evidence corrections; fresh JVM 253/253, QA validator 6/6, AndroidTest compile, lint, assemble and diff-check passed.
+- 2026-07-26 type=status lane=mobile-ai-music-lead status=pushed summary=Lead staged exactly 83 Native app source/test and QA contract files, excluded generated/build artifacts, committed e371b7be97e24c5d3369e6cf15f3278401fa9693, and pushed codex/native-unified-epic-20260726.
+- 2026-07-26 type=demo_ready lane=mobile-ai-music-lead status=ready_to_try summary=The single allowed logic candidate was preserve-data installed and launched on Xiaomi Mi 10 Pro. Local and device APK SHA-256 match fef9c3651e56be0850c05590ad5470809c8dbf7b21384aad5696667e2be2c2f6; Product was notified while developer/S6 began bound evidence-manifest collection without reinstall.
+- 2026-07-26 type=task_assignment lane=mobile-ai-music-lead status=assigned summary=The replacement UX execution again exceeded 15 minutes without revision/hash and was superseded inside the same UX task/thread; the new executor is limited to the four-item minimal Compose delta package and does not block logic acceptance.
+- 2026-07-26 type=review_result lane=mobile-ai-music-lead status=accepted summary=UX revision NCUX-20260726-R1 sha256 653e125079ff79e687c48adeea73366a5a615f3907ac56b950f50c2946e1872f is correctly bound to canonical requirement b8414836 and the three approved images. Feasibility is accepted for presentation-only S5 implementation; unavailable repository/controller capabilities remain hidden and final device UI acceptance is separate.
+- 2026-07-26 type=review_result lane=mobile-ai-music-product status=changes_requested summary=Gate 2 failed because Sogou Chinese candidate commit is not preserved by the Compose search input: `周杰伦的外婆` remains `周杰伦的waipo` or `周杰伦的wip`, blocking reliable real search. Existing playback/cache/failure-isolation evidence remains valid. Product and S6 concurrent device control is stopped and all further device work is serialized.
+- 2026-07-26 type=task lane=mobile-ai-music-lead status=changes_requested summary=User Native acceptance added five findings to the same Epic: child-page system Back exits the app, status bar is not edge-to-edge, search source degrades after short use, pagination produces too few results and often one item per load, and the Flutter lyrics-detail experience is missing. These join the existing Chinese IME P1 in one parallel repair batch without a new request or intermediate install.
+- 2026-07-26 type=status lane=mobile-ai-music-lead status=in_progress summary=User-visible feedback was captured as DISC-0012 for Product and UX reconciliation. IME/navigation targeted tests and AndroidTest compile pass in the unified workspace; S1 source-durability root cause is accepted with fresh 53/53 targeted tests and awaits immediate delta integration.
+- 2026-07-26 type=task_assignment lane=mobile-ai-music-lead status=assigned summary=The current UX incremental execution exceeded 15 minutes without a revision/hash and was replaced inside the same UX task, reusing NCUX-R1, the approved three-image set and DISC-0012 without blocking development.
+- 2026-07-26 type=handoff lane=mobile-ai-music-product status=in_progress summary=Product integrated DISC-0012 and froze semantic R2 sha256 4ac5d1f892808c4fb3550bfbbdda66328407c64a8770942b2ada2d7601aa0628 with exactly five P1 points covering Back/edge-to-edge, Chinese IME plus durable bounded batch search, full synchronized lyrics detail, no-regression contracts, and one-owner final device regression. R2 supersedes semantic R1 without widening source or playback scope.
+- 2026-07-26 type=review_result lane=mobile-ai-music-lead status=accepted summary=NCUX-20260726-R2 sha256 62c08ae173a620fece21873e50f22c1b9422d5d63be0a15dfcac3d7ef3830957 is correctly bound to semantic R2 and the approved three-image lineage. Feasibility is accepted for Back/edge-to-edge, a stable three-line lyrics entry, full timestamp-preserving lyrics, manual-scroll follow recovery and existing SeekRequested reuse; unavailable controls remain hidden. DISC-0012 is integrated by both Product and UX and unresolved_count is zero.
+- 2026-07-26 type=status lane=mobile-ai-music-lead status=in_progress summary=The canonical team work item was rebound through workflow_state revise_requirement, approve_requirement and start_parallel to semantic R2 sha256 4ac5d1f892808c4fb3550bfbbdda66328407c64a8770942b2ada2d7601aa0628. Its final state remains parallel_in_progress and revision-bound submission authorization remains false; JSON, workflow-state validation and diff-check pass.
 
 ## Review 结果
 
 - Reviewer Lane: mobile-ai-music-lead
-- Result: pending
-- Spec Findings: pending
-- Code Quality Findings: pending
-- Notes: 中间里程碑自动续跑；只在用户逻辑验收或最终真实 UI 验收停点。
+- Result: changes_requested
+- Spec Findings: none
+- Code Quality Findings: none
+- Notes: Gate 2 六项修复批次正在同一 Epic 内并行 RED-GREEN；不建窄 request。Product 将直接用户反馈收敛为最多五条验收，UX 只补 edge-to-edge 与歌词页增量，开发逻辑与粗 UI 同步推进。S6 停止点按并保留现有正向证据；所有修复、fresh 验证与双 review 通过后只安装一次新的修复候选并串行复验。
