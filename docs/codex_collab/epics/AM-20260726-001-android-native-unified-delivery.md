@@ -49,7 +49,7 @@ NCUX-R1/R2 只作防回退 lineage，不再约束为单歌曲海或 `3+3+2` 分�
 
 | Line | Owner | Independent Clone | Writable Scope | Integrator-Owned Exclusions | Status |
 | --- | --- | --- | --- | --- | --- |
-| R1 公开歌源低压研究及接入 | Nietzsche `019f9db3-15af-7142-a16e-20e263b9dcb8` | `/Users/huangqi/AIHome/projects/ai_music_android_native_AM-20260726-001_provider_research` | `data/source/providers/**`、provider-specific tests、低压研究脚本与来源状态表 | 聚合仓库、UI、播放/cache、Gradle、Manifest、app wiring | accepted_overlaid_44_targeted_334_full |
+| R1 公开歌源低压研究及接入 | Nietzsche `019f9db3-15af-7142-a16e-20e263b9dcb8` | `/Users/huangqi/AIHome/projects/ai_music_android_native_AM-20260726-001_provider_research` | `data/source/providers/**`、provider-specific tests、低压研究脚本与来源状态表 | 聚合仓库、UI、播放/cache、Gradle、Manifest、app wiring | Kuwo accepted_overlaid；BuguYY/GD 双域低压准入 active |
 | R2 多 Provider 聚合与分页 | Bernoulli `019f9db3-5046-7f62-ba44-a2cd5579f6f2` | `/Users/huangqi/AIHome/projects/ai_music_android_native_AM-20260726-001_provider_aggregation` | `domain/source/**`、聚合 repository/use case、查询结构化、去重/备用源/健康度/批量分页及 tests | provider-specific adapters、UI、Media3/cache、Gradle、Manifest | accepted_overlaid_atomic_loader_29 |
 | R3 Flutter UX 等价迁移 | Kepler `019f9db3-6d06-7c60-bdee-9968ae2b8c72` | `/Users/huangqi/AIHome/projects/ai_music_android_native_AM-20260726-001_flutter_ux_parity` | `ui/**`、Compose screenshot/layout tests、Flutter 只读对照证据 | data/domain/provider、playback/cache、Gradle、Manifest、Flutter 文件 | ncux_r3_accepted_direct_delta_and_runtime_wiring_active |
 | R4 自动化与证据 | Raman `019f9db3-8cb4-70c1-bc08-e89e20baba82` | `/Users/huangqi/AIHome/projects/ai_music_android_native_AM-20260726-001_rapid_qa` | `docs/qa/**`、`src/androidTest/**`、evidence contracts/scripts、test resources | production provider、UI、playback/cache、Gradle、Manifest | accepted_overlaid_validator_31_production_8_red |
@@ -62,6 +62,10 @@ NCUX-R1/R2 只作防回退 lineage，不再约束为单歌曲海或 `3+3+2` 分�
 
 - 任一切片完成立即触发 integration，不等待其他执行线。
 - 任一切片 15 分钟无新增事实，开发立即收窄、替换 Agent 或切换替代路径；不得等待。
+- R1 对 `buguyy.top`、`music.gdstudio.xyz`、`music.gdstudio.org` 按同一低压
+  研究线并行核验；任一站先通过完整音频准入即接入既有 Provider 模型，不等待
+  其余站。GD 双域只有在故障域和生产契约确实独立时才可分别计数，否则只作为
+  同一 Provider 的域名冗余。
 - 每次集成先验证互斥写集与基线新鲜度，再运行匹配测试；全量 tests/lint/build 只在稳定候选与验收点执行。
 - 单个 Provider 外部故障只冻结该 Provider，其他 Provider、聚合、播放、UX 和 QA
   继续。中间 APK 不安装；第一次设备安装只发生在功能候选，第二次只发生在最终
@@ -172,6 +176,12 @@ assemble、diff-check 与双 review；四线不互等，不安装中间 APK。
 - Alternate playback 首轮 review 拒绝把 alternate 的逻辑 metadata 和 id 覆盖
   primary；回改必须分离 logical track 与 resource/cache identity、验证时长兼容、
   安全夹取 position，并把防循环限制在单次 playback attempt，而非整个 App 生命周期。
+- 用户新增并亲测 `https://buguyy.top/`、`https://music.gdstudio.xyz/` 与
+  `https://music.gdstudio.org/`。R1 必须按普通 Chrome 用户路径、每源并发 1、
+  间隔至少 1.5 秒、整轮少于 20 请求执行低压准入，逐站记录搜索、详情/解析、
+  `HEAD 200 audio/*` 正长度、`Range 206` 正 total 与实际至少 8 KiB、歌词、
+  封面、URL 有效期和故障分类。验证码、登录、403、429、防护、付费或 DRM
+  立即停止；试听、网盘、HTML 和防护页不得计为完整音频。
 
 ## 历史 Native R1/R2 证据
 
