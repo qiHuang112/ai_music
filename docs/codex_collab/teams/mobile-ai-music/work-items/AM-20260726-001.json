@@ -2,10 +2,10 @@
   "schema_version": 1,
   "team_key": "mobile-ai-music",
   "request_id": "AM-20260726-001",
-  "abstract_request": "Android Native 统一全速交付 Epic：从 codex/native-unified-milestone@d948a89 继续，移除 demo 数据，接入真实仓库与 Compose UI，保留完整音频、seek、缓存门禁；六个互斥 clone 子任务持续集成，Flutter/旧歌源/小爱转历史或替代。",
+  "abstract_request": "Android Native Rapid Delivery V2 Epic：从 codex/native-unified-epic-20260726@96093aa 继续，至少两个公开 Provider、6-12 原子分页、完整音乐闭环与 Flutter/Compose UX 等价由四个互斥完整 clone 持续集成；中间 APK 禁止安装。",
   "state": "parallel_in_progress",
   "requirement": {
-    "revision": "sha256:4ac5d1f892808c4fb3550bfbbdda66328407c64a8770942b2ada2d7601aa0628",
+    "revision": "sha256:798e260ea5695d64ff38597e05af01a70b6b76947302bcbf486315b0d2bdd59b",
     "approved": true
   },
   "development": {
@@ -86,6 +86,18 @@
     },
     {
       "sequence": 10,
+      "event": "start_parallel"
+    },
+    {
+      "sequence": 11,
+      "event": "revise_requirement"
+    },
+    {
+      "sequence": 12,
+      "event": "approve_requirement"
+    },
+    {
+      "sequence": 13,
       "event": "start_parallel"
     }
   ]

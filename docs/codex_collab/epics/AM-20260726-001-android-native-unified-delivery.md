@@ -20,10 +20,11 @@ Flutter 不修改，但其已验收播放器、歌词、进度和加载状态是
 
 ## P1 验收
 
-用户批准的 v2 bootstrap 基线为
-`docs/codex_collab/epics/AM-20260726-001-rapid-delivery-v2-bootstrap-requirement.md`，
-SHA-256 `bfd213c5f8f42ea9715adcf35f00b57bf372038b620d95271b481133d79546a0`。
-Product 只固化语义 revision，不重新打开已批准范围。
+当前唯一产品语义基线为
+`docs/codex_collab/epics/AM-20260726-001-rapid-delivery-v2-semantic-requirement.md`，
+SHA-256 `798e260ea5695d64ff38597e05af01a70b6b76947302bcbf486315b0d2bdd59b`。
+Bootstrap `bfd213c5` 只保留为用户批准证据；旧 semantic R2/R1、旧候选与
+NCUX-R1/R2 只作防回退 lineage，不再约束为单歌曲海或 `3+3+2` 分页。
 
 1. 歌曲海及至少一个第二公开 Provider 通过普通用户路径和完整音频门禁；低压
    限流，不绕验证码、登录、防护、付费或 DRM，不接试听、网盘、HTML 或错歌。

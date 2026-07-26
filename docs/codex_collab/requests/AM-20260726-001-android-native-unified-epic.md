@@ -17,7 +17,7 @@ Work Type: epic
 Risk Level: P1
 User Visible: yes
 Design Doc: docs/codex_collab/epics/AM-20260726-001-android-native-unified-delivery.md
-Requirement Doc: docs/codex_collab/epics/AM-20260726-001-rapid-delivery-v2-bootstrap-requirement.md
+Requirement Doc: docs/codex_collab/epics/AM-20260726-001-rapid-delivery-v2-semantic-requirement.md
 Implementation Plan: docs/codex_collab/epics/AM-20260726-001-android-native-unified-delivery.md
 Required Skills: create-agile-project-team role, test-driven-development, systematic-debugging, product-design:image-to-code, verification-before-completion, ai-music-team-ops
 TDD Mode: required
@@ -25,8 +25,8 @@ TDD Exception: none
 TDD Exception Review: not_applicable
 Baseline Commit: 96093aa771e3a89ff11d523ed99fcacfeaa9b8ee
 Head Commit: 96093aa771e3a89ff11d523ed99fcacfeaa9b8ee
-Requirement Revision: sha256:bfd213c5f8f42ea9715adcf35f00b57bf372038b620d95271b481133d79546a0 user_approved_rapid_delivery_v2_bootstrap
-Requirement Lineage Evidence: rapid-delivery-v2 bootstrap `sha256:bfd213c5f8f42ea9715adcf35f00b57bf372038b620d95271b481133d79546a0` supersedes semantic R2 `sha256:4ac5d1f892808c4fb3550bfbbdda66328407c64a8770942b2ada2d7601aa0628` for active execution. It preserves prior Back/IME/cache corrections while adding at least two public Providers, 6-12 atomic pagination and mandatory Flutter UX equivalence.
+Requirement Revision: sha256:798e260ea5695d64ff38597e05af01a70b6b76947302bcbf486315b0d2bdd59b canonical_semantic_v2_r1_user_approved
+Requirement Lineage Evidence: semantic V2 R1 `sha256:798e260ea5695d64ff38597e05af01a70b6b76947302bcbf486315b0d2bdd59b` is the only active product baseline. Bootstrap `bfd213c5` remains approval evidence; semantic R2 `4ac5d1f8`, semantic R1 `b8414836`, snapshot `005b75f7`, old candidate `f4afca41`, and NCUX-R1/R2 are historical lineage whose positive Back/edge-to-edge/IME/failure-isolation/cache/lyrics evidence remains regression input without restoring the single-Gequhai or `3+3+2` limits.
 UX Revision: pending_rapid_v2_flutter_equivalence_contract; NCUX-20260726-R2 retained as historical Native delta
 Logic Acceptance: not_started_rapid_delivery_v2
 Design Approval: user_approved_flutter_player_lyrics_progress_loading_as_mandatory_native_contract
@@ -96,6 +96,7 @@ Knowledge Evidence: prior QA/evidence contracts and AM-20260717-001 multi-source
 - 2026-07-26 type=review_result lane=mobile-ai-music-lead status=accepted summary=The five-file Semantic R2 evidence-contract update passed concentrated review, fresh validator tests 7/7 and diff-check. Lead committed and pushed codex/native-unified-epic-20260726@96093aa771e3a89ff11d523ed99fcacfeaa9b8ee with local/remote parity and a clean worktree. E_REQUIREMENT_HASH is removed from the blocked run, while E_VERDICT and the complete search/playback/cache gates still reject it. The installed APK remains f4afca41/c3117e44 and no device operation occurred.
 - 2026-07-26 type=task lane=mobile-ai-music-lead status=active summary=User approved the Native rapid-delivery replacement plan. Active workflow is ai-music-rapid-delivery-v2, frozen start is Native 96093aa, and four disjoint execution lines replace the old waiting chain without creating a new request or installing an intermediate APK.
 - 2026-07-26 type=handoff lane=mobile-ai-music-lead status=active summary=Reuse audit found existing Native MusicSearchRepository, ProviderSearchCursorV1, FullAudioTrack and strict Gequhai gates, plus historical AM-20260717-001 Gequhai+Kuwo aggregation contracts. Development must revalidate and migrate the Kuwo seed first, without creating a parallel search model; other public-source research remains parallel and non-blocking.
+- 2026-07-26 type=handoff lane=mobile-ai-music-product status=active summary=Product froze canonical semantic V2 R1 sha256 798e260e with exactly five P1 points and zero unresolved discovery; bootstrap is approval evidence and all prior semantic/UX revisions are historical lineage.
 
 ## Review 结果
 
