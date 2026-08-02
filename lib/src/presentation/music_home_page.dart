@@ -2088,5 +2088,6 @@ String _sourceMarker(MusicSearchCandidate candidate) {
     MusicDataSource.buguyy => '布谷',
     MusicDataSource.flac => 'FLAC',
     MusicDataSource.auto => 'AUTO',
+    MusicDataSource.lan => 'LAN',
   };
 }

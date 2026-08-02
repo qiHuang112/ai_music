@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'json_file_store.dart';
+import 'lan_library_models.dart';
 import 'music_resolver.dart';
 import '../platform/app_storage.dart';
 
@@ -43,21 +44,25 @@ class MusicAppSettings {
     this.source = MusicDataSource.auto,
     this.language = AppLanguage.zh,
     this.theme = AppThemePreference.dark,
+    this.lanLibraryUrl = defaultLanLibraryUrl,
   });
 
   final MusicDataSource source;
   final AppLanguage language;
   final AppThemePreference theme;
+  final String lanLibraryUrl;
 
   MusicAppSettings copyWith({
     MusicDataSource? source,
     AppLanguage? language,
     AppThemePreference? theme,
+    String? lanLibraryUrl,
   }) {
     return MusicAppSettings(
       source: source ?? this.source,
       language: language ?? this.language,
       theme: theme ?? this.theme,
+      lanLibraryUrl: lanLibraryUrl ?? this.lanLibraryUrl,
     );
   }
 
@@ -66,6 +71,7 @@ class MusicAppSettings {
       'source': source.storageValue,
       'language': language.storageValue,
       'themeMode': theme.storageValue,
+      'lanLibraryUrl': lanLibraryUrl,
     };
   }
 }
@@ -97,6 +103,7 @@ class MusicSettingsStore {
           theme: AppThemePreference.fromStorage(
             decoded['themeMode']?.toString() ?? decoded['theme']?.toString(),
           ),
+          lanLibraryUrl: _restoredLanLibraryUrl(decoded['lanLibraryUrl']),
         );
       }
       return MusicAppSettings(source: MusicDataSource.fromStorage(text));
@@ -138,6 +145,18 @@ class MusicSettingsStore {
         completer.complete();
       }
     });
+  }
+}
+
+String _restoredLanLibraryUrl(Object? value) {
+  final text = value?.toString().trim() ?? '';
+  if (text.isEmpty) {
+    return defaultLanLibraryUrl;
+  }
+  try {
+    return normalizeLanLibraryBaseUri(text).toString();
+  } on FormatException {
+    return defaultLanLibraryUrl;
   }
 }
 

@@ -14,9 +14,15 @@ class SettingsController {
     required MusicDataSource source,
     required AppLanguage language,
     required AppThemePreference theme,
+    required String lanLibraryUrl,
   }) {
     return settingsStore.saveSettings(
-      MusicAppSettings(source: source, language: language, theme: theme),
+      MusicAppSettings(
+        source: source,
+        language: language,
+        theme: theme,
+        lanLibraryUrl: lanLibraryUrl,
+      ),
     );
   }
 }

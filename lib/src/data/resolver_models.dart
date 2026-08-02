@@ -3,7 +3,8 @@ import 'dart:io';
 enum MusicDataSource {
   auto('auto', 'Auto'),
   buguyy('buguyy', 'BuguYY'),
-  flac('flac', 'FLAC');
+  flac('flac', 'FLAC'),
+  lan('lan', 'LAN');
 
   const MusicDataSource(this.storageValue, this.label);
 

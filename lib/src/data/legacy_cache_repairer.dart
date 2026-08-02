@@ -45,6 +45,9 @@ class LegacyCacheRepairer {
 
   bool _needsRepair(CachedTrack track) {
     final music = track.music;
+    if (music.source == MusicDataSource.lan) {
+      return false;
+    }
     final missingTitle =
         music.name.trim().isEmpty ||
         music.name.trim() == music.query.trim() ||

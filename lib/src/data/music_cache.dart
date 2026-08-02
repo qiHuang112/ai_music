@@ -6,6 +6,8 @@ import 'dart:math';
 import 'package:crypto/crypto.dart';
 
 import 'json_file_store.dart';
+import 'lan_library_client.dart';
+import 'lan_library_models.dart';
 import 'music_resolver.dart';
 import '../platform/app_storage.dart';
 
@@ -17,6 +19,10 @@ class CachedTrack {
     required this.sizeBytes,
     required this.fromCache,
     this.lyricsPath = '',
+    this.artworkPath = '',
+    this.contentSha256 = '',
+    this.lyricsSha256 = '',
+    this.artworkSha256 = '',
     this.cachedAt,
   });
 
@@ -26,6 +32,10 @@ class CachedTrack {
   final int sizeBytes;
   final bool fromCache;
   final String lyricsPath;
+  final String artworkPath;
+  final String contentSha256;
+  final String lyricsSha256;
+  final String artworkSha256;
   final DateTime? cachedAt;
 
   CachedTrack copyWith({
@@ -35,6 +45,10 @@ class CachedTrack {
     int? sizeBytes,
     bool? fromCache,
     String? lyricsPath,
+    String? artworkPath,
+    String? contentSha256,
+    String? lyricsSha256,
+    String? artworkSha256,
     DateTime? cachedAt,
   }) {
     return CachedTrack(
@@ -44,6 +58,10 @@ class CachedTrack {
       sizeBytes: sizeBytes ?? this.sizeBytes,
       fromCache: fromCache ?? this.fromCache,
       lyricsPath: lyricsPath ?? this.lyricsPath,
+      artworkPath: artworkPath ?? this.artworkPath,
+      contentSha256: contentSha256 ?? this.contentSha256,
+      lyricsSha256: lyricsSha256 ?? this.lyricsSha256,
+      artworkSha256: artworkSha256 ?? this.artworkSha256,
       cachedAt: cachedAt ?? this.cachedAt,
     );
   }
@@ -55,6 +73,10 @@ class CachedTrack {
       'filePath': filePath,
       'sizeBytes': sizeBytes,
       'lyricsPath': lyricsPath,
+      'artworkPath': artworkPath,
+      'contentSha256': contentSha256,
+      'lyricsSha256': lyricsSha256,
+      'artworkSha256': artworkSha256,
       'cachedAt': cachedAt?.toIso8601String(),
     };
   }
@@ -80,6 +102,10 @@ class CachedTrack {
           : int.tryParse(json['sizeBytes']?.toString() ?? '') ?? 0,
       fromCache: true,
       lyricsPath: json['lyricsPath']?.toString() ?? '',
+      artworkPath: json['artworkPath']?.toString() ?? '',
+      contentSha256: json['contentSha256']?.toString() ?? '',
+      lyricsSha256: json['lyricsSha256']?.toString() ?? '',
+      artworkSha256: json['artworkSha256']?.toString() ?? '',
       cachedAt: _parseDateTime(json['cachedAt']),
     );
   }
@@ -198,6 +224,16 @@ class HttpAudioDownloader implements AudioDownloader {
       final response = await request.close().timeout(
         const Duration(seconds: 30),
       );
+      if (requireHttps &&
+          response.redirects.any(
+            (redirect) =>
+                redirect.location.hasScheme &&
+                redirect.location.scheme.toLowerCase() != 'https',
+          )) {
+        throw const AudioValidationException(
+          'Release builds reject redirects to non-HTTPS audio URLs',
+        );
+      }
       if (response.statusCode < 200 || response.statusCode >= 300) {
         throw HttpException('download HTTP ${response.statusCode}', uri: url);
       }
@@ -372,6 +408,178 @@ class CachedTrackStore {
     }
   }
 
+  Future<LanCacheImportResult> importLanTrack(
+    LanTrackEntry entry, {
+    required String baseUrl,
+    required String libraryId,
+    required LanLibraryGateway gateway,
+  }) async {
+    final root = await _rootProvider();
+    if (!await root.exists()) {
+      await root.create(recursive: true);
+    }
+    final baseMusic = _resolvedLanMusic(entry, baseUrl, libraryId, gateway);
+    final cacheId = cacheIdForResolved(baseMusic);
+    final existing = await _lookup(cacheId);
+    if (existing != null && await _lanCacheMatches(existing, entry)) {
+      final refreshedMusic = _refreshedLanMusic(
+        entry,
+        baseUrl,
+        libraryId,
+        gateway,
+        existing,
+      );
+      if (_sameLanMetadata(existing.music, refreshedMusic)) {
+        return LanCacheImportResult(
+          cached: existing,
+          skipped: true,
+          updated: false,
+        );
+      }
+      final refreshed = existing.copyWith(
+        music: refreshedMusic,
+        fromCache: true,
+      );
+      await _upsert(refreshed);
+      return LanCacheImportResult(
+        cached: refreshed,
+        skipped: false,
+        updated: true,
+      );
+    }
+
+    final shortId = cacheId.substring(0, 10);
+    final artist = sanitizeFilePart(entry.artist, 'unknown-artist');
+    final title = sanitizeFilePart(entry.title, 'unknown-title');
+    final stem =
+        '$artist-$title-$shortId-${entry.audio.sha256.substring(0, 12)}';
+    final audioTarget = File(
+      '${root.path}${Platform.pathSeparator}$stem.${entry.audio.format}',
+    );
+    final lyricsTarget = entry.lyrics == null
+        ? null
+        : File(
+            '${root.path}${Platform.pathSeparator}$stem-'
+            '${entry.lyrics!.sha256.substring(0, 12)}.lrc',
+          );
+    final artworkExtension = entry.artwork?.mimeType == 'image/png'
+        ? 'png'
+        : 'jpg';
+    final artworkTarget = entry.artwork == null
+        ? null
+        : File(
+            '${root.path}${Platform.pathSeparator}$stem-'
+            '${entry.artwork!.sha256.substring(0, 12)}.$artworkExtension',
+          );
+    final nonce = DateTime.now().microsecondsSinceEpoch;
+    final audioTemp = File('${audioTarget.path}.download-$nonce.tmp');
+    final lyricsTemp = lyricsTarget == null
+        ? null
+        : File('${lyricsTarget.path}.download-$nonce.tmp');
+    final artworkTemp = artworkTarget == null
+        ? null
+        : File('${artworkTarget.path}.download-$nonce.tmp');
+    final temps = [audioTemp, ?lyricsTemp, ?artworkTemp];
+    final promoted = <File>[];
+    try {
+      await gateway.downloadAsset(baseUrl, entry.audio, audioTemp);
+      await _validateLanAsset(audioTemp, entry.audio);
+      await _validateLanAudioSignature(audioTemp, entry.audio.format);
+      await _validateAudioFile(audioTemp, baseMusic);
+
+      String lyricsText = '';
+      if (entry.lyrics != null && lyricsTemp != null) {
+        await gateway.downloadAsset(baseUrl, entry.lyrics!, lyricsTemp);
+        await _validateLanAsset(lyricsTemp, entry.lyrics!);
+        try {
+          lyricsText = utf8.decode(await lyricsTemp.readAsBytes());
+        } on FormatException {
+          throw const AudioValidationException(
+            'LAN lyrics are not valid UTF-8',
+          );
+        }
+      }
+      if (entry.artwork != null && artworkTemp != null) {
+        await gateway.downloadAsset(baseUrl, entry.artwork!, artworkTemp);
+        await _validateLanAsset(artworkTemp, entry.artwork!);
+      }
+
+      await _promoteLanFile(audioTemp, audioTarget, entry.audio, promoted);
+      if (entry.lyrics != null && lyricsTemp != null && lyricsTarget != null) {
+        await _promoteLanFile(
+          lyricsTemp,
+          lyricsTarget,
+          entry.lyrics!,
+          promoted,
+        );
+      }
+      if (entry.artwork != null &&
+          artworkTemp != null &&
+          artworkTarget != null) {
+        await _promoteLanFile(
+          artworkTemp,
+          artworkTarget,
+          entry.artwork!,
+          promoted,
+        );
+      }
+
+      final music = ResolvedMusic(
+        query: entry.title,
+        source: MusicDataSource.lan,
+        platform: baseMusic.platform,
+        id: entry.id,
+        name: entry.title,
+        artist: entry.artist,
+        album: entry.album,
+        url: gateway.resolveAssetUri(baseUrl, entry.audio).toString(),
+        quality: MusicQuality(format: entry.audio.format),
+        coverUrl: artworkTarget?.uri.toString() ?? '',
+        lyrics: lyricsText.trim().isEmpty
+            ? null
+            : ResolvedLyrics(
+                source: 'lan:lrc',
+                text: lyricsText.trimRight(),
+                lines: const LineSplitter().convert(lyricsText).length,
+                timed: RegExp(
+                  r'^\[\d{1,3}:\d{2}(?:[.:]\d{1,3})?\]',
+                  multiLine: true,
+                ).hasMatch(lyricsText),
+              ),
+      );
+      final cached = CachedTrack(
+        cacheId: cacheId,
+        music: music,
+        filePath: audioTarget.path,
+        sizeBytes: entry.audio.sizeBytes,
+        fromCache: false,
+        lyricsPath: lyricsTarget?.path ?? '',
+        artworkPath: artworkTarget?.path ?? '',
+        contentSha256: entry.audio.sha256,
+        lyricsSha256: entry.lyrics?.sha256 ?? '',
+        artworkSha256: entry.artwork?.sha256 ?? '',
+        cachedAt: DateTime.now(),
+      );
+      await _upsert(cached);
+      if (existing != null) {
+        await _deleteReplacedLanFiles(existing, cached);
+      }
+      return LanCacheImportResult(
+        cached: cached,
+        skipped: false,
+        updated: existing != null,
+      );
+    } catch (_) {
+      for (final file in temps) {
+        await _deleteIfExists(file);
+      }
+      for (final file in promoted) {
+        await _deleteIfExists(file);
+      }
+      rethrow;
+    }
+  }
+
   Future<void> cleanupTemporaryFiles() async {
     final root = await _rootProvider();
     if (!await root.exists()) {
@@ -408,6 +616,9 @@ class CachedTrackStore {
         await _deleteIfExists(File(cached.filePath));
         if (cached.lyricsPath.isNotEmpty) {
           await _deleteIfExists(File(cached.lyricsPath));
+        }
+        if (cached.artworkPath.isNotEmpty) {
+          await _deleteIfExists(File(cached.artworkPath));
         }
         await _deleteIfExists(File(lyricsPathForAudioPath(cached.filePath)));
       }
@@ -459,6 +670,10 @@ class CachedTrackStore {
             sizeBytes: stat.size,
             fromCache: true,
             lyricsPath: cached.lyricsPath,
+            artworkPath: cached.artworkPath,
+            contentSha256: cached.contentSha256,
+            lyricsSha256: cached.lyricsSha256,
+            artworkSha256: cached.artworkSha256,
             cachedAt: cached.cachedAt ?? stat.modified,
           ),
         );
@@ -608,6 +823,188 @@ class CachedTrackStore {
 
   File _indexFile(Directory root) {
     return File('${root.path}${Platform.pathSeparator}_cache_index.json');
+  }
+}
+
+class LanCacheImportResult {
+  const LanCacheImportResult({
+    required this.cached,
+    required this.skipped,
+    required this.updated,
+  });
+
+  final CachedTrack cached;
+  final bool skipped;
+  final bool updated;
+}
+
+ResolvedMusic _resolvedLanMusic(
+  LanTrackEntry entry,
+  String baseUrl,
+  String libraryId,
+  LanLibraryGateway gateway,
+) {
+  return ResolvedMusic(
+    query: entry.title,
+    source: MusicDataSource.lan,
+    platform: 'lan:$libraryId',
+    id: entry.id,
+    name: entry.title,
+    artist: entry.artist,
+    album: entry.album,
+    url: gateway.resolveAssetUri(baseUrl, entry.audio).toString(),
+    quality: MusicQuality(format: entry.audio.format),
+  );
+}
+
+ResolvedMusic _refreshedLanMusic(
+  LanTrackEntry entry,
+  String baseUrl,
+  String libraryId,
+  LanLibraryGateway gateway,
+  CachedTrack existing,
+) {
+  final base = _resolvedLanMusic(entry, baseUrl, libraryId, gateway);
+  return ResolvedMusic(
+    query: base.query,
+    source: base.source,
+    platform: base.platform,
+    id: base.id,
+    name: base.name,
+    artist: base.artist,
+    album: base.album,
+    url: base.url,
+    quality: base.quality,
+    coverUrl: entry.artwork != null && existing.artworkPath.isNotEmpty
+        ? File(existing.artworkPath).uri.toString()
+        : '',
+    lyrics: entry.lyrics == null ? null : existing.music.lyrics,
+  );
+}
+
+bool _sameLanMetadata(ResolvedMusic left, ResolvedMusic right) {
+  return left.query == right.query &&
+      left.source == right.source &&
+      left.platform == right.platform &&
+      left.id == right.id &&
+      left.name == right.name &&
+      left.artist == right.artist &&
+      left.album == right.album &&
+      left.url == right.url &&
+      left.quality.format == right.quality.format &&
+      left.coverUrl == right.coverUrl &&
+      left.lyrics?.text == right.lyrics?.text;
+}
+
+Future<bool> _lanCacheMatches(CachedTrack cached, LanTrackEntry entry) async {
+  if (cached.contentSha256 != entry.audio.sha256 ||
+      cached.lyricsSha256 != (entry.lyrics?.sha256 ?? '') ||
+      cached.artworkSha256 != (entry.artwork?.sha256 ?? '')) {
+    return false;
+  }
+  try {
+    final audio = File(cached.filePath);
+    await _validateLanAsset(audio, entry.audio);
+    await _validateLanAudioSignature(audio, entry.audio.format);
+    await _validateAudioFile(audio, cached.music);
+    if (entry.lyrics != null) {
+      if (cached.lyricsPath.isEmpty) {
+        return false;
+      }
+      await _validateLanAsset(File(cached.lyricsPath), entry.lyrics!);
+    }
+    if (entry.artwork != null) {
+      if (cached.artworkPath.isEmpty) {
+        return false;
+      }
+      await _validateLanAsset(File(cached.artworkPath), entry.artwork!);
+    }
+    return true;
+  } on Object {
+    return false;
+  }
+}
+
+Future<void> _validateLanAsset(File file, LanAsset asset) async {
+  if (!await file.exists()) {
+    throw FileSystemException('LAN asset is missing', file.path);
+  }
+  final length = await file.length();
+  if (length != asset.sizeBytes) {
+    throw AudioValidationException(
+      'LAN asset size mismatch: expected ${asset.sizeBytes}, got $length',
+    );
+  }
+  final digest = await _sha256File(file);
+  if (digest != asset.sha256) {
+    throw const AudioValidationException('LAN asset SHA-256 mismatch');
+  }
+}
+
+Future<void> _validateLanAudioSignature(File file, String format) async {
+  final length = await file.length();
+  final header = await _readHeader(file, min<int>(512, length));
+  switch (format.toLowerCase()) {
+    case 'mp3':
+      final hasId3 =
+          header.length >= 3 &&
+          header[0] == 0x49 &&
+          header[1] == 0x44 &&
+          header[2] == 0x33;
+      final hasFrameSync =
+          header.length >= 2 && header[0] == 0xff && (header[1] & 0xe0) == 0xe0;
+      if (hasId3 || hasFrameSync) {
+        return;
+      }
+    case 'flac':
+      if (header.length >= 4 &&
+          header[0] == 0x66 &&
+          header[1] == 0x4c &&
+          header[2] == 0x61 &&
+          header[3] == 0x43) {
+        return;
+      }
+  }
+  throw AudioValidationException('LAN audio signature does not match .$format');
+}
+
+Future<String> _sha256File(File file) async {
+  final digest = await sha256.bind(file.openRead()).first;
+  return digest.toString();
+}
+
+Future<void> _promoteLanFile(
+  File temp,
+  File target,
+  LanAsset asset,
+  List<File> promoted,
+) async {
+  if (await target.exists()) {
+    await _validateLanAsset(target, asset);
+    await _deleteIfExists(temp);
+    return;
+  }
+  await temp.rename(target.path);
+  promoted.add(target);
+}
+
+Future<void> _deleteReplacedLanFiles(
+  CachedTrack previous,
+  CachedTrack current,
+) async {
+  final currentPaths = {
+    current.filePath,
+    if (current.lyricsPath.isNotEmpty) current.lyricsPath,
+    if (current.artworkPath.isNotEmpty) current.artworkPath,
+  };
+  for (final path in [
+    previous.filePath,
+    previous.lyricsPath,
+    previous.artworkPath,
+  ]) {
+    if (path.isNotEmpty && !currentPaths.contains(path)) {
+      await _deleteIfExists(File(path));
+    }
   }
 }
 

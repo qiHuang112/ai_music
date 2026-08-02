@@ -5,6 +5,8 @@ import 'package:flutter/foundation.dart';
 
 import '../data/lyrics_artwork.dart';
 import '../data/legacy_cache_repairer.dart';
+import '../data/lan_library_client.dart';
+import '../data/lan_library_models.dart';
 import '../data/music_cache.dart';
 import '../data/music_playlists.dart';
 import '../data/music_resolver.dart';
@@ -15,6 +17,7 @@ import 'download_queue_controller.dart';
 import 'download_use_case.dart';
 import 'library_controller.dart';
 import 'library_use_case.dart';
+import 'lan_sync_use_case.dart';
 import 'metadata_use_case.dart';
 import 'music_mappers.dart';
 import 'music_ui_message.dart';
@@ -34,12 +37,16 @@ class MusicController extends ChangeNotifier {
     MusicSettingsStore? settingsStore,
     TrackMetadataRepository? metadataRepository,
     LegacyCacheRepairer? legacyRepairer,
+    LanLibraryGateway? lanLibraryGateway,
+    LanSyncUseCase? lanSyncUseCase,
   }) : _resolver = resolver ?? RemoteMusicResolver(),
        _cacheStore = cacheStore ?? CachedTrackStore(),
        _playlistStore = playlistStore ?? PlaylistStore(),
        _settingsStore = settingsStore ?? MusicSettingsStore(),
        _metadataRepository = metadataRepository ?? TrackMetadataRepository(),
        _legacyRepairerOverride = legacyRepairer {
+    _lanLibraryGateway = lanLibraryGateway ?? LanLibraryClient();
+    _ownsLanLibraryGateway = lanLibraryGateway == null;
     settingsController = SettingsController(settingsStore: _settingsStore);
     libraryUseCase = LibraryUseCase(
       cacheStore: _cacheStore,
@@ -52,6 +59,9 @@ class MusicController extends ChangeNotifier {
       cacheStore: _cacheStore,
       queue: downloadQueue,
     );
+    this.lanSyncUseCase =
+        lanSyncUseCase ??
+        LanSyncUseCase(gateway: _lanLibraryGateway, cacheStore: _cacheStore);
     playbackUseCase = PlaybackUseCase(audioHandler: audioHandler);
     metadataUseCase = MetadataUseCase(repository: _metadataRepository);
     audioHandler.onOhosLoopModeRequested = _handleOhosLoopModeRequested;
@@ -70,11 +80,14 @@ class MusicController extends ChangeNotifier {
   final MusicSettingsStore _settingsStore;
   final TrackMetadataRepository _metadataRepository;
   final LegacyCacheRepairer? _legacyRepairerOverride;
+  late final LanLibraryGateway _lanLibraryGateway;
+  late final bool _ownsLanLibraryGateway;
   final LibraryController libraryController = const LibraryController();
   final DownloadQueueController downloadQueue = DownloadQueueController();
   late final SettingsController settingsController;
   late final LibraryUseCase libraryUseCase;
   late final DownloadUseCase downloadUseCase;
+  late final LanSyncUseCase lanSyncUseCase;
   late final PlaybackUseCase playbackUseCase;
   late final MetadataUseCase metadataUseCase;
   late final StreamSubscription<MediaItem?> _mediaItemSubscription;
@@ -99,6 +112,15 @@ class MusicController extends ChangeNotifier {
   PlaybackMode playbackMode = PlaybackMode.sequential;
   AppLanguage language = AppLanguage.zh;
   AppThemePreference themePreference = AppThemePreference.dark;
+  String lanLibraryUrl = defaultLanLibraryUrl;
+  bool isTestingLanConnection = false;
+  bool isLanSyncing = false;
+  int lanSyncCompleted = 0;
+  int lanSyncTotal = 0;
+  String lanSyncCurrentTitle = '';
+  String? lanConnectionStatus;
+  String? lanSyncError;
+  LanSyncResult? lastLanSyncResult;
   TrackMetadata currentMetadata = const TrackMetadata();
   bool isSearching = false;
   bool isLoadingCache = false;
@@ -142,6 +164,7 @@ class MusicController extends ChangeNotifier {
     source = settings.source;
     language = settings.language;
     themePreference = settings.theme;
+    lanLibraryUrl = settings.lanLibraryUrl;
     await _cacheStore.cleanupTemporaryFiles();
     await loadCache();
     notifyListeners();
@@ -190,6 +213,69 @@ class MusicController extends ChangeNotifier {
     themePreference = nextTheme;
     notifyListeners();
     await _saveSettings();
+  }
+
+  Future<void> saveLanLibraryUrl(String value) async {
+    lanLibraryUrl = normalizeLanLibraryBaseUri(value).toString();
+    lanConnectionStatus = null;
+    notifyListeners();
+    await _saveSettings();
+  }
+
+  Future<LanLibraryHealth?> testLanConnection([String? value]) async {
+    if (isTestingLanConnection) {
+      return null;
+    }
+    isTestingLanConnection = true;
+    lanConnectionStatus = null;
+    notifyListeners();
+    try {
+      final candidate = normalizeLanLibraryBaseUri(
+        value ?? lanLibraryUrl,
+      ).toString();
+      final health = await _lanLibraryGateway.testConnection(candidate);
+      lanConnectionStatus = '连接成功，共 ${health.trackCount} 首';
+      return health;
+    } on Object catch (error) {
+      lanConnectionStatus = friendlyError(error);
+      return null;
+    } finally {
+      isTestingLanConnection = false;
+      notifyListeners();
+    }
+  }
+
+  Future<LanSyncResult?> syncLanLibrary() async {
+    if (isLanSyncing) {
+      return null;
+    }
+    isLanSyncing = true;
+    lanSyncCompleted = 0;
+    lanSyncTotal = 0;
+    lanSyncCurrentTitle = '';
+    lanSyncError = null;
+    lastLanSyncResult = null;
+    notifyListeners();
+    try {
+      final result = await lanSyncUseCase.sync(
+        lanLibraryUrl,
+        onProgress: (progress) {
+          lanSyncCompleted = progress.completed;
+          lanSyncTotal = progress.total;
+          lanSyncCurrentTitle = progress.currentTitle;
+          notifyListeners();
+        },
+      );
+      lastLanSyncResult = result;
+      await loadCache(repairLegacy: false);
+      return result;
+    } on Object catch (error) {
+      lanSyncError = friendlyError(error);
+      return null;
+    } finally {
+      isLanSyncing = false;
+      notifyListeners();
+    }
   }
 
   Future<void> search(String query) async {
@@ -590,6 +676,7 @@ class MusicController extends ChangeNotifier {
       source: source,
       language: language,
       theme: themePreference,
+      lanLibraryUrl: lanLibraryUrl,
     );
   }
 
@@ -983,6 +1070,9 @@ class MusicController extends ChangeNotifier {
     audioHandler.onOhosToggleFavoriteRequested = null;
     audioHandler.onToggleFavoriteRequested = null;
     unawaited(_mediaItemSubscription.cancel());
+    if (_ownsLanLibraryGateway && _lanLibraryGateway is LanLibraryClient) {
+      _lanLibraryGateway.close();
+    }
     super.dispose();
   }
 }

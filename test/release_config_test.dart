@@ -3,20 +3,30 @@ import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
-  test('release manifest does not globally allow cleartext traffic', () async {
-    final mainManifest = await File(
-      'android/app/src/main/AndroidManifest.xml',
-    ).readAsString();
-    final debugManifest = await File(
-      'android/app/src/debug/AndroidManifest.xml',
-    ).readAsString();
+  test(
+    'release allows LAN cleartext while Dart enforces private hosts',
+    () async {
+      final mainManifest = await File(
+        'android/app/src/main/AndroidManifest.xml',
+      ).readAsString();
+      final debugManifest = await File(
+        'android/app/src/debug/AndroidManifest.xml',
+      ).readAsString();
 
-    expect(mainManifest, isNot(contains('usesCleartextTraffic="true"')));
-    expect(debugManifest, contains('usesCleartextTraffic="true"'));
-  });
+      final lanModels = await File(
+        'lib/src/data/lan_library_models.dart',
+      ).readAsString();
+
+      expect(mainManifest, contains('usesCleartextTraffic="true"'));
+      expect(debugManifest, contains('usesCleartextTraffic="true"'));
+      expect(lanModels, contains('_isPrivateOrLoopbackHost'));
+      expect(lanModels, contains('明文 HTTP 只允许回环或私网 IP 地址'));
+    },
+  );
 
   test('release build does not use debug signing config', () async {
     final gradle = await File('android/app/build.gradle.kts').readAsString();
+    final rootGradle = await File('android/build.gradle.kts').readAsString();
 
     expect(gradle, contains('compileSdk = 36'));
     expect(
@@ -25,6 +35,8 @@ void main() {
     );
     expect(gradle, contains('key.properties'));
     expect(gradle, contains('Release signing is not configured'));
+    expect(rootGradle, contains('pluginProjectNdkVersion'));
+    expect(rootGradle, contains('27.0.11718014'));
   });
 
   test(

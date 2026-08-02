@@ -453,7 +453,9 @@ Uri? artworkUriFromText(String value) {
   if (uri == null || !uri.hasScheme) {
     return null;
   }
-  return uri;
+  return const {'file', 'https'}.contains(uri.scheme.toLowerCase())
+      ? uri
+      : null;
 }
 
 TrackMetadata _metadataFromJson(Map<String, dynamic> json) {

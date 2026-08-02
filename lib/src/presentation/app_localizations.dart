@@ -48,6 +48,21 @@ class AppStrings {
   String get language => isZh ? '语言' : 'Language';
   String get theme => isZh ? '换肤' : 'Theme';
   String get musicSource => isZh ? '音乐源' : 'Music Source';
+  String get lanLibrary => isZh ? '局域网音乐库' : 'LAN Music Library';
+  String get lanLibraryAddress => isZh ? '局域网音乐库地址' : 'LAN library address';
+  String get lanLibraryDescription => isZh
+      ? '从电脑上的只读音乐服务增量同步，不会删除手机已有歌曲。'
+      : 'Incrementally sync from the read-only computer service without deleting phone-only music.';
+  String get saveLanAddress => isZh ? '保存地址' : 'Save address';
+  String get testLanConnection => isZh ? '测试连接' : 'Test connection';
+  String get scanAndSync => isZh ? '扫描并同步' : 'Scan and sync';
+  String get lanSyncSection => isZh ? '局域网增量同步' : 'LAN incremental sync';
+  String lanSyncProgress(int completed, int total, String title) => isZh
+      ? '正在同步 $completed/$total${title.isEmpty ? '' : ' · $title'}'
+      : 'Syncing $completed/$total${title.isEmpty ? '' : ' · $title'}';
+  String lanSyncSummary(int added, int updated, int skipped, int failed) => isZh
+      ? '新增 $added 首 · 更新 $updated 首 · 跳过 $skipped 首 · 失败 $failed 首'
+      : 'Added $added · updated $updated · skipped $skipped · failed $failed';
   String get chinese => isZh ? '中文' : 'Chinese';
   String get english => isZh ? '英文' : 'English';
   String get lightTheme => isZh ? '白色' : 'Light';

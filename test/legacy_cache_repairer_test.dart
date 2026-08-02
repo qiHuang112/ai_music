@@ -40,6 +40,27 @@ void main() {
     expect(count, 0);
     expect(cache.updated, isEmpty);
   });
+
+  test(
+    'legacy repair never rewrites LAN tracks with optional sidecars',
+    () async {
+      final cache = _RepairCacheStore([_lanTrack()]);
+      final resolver = _RepairResolver(
+        candidates: [_candidate(score: 99)],
+        resolved: _resolved(),
+      );
+      final repairer = LegacyCacheRepairer(
+        resolver: resolver,
+        cacheStore: cache,
+      );
+
+      final count = await repairer.repair(cache.cached);
+
+      expect(count, 0);
+      expect(resolver.searchCalls, 0);
+      expect(cache.updated, isEmpty);
+    },
+  );
 }
 
 class _RepairResolver implements MusicResolver {
@@ -47,12 +68,14 @@ class _RepairResolver implements MusicResolver {
 
   final List<MusicSearchCandidate> candidates;
   final ResolvedMusic resolved;
+  int searchCalls = 0;
 
   @override
   Future<List<MusicSearchCandidate>> search(
     String query,
     MusicDataSource source,
   ) async {
+    searchCalls += 1;
     return candidates;
   }
 
@@ -94,6 +117,26 @@ CachedTrack _legacyTrack() {
       quality: MusicQuality(format: 'mp3'),
     ),
     filePath: '/tmp/周杰伦-稻香.mp3',
+    sizeBytes: 4,
+    fromCache: true,
+  );
+}
+
+CachedTrack _lanTrack() {
+  return CachedTrack(
+    cacheId: 'lan-track',
+    music: const ResolvedMusic(
+      query: '跟随医护',
+      source: MusicDataSource.lan,
+      platform: 'lan:library-one',
+      id: 'lamaze-follow-care-team',
+      name: '跟随医护',
+      artist: 'AI Home',
+      album: '拉玛泽呼吸引导',
+      url: 'http://192.168.31.57:8787/api/v1/files/Lamaze/04.mp3',
+      quality: MusicQuality(format: 'mp3'),
+    ),
+    filePath: '/tmp/跟随医护.mp3',
     sizeBytes: 4,
     fromCache: true,
   );

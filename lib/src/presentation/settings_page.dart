@@ -64,6 +64,126 @@ class SettingsPage extends StatelessWidget {
                     ),
                   ),
                 ),
+                ListTile(
+                  leading: const Icon(Icons.wifi_tethering),
+                  title: Text(strings.lanLibrary),
+                  subtitle: Text(controller.lanLibraryUrl),
+                  trailing: const Icon(Icons.chevron_right),
+                  onTap: () => Navigator.of(context).push<void>(
+                    MaterialPageRoute(
+                      builder: (_) =>
+                          LanLibrarySettingsPage(controller: controller),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+}
+
+class LanLibrarySettingsPage extends StatefulWidget {
+  const LanLibrarySettingsPage({super.key, required this.controller});
+
+  final MusicController controller;
+
+  @override
+  State<LanLibrarySettingsPage> createState() => _LanLibrarySettingsPageState();
+}
+
+class _LanLibrarySettingsPageState extends State<LanLibrarySettingsPage> {
+  late final TextEditingController _addressController;
+  String? _inputError;
+
+  @override
+  void initState() {
+    super.initState();
+    _addressController = TextEditingController(
+      text: widget.controller.lanLibraryUrl,
+    );
+  }
+
+  @override
+  void dispose() {
+    _addressController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _save() async {
+    try {
+      await widget.controller.saveLanLibraryUrl(_addressController.text);
+      _addressController.text = widget.controller.lanLibraryUrl;
+      if (mounted) {
+        setState(() => _inputError = null);
+      }
+    } on FormatException catch (error) {
+      if (mounted) {
+        setState(() => _inputError = error.message);
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final strings = AppStringsScope.of(context);
+    return AnimatedBuilder(
+      animation: widget.controller,
+      builder: (context, _) {
+        final controller = widget.controller;
+        return Scaffold(
+          appBar: AppBar(title: Text(strings.lanLibrary)),
+          body: SafeArea(
+            child: ListView(
+              padding: const EdgeInsets.all(16),
+              children: [
+                Text(strings.lanLibraryDescription),
+                const SizedBox(height: 16),
+                TextField(
+                  key: const Key('lanLibraryUrlField'),
+                  controller: _addressController,
+                  keyboardType: TextInputType.url,
+                  autocorrect: false,
+                  decoration: InputDecoration(
+                    labelText: strings.lanLibraryAddress,
+                    hintText: 'http://192.168.31.57:8787',
+                    errorText: _inputError,
+                    border: const OutlineInputBorder(),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                Wrap(
+                  spacing: 12,
+                  runSpacing: 8,
+                  children: [
+                    FilledButton.icon(
+                      onPressed: _save,
+                      icon: const Icon(Icons.save_outlined),
+                      label: Text(strings.saveLanAddress),
+                    ),
+                    OutlinedButton.icon(
+                      onPressed: controller.isTestingLanConnection
+                          ? null
+                          : () => controller.testLanConnection(
+                              _addressController.text,
+                            ),
+                      icon: controller.isTestingLanConnection
+                          ? const SizedBox.square(
+                              dimension: 16,
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            )
+                          : const Icon(Icons.network_check),
+                      label: Text(strings.testLanConnection),
+                    ),
+                  ],
+                ),
+                if (controller.lanConnectionStatus != null)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 16),
+                    child: Text(controller.lanConnectionStatus!),
+                  ),
               ],
             ),
           ),
@@ -208,5 +328,6 @@ String _sourceTitle(AppStrings strings, MusicDataSource source) {
     MusicDataSource.auto => strings.autoSource,
     MusicDataSource.buguyy => strings.buguyy,
     MusicDataSource.flac => strings.flacSource,
+    MusicDataSource.lan => 'LAN',
   };
 }

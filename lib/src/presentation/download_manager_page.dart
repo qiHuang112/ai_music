@@ -101,6 +101,8 @@ class _DownloadManagerPageState extends State<DownloadManagerPage> {
                       queueTracks: cachedTracks,
                       index: index,
                     ),
+                const SizedBox(height: 18),
+                _LanSyncCard(controller: controller),
               ],
             ),
           ),
@@ -125,6 +127,94 @@ class _DownloadManagerPageState extends State<DownloadManagerPage> {
         break;
     }
     return sorted;
+  }
+}
+
+class _LanSyncCard extends StatelessWidget {
+  const _LanSyncCard({required this.controller});
+
+  final MusicController controller;
+
+  @override
+  Widget build(BuildContext context) {
+    final strings = AppStringsScope.of(context);
+    final result = controller.lastLanSyncResult;
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(14),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              strings.lanSyncSection,
+              style: Theme.of(context).textTheme.titleMedium,
+            ),
+            const SizedBox(height: 4),
+            Text(
+              controller.lanLibraryUrl,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+            const SizedBox(height: 10),
+            FilledButton.icon(
+              onPressed: controller.isLanSyncing
+                  ? null
+                  : controller.syncLanLibrary,
+              icon: controller.isLanSyncing
+                  ? const SizedBox.square(
+                      dimension: 16,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Icon(Icons.sync),
+              label: Text(strings.scanAndSync),
+            ),
+            if (controller.isLanSyncing)
+              Padding(
+                padding: const EdgeInsets.only(top: 10),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    LinearProgressIndicator(
+                      value: controller.lanSyncTotal > 0
+                          ? controller.lanSyncCompleted /
+                                controller.lanSyncTotal
+                          : null,
+                    ),
+                    const SizedBox(height: 6),
+                    Text(
+                      strings.lanSyncProgress(
+                        controller.lanSyncCompleted,
+                        controller.lanSyncTotal,
+                        controller.lanSyncCurrentTitle,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            if (result != null)
+              Padding(
+                padding: const EdgeInsets.only(top: 10),
+                child: Text(
+                  strings.lanSyncSummary(
+                    result.added,
+                    result.updated,
+                    result.skipped,
+                    result.failed,
+                  ),
+                ),
+              ),
+            if (controller.lanSyncError != null)
+              Padding(
+                padding: const EdgeInsets.only(top: 10),
+                child: Text(
+                  controller.lanSyncError!,
+                  style: TextStyle(color: Theme.of(context).colorScheme.error),
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
   }
 }
 

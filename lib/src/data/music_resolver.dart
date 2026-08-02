@@ -66,6 +66,9 @@ class RemoteMusicResolver implements MusicResolver, ProgressiveMusicResolver {
       MusicDataSource.buguyy => await _buguyy.search(trimmed),
       MusicDataSource.flac => await _flac.search(trimmed),
       MusicDataSource.auto => await _searchAuto(trimmed),
+      MusicDataSource.lan => throw UnsupportedError(
+        'LAN is a cache provenance and cannot be searched online.',
+      ),
     };
     _logResolver(
       '[AI Music][resolver] search done query="$trimmed" '
@@ -161,6 +164,9 @@ class RemoteMusicResolver implements MusicResolver, ProgressiveMusicResolver {
       MusicDataSource.flac => _flac.resolve(candidate),
       MusicDataSource.auto => throw StateError(
         'Auto candidates must be tagged with their concrete source.',
+      ),
+      MusicDataSource.lan => throw UnsupportedError(
+        'LAN manifest tracks are already resolved.',
       ),
     };
     _logResolver(

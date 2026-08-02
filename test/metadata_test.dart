@@ -8,6 +8,15 @@ import 'package:ai_music/src/domain/music_models.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
+  test('artwork URI only accepts local files or HTTPS', () {
+    expect(artworkUriFromText('http://public.example.test/cover.jpg'), isNull);
+    expect(
+      artworkUriFromText('https://public.example.test/cover.jpg')?.scheme,
+      'https',
+    );
+    expect(artworkUriFromText('file:///tmp/cover.jpg')?.scheme, 'file');
+  });
+
   test('metadata repository uses resolved cover url and caches it', () async {
     final root = await Directory.systemTemp.createTemp('ai_music_meta_test_');
     final cache = MetadataCacheStore(rootProvider: () async => root);

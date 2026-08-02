@@ -2,6 +2,9 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:ai_music/src/application/music_controller.dart';
+import 'package:ai_music/src/application/lan_sync_use_case.dart';
+import 'package:ai_music/src/data/lan_library_client.dart';
+import 'package:ai_music/src/data/lan_library_models.dart';
 import 'package:ai_music/src/data/lyrics_artwork.dart';
 import 'package:ai_music/src/data/music_cache.dart';
 import 'package:ai_music/src/data/music_playlists.dart';
@@ -500,6 +503,55 @@ void main() {
 
     expect(settings.savedSource, MusicDataSource.flac);
     expect(settings.settings.source, MusicDataSource.flac);
+  });
+
+  testWidgets('LAN library settings save address and test connection', (
+    tester,
+  ) async {
+    final settings = _FakeSettingsStore();
+    final gateway = _WidgetLanGateway();
+    await tester.pumpWidget(_app(settings: settings, lanGateway: gateway));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byTooltip('设置'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('局域网音乐库'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('局域网音乐库地址'), findsOneWidget);
+    await tester.enterText(
+      find.byKey(const Key('lanLibraryUrlField')),
+      'http://10.0.0.9:9000/',
+    );
+    await tester.tap(find.text('保存地址'));
+    await tester.pumpAndSettle();
+
+    expect(settings.settings.lanLibraryUrl, 'http://10.0.0.9:9000');
+
+    await tester.tap(find.text('测试连接'));
+    await tester.pumpAndSettle();
+
+    expect(gateway.testedUrls, ['http://10.0.0.9:9000']);
+    expect(find.text('连接成功，共 4 首'), findsOneWidget);
+  });
+
+  testWidgets('download manager offers LAN scan and shows result', (
+    tester,
+  ) async {
+    final useCase = _WidgetLanSyncUseCase();
+    await tester.pumpWidget(_app(lanSyncUseCase: useCase));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byTooltip('下载'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('扫描并同步'), findsOneWidget);
+    await tester.tap(find.text('扫描并同步'));
+    await tester.pumpAndSettle();
+
+    expect(useCase.calls, 1);
+    expect(find.textContaining('新增 1 首'), findsOneWidget);
+    expect(find.textContaining('跳过 2 首'), findsOneWidget);
   });
 
   testWidgets('home back clears search then asks before exiting', (
@@ -1475,6 +1527,8 @@ Widget _app({
   _FakeSettingsStore? settings,
   TrackMetadataRepository? metadataRepository,
   MusicAudioHandler? audioHandler,
+  LanLibraryGateway? lanGateway,
+  LanSyncUseCase? lanSyncUseCase,
 }) {
   final controller = MusicController(
     audioHandler: audioHandler ?? MusicAudioHandler(),
@@ -1483,6 +1537,8 @@ Widget _app({
     playlistStore: playlistStore ?? _FakePlaylistStore(),
     settingsStore: settings ?? _FakeSettingsStore(),
     metadataRepository: metadataRepository ?? _FakeMetadataRepository(),
+    lanLibraryGateway: lanGateway,
+    lanSyncUseCase: lanSyncUseCase,
   );
   return AnimatedBuilder(
     animation: controller,
@@ -1705,6 +1761,62 @@ class _FakeSettingsStore implements MusicSettingsStore {
   Future<void> saveSource(MusicDataSource source) async {
     savedSource = source;
     settings = settings.copyWith(source: source);
+  }
+}
+
+class _WidgetLanGateway implements LanLibraryGateway {
+  final List<String> testedUrls = [];
+
+  @override
+  Future<LanLibraryHealth> testConnection(String baseUrl) async {
+    testedUrls.add(baseUrl);
+    return const LanLibraryHealth(schemaVersion: 1, trackCount: 4);
+  }
+
+  @override
+  Future<LanLibraryManifest> fetchLibrary(String baseUrl) async {
+    return LanLibraryManifest.fromJson({
+      'schemaVersion': 1,
+      'libraryId': 'widget',
+      'generatedAt': '2026-08-02T00:00:00Z',
+      'tracks': const [],
+    });
+  }
+
+  @override
+  Uri resolveAssetUri(String baseUrl, LanAsset asset) {
+    return Uri.parse(baseUrl).resolveUri(asset.url);
+  }
+
+  @override
+  Future<int> downloadAsset(String baseUrl, LanAsset asset, File target) {
+    throw UnsupportedError('not used');
+  }
+}
+
+class _WidgetLanSyncUseCase extends LanSyncUseCase {
+  _WidgetLanSyncUseCase()
+    : super(gateway: _WidgetLanGateway(), cacheStore: _FakeCacheStore());
+
+  int calls = 0;
+
+  @override
+  Future<LanSyncResult> sync(
+    String baseUrl, {
+    void Function(LanSyncProgress progress)? onProgress,
+  }) async {
+    calls += 1;
+    onProgress?.call(
+      const LanSyncProgress(completed: 3, total: 3, currentTitle: '完成'),
+    );
+    return const LanSyncResult(
+      total: 3,
+      added: 1,
+      updated: 0,
+      skipped: 2,
+      failed: 0,
+      failures: [],
+    );
   }
 }
 

@@ -2,6 +2,7 @@ import 'dart:io';
 
 import 'package:ai_music/src/data/music_resolver.dart';
 import 'package:ai_music/src/data/music_settings.dart';
+import 'package:ai_music/src/data/lan_library_models.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
@@ -19,6 +20,7 @@ void main() {
       expect(settings.source, MusicDataSource.flac);
       expect(settings.language, AppLanguage.zh);
       expect(settings.theme, AppThemePreference.dark);
+      expect(settings.lanLibraryUrl, defaultLanLibraryUrl);
     } finally {
       await root.delete(recursive: true);
     }
@@ -36,6 +38,7 @@ void main() {
       expect(settings.source, MusicDataSource.auto);
       expect(settings.language, AppLanguage.zh);
       expect(settings.theme, AppThemePreference.dark);
+      expect(settings.lanLibraryUrl, defaultLanLibraryUrl);
     } finally {
       await root.delete(recursive: true);
     }
@@ -53,6 +56,7 @@ void main() {
           source: MusicDataSource.buguyy,
           language: AppLanguage.en,
           theme: AppThemePreference.light,
+          lanLibraryUrl: 'http://10.0.0.9:9000',
         ),
       );
 
@@ -60,6 +64,7 @@ void main() {
       expect(restored.source, MusicDataSource.buguyy);
       expect(restored.language, AppLanguage.en);
       expect(restored.theme, AppThemePreference.light);
+      expect(restored.lanLibraryUrl, 'http://10.0.0.9:9000');
     } finally {
       await root.delete(recursive: true);
     }
