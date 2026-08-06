@@ -688,7 +688,7 @@ Map<String, Object?> _trackJson({
     'title': title,
     'artist': 'AI Home',
     'album': '拉玛泽呼吸引导',
-    if (folderPath != null) 'folderPath': folderPath,
+    'folderPath': ?folderPath,
     'audio': _assetJson('/api/v1/files/$id.mp3', audio, format: 'mp3'),
     if (lyrics != null)
       'lyrics': _assetJson('/api/v1/files/$id.lrc', lyrics, format: 'lrc'),
