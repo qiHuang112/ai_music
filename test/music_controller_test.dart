@@ -5,6 +5,8 @@ import 'package:ai_music/src/application/download_queue_controller.dart';
 import 'package:ai_music/src/application/music_controller.dart';
 import 'package:ai_music/src/application/music_mappers.dart';
 import 'package:ai_music/src/application/music_ui_message.dart';
+import 'package:ai_music/src/data/lan_library_client.dart';
+import 'package:ai_music/src/data/lan_library_models.dart';
 import 'package:ai_music/src/data/lyrics_artwork.dart';
 import 'package:ai_music/src/data/music_cache.dart';
 import 'package:ai_music/src/data/music_playlists.dart';
@@ -13,10 +15,71 @@ import 'package:ai_music/src/data/music_settings.dart';
 import 'package:ai_music/src/domain/music_models.dart';
 import 'package:ai_music/src/playback/music_audio_handler.dart';
 import 'package:audio_service/audio_service.dart';
+import 'package:crypto/crypto.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
+
+  test(
+    'default LAN sync wires imported folders into controller playlists',
+    () async {
+      final root = await Directory.systemTemp.createTemp(
+        'ai_music_controller_lan_folder_',
+      );
+      final audio = _controllerLanMp3Bytes();
+      final gateway = _ControllerLanGateway(
+        manifest: LanLibraryManifest.fromJson({
+          'schemaVersion': 1,
+          'libraryId': 'controller-library',
+          'generatedAt': '2026-08-06T00:00:00Z',
+          'tracks': [
+            {
+              'id': 'controller-lamaze',
+              'title': '慢呼放松',
+              'artist': 'AI Home',
+              'album': '拉玛泽呼吸引导',
+              'folderPath': 'Lamaze',
+              'audio': {
+                'url': '/api/v1/files/Lamaze/controller-lamaze.mp3',
+                'sizeBytes': audio.length,
+                'sha256': sha256.convert(audio).toString(),
+                'format': 'mp3',
+              },
+            },
+          ],
+        }),
+        audio: audio,
+      );
+      final playlistStore = _MemoryPlaylistStore();
+      final handler = _SpyAudioHandler();
+      final controller = MusicController(
+        audioHandler: handler,
+        resolver: _FakeMusicResolver(),
+        cacheStore: CachedTrackStore(rootProvider: () async => root),
+        playlistStore: playlistStore,
+        settingsStore: _FakeSettingsStore(),
+        metadataRepository: _StaticMetadataRepository(),
+        lanLibraryGateway: gateway,
+      );
+
+      try {
+        await controller.initialize();
+        final result = await controller.syncLanLibrary();
+
+        expect(result?.playlistsCreated, 1);
+        expect(controller.customPlaylists, hasLength(1));
+        expect(controller.customPlaylists.single.name, 'Lamaze');
+        expect(controller.customPlaylists.single.trackIds, [
+          controller.cachedTracks.single.id,
+        ]);
+      } finally {
+        controller.dispose();
+        await handler.dispose();
+        await root.delete(recursive: true);
+      }
+    },
+  );
 
   test('playTrack uses the explicit queue and applies shuffle mode', () async {
     final handler = _SpyAudioHandler();
@@ -1207,6 +1270,47 @@ class _MemoryPlaylistStore extends PlaylistStore {
       ],
     );
   }
+}
+
+class _ControllerLanGateway implements LanLibraryGateway {
+  _ControllerLanGateway({required this.manifest, required this.audio});
+
+  final LanLibraryManifest manifest;
+  final List<int> audio;
+
+  @override
+  Future<LanLibraryManifest> fetchLibrary(String baseUrl) async => manifest;
+
+  @override
+  Uri resolveAssetUri(String baseUrl, LanAsset asset) {
+    return Uri.parse(baseUrl).resolveUri(asset.url);
+  }
+
+  @override
+  Future<LanLibraryHealth> testConnection(String baseUrl) async {
+    return LanLibraryHealth(
+      schemaVersion: manifest.schemaVersion,
+      trackCount: manifest.tracks.length,
+    );
+  }
+
+  @override
+  Future<int> downloadAsset(String baseUrl, LanAsset asset, File target) async {
+    await target.writeAsBytes(audio);
+    return audio.length;
+  }
+}
+
+List<int> _controllerLanMp3Bytes() {
+  return [
+    0x49,
+    0x44,
+    0x33,
+    0x04,
+    0x00,
+    0x00,
+    ...List<int>.filled(16 * 1024, 0x42),
+  ];
 }
 
 class _FakeSettingsStore implements MusicSettingsStore {

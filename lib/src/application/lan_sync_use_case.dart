@@ -1,5 +1,6 @@
 import '../data/lan_library_client.dart';
 import '../data/music_cache.dart';
+import 'lan_folder_playlist_merger.dart';
 
 class LanSyncFailure {
   const LanSyncFailure({
@@ -33,6 +34,9 @@ class LanSyncResult {
     required this.skipped,
     required this.failed,
     required this.failures,
+    this.playlistsCreated = 0,
+    this.playlistsUpdated = 0,
+    this.playlistError,
   });
 
   final int total;
@@ -41,13 +45,21 @@ class LanSyncResult {
   final int skipped;
   final int failed;
   final List<LanSyncFailure> failures;
+  final int playlistsCreated;
+  final int playlistsUpdated;
+  final Object? playlistError;
 }
 
 class LanSyncUseCase {
-  LanSyncUseCase({required this.gateway, required this.cacheStore});
+  LanSyncUseCase({
+    required this.gateway,
+    required this.cacheStore,
+    this.playlistMerger,
+  });
 
   final LanLibraryGateway gateway;
   final CachedTrackStore cacheStore;
+  final LanFolderPlaylistMerger? playlistMerger;
 
   Future<LanSyncResult> sync(
     String baseUrl, {
@@ -61,6 +73,7 @@ class LanSyncUseCase {
     var updated = 0;
     var skipped = 0;
     final failures = <LanSyncFailure>[];
+    final importedTracks = <LanFolderTrack>[];
 
     Future<void> worker() async {
       while (true) {
@@ -84,6 +97,13 @@ class LanSyncUseCase {
           } else {
             added += 1;
           }
+          importedTracks.add(
+            LanFolderTrack(
+              index: index,
+              folderPath: track.folderPath,
+              trackId: imported.cached.cacheId,
+            ),
+          );
         } on Object catch (error) {
           failures.add(
             LanSyncFailure(trackId: track.id, title: track.title, error: error),
@@ -103,6 +123,21 @@ class LanSyncUseCase {
 
     final workerCount = tracks.length < 2 ? tracks.length : 2;
     await Future.wait([for (var i = 0; i < workerCount; i += 1) worker()]);
+    var playlistMerge = const LanFolderPlaylistMergeResult.empty();
+    Object? playlistError;
+    final merger = playlistMerger;
+    if (merger != null && importedTracks.isNotEmpty) {
+      try {
+        final cached = await cacheStore.listCached();
+        playlistMerge = await merger.merge(
+          libraryId: manifest.libraryId,
+          tracks: importedTracks,
+          validTrackIds: {for (final track in cached) track.cacheId},
+        );
+      } on Object catch (error) {
+        playlistError = error;
+      }
+    }
     return LanSyncResult(
       total: tracks.length,
       added: added,
@@ -110,6 +145,9 @@ class LanSyncUseCase {
       skipped: skipped,
       failed: failures.length,
       failures: List.unmodifiable(failures),
+      playlistsCreated: playlistMerge.created,
+      playlistsUpdated: playlistMerge.updated,
+      playlistError: playlistError,
     );
   }
 }

@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:ai_music/src/application/lan_folder_playlist_merger.dart';
 import 'package:ai_music/src/application/lan_sync_use_case.dart';
 import 'package:ai_music/src/data/lan_library_client.dart';
 import 'package:ai_music/src/data/lan_library_models.dart';
@@ -87,6 +88,206 @@ void main() {
       expect(after.filePath, isNot(before.filePath));
       expect(await File(after.filePath).readAsBytes(), newAudio);
       expect(await File(before.filePath).exists(), isFalse);
+    } finally {
+      await root.delete(recursive: true);
+    }
+  });
+
+  test('successful folder tracks create one ordered custom playlist', () async {
+    final root = await Directory.systemTemp.createTemp(
+      'ai_music_lan_folder_playlist_',
+    );
+    final rows = <Map<String, Object?>>[];
+    final bytes = <String, List<int>>{};
+    for (var index = 0; index < 4; index += 1) {
+      final id = 'lamaze-${index + 1}';
+      final audio = _mp3Bytes(index + 50);
+      rows.add(
+        _trackJson(
+          id: id,
+          title: '引导 ${index + 1}',
+          audio: audio,
+          folderPath: 'Lamaze',
+        ),
+      );
+      bytes['/api/v1/files/$id.mp3'] = audio;
+    }
+    final gateway = _FakeLanGateway(
+      manifest: _manifest(rows),
+      bytes: bytes,
+      delay: const Duration(milliseconds: 5),
+    );
+    final cacheStore = CachedTrackStore(rootProvider: () async => root);
+    final playlistStore = PlaylistStore(rootProvider: () async => root);
+    final useCase = LanSyncUseCase(
+      gateway: gateway,
+      cacheStore: cacheStore,
+      playlistMerger: LanFolderPlaylistMerger(store: playlistStore),
+    );
+
+    try {
+      final result = await useCase.sync('http://127.0.0.1:8787');
+      final cached = await cacheStore.listCached();
+      final playlist = (await playlistStore.load()).playlists.single;
+
+      expect(result.added, 4);
+      expect(result.playlistsCreated, 1);
+      expect(result.playlistsUpdated, 0);
+      expect(result.playlistError, isNull);
+      expect(playlist.name, 'Lamaze');
+      expect(playlist.trackIds, [
+        for (var index = 0; index < 4; index += 1)
+          cached
+              .singleWhere((track) => track.music.id == 'lamaze-${index + 1}')
+              .cacheId,
+      ]);
+    } finally {
+      await root.delete(recursive: true);
+    }
+  });
+
+  test(
+    'failed track is omitted while successful folder tracks are merged',
+    () async {
+      final root = await Directory.systemTemp.createTemp(
+        'ai_music_lan_folder_partial_',
+      );
+      final good = _mp3Bytes(60);
+      final expectedBad = _mp3Bytes(61);
+      final gateway = _FakeLanGateway(
+        manifest: _manifest([
+          _trackJson(
+            id: 'good-folder',
+            title: '成功',
+            audio: good,
+            folderPath: 'Lamaze',
+          ),
+          _trackJson(
+            id: 'bad-folder',
+            title: '失败',
+            audio: expectedBad,
+            folderPath: 'Lamaze',
+          ),
+        ]),
+        bytes: {
+          '/api/v1/files/good-folder.mp3': good,
+          '/api/v1/files/bad-folder.mp3': _mp3Bytes(99),
+        },
+      );
+      final cacheStore = CachedTrackStore(rootProvider: () async => root);
+      final playlistStore = PlaylistStore(rootProvider: () async => root);
+      final useCase = LanSyncUseCase(
+        gateway: gateway,
+        cacheStore: cacheStore,
+        playlistMerger: LanFolderPlaylistMerger(store: playlistStore),
+      );
+
+      try {
+        final result = await useCase.sync('http://127.0.0.1:8787');
+        final cached = (await cacheStore.listCached()).single;
+        final playlist = (await playlistStore.load()).playlists.single;
+
+        expect(result.failed, 1);
+        expect(result.playlistsCreated, 1);
+        expect(playlist.trackIds, [cached.cacheId]);
+        expect(cached.music.id, 'good-folder');
+      } finally {
+        await root.delete(recursive: true);
+      }
+    },
+  );
+
+  test(
+    'removed manifest track remains in the phone playlist on repeat sync',
+    () async {
+      final root = await Directory.systemTemp.createTemp(
+        'ai_music_lan_folder_additive_',
+      );
+      final firstAudio = _mp3Bytes(70);
+      final secondAudio = _mp3Bytes(71);
+      final gateway = _FakeLanGateway(
+        manifest: _manifest([
+          _trackJson(
+            id: 'first',
+            title: '第一首',
+            audio: firstAudio,
+            folderPath: 'Lamaze',
+          ),
+          _trackJson(
+            id: 'second',
+            title: '第二首',
+            audio: secondAudio,
+            folderPath: 'Lamaze',
+          ),
+        ]),
+        bytes: {
+          '/api/v1/files/first.mp3': firstAudio,
+          '/api/v1/files/second.mp3': secondAudio,
+        },
+      );
+      final cacheStore = CachedTrackStore(rootProvider: () async => root);
+      final playlistStore = PlaylistStore(rootProvider: () async => root);
+      final useCase = LanSyncUseCase(
+        gateway: gateway,
+        cacheStore: cacheStore,
+        playlistMerger: LanFolderPlaylistMerger(store: playlistStore),
+      );
+
+      try {
+        await useCase.sync('http://127.0.0.1:8787');
+        final originalIds =
+            (await playlistStore.load()).playlists.single.trackIds;
+        gateway.manifest = _manifest([
+          _trackJson(
+            id: 'first',
+            title: '第一首',
+            audio: firstAudio,
+            folderPath: 'Lamaze',
+          ),
+        ]);
+
+        final repeated = await useCase.sync('http://127.0.0.1:8787');
+        final afterIds = (await playlistStore.load()).playlists.single.trackIds;
+
+        expect(repeated.playlistsCreated, 0);
+        expect(repeated.playlistsUpdated, 0);
+        expect(afterIds, originalIds);
+      } finally {
+        await root.delete(recursive: true);
+      }
+    },
+  );
+
+  test('playlist write failure does not roll back imported audio', () async {
+    final root = await Directory.systemTemp.createTemp(
+      'ai_music_lan_playlist_failure_',
+    );
+    final audio = _mp3Bytes(80);
+    final gateway = _FakeLanGateway(
+      manifest: _manifest([
+        _trackJson(
+          id: 'saved-audio',
+          title: '已保存歌曲',
+          audio: audio,
+          folderPath: 'Lamaze',
+        ),
+      ]),
+      bytes: {'/api/v1/files/saved-audio.mp3': audio},
+    );
+    final cacheStore = CachedTrackStore(rootProvider: () async => root);
+    final useCase = LanSyncUseCase(
+      gateway: gateway,
+      cacheStore: cacheStore,
+      playlistMerger: LanFolderPlaylistMerger(store: _FailingPlaylistStore()),
+    );
+
+    try {
+      final result = await useCase.sync('http://127.0.0.1:8787');
+
+      expect(result.added, 1);
+      expect(result.failed, 0);
+      expect(result.playlistError, isA<StateError>());
+      expect(await cacheStore.listCached(), hasLength(1));
     } finally {
       await root.delete(recursive: true);
     }
@@ -478,6 +679,7 @@ Map<String, Object?> _trackJson({
   required String id,
   required String title,
   required List<int> audio,
+  String? folderPath,
   List<int>? lyrics,
   List<int>? artwork,
 }) {
@@ -486,6 +688,7 @@ Map<String, Object?> _trackJson({
     'title': title,
     'artist': 'AI Home',
     'album': '拉玛泽呼吸引导',
+    if (folderPath != null) 'folderPath': folderPath,
     'audio': _assetJson('/api/v1/files/$id.mp3', audio, format: 'mp3'),
     if (lyrics != null)
       'lyrics': _assetJson('/api/v1/files/$id.lrc', lyrics, format: 'lrc'),
@@ -537,4 +740,22 @@ List<int> _pngBytes() {
     0x0a,
     ...List.filled(64, 0),
   ];
+}
+
+class _FailingPlaylistStore extends PlaylistStore {
+  _FailingPlaylistStore() : super(rootProvider: _unusedPlaylistRoot);
+
+  @override
+  Future<PlaylistLibrary> load({Set<String>? validTrackIds}) async {
+    return const PlaylistLibrary.empty();
+  }
+
+  @override
+  Future<void> write(PlaylistLibrary library, {Set<String>? validTrackIds}) {
+    throw StateError('playlist write failed');
+  }
+}
+
+Future<Directory> _unusedPlaylistRoot() async {
+  throw UnsupportedError('unused');
 }

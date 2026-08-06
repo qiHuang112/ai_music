@@ -15,6 +15,7 @@ import '../domain/music_models.dart';
 import '../playback/music_audio_handler.dart';
 import 'download_queue_controller.dart';
 import 'download_use_case.dart';
+import 'lan_folder_playlist_merger.dart';
 import 'library_controller.dart';
 import 'library_use_case.dart';
 import 'lan_sync_use_case.dart';
@@ -61,7 +62,11 @@ class MusicController extends ChangeNotifier {
     );
     this.lanSyncUseCase =
         lanSyncUseCase ??
-        LanSyncUseCase(gateway: _lanLibraryGateway, cacheStore: _cacheStore);
+        LanSyncUseCase(
+          gateway: _lanLibraryGateway,
+          cacheStore: _cacheStore,
+          playlistMerger: LanFolderPlaylistMerger(store: _playlistStore),
+        );
     playbackUseCase = PlaybackUseCase(audioHandler: audioHandler);
     metadataUseCase = MetadataUseCase(repository: _metadataRepository);
     audioHandler.onOhosLoopModeRequested = _handleOhosLoopModeRequested;
