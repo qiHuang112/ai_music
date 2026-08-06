@@ -65,6 +65,20 @@ def _stable_id(root: Path, audio: Path) -> str:
     return "lan-" + hashlib.sha256(relative.encode("utf-8")).hexdigest()[:24]
 
 
+def _folder_path(root: Path, audio: Path) -> str:
+    parent = audio.parent.relative_to(root)
+    if parent == Path("."):
+        return ""
+    value = parent.as_posix()
+    parts = PurePosixPath(value).parts
+    if not parts or any(
+        part in {"", ".", ".."} or "\\" in part or "\x00" in part
+        for part in parts
+    ):
+        raise ValueError("Unsafe folder path")
+    return value
+
+
 def _find_artwork(audio: Path) -> Optional[Path]:
     for extension in ARTWORK_EXTENSIONS:
         candidate = audio.with_suffix(extension)
@@ -98,6 +112,7 @@ def build_manifest(root: Path, base_url: str = "") -> Dict[str, object]:
             "title": metadata.get("title") or default_title,
             "artist": metadata.get("artist") or default_artist,
             "album": metadata.get("album") or album,
+            "folderPath": _folder_path(resolved_root, audio),
             "audio": _asset(
                 resolved_root,
                 audio,

@@ -35,6 +35,7 @@ class LanMusicManifestTests(unittest.TestCase):
             self.assertEqual("慢呼放松", track["title"])
             self.assertEqual("AI Home", track["artist"])
             self.assertEqual("Lamaze", track["album"])
+            self.assertEqual("Lamaze", track["folderPath"])
             self.assertEqual("mp3", track["audio"]["format"])
             self.assertEqual(audio.stat().st_size, track["audio"]["sizeBytes"])
             self.assertEqual(
@@ -48,7 +49,9 @@ class LanMusicManifestTests(unittest.TestCase):
     def test_json_sidecar_overrides_metadata_and_stable_id(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
-            audio = root / "unknown.flac"
+            folder = root / "真实目录"
+            folder.mkdir()
+            audio = folder / "unknown.flac"
             audio.write_bytes(b"fLaC" + b"audio" * 100)
             audio.with_suffix(".json").write_text(
                 json.dumps(
@@ -69,8 +72,23 @@ class LanMusicManifestTests(unittest.TestCase):
             self.assertEqual("宫缩浪潮", track["title"])
             self.assertEqual("AI Home", track["artist"])
             self.assertEqual("拉玛泽呼吸引导", track["album"])
+            self.assertEqual("真实目录", track["folderPath"])
             self.assertNotIn("lyrics", track)
             self.assertNotIn("artwork", track)
+
+    def test_manifest_exposes_nested_and_root_folder_paths(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            nested = root / "胎教" / "钢琴"
+            nested.mkdir(parents=True)
+            (nested / "AI Home - 晚安.mp3").write_bytes(b"ID3" + b"a" * 200)
+            (root / "AI Home - 根目录.mp3").write_bytes(b"ID3" + b"b" * 200)
+
+            tracks = build_manifest(root)["tracks"]
+            by_title = {track["title"]: track for track in tracks}
+
+            self.assertEqual("胎教/钢琴", by_title["晚安"]["folderPath"])
+            self.assertEqual("", by_title["根目录"]["folderPath"])
 
     def test_flac_jpeg_and_filename_metadata_fallback(self):
         with tempfile.TemporaryDirectory() as temp_dir:
