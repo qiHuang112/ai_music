@@ -1,6 +1,6 @@
 # AM-20260806-001 拉玛泽音频重制与文件夹歌单同步
 
-Status: proposed
+Status: in_progress
 Owner Lane: android
 Source Thread: current-codex-task
 Target Version: 1.0.0-lan.2+2102
@@ -16,12 +16,15 @@ Risk Level: P1
 User Visible: yes
 Design Doc: docs/superpowers/specs/2026-08-06-lamaze-audio-redesign-design.md
 Companion Design Doc: docs/superpowers/specs/2026-08-06-lan-folder-playlist-sync-design.md
-Implementation Plan: docs/superpowers/plans/2026-08-06-lamaze-audio-folder-playlists.md
+Implementation Plan: docs/superpowers/plans/2026-08-06-lan-folder-playlist-sync.md
+Companion Implementation Plan: docs/superpowers/plans/2026-08-06-lamaze-audio-redesign.md
 Required Skills: writing-plans, test-driven-development, systematic-debugging, ai-music, ai-music-team-ops, verification-before-completion
 TDD Mode: required
 TDD Exception: none
 TDD Exception Review: not_applicable
-Baseline Commit: 76f5e4e7c48c12335d1b879886af45587bec0a31
+Baseline Commit: eb23a64e34a8e59ddd71f8012ec695bee9e3e360
+Spec Review Result: accepted
+Code Quality Review Result: not_started
 
 ## 目标
 
@@ -48,6 +51,8 @@ Baseline Commit: 76f5e4e7c48c12335d1b879886af45587bec0a31
 
 - 2026-08-06 type=task lane=android summary=用户确认采样乐器原创编曲、低密度助产士式女声以及文件夹到自建歌单的安全增量映射。
 - 2026-08-06 type=status lane=product summary=音频结构、LAN 歌单映射、兼容和删除策略已逐项确认通过。
+- 2026-08-06 type=status lane=product summary=用户复核书面规格后回复“开干”，规格正式批准并进入测试先行实施。
+- 2026-08-06 type=status lane=android summary=音频与局域网歌单两份实施计划已完成，采用当前会话内联执行。
 
 ## 相关提交
 
@@ -63,9 +68,9 @@ Baseline Commit: 76f5e4e7c48c12335d1b879886af45587bec0a31
 ## Review 结果
 
 - Reviewer Lane: architect
-- Result: awaiting_implementation
+- Result: design_accepted_implementation_starting
 - Android Findings: 尚未进入实现 review
 - iOS Findings: 本任务不涉及 iOS 宿主改动
 - HarmonyOS Findings: 本任务不涉及 HarmonyOS 宿主改动
-- Architect Findings: 设计已获用户逐段批准，等待书面规格复核和实施计划
+- Architect Findings: 设计已获用户逐段批准并完成书面规格复核，实施计划已形成
 - Notes: 公共 Dart 与 Python 服务实现完成后需由 architect review；不向无关平台 lane 分发。
