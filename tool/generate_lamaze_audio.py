@@ -11,7 +11,7 @@ import json
 import shutil
 import subprocess
 import tempfile
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Iterable, Sequence
 
@@ -21,7 +21,7 @@ from lamaze_score import render_score_stems
 SAMPLE_RATE = 48_000
 ARTIST = "AI Home"
 ALBUM = "拉玛泽呼吸引导"
-VOICE = "Tingting"
+DEFAULT_VOICE = "Grandma (中文（中国大陆）)"
 FORBIDDEN_CLAIMS = ("宫口", "厘米", "无痛", "顺产", "保证")
 BANNED_ANNOUNCEMENTS = (
     "这是一段",
@@ -185,6 +185,15 @@ def render_txt(track: TrackSpec) -> str:
     return "\n".join(heading) + "\n"
 
 
+def preview_track_spec(track: TrackSpec, seconds: int) -> TrackSpec:
+    if seconds <= 0 or seconds > track.duration_seconds:
+        raise ValueError("Preview duration must be inside the source track")
+    cues = tuple(cue for cue in track.cues if cue.at_seconds < seconds)
+    if not cues:
+        raise ValueError("Preview must contain at least one guidance cue")
+    return replace(track, duration_seconds=seconds, cues=cues)
+
+
 def _lrc_timestamp(seconds: float) -> str:
     total_centiseconds = int(round(seconds * 100))
     minutes, remainder = divmod(total_centiseconds, 6000)
@@ -206,11 +215,17 @@ def _require_tools() -> None:
         raise RuntimeError("Missing required tools: {}".format(", ".join(missing)))
 
 
-def _render_voice_cues(track: TrackSpec, work: Path) -> Sequence[Path]:
+def _render_voice_cues(
+    track: TrackSpec,
+    work: Path,
+    *,
+    voice: str = DEFAULT_VOICE,
+) -> Sequence[Path]:
     paths = []
+    say_voice = voice.split(" (", 1)[0].strip()
     for index, cue in enumerate(track.cues):
         target = work / "cue-{:02d}.aiff".format(index)
-        _run(("say", "-v", VOICE, "-r", "152", "-o", str(target), cue.text))
+        _run(("say", "-v", say_voice, "-r", "138", "-o", str(target), cue.text))
         paths.append(target)
     return paths
 
@@ -223,6 +238,8 @@ def _mix_track(
 ) -> None:
     if len(stems) != 3:
         raise ValueError("Exactly three sampled score stems are required")
+    if len(cues) != len(track.cues):
+        raise ValueError("Every guidance cue needs one rendered voice file")
     command = ["ffmpeg", "-y", "-hide_banner", "-loglevel", "error"]
     for stem in stems:
         command.extend(("-i", str(stem)))
@@ -239,20 +256,31 @@ def _mix_track(
     for index, cue in enumerate(track.cues, start=len(stems)):
         label = "voice{}".format(index)
         voice_filter = (
-            "aresample=48000,highpass=f=95,lowpass=f=9500,"
-            "acompressor=threshold=-22dB:ratio=2.5:attack=15:release=180,volume=1.35"
+            "aresample=48000,highpass=f=80,lowpass=f=11000,"
+            "acompressor=threshold=-22dB:ratio=2.5:attack=15:release=180,"
+            "aecho=0.8:0.9:55:0.05,volume=1.20"
         )
-        if cue.style == "chant":
-            voice_filter += ",vibrato=f=4.2:d=0.10,aecho=0.8:0.35:55:0.12"
         delay = int(round(cue.at_seconds * 1000))
         filters.append("[{}:a]{},adelay={}:all=1[{}]".format(index, voice_filter, delay, label))
         voice_labels.append("[{}]".format(label))
-    inputs = "[bed]" + "".join(voice_labels)
     filters.append(
-        "{}amix=inputs={}:duration=first:normalize=0,"
-        "loudnorm=I=-16:TP=-1.5:LRA=9,alimiter=limit=0.94[out]".format(
-            inputs, 1 + len(voice_labels)
+        "{}amix=inputs={}:duration=longest:normalize=0[voicebus]".format(
+            "".join(voice_labels), len(voice_labels)
         )
+    )
+    filters.append(
+        "[voicebus]apad=whole_dur={},atrim=duration={}[voicepadded]".format(
+            track.duration_seconds, track.duration_seconds
+        )
+    )
+    filters.append("[voicepadded]asplit=2[voicekey][voicemix]")
+    filters.append(
+        "[bed][voicekey]sidechaincompress="
+        "threshold=0.015:ratio=2.2:attack=120:release=500[ducked]"
+    )
+    filters.append(
+        "[ducked][voicemix]amix=inputs=2:duration=first:normalize=0,"
+        "loudnorm=I=-16:TP=-1.5:LRA=9,alimiter=limit=0.94[out]"
     )
     command.extend(
         (
@@ -311,7 +339,13 @@ def _encode_mp3(track: TrackSpec, wav_source: Path, cover: Path, target: Path) -
     )
 
 
-def _write_sidecars(track: TrackSpec, output: Path, cover: Path) -> None:
+def _write_sidecars(
+    track: TrackSpec,
+    output: Path,
+    cover: Path,
+    *,
+    voice: str,
+) -> None:
     stem = output / track.slug
     stem.with_suffix(".lrc").write_text(render_lrc(track), encoding="utf-8")
     stem.with_suffix(".txt").write_text(render_txt(track), encoding="utf-8")
@@ -323,7 +357,7 @@ def _write_sidecars(track: TrackSpec, output: Path, cover: Path) -> None:
         "durationSeconds": track.duration_seconds,
         "bpm": track.bpm,
         "language": "zh-CN",
-        "voice": VOICE,
+        "voice": voice,
         "usage": "呼吸陪伴工具；现场医生和助产士指令始终优先。",
         "license": "Original production for this project",
     }
@@ -333,43 +367,72 @@ def _write_sidecars(track: TrackSpec, output: Path, cover: Path) -> None:
     shutil.copy2(cover, stem.with_suffix(".png"))
 
 
-def generate(output: Path, cover_source: Path, soundfont: Path) -> None:
+def generate(
+    output: Path,
+    cover_source: Path,
+    soundfont: Path,
+    *,
+    voice: str = DEFAULT_VOICE,
+    preview_track: str = "",
+    preview_seconds: int = 45,
+) -> None:
     validate_track_specs(TRACKS)
     _require_tools()
     if not soundfont.is_file():
         raise FileNotFoundError("SoundFont does not exist: {}".format(soundfont))
+    if preview_track:
+        source = next((track for track in TRACKS if track.slug == preview_track), None)
+        if source is None:
+            raise ValueError("Unknown preview track: {}".format(preview_track))
+        render_tracks = (preview_track_spec(source, preview_seconds),)
+    else:
+        render_tracks = TRACKS
     output.mkdir(parents=True, exist_ok=True)
     common_cover = output / "cover.png"
     if cover_source != common_cover.resolve():
         shutil.copy2(cover_source, common_cover)
-    readme = output / "README.txt"
-    readme.write_text(
-        "拉玛泽呼吸引导（原创）\n\n"
-        "本套音频用于呼吸陪伴，不替代医生或助产士的现场判断。\n"
-        "现场医护指令始终优先。若头晕、手脚发麻或不适，请停止练习、恢复自然呼吸并告诉医护人员。\n"
-        "03-暂缓用力仅在医护人员明确要求暂缓用力时使用。\n",
-        encoding="utf-8",
-    )
+    if not preview_track:
+        readme = output / "README.txt"
+        readme.write_text(
+            "拉玛泽呼吸引导（原创）\n\n"
+            "本套音频用于呼吸陪伴，不替代医生或助产士的现场判断。\n"
+            "现场医护指令始终优先。若头晕、手脚发麻或不适，请停止练习、恢复自然呼吸并告诉医护人员。\n"
+            "03-暂缓用力仅在医护人员明确要求暂缓用力时使用。\n",
+            encoding="utf-8",
+        )
 
-    for track in TRACKS:
+    for track in render_tracks:
         print("Generating {} ({}s, {} BPM)".format(track.slug, track.duration_seconds, track.bpm))
         with tempfile.TemporaryDirectory(prefix="lamaze-audio-") as temp_dir:
             work = Path(temp_dir)
             stems = render_score_stems(track, work, soundfont)
-            voice_cues = _render_voice_cues(track, work)
-            wav_target = output / "{}.wav".format(track.slug)
-            mp3_target = output / "{}.mp3".format(track.slug)
+            voice_cues = _render_voice_cues(track, work, voice=voice)
+            target_slug = (
+                "{}-{}s".format(track.slug, preview_seconds)
+                if preview_track
+                else track.slug
+            )
+            wav_target = output / "{}.wav".format(target_slug)
+            mp3_target = output / "{}.mp3".format(target_slug)
             _mix_track(track, stems, voice_cues, wav_target)
             _encode_mp3(track, wav_target, common_cover, mp3_target)
-            _write_sidecars(track, output, common_cover)
+            if not preview_track:
+                _write_sidecars(track, output, common_cover, voice=voice)
 
 
-def main() -> None:
+def build_argument_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Generate original Lamaze guide audio")
     parser.add_argument("--output", required=True, type=Path)
     parser.add_argument("--cover", required=True, type=Path)
     parser.add_argument("--soundfont", required=True, type=Path)
-    args = parser.parse_args()
+    parser.add_argument("--voice", default=DEFAULT_VOICE)
+    parser.add_argument("--preview-track", default="")
+    parser.add_argument("--preview-seconds", default=45, type=int)
+    return parser
+
+
+def main() -> None:
+    args = build_argument_parser().parse_args()
     if not args.cover.is_file():
         raise SystemExit("Cover file does not exist: {}".format(args.cover))
     if not args.soundfont.is_file():
@@ -378,6 +441,9 @@ def main() -> None:
         args.output.expanduser().resolve(),
         args.cover.expanduser().resolve(),
         args.soundfont.expanduser().resolve(),
+        voice=args.voice,
+        preview_track=args.preview_track,
+        preview_seconds=args.preview_seconds,
     )
 
 

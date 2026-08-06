@@ -1,6 +1,8 @@
 import sys
+import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -76,6 +78,113 @@ class LamazeAudioSpecTests(unittest.TestCase):
             self.assertNotIn("[00:00.00]", lrc)
             self.assertTrue(lrc.endswith("\n"))
             self.assertLess(track.cues[-1].at_seconds, track.duration_seconds)
+
+    def test_preview_cli_accepts_track_duration_voice_and_soundfont(self):
+        parser = generator.build_argument_parser()
+        args = parser.parse_args(
+            [
+                "--output",
+                "/tmp/preview",
+                "--cover",
+                "/tmp/cover.png",
+                "--soundfont",
+                "/tmp/MuseScore_General.sf3",
+                "--voice",
+                "Grandma (中文（中国大陆）)",
+                "--preview-track",
+                "01-慢呼放松",
+                "--preview-seconds",
+                "45",
+            ]
+        )
+
+        self.assertEqual("01-慢呼放松", args.preview_track)
+        self.assertEqual(45, args.preview_seconds)
+        self.assertEqual("Grandma (中文（中国大陆）)", args.voice)
+
+    def test_preview_renders_only_clipped_track_without_delivery_sidecars(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            output = root / "preview"
+            cover = root / "cover.png"
+            soundfont = root / "MuseScore_General.sf3"
+            cover.write_bytes(b"png")
+            soundfont.write_bytes(b"sf3")
+
+            with mock.patch.object(generator, "_require_tools"), mock.patch.object(
+                generator,
+                "render_score_stems",
+                return_value=(
+                    Path("piano.wav"),
+                    Path("strings.wav"),
+                    Path("air.wav"),
+                ),
+            ) as render_stems, mock.patch.object(
+                generator,
+                "_render_voice_cues",
+                return_value=(Path("voice.aiff"),),
+            ) as render_voice, mock.patch.object(
+                generator, "_mix_track"
+            ) as mix_track, mock.patch.object(
+                generator, "_encode_mp3"
+            ) as encode_mp3:
+                generator.generate(
+                    output,
+                    cover,
+                    soundfont,
+                    voice="Grandma (中文（中国大陆）)",
+                    preview_track="01-慢呼放松",
+                    preview_seconds=45,
+                )
+
+            preview_spec = render_stems.call_args.args[0]
+            self.assertEqual(45, preview_spec.duration_seconds)
+            self.assertEqual([6, 32], [cue.at_seconds for cue in preview_spec.cues])
+            self.assertEqual(1, render_stems.call_count)
+            self.assertEqual(
+                "Grandma (中文（中国大陆）)", render_voice.call_args.kwargs["voice"]
+            )
+            self.assertEqual("01-慢呼放松-45s.wav", mix_track.call_args.args[3].name)
+            self.assertEqual("01-慢呼放松-45s.mp3", encode_mp3.call_args.args[3].name)
+            self.assertFalse((output / "README.txt").exists())
+            self.assertEqual([], list(output.glob("*.json")))
+            self.assertEqual([], list(output.glob("*.lrc")))
+            self.assertEqual([], list(output.glob("*.txt")))
+
+    def test_voice_renderer_uses_replaceable_mature_voice_without_chant_effects(self):
+        with tempfile.TemporaryDirectory() as temp_dir, mock.patch.object(
+            generator, "_run"
+        ) as run:
+            generator._render_voice_cues(
+                generator.preview_track_spec(TRACKS[0], 45),
+                Path(temp_dir),
+                voice="Grandma (中文（中国大陆）)",
+            )
+
+        commands = [" ".join(call.args[0]) for call in run.call_args_list]
+        self.assertTrue(commands)
+        self.assertTrue(all(" -v Grandma " in " {} ".format(command) for command in commands))
+        self.assertTrue(all(" -r 138 " in " {} ".format(command) for command in commands))
+        self.assertTrue(all("vibrato" not in command for command in commands))
+
+    def test_mix_uses_clean_voice_filter_and_smooth_background_ducking(self):
+        track = generator.preview_track_spec(TRACKS[0], 45)
+        with mock.patch.object(generator, "_run") as run:
+            generator._mix_track(
+                track,
+                (Path("piano.wav"), Path("strings.wav"), Path("air.wav")),
+                (Path("cue-1.aiff"), Path("cue-2.aiff")),
+                Path("preview.wav"),
+            )
+
+        command = " ".join(run.call_args.args[0])
+        self.assertIn("highpass=f=80", command)
+        self.assertIn("lowpass=f=11000", command)
+        self.assertIn("sidechaincompress", command)
+        self.assertIn("apad=whole_dur=45", command)
+        self.assertIn("attack=120", command)
+        self.assertIn("release=500", command)
+        self.assertNotIn("vibrato", command)
 
 
 if __name__ == "__main__":
