@@ -1,0 +1,15 @@
+{
+  "soundFont": "MuseScore General",
+  "license": "MIT",
+  "resources": {
+    "MuseScore_General.sf3": {
+      "url": "https://ftp.osuosl.org/pub/musescore/soundfont/MuseScore_General/MuseScore_General.sf3"
+    },
+    "MuseScore_General_License.md": {
+      "url": "https://ftp.osuosl.org/pub/musescore/soundfont/MuseScore_General/MuseScore_General_License.md"
+    },
+    "VERSION": {
+      "url": "https://ftp.osuosl.org/pub/musescore/soundfont/MuseScore_General/VERSION"
+    }
+  }
+}

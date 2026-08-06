@@ -5,10 +5,16 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
+import generate_lamaze_audio as generator  # noqa: E402
+from lamaze_score import render_score_stems  # noqa: E402
 from generate_lamaze_audio import TRACKS, render_lrc, validate_track_specs  # noqa: E402
 
 
 class LamazeAudioSpecTests(unittest.TestCase):
+    def test_generator_uses_sampled_score_stems_not_synthetic_backing(self):
+        self.assertIs(generator.render_score_stems, render_score_stems)
+        self.assertFalse(hasattr(generator, "generate_backing"))
+
     def test_track_set_has_approved_names_durations_and_tempos(self):
         self.assertEqual(
             [

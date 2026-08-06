@@ -7,18 +7,15 @@ FFmpeg. This generator is intentionally separate from the LAN server.
 """
 
 import argparse
-import hashlib
 import json
-import math
 import shutil
 import subprocess
 import tempfile
-import wave
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable, Sequence
 
-import numpy as np
+from lamaze_score import render_score_stems
 
 
 SAMPLE_RATE = 48_000
@@ -200,76 +197,13 @@ def _run(command: Sequence[str]) -> None:
 
 
 def _require_tools() -> None:
-    missing = [name for name in ("say", "ffmpeg", "ffprobe") if shutil.which(name) is None]
+    missing = [
+        name
+        for name in ("say", "ffmpeg", "ffprobe", "fluidsynth")
+        if shutil.which(name) is None
+    ]
     if missing:
         raise RuntimeError("Missing required tools: {}".format(", ".join(missing)))
-
-
-def _quantized_frequency(frequency: float, duration: int) -> float:
-    return round(frequency * duration) / duration
-
-
-def generate_backing(track: TrackSpec, target: Path) -> None:
-    total_frames = track.duration_seconds * SAMPLE_RATE
-    frames_per_chunk = SAMPLE_RATE
-    beat_rate = track.bpm / 60.0
-    total_beats = int(round(track.duration_seconds * beat_rate))
-    if not math.isclose(total_beats, track.duration_seconds * beat_rate):
-        raise ValueError("Track duration must contain a whole number of beats")
-
-    roots = {
-        60: (130.81, 164.81, 196.00, 261.63),
-        64: (146.83, 174.61, 220.00, 293.66),
-        72: (130.81, 174.61, 220.00, 261.63),
-    }
-    frequencies = tuple(
-        _quantized_frequency(value, track.duration_seconds) for value in roots[track.bpm]
-    )
-    breath_cycles = max(1, round(track.duration_seconds / 8.0))
-    breath_rate = breath_cycles / track.duration_seconds
-    seed = int.from_bytes(
-        hashlib.sha256(track.track_id.encode("utf-8")).digest()[:8], "big"
-    )
-    rng = np.random.default_rng(seed)
-    shimmer_frequencies = tuple(
-        _quantized_frequency(float(value), track.duration_seconds)
-        for value in rng.uniform(0.07, 0.19, size=4)
-    )
-
-    with wave.open(str(target), "wb") as output:
-        output.setnchannels(2)
-        output.setsampwidth(2)
-        output.setframerate(SAMPLE_RATE)
-        for start in range(0, total_frames, frames_per_chunk):
-            count = min(frames_per_chunk, total_frames - start)
-            t = (np.arange(start, start + count, dtype=np.float64) / SAMPLE_RATE)
-            breathing = 0.72 + 0.18 * np.sin(2 * np.pi * breath_rate * t - np.pi / 2)
-            beat_phase = np.mod(t * beat_rate, 1.0)
-            pulse = np.exp(-7.5 * beat_phase)
-            beat_index = np.floor(t * beat_rate).astype(np.int64)
-            note_index = (beat_index // 8) % len(frequencies)
-            since_chime = np.mod(t, 8.0 / beat_rate)
-
-            left = np.zeros(count, dtype=np.float64)
-            right = np.zeros(count, dtype=np.float64)
-            pad_weights = (0.33, 0.24, 0.19, 0.13)
-            for index, (frequency, weight) in enumerate(zip(frequencies, pad_weights)):
-                phase = 2 * np.pi * frequency * t
-                shimmer = 1 + 0.05 * np.sin(2 * np.pi * shimmer_frequencies[index] * t)
-                left += weight * shimmer * np.sin(phase + index * 0.17)
-                right += weight * shimmer * np.sin(phase - index * 0.13)
-                left += weight * 0.08 * np.sin(2 * phase + 0.4)
-                right += weight * 0.08 * np.sin(2 * phase - 0.4)
-
-            chime_frequency = np.take(np.asarray(frequencies) * 2.0, note_index)
-            chime_envelope = np.exp(-2.8 * since_chime)
-            chime = chime_envelope * np.sin(2 * np.pi * chime_frequency * t)
-            low_pulse = pulse * np.sin(2 * np.pi * frequencies[0] * 0.5 * t)
-            left = (left * breathing + 0.08 * chime + 0.035 * low_pulse) * 0.28
-            right = (right * breathing + 0.08 * chime - 0.035 * low_pulse) * 0.28
-            stereo = np.column_stack((left, right))
-            pcm = np.clip(stereo, -0.98, 0.98)
-            output.writeframes((pcm * 32767).astype("<i2").tobytes())
 
 
 def _render_voice_cues(track: TrackSpec, work: Path) -> Sequence[Path]:
@@ -281,14 +215,28 @@ def _render_voice_cues(track: TrackSpec, work: Path) -> Sequence[Path]:
     return paths
 
 
-def _mix_track(track: TrackSpec, backing: Path, cues: Sequence[Path], wav_target: Path) -> None:
-    command = ["ffmpeg", "-y", "-hide_banner", "-loglevel", "error", "-i", str(backing)]
+def _mix_track(
+    track: TrackSpec,
+    stems: Sequence[Path],
+    cues: Sequence[Path],
+    wav_target: Path,
+) -> None:
+    if len(stems) != 3:
+        raise ValueError("Exactly three sampled score stems are required")
+    command = ["ffmpeg", "-y", "-hide_banner", "-loglevel", "error"]
+    for stem in stems:
+        command.extend(("-i", str(stem)))
     for cue_path in cues:
         command.extend(("-i", str(cue_path)))
 
-    filters = ["[0:a]aresample=48000,volume=0.46[bed]"]
+    filters = [
+        "[0:a]aresample=48000,volume=0.72[piano]",
+        "[1:a]aresample=48000,volume=0.40[strings]",
+        "[2:a]aresample=48000,volume=0.12[air]",
+        "[piano][strings][air]amix=inputs=3:duration=first:normalize=0[bed]",
+    ]
     voice_labels = []
-    for index, cue in enumerate(track.cues, start=1):
+    for index, cue in enumerate(track.cues, start=len(stems)):
         label = "voice{}".format(index)
         voice_filter = (
             "aresample=48000,highpass=f=95,lowpass=f=9500,"
@@ -385,9 +333,11 @@ def _write_sidecars(track: TrackSpec, output: Path, cover: Path) -> None:
     shutil.copy2(cover, stem.with_suffix(".png"))
 
 
-def generate(output: Path, cover_source: Path) -> None:
+def generate(output: Path, cover_source: Path, soundfont: Path) -> None:
     validate_track_specs(TRACKS)
     _require_tools()
+    if not soundfont.is_file():
+        raise FileNotFoundError("SoundFont does not exist: {}".format(soundfont))
     output.mkdir(parents=True, exist_ok=True)
     common_cover = output / "cover.png"
     if cover_source != common_cover.resolve():
@@ -405,12 +355,11 @@ def generate(output: Path, cover_source: Path) -> None:
         print("Generating {} ({}s, {} BPM)".format(track.slug, track.duration_seconds, track.bpm))
         with tempfile.TemporaryDirectory(prefix="lamaze-audio-") as temp_dir:
             work = Path(temp_dir)
-            backing = work / "backing.wav"
-            generate_backing(track, backing)
+            stems = render_score_stems(track, work, soundfont)
             voice_cues = _render_voice_cues(track, work)
             wav_target = output / "{}.wav".format(track.slug)
             mp3_target = output / "{}.mp3".format(track.slug)
-            _mix_track(track, backing, voice_cues, wav_target)
+            _mix_track(track, stems, voice_cues, wav_target)
             _encode_mp3(track, wav_target, common_cover, mp3_target)
             _write_sidecars(track, output, common_cover)
 
@@ -419,10 +368,17 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Generate original Lamaze guide audio")
     parser.add_argument("--output", required=True, type=Path)
     parser.add_argument("--cover", required=True, type=Path)
+    parser.add_argument("--soundfont", required=True, type=Path)
     args = parser.parse_args()
     if not args.cover.is_file():
         raise SystemExit("Cover file does not exist: {}".format(args.cover))
-    generate(args.output.expanduser().resolve(), args.cover.expanduser().resolve())
+    if not args.soundfont.is_file():
+        raise SystemExit("SoundFont does not exist: {}".format(args.soundfont))
+    generate(
+        args.output.expanduser().resolve(),
+        args.cover.expanduser().resolve(),
+        args.soundfont.expanduser().resolve(),
+    )
 
 
 if __name__ == "__main__":
