@@ -1,6 +1,8 @@
+import hashlib
 import sys
 import tempfile
 import unittest
+import json
 from pathlib import Path
 from unittest import mock
 
@@ -185,6 +187,100 @@ class LamazeAudioSpecTests(unittest.TestCase):
         self.assertIn("attack=120", command)
         self.assertIn("release=500", command)
         self.assertNotIn("vibrato", command)
+
+    def test_delivery_metadata_records_spoken_cues_and_soundfont_hashes(self):
+        sources = {
+            "soundFont": "MuseScore General",
+            "version": "0.2.0",
+            "license": "MIT",
+            "licenseFile": "MuseScore_General_License.md",
+            "resources": {
+                "MuseScore_General.sf3": {
+                    "url": "https://example.test/MuseScore_General.sf3",
+                    "sha256": "a" * 64,
+                    "sizeBytes": 123,
+                },
+                "MuseScore_General_License.md": {
+                    "url": "https://example.test/license",
+                    "sha256": "b" * 64,
+                    "sizeBytes": 456,
+                },
+                "VERSION": {
+                    "url": "https://example.test/version",
+                    "sha256": "c" * 64,
+                    "sizeBytes": 6,
+                },
+            },
+        }
+        with tempfile.TemporaryDirectory() as temp_dir:
+            output = Path(temp_dir)
+            cover = output / "cover.png"
+            cover.write_bytes(b"png")
+
+            generator._write_sidecars(
+                TRACKS[0],
+                output,
+                cover,
+                voice="Grandma (中文（中国大陆）)",
+                soundfont_sources=sources,
+            )
+
+            metadata = json.loads(
+                (output / "01-慢呼放松.json").read_text(encoding="utf-8")
+            )
+            lrc = (output / "01-慢呼放松.lrc").read_text(encoding="utf-8")
+
+        self.assertEqual("spoken-direct-actions", metadata["guidanceStyle"])
+        self.assertEqual(
+            [
+                {
+                    "atSeconds": cue.at_seconds,
+                    "text": cue.text,
+                    "style": "spoken",
+                }
+                for cue in TRACKS[0].cues
+            ],
+            metadata["cues"],
+        )
+        self.assertEqual(sources, metadata["soundFontSources"])
+        self.assertEqual(render_lrc(TRACKS[0]), lrc)
+
+    def test_soundfont_sources_are_verified_against_downloaded_files(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            resources = {
+                "MuseScore_General.sf3": b"soundfont",
+                "MuseScore_General_License.md": b"MIT license",
+                "VERSION": b"0.2.0\n",
+            }
+            for name, payload in resources.items():
+                (root / name).write_bytes(payload)
+            manifest = {
+                "soundFont": "MuseScore General",
+                "version": "0.2.0",
+                "license": "MIT",
+                "licenseFile": "MuseScore_General_License.md",
+                "resources": {
+                    name: {
+                        "url": "https://example.test/{}".format(name),
+                        "sha256": hashlib.sha256(payload).hexdigest(),
+                        "sizeBytes": len(payload),
+                    }
+                    for name, payload in resources.items()
+                },
+            }
+            manifest_path = root / "lamaze_soundfont_sources.json"
+            manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+
+            loaded = generator.load_soundfont_sources(
+                root / "MuseScore_General.sf3"
+            )
+            self.assertEqual(manifest, loaded)
+
+            manifest["resources"]["VERSION"]["sha256"] = "0" * 64
+            manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+            with self.assertRaises(ValueError):
+                generator.load_soundfont_sources(root / "MuseScore_General.sf3")
 
 
 if __name__ == "__main__":

@@ -7,6 +7,7 @@ FFmpeg. This generator is intentionally separate from the LAN server.
 """
 
 import argparse
+import hashlib
 import json
 import shutil
 import subprocess
@@ -345,6 +346,7 @@ def _write_sidecars(
     cover: Path,
     *,
     voice: str,
+    soundfont_sources: dict,
 ) -> None:
     stem = output / track.slug
     stem.with_suffix(".lrc").write_text(render_lrc(track), encoding="utf-8")
@@ -358,6 +360,21 @@ def _write_sidecars(
         "bpm": track.bpm,
         "language": "zh-CN",
         "voice": voice,
+        "guidanceStyle": "spoken-direct-actions",
+        "cues": [
+            {
+                "atSeconds": cue.at_seconds,
+                "text": cue.text,
+                "style": cue.style,
+            }
+            for cue in track.cues
+        ],
+        "instruments": [
+            "Acoustic Grand Piano",
+            "String Ensemble 1",
+            "Warm Pad",
+        ],
+        "soundFontSources": soundfont_sources,
         "usage": "呼吸陪伴工具；现场医生和助产士指令始终优先。",
         "license": "Original production for this project",
     }
@@ -365,6 +382,51 @@ def _write_sidecars(
         json.dumps(metadata, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
     )
     shutil.copy2(cover, stem.with_suffix(".png"))
+
+
+def load_soundfont_sources(soundfont: Path) -> dict:
+    manifest_path = soundfont.parent / "lamaze_soundfont_sources.json"
+    if not manifest_path.is_file():
+        raise FileNotFoundError(
+            "SoundFont source manifest does not exist: {}".format(manifest_path)
+        )
+    decoded = json.loads(manifest_path.read_text(encoding="utf-8"))
+    if not isinstance(decoded, dict) or decoded.get("license") != "MIT":
+        raise ValueError("SoundFont source manifest must declare the MIT license")
+    if not str(decoded.get("version", "")).strip():
+        raise ValueError("SoundFont source manifest must declare a version")
+    records = decoded.get("resources")
+    required = (
+        "MuseScore_General.sf3",
+        "MuseScore_General_License.md",
+        "VERSION",
+    )
+    if not isinstance(records, dict):
+        raise ValueError("SoundFont source manifest resources are missing")
+    for filename in required:
+        record = records.get(filename)
+        target = soundfont.parent / filename
+        if not isinstance(record, dict) or not target.is_file():
+            raise ValueError("SoundFont source resource is missing: {}".format(filename))
+        expected_hash = str(record.get("sha256", "")).lower()
+        expected_size = record.get("sizeBytes")
+        if not _is_sha256(expected_hash) or expected_size != target.stat().st_size:
+            raise ValueError("SoundFont source record is invalid: {}".format(filename))
+        if _sha256_file(target) != expected_hash:
+            raise ValueError("SoundFont source hash mismatch: {}".format(filename))
+    return decoded
+
+
+def _sha256_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as source:
+        for chunk in iter(lambda: source.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _is_sha256(value: str) -> bool:
+    return len(value) == 64 and all(character in "0123456789abcdef" for character in value)
 
 
 def generate(
@@ -385,8 +447,10 @@ def generate(
         if source is None:
             raise ValueError("Unknown preview track: {}".format(preview_track))
         render_tracks = (preview_track_spec(source, preview_seconds),)
+        soundfont_sources = None
     else:
         render_tracks = TRACKS
+        soundfont_sources = load_soundfont_sources(soundfont)
     output.mkdir(parents=True, exist_ok=True)
     common_cover = output / "cover.png"
     if cover_source != common_cover.resolve():
@@ -417,7 +481,13 @@ def generate(
             _mix_track(track, stems, voice_cues, wav_target)
             _encode_mp3(track, wav_target, common_cover, mp3_target)
             if not preview_track:
-                _write_sidecars(track, output, common_cover, voice=voice)
+                _write_sidecars(
+                    track,
+                    output,
+                    common_cover,
+                    voice=voice,
+                    soundfont_sources=soundfont_sources,
+                )
 
 
 def build_argument_parser() -> argparse.ArgumentParser:

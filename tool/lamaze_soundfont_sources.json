@@ -1,15 +1,23 @@
 {
   "soundFont": "MuseScore General",
+  "version": "0.2.0",
   "license": "MIT",
+  "licenseFile": "MuseScore_General_License.md",
   "resources": {
     "MuseScore_General.sf3": {
-      "url": "https://ftp.osuosl.org/pub/musescore/soundfont/MuseScore_General/MuseScore_General.sf3"
+      "url": "https://ftp.osuosl.org/pub/musescore/soundfont/MuseScore_General/MuseScore_General.sf3",
+      "sha256": "5b85b6c2c61d10b2b91cddd41efcce7b25cd31c8271d511c73afafbef20b6fa3",
+      "sizeBytes": 39900972
     },
     "MuseScore_General_License.md": {
-      "url": "https://ftp.osuosl.org/pub/musescore/soundfont/MuseScore_General/MuseScore_General_License.md"
+      "url": "https://ftp.osuosl.org/pub/musescore/soundfont/MuseScore_General/MuseScore_General_License.md",
+      "sha256": "5ad8d737e13c7f01f5b9674872a82a92b4ba253603e8ed14b9db12293550b4b9",
+      "sizeBytes": 3419
     },
     "VERSION": {
-      "url": "https://ftp.osuosl.org/pub/musescore/soundfont/MuseScore_General/VERSION"
+      "url": "https://ftp.osuosl.org/pub/musescore/soundfont/MuseScore_General/VERSION",
+      "sha256": "1f930dd1f133c1f97a94fe3acb8db34372cf4c01ffdb2b3ff4ca72f9494121e9",
+      "sizeBytes": 6
     }
   }
 }
