@@ -200,7 +200,17 @@ class _LanSyncCard extends StatelessWidget {
                     result.updated,
                     result.skipped,
                     result.failed,
+                    playlistsCreated: result.playlistsCreated,
+                    playlistsUpdated: result.playlistsUpdated,
                   ),
+                ),
+              ),
+            if (result?.playlistError != null)
+              Padding(
+                padding: const EdgeInsets.only(top: 10),
+                child: Text(
+                  strings.lanPlaylistMergeFailed,
+                  style: TextStyle(color: Theme.of(context).colorScheme.error),
                 ),
               ),
             if (controller.lanSyncError != null)

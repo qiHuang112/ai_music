@@ -60,9 +60,21 @@ class AppStrings {
   String lanSyncProgress(int completed, int total, String title) => isZh
       ? '正在同步 $completed/$total${title.isEmpty ? '' : ' · $title'}'
       : 'Syncing $completed/$total${title.isEmpty ? '' : ' · $title'}';
-  String lanSyncSummary(int added, int updated, int skipped, int failed) => isZh
+  String lanSyncSummary(
+    int added,
+    int updated,
+    int skipped,
+    int failed, {
+    int playlistsCreated = 0,
+    int playlistsUpdated = 0,
+  }) => isZh
       ? '新增 $added 首 · 更新 $updated 首 · 跳过 $skipped 首 · 失败 $failed 首'
-      : 'Added $added · updated $updated · skipped $skipped · failed $failed';
+            ' · 新建 $playlistsCreated 个歌单 · 更新 $playlistsUpdated 个歌单'
+      : 'Added $added · updated $updated · skipped $skipped · failed $failed'
+            ' · created $playlistsCreated playlists · updated $playlistsUpdated playlists';
+  String get lanPlaylistMergeFailed => isZh
+      ? '歌曲已保存，但歌单整理失败，可再次同步重试。'
+      : 'Songs were saved, but playlist organization failed. Retry sync.';
   String get chinese => isZh ? '中文' : 'Chinese';
   String get english => isZh ? '英文' : 'English';
   String get lightTheme => isZh ? '白色' : 'Light';

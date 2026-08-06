@@ -552,6 +552,9 @@ void main() {
     expect(useCase.calls, 1);
     expect(find.textContaining('新增 1 首'), findsOneWidget);
     expect(find.textContaining('跳过 2 首'), findsOneWidget);
+    expect(find.textContaining('新建 1 个歌单'), findsOneWidget);
+    expect(find.textContaining('更新 1 个歌单'), findsOneWidget);
+    expect(find.text('歌曲已保存，但歌单整理失败，可再次同步重试。'), findsOneWidget);
   });
 
   testWidgets('home back clears search then asks before exiting', (
@@ -1809,13 +1812,16 @@ class _WidgetLanSyncUseCase extends LanSyncUseCase {
     onProgress?.call(
       const LanSyncProgress(completed: 3, total: 3, currentTitle: '完成'),
     );
-    return const LanSyncResult(
+    return LanSyncResult(
       total: 3,
       added: 1,
       updated: 0,
       skipped: 2,
       failed: 0,
       failures: [],
+      playlistsCreated: 1,
+      playlistsUpdated: 1,
+      playlistError: StateError('playlist write failed'),
     );
   }
 }
