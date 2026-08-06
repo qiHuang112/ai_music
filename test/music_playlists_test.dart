@@ -32,6 +32,7 @@ void main() {
       expect(library.favoriteTrackIds, const ['a', 'b']);
       expect(library.playlists.single.name, 'Road trip');
       expect(library.playlists.single.trackIds, const ['b', 'a']);
+      expect(library.playlists.single.lanFolderKey, '');
     } finally {
       await root.delete(recursive: true);
     }
@@ -104,6 +105,41 @@ void main() {
         updatedAt,
         updatedAt,
       ]);
+      expect(library.playlists.single.lanFolderKey, '');
+    } finally {
+      await root.delete(recursive: true);
+    }
+  });
+
+  test('playlist store round-trips optional LAN folder ownership', () async {
+    final root = await Directory.systemTemp.createTemp(
+      'ai_music_playlists_lan_folder_',
+    );
+    final store = PlaylistStore(rootProvider: () async => root);
+    final now = DateTime(2026, 8, 6);
+
+    try {
+      final playlist = MusicPlaylist(
+        id: 'playlist-lamaze',
+        name: 'Lamaze',
+        lanFolderKey: 'lan:library-test:folder:lamaze',
+        trackIds: const ['track-1'],
+        createdAt: now,
+        updatedAt: now,
+      );
+
+      await store.write(
+        PlaylistLibrary(playlists: [playlist]),
+        validTrackIds: const {'track-1'},
+      );
+      final loaded = await store.load(validTrackIds: const {'track-1'});
+
+      expect(
+        loaded.playlists.single.lanFolderKey,
+        'lan:library-test:folder:lamaze',
+      );
+      expect(playlist.copyWith(name: '呼吸').lanFolderKey, playlist.lanFolderKey);
+      expect(playlist.copyWith(clearLanFolderKey: true).lanFolderKey, '');
     } finally {
       await root.delete(recursive: true);
     }

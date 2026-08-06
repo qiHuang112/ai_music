@@ -46,6 +46,7 @@ class MusicPlaylist {
   MusicPlaylist({
     required this.id,
     required this.name,
+    this.lanFolderKey = '',
     List<String> trackIds = const [],
     List<PlaylistTrackEntry>? entries,
     required this.createdAt,
@@ -54,6 +55,7 @@ class MusicPlaylist {
 
   final String id;
   final String name;
+  final String lanFolderKey;
   final List<PlaylistTrackEntry> entries;
   final DateTime createdAt;
   final DateTime updatedAt;
@@ -65,6 +67,8 @@ class MusicPlaylist {
   MusicPlaylist copyWith({
     String? id,
     String? name,
+    String? lanFolderKey,
+    bool clearLanFolderKey = false,
     List<String>? trackIds,
     List<PlaylistTrackEntry>? entries,
     DateTime? createdAt,
@@ -74,6 +78,9 @@ class MusicPlaylist {
     return MusicPlaylist(
       id: id ?? this.id,
       name: name ?? this.name,
+      lanFolderKey: clearLanFolderKey
+          ? ''
+          : (lanFolderKey ?? this.lanFolderKey),
       entries:
           entries ??
           (trackIds == null
@@ -88,6 +95,7 @@ class MusicPlaylist {
     return {
       'id': id,
       'name': name,
+      if (lanFolderKey.isNotEmpty) 'lanFolderKey': lanFolderKey,
       'tracks': [for (final entry in entries) entry.toJson()],
       'trackIds': trackIds,
       'createdAt': createdAt.toIso8601String(),
@@ -109,6 +117,7 @@ class MusicPlaylist {
     return MusicPlaylist(
       id: id,
       name: name,
+      lanFolderKey: json['lanFolderKey']?.toString().trim() ?? '',
       entries: _entriesFromJson(
         json['tracks'] ?? json['trackIds'],
         fallbackAddedAt: updatedAt,
