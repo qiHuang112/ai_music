@@ -106,12 +106,49 @@ class LanLibraryManifest {
   final List<LanTrackEntry> tracks;
 }
 
+String normalizeLanFolderPath(Object? value) {
+  final raw = value?.toString() ?? '';
+  if (raw.isEmpty) {
+    return '';
+  }
+  if (raw.length > 1024 ||
+      raw.startsWith('/') ||
+      raw.contains(r'\') ||
+      raw.contains('\u0000')) {
+    throw const FormatException('track.folderPath 必须是安全的相对 POSIX 路径');
+  }
+  _validateLanFolderSegments(raw);
+
+  final decodedForValidation = raw
+      .replaceAll(RegExp('%2e', caseSensitive: false), '.')
+      .replaceAll(RegExp('%2f', caseSensitive: false), '/')
+      .replaceAll(RegExp('%5c', caseSensitive: false), r'\')
+      .replaceAll(RegExp('%00', caseSensitive: false), '\u0000');
+  if (decodedForValidation != raw) {
+    if (decodedForValidation.startsWith('/') ||
+        decodedForValidation.contains(r'\') ||
+        decodedForValidation.contains('\u0000')) {
+      throw const FormatException('track.folderPath 包含不安全的编码路径');
+    }
+    _validateLanFolderSegments(decodedForValidation);
+  }
+  return raw;
+}
+
+void _validateLanFolderSegments(String value) {
+  final segments = value.split('/');
+  if (segments.any((part) => part.isEmpty || part == '.' || part == '..')) {
+    throw const FormatException('track.folderPath 不能包含空目录或目录穿越');
+  }
+}
+
 class LanTrackEntry {
   const LanTrackEntry({
     required this.id,
     required this.title,
     required this.artist,
     required this.album,
+    required this.folderPath,
     required this.audio,
     this.lyrics,
     this.artwork,
@@ -123,6 +160,7 @@ class LanTrackEntry {
       title: _requiredString(json['title'], 'track.title'),
       artist: _requiredString(json['artist'], 'track.artist'),
       album: json['album']?.toString().trim() ?? '',
+      folderPath: normalizeLanFolderPath(json['folderPath']),
       audio: LanAsset.fromJson(
         _requiredMap(json['audio'], 'track.audio'),
         kind: LanAssetKind.audio,
@@ -146,6 +184,7 @@ class LanTrackEntry {
   final String title;
   final String artist;
   final String album;
+  final String folderPath;
   final LanAsset audio;
   final LanAsset? lyrics;
   final LanAsset? artwork;

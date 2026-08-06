@@ -60,6 +60,7 @@ void main() {
       final track = manifest.tracks.single;
       expect(track.id, 'lamaze-slow-breathing');
       expect(track.title, '慢呼放松');
+      expect(track.folderPath, '');
       expect(track.audio.format, 'mp3');
       expect(track.audio.sizeBytes, 64000);
       expect(track.lyrics?.format, 'lrc');
@@ -111,6 +112,45 @@ void main() {
         () => LanLibraryManifest.fromJson(oversized),
         throwsFormatException,
       );
+    });
+
+    test('folderPath accepts empty direct and nested POSIX paths', () {
+      for (final value in ['', 'Lamaze', '胎教/钢琴']) {
+        final json = _manifestJson();
+        ((json['tracks']! as List).single as Map)['folderPath'] = value;
+
+        expect(
+          LanLibraryManifest.fromJson(json).tracks.single.folderPath,
+          value,
+        );
+      }
+    });
+
+    test('folderPath rejects unsafe relative paths', () {
+      final values = <String>[
+        '/absolute',
+        '../secret',
+        '胎教/../secret',
+        r'胎教\钢琴',
+        'a//b',
+        './Lamaze',
+        'Lamaze\u0000secret',
+        '%2e%2e/secret',
+        'a/%2E%2E/b',
+        '胎教/%2e%2e/secret',
+        'a' * 1025,
+      ];
+
+      for (final value in values) {
+        final json = _manifestJson();
+        ((json['tracks']! as List).single as Map)['folderPath'] = value;
+
+        expect(
+          () => LanLibraryManifest.fromJson(json),
+          throwsFormatException,
+          reason: value,
+        );
+      }
     });
   });
 }
