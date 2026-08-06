@@ -32,20 +32,42 @@ class LamazeAudioSpecTests(unittest.TestCase):
             self.assertNotIn("顺产", lyrics, track.slug)
             self.assertNotIn("保证", lyrics, track.slug)
 
+    def test_audio_copy_is_direct_sparse_and_never_announces_itself(self):
+        banned = (
+            "这是一段",
+            "这首引导",
+            "本曲",
+            "用于",
+            "循环播放",
+            "不会替",
+        )
+        for track in TRACKS:
+            text = "\n".join(cue.text for cue in track.cues)
+            self.assertFalse(any(value in text for value in banned), track.slug)
+            self.assertTrue(all(cue.style == "spoken" for cue in track.cues))
+            self.assertLessEqual(track.cues[0].at_seconds, 6, track.slug)
+            gaps = [
+                right.at_seconds - left.at_seconds
+                for left, right in zip(track.cues, track.cues[1:])
+            ]
+            self.assertTrue(all(20 <= gap <= 35 for gap in gaps), track.slug)
+            self.assertTrue(all(len(cue.text) <= 34 for cue in track.cues), track.slug)
+        self.assertLessEqual(TRACKS[2].cues[0].at_seconds, 3)
+
     def test_defer_pushing_track_is_conditional_and_follow_track_never_commands_it(self):
         defer = "\n".join(cue.text for cue in TRACKS[2].cues)
         follow = "\n".join(cue.text for cue in TRACKS[3].cues)
 
         self.assertIn("明确要求暂缓用力", defer)
         self.assertIn("不要屏气", defer)
-        self.assertIn("不会替现场医护下达用力口令", follow)
+        self.assertIn("先听医护", follow)
         self.assertNotIn("现在用力", follow)
 
     def test_lrc_is_utf8_ready_sorted_and_within_duration(self):
         for track in TRACKS:
             lrc = render_lrc(track)
             self.assertTrue(lrc.startswith("[ar:AI Home]\n"))
-            self.assertIn("[00:00.00]", lrc)
+            self.assertNotIn("[00:00.00]", lrc)
             self.assertTrue(lrc.endswith("\n"))
             self.assertLess(track.cues[-1].at_seconds, track.duration_seconds)
 

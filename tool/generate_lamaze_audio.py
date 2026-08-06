@@ -26,6 +26,14 @@ ARTIST = "AI Home"
 ALBUM = "拉玛泽呼吸引导"
 VOICE = "Tingting"
 FORBIDDEN_CLAIMS = ("宫口", "厘米", "无痛", "顺产", "保证")
+BANNED_ANNOUNCEMENTS = (
+    "这是一段",
+    "这首引导",
+    "本曲",
+    "用于",
+    "循环播放",
+    "不会替",
+)
 
 
 @dataclass(frozen=True)
@@ -45,15 +53,6 @@ class TrackSpec:
     cues: Sequence[Cue]
 
 
-SAFETY_OPENING = (
-    Cue(0, "这是一段呼吸陪伴。现场医生和助产士的指令始终优先。"),
-    Cue(
-        11,
-        "若感到头晕、手脚发麻或任何不适，请停止练习，恢复自然呼吸，并告诉医护人员。",
-    ),
-)
-
-
 TRACKS = (
     TrackSpec(
         track_id="lamaze-slow-relax",
@@ -61,19 +60,18 @@ TRACKS = (
         title="慢呼放松",
         duration_seconds=300,
         bpm=60,
-        cues=SAFETY_OPENING
-        + (
-            Cue(32, "把注意力带回此刻。让肩膀松下来，让下巴和双手也松下来。"),
-            Cue(54, "用鼻子轻轻吸气，再从嘴边缓缓呼气。保持顺畅，不需要屏气。"),
-            Cue(78, "慢慢吸气，柔柔呼气。", "chant"),
-            Cue(102, "每一次呼气，都允许身体多放松一点。只选择你觉得舒服的深度。"),
-            Cue(127, "吸气时感受胸腹自然展开。呼气时让额头、嘴角和骨盆周围保持柔软。"),
-            Cue(152, "呼吸流动，身体放松。", "chant"),
-            Cue(176, "不必追求固定秒数。跟随自己的节奏，让每一次呼吸都轻松可持续。"),
-            Cue(201, "如果宫缩来到，继续让呼吸流动；如果需要调整，请听从现场医护。"),
-            Cue(226, "慢慢吸气，长长呼气。", "chant"),
-            Cue(250, "把注意力放在这一口呼气上。松开肩膀，松开手指，松开不必要的紧张。"),
-            Cue(276, "继续自然呼吸。你可以循环播放，也可以随时停下休息。"),
+        cues=(
+            Cue(6, "肩膀松下来，下巴也松下来。"),
+            Cue(32, "轻轻吸气……慢慢呼出去。"),
+            Cue(60, "双手放松，让呼吸自然流动。"),
+            Cue(88, "额头放松，嘴唇也保持柔软。"),
+            Cue(116, "吸气时让胸腹自然展开，呼气时慢慢松开。"),
+            Cue(144, "只跟随舒服的节奏，不需要屏气。"),
+            Cue(172, "宫缩来到时，把注意力放在这一口呼气上。"),
+            Cue(200, "慢慢呼气，让身体多放松一点。"),
+            Cue(228, "需要调整时，直接告诉身边的医护。"),
+            Cue(256, "如果头晕，先回到自然呼吸，告诉身边的医护。"),
+            Cue(284, "轻轻吸气，再把这一口气慢慢呼出去。"),
         ),
     ),
     TrackSpec(
@@ -82,16 +80,14 @@ TRACKS = (
         title="宫缩浪潮",
         duration_seconds=180,
         bpm=64,
-        cues=SAFETY_OPENING
-        + (
-            Cue(31, "当你感觉宫缩像浪潮来到，把注意力放在持续流动的呼吸上。"),
-            Cue(49, "轻轻吸气。缓缓呼气。不要和身体较劲，也不需要屏住呼吸。"),
-            Cue(67, "浪潮升起，呼吸相伴。", "chant"),
-            Cue(84, "在感觉更强的时候，可以让呼吸变得轻一点、快一点，但始终保持舒适。"),
-            Cue(104, "如果感觉缓和，让呼气重新变长。肩膀、手掌和嘴边继续放松。"),
-            Cue(124, "一口一口，跟着浪潮。", "chant"),
-            Cue(142, "每次宫缩的应对方式可以不同。现场医护的观察和指令优先。"),
-            Cue(163, "让呼吸回到自然，等待下一次需要时再继续。"),
+        cues=(
+            Cue(6, "浪潮来到时，先把肩膀松下来。"),
+            Cue(31, "轻轻吸气，慢慢呼出去。"),
+            Cue(56, "感觉增强时，让呼吸轻一点、短一点。"),
+            Cue(81, "嘴唇保持柔软，让呼吸继续流动。"),
+            Cue(106, "感觉缓和时，把呼气慢慢放长。"),
+            Cue(131, "如果头晕，先回到自然呼吸，告诉身边的医护。"),
+            Cue(156, "一口一口呼吸，继续跟随医护的声音。"),
         ),
     ),
     TrackSpec(
@@ -100,14 +96,13 @@ TRACKS = (
         title="暂缓用力",
         duration_seconds=120,
         bpm=72,
-        cues=SAFETY_OPENING
-        + (
-            Cue(31, "这一段仅在医护人员明确要求暂缓用力时使用。指令一旦改变，请立刻跟随医护。"),
-            Cue(49, "嘴唇轻轻张开，做短而轻的哈气。不要屏气，不要主动向下用力。"),
-            Cue(65, "轻轻哈气，呼吸不停。", "chant"),
-            Cue(80, "可以想象在轻轻吹动一片羽毛。每次哈气都短、轻、连续。"),
-            Cue(97, "如果感觉头晕或发麻，马上停止，恢复自然呼吸，并告诉医护人员。"),
-            Cue(111, "继续听从医护，让呼吸保持流动。"),
+        cues=(
+            Cue(2, "嘴唇轻轻张开，做短而轻的哈气。"),
+            Cue(22, "只有医护明确要求暂缓用力时，继续这样呼吸。"),
+            Cue(42, "像吹动羽毛一样，短短地呼气。"),
+            Cue(62, "不要屏气，也不要主动向下用力。"),
+            Cue(82, "让肩膀和双手放松，保持自然呼吸。"),
+            Cue(102, "如果头晕，先停下来，告诉身边的医护。"),
         ),
     ),
     TrackSpec(
@@ -116,16 +111,14 @@ TRACKS = (
         title="跟随医护",
         duration_seconds=180,
         bpm=60,
-        cues=SAFETY_OPENING
-        + (
-            Cue(31, "这首引导不会替现场医护下达用力口令。请把医护人员的实时指令放在第一位。"),
-            Cue(51, "听清指令之前，让呼吸自然流动。放松肩膀、下巴和双手。"),
-            Cue(70, "听见声音，跟随当下。", "chant"),
-            Cue(88, "医护可能根据你和宝宝的情况调整节奏。只需要一次听清一个指令。"),
-            Cue(108, "指令之间，回到自然呼吸。不要自行延长屏气，也不要勉强自己。"),
-            Cue(128, "呼吸流动，安心跟随。", "chant"),
-            Cue(146, "如果不确定，可以直接询问医生或助产士。现场沟通比音频更重要。"),
-            Cue(165, "继续自然呼吸，等待并跟随下一条医护指令。"),
+        cues=(
+            Cue(6, "先听医护的声音，让呼吸自然流动。"),
+            Cue(34, "肩膀松下来，下巴和双手也松下来。"),
+            Cue(62, "每次只听清一个指令，再跟随当下。"),
+            Cue(90, "指令之间，回到自然呼吸。"),
+            Cue(118, "不确定时，直接询问医生或助产士。"),
+            Cue(146, "如果头晕，先回到自然呼吸，告诉身边的医护。"),
+            Cue(174, "继续听医护的声音，等待下一条指令。"),
         ),
     ),
 )
@@ -144,19 +137,31 @@ def validate_track_specs(tracks: Iterable[TrackSpec]) -> None:
         slugs.add(track.slug)
         if track.duration_seconds <= 0 or track.bpm <= 0:
             raise ValueError("Duration and BPM must be positive")
-        if not track.cues or track.cues[0].at_seconds != 0:
-            raise ValueError("Every track must begin at zero")
+        if not track.cues or not 0 <= track.cues[0].at_seconds <= 6:
+            raise ValueError("Every track must begin within six seconds")
+        if track.slug == "03-暂缓用力" and track.cues[0].at_seconds > 3:
+            raise ValueError("The defer-pushing track must begin within three seconds")
         positions = [cue.at_seconds for cue in track.cues]
         if positions != sorted(positions) or positions[-1] >= track.duration_seconds:
             raise ValueError("Cue positions must be sorted and inside the track")
+        gaps = [right - left for left, right in zip(positions, positions[1:])]
+        if any(gap < 20 or gap > 35 for gap in gaps):
+            raise ValueError("Cue spacing must stay between 20 and 35 seconds")
         lyrics = "\n".join(cue.text for cue in track.cues)
         if "医护" not in lyrics or "自然呼吸" not in lyrics:
             raise ValueError("Every track needs clinical priority and stop guidance")
         for claim in FORBIDDEN_CLAIMS:
             if claim in lyrics:
                 raise ValueError("Forbidden claim in {}: {}".format(track.slug, claim))
-        if any(cue.style not in {"spoken", "chant"} for cue in track.cues):
-            raise ValueError("Unsupported cue style")
+        for announcement in BANNED_ANNOUNCEMENTS:
+            if announcement in lyrics:
+                raise ValueError(
+                    "Announcement copy in {}: {}".format(track.slug, announcement)
+                )
+        if any(cue.style != "spoken" for cue in track.cues):
+            raise ValueError("Every cue must use direct spoken guidance")
+        if any(len(cue.text) > 34 for cue in track.cues):
+            raise ValueError("Guidance sentences must stay short")
 
 
 def render_lrc(track: TrackSpec) -> str:
