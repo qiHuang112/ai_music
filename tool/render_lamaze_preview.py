@@ -55,7 +55,8 @@ def mix_preview(
             "[bed][voicekey]sidechaincompress=threshold=0.02:ratio=4:"
             "attack=200:release=900[ducked]",
             "[ducked][voicemix]amix=inputs=2:duration=first:normalize=0,"
-            "loudnorm=I=-18:TP=-1.5:LRA=8,alimiter=limit=0.8414[out]",
+            "loudnorm=I=-18:TP=-1.5:LRA=8,"
+            "alimiter=limit=0.8414:level=false[out]",
         )
     )
     command.extend(

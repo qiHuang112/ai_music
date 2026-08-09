@@ -1,28 +1,34 @@
 #!/usr/bin/env python3
-"""Generate four original Mandarin Lamaze companion tracks on macOS.
+"""Generate four Mandarin Lamaze tracks with CosyVoice SFT and VSCO samples."""
 
-The spoken guidance is rendered with the local Tingting voice. The original
-loopable ambient bed is synthesized with NumPy, then mixed and encoded by
-FFmpeg. This generator is intentionally separate from the LAN server.
-"""
+from __future__ import annotations
 
 import argparse
-import hashlib
 import json
 import shutil
 import subprocess
+import sys
 import tempfile
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable, Sequence
 
-from lamaze_score import render_score_stems
+from lamaze_production_score import render_production_stems
 
 
 SAMPLE_RATE = 48_000
 ARTIST = "AI Home"
 ALBUM = "拉玛泽呼吸引导"
-DEFAULT_VOICE = "Grandma (中文（中国大陆）)"
+DEFAULT_SPEAKER = "中文女"
+DEFAULT_SPEED = 0.92
+COSYVOICE_COMMIT = "074ca6dc9e80a2f424f1f74b48bdd7d3fea531cc"
+SFT_REVISION = "fbb71de2afe387ed854eebd80b9f3d078c6b9869"
+VSCO_COMMIT = "6dd651d55dde97fd4028699be9d4481f26917891"
+REQUIRED_PATCHES = (
+    "UprightPiano.sfz",
+    "ViolinEnsSusVib-Quiet.sfz",
+    "CelloEnsSusVib-Quiet.sfz",
+)
 FORBIDDEN_CLAIMS = ("宫口", "厘米", "无痛", "顺产", "保证")
 BANNED_ANNOUNCEMENTS = (
     "这是一段",
@@ -96,7 +102,7 @@ TRACKS = (
         bpm=72,
         cues=(
             Cue(2, "嘴唇轻轻张开，做短而轻的哈气。"),
-            Cue(22, "只有医护明确要求暂缓用力时，继续这样呼吸。"),
+            Cue(22, "按医护的提示，继续短短地呼气。"),
             Cue(42, "像吹动羽毛一样，短短地呼气。"),
             Cue(62, "不要屏气，也不要主动向下用力。"),
             Cue(82, "让肩膀和双手放松，保持自然呼吸。"),
@@ -169,7 +175,10 @@ def render_lrc(track: TrackSpec) -> str:
         "[ti:{}]".format(track.title),
         "[by:AI Home original production]",
     ]
-    lines.extend("{}{}".format(_lrc_timestamp(cue.at_seconds), cue.text) for cue in track.cues)
+    lines.extend(
+        "{}{}".format(_lrc_timestamp(cue.at_seconds), cue.text)
+        for cue in track.cues
+    )
     return "\n".join(lines) + "\n"
 
 
@@ -178,57 +187,102 @@ def render_txt(track: TrackSpec) -> str:
         track.title,
         "",
         "用途说明：呼吸陪伴工具，不替代医生或助产士的现场判断。现场医护指令始终优先。",
-        "若头晕、手脚发麻或不适，请停止练习、恢复自然呼吸并告诉医护人员。",
-        "",
-        "引导词：",
     ]
+    if track.slug == "03-暂缓用力":
+        heading.append("仅在医护人员明确要求暂缓用力时使用。")
+    heading.extend(
+        (
+            "若头晕、手脚发麻或不适，请停止练习、恢复自然呼吸并告诉医护人员。",
+            "",
+            "引导词：",
+        )
+    )
     heading.extend(cue.text for cue in track.cues)
     return "\n".join(heading) + "\n"
-
-
-def preview_track_spec(track: TrackSpec, seconds: int) -> TrackSpec:
-    if seconds <= 0 or seconds > track.duration_seconds:
-        raise ValueError("Preview duration must be inside the source track")
-    cues = tuple(cue for cue in track.cues if cue.at_seconds < seconds)
-    if not cues:
-        raise ValueError("Preview must contain at least one guidance cue")
-    return replace(track, duration_seconds=seconds, cues=cues)
 
 
 def _lrc_timestamp(seconds: float) -> str:
     total_centiseconds = int(round(seconds * 100))
     minutes, remainder = divmod(total_centiseconds, 6000)
     whole_seconds, centiseconds = divmod(remainder, 100)
-    return "[{:02d}:{:02d}.{:02d}]".format(minutes, whole_seconds, centiseconds)
+    return "[{:02d}:{:02d}.{:02d}]".format(
+        minutes, whole_seconds, centiseconds
+    )
 
 
 def _run(command: Sequence[str]) -> None:
     subprocess.run(list(command), check=True)
 
 
-def _require_tools() -> None:
-    missing = [
-        name
-        for name in ("say", "ffmpeg", "ffprobe", "fluidsynth")
-        if shutil.which(name) is None
-    ]
+def _require_tools(sfizz_render: Path) -> None:
+    missing = [name for name in ("ffmpeg", "ffprobe") if shutil.which(name) is None]
     if missing:
         raise RuntimeError("Missing required tools: {}".format(", ".join(missing)))
+    if not sfizz_render.is_file():
+        raise FileNotFoundError("sfizz_render does not exist: {}".format(sfizz_render))
+
+
+def _load_cosyvoice_model(
+    cosyvoice_root: Path,
+    model_dir: Path,
+    *,
+    model_factory=None,
+):
+    if not cosyvoice_root.is_dir():
+        raise FileNotFoundError("CosyVoice root does not exist: {}".format(cosyvoice_root))
+    if not model_dir.is_dir():
+        raise FileNotFoundError("CosyVoice model does not exist: {}".format(model_dir))
+    for path in (cosyvoice_root, cosyvoice_root / "third_party" / "Matcha-TTS"):
+        value = str(path)
+        if value not in sys.path:
+            sys.path.insert(0, value)
+    if model_factory is None:
+        from cosyvoice.cli.cosyvoice import AutoModel
+
+        model_factory = AutoModel
+    return model_factory(model_dir=str(model_dir))
 
 
 def _render_voice_cues(
     track: TrackSpec,
     work: Path,
     *,
-    voice: str = DEFAULT_VOICE,
-) -> Sequence[Path]:
+    model,
+    speaker: str = DEFAULT_SPEAKER,
+    speed: float = DEFAULT_SPEED,
+    concatenate=None,
+    audio_saver=None,
+) -> tuple[Path, ...]:
+    if speaker not in model.list_available_spks():
+        raise ValueError("CosyVoice model does not provide 中文女")
+    if concatenate is None:
+        import torch
+
+        concatenate = lambda values: torch.cat(values, dim=1)
+    if audio_saver is None:
+        import torchaudio
+
+        audio_saver = torchaudio.save
+
     paths = []
-    say_voice = voice.split(" (", 1)[0].strip()
     for index, cue in enumerate(track.cues):
-        target = work / "cue-{:02d}.aiff".format(index)
-        _run(("say", "-v", say_voice, "-r", "138", "-o", str(target), cue.text))
+        chunks = [
+            item["tts_speech"]
+            for item in model.inference_sft(
+                cue.text,
+                speaker,
+                stream=False,
+                speed=speed,
+            )
+        ]
+        if not chunks:
+            raise RuntimeError("CosyVoice yielded no speech")
+        target = work / "cue-{:02d}.wav".format(index)
+        audio_saver(str(target), concatenate(chunks).cpu(), model.sample_rate)
+        if not target.is_file() or target.stat().st_size <= 44:
+            raise RuntimeError("Invalid cue output: {}".format(target))
         paths.append(target)
-    return paths
+    return tuple(paths)
 
 
 def _mix_track(
@@ -242,46 +296,38 @@ def _mix_track(
     if len(cues) != len(track.cues):
         raise ValueError("Every guidance cue needs one rendered voice file")
     command = ["ffmpeg", "-y", "-hide_banner", "-loglevel", "error"]
-    for stem in stems:
-        command.extend(("-i", str(stem)))
-    for cue_path in cues:
-        command.extend(("-i", str(cue_path)))
+    for source in (*stems, *cues):
+        command.extend(("-i", str(source)))
 
     filters = [
-        "[0:a]aresample=48000,volume=0.72[piano]",
-        "[1:a]aresample=48000,volume=0.40[strings]",
-        "[2:a]aresample=48000,volume=0.12[air]",
-        "[piano][strings][air]amix=inputs=3:duration=first:normalize=0[bed]",
+        "[0:a]aresample=48000,volume=0.48[piano]",
+        "[1:a]aresample=48000,volume=0.16[violin]",
+        "[2:a]aresample=48000,volume=0.12[cello]",
+        "[piano][violin][cello]amix=inputs=3:duration=longest:normalize=0[bed]",
     ]
     voice_labels = []
-    for index, cue in enumerate(track.cues, start=len(stems)):
-        label = "voice{}".format(index)
-        voice_filter = (
-            "aresample=48000,highpass=f=80,lowpass=f=11000,"
-            "acompressor=threshold=-22dB:ratio=2.5:attack=15:release=180,"
-            "aecho=0.8:0.9:55:0.05,volume=1.20"
+    for input_index, cue in enumerate(track.cues, start=3):
+        label = "voice{}".format(input_index - 3)
+        delay = round(cue.at_seconds * 1000)
+        filters.append(
+            "[{}:a]aresample=48000,highpass=f=70,lowpass=f=12000,"
+            "acompressor=threshold=-22dB:ratio=2:attack=25:release=180:makeup=2dB,"
+            "adelay={}:all=1[{}]".format(input_index, delay, label)
         )
-        delay = int(round(cue.at_seconds * 1000))
-        filters.append("[{}:a]{},adelay={}:all=1[{}]".format(index, voice_filter, delay, label))
         voice_labels.append("[{}]".format(label))
-    filters.append(
-        "{}amix=inputs={}:duration=longest:normalize=0[voicebus]".format(
-            "".join(voice_labels), len(voice_labels)
+    filters.extend(
+        (
+            "{}amix=inputs={}:duration=longest:normalize=0[voicebus]".format(
+                "".join(voice_labels), len(voice_labels)
+            ),
+            "[voicebus]apad=whole_dur={duration},atrim=duration={duration},"
+            "asplit=2[voicekey][voicemix]".format(duration=track.duration_seconds),
+            "[bed][voicekey]sidechaincompress=threshold=0.02:ratio=4:"
+            "attack=200:release=900[ducked]",
+            "[ducked][voicemix]amix=inputs=2:duration=first:normalize=0,"
+            "loudnorm=I=-18:TP=-1.5:LRA=8,"
+            "alimiter=limit=0.8414:level=false[out]",
         )
-    )
-    filters.append(
-        "[voicebus]apad=whole_dur={},atrim=duration={}[voicepadded]".format(
-            track.duration_seconds, track.duration_seconds
-        )
-    )
-    filters.append("[voicepadded]asplit=2[voicekey][voicemix]")
-    filters.append(
-        "[bed][voicekey]sidechaincompress="
-        "threshold=0.015:ratio=2.2:attack=120:release=500[ducked]"
-    )
-    filters.append(
-        "[ducked][voicemix]amix=inputs=2:duration=first:normalize=0,"
-        "loudnorm=I=-16:TP=-1.5:LRA=9,alimiter=limit=0.94[out]"
     )
     command.extend(
         (
@@ -296,7 +342,7 @@ def _mix_track(
             "-ac",
             "2",
             "-c:a",
-            "pcm_s16le",
+            "pcm_s24le",
             str(wav_target),
         )
     )
@@ -325,6 +371,8 @@ def _encode_mp3(track: TrackSpec, wav_source: Path, cover: Path, target: Path) -
             "192k",
             "-ar",
             str(SAMPLE_RATE),
+            "-ac",
+            "2",
             "-c:v",
             "png",
             "-disposition:v:0",
@@ -340,13 +388,19 @@ def _encode_mp3(track: TrackSpec, wav_source: Path, cover: Path, target: Path) -
     )
 
 
+def _usage_for(track: TrackSpec) -> str:
+    value = "呼吸陪伴工具；现场医生和助产士指令始终优先。"
+    if track.slug == "03-暂缓用力":
+        value += "仅在医护人员明确要求暂缓用力时使用。"
+    return value
+
+
 def _write_sidecars(
     track: TrackSpec,
     output: Path,
     cover: Path,
     *,
-    voice: str,
-    soundfont_sources: dict,
+    audio_sources: dict,
 ) -> None:
     stem = output / track.slug
     stem.with_suffix(".lrc").write_text(render_lrc(track), encoding="utf-8")
@@ -359,7 +413,8 @@ def _write_sidecars(
         "durationSeconds": track.duration_seconds,
         "bpm": track.bpm,
         "language": "zh-CN",
-        "voice": voice,
+        "voice": "CosyVoice SFT 中文女",
+        "voiceSpeed": DEFAULT_SPEED,
         "guidanceStyle": "spoken-direct-actions",
         "cues": [
             {
@@ -370,59 +425,83 @@ def _write_sidecars(
             for cue in track.cues
         ],
         "instruments": [
-            "Acoustic Grand Piano",
-            "String Ensemble 1",
-            "Warm Pad",
+            "VSCO Upright Piano",
+            "VSCO Quiet Violin Ensemble",
+            "VSCO Quiet Cello Ensemble",
         ],
-        "soundFontSources": soundfont_sources,
-        "usage": "呼吸陪伴工具；现场医生和助产士指令始终优先。",
+        "audioSources": audio_sources,
+        "usage": _usage_for(track),
         "license": "Original production for this project",
     }
     stem.with_suffix(".json").write_text(
-        json.dumps(metadata, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
+        json.dumps(metadata, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
     )
     shutil.copy2(cover, stem.with_suffix(".png"))
 
 
-def load_soundfont_sources(soundfont: Path) -> dict:
-    manifest_path = soundfont.parent / "lamaze_soundfont_sources.json"
-    if not manifest_path.is_file():
-        raise FileNotFoundError(
-            "SoundFont source manifest does not exist: {}".format(manifest_path)
-        )
-    decoded = json.loads(manifest_path.read_text(encoding="utf-8"))
-    if not isinstance(decoded, dict) or decoded.get("license") != "MIT":
-        raise ValueError("SoundFont source manifest must declare the MIT license")
-    if not str(decoded.get("version", "")).strip():
-        raise ValueError("SoundFont source manifest must declare a version")
-    records = decoded.get("resources")
-    required = (
-        "MuseScore_General.sf3",
-        "MuseScore_General_License.md",
-        "VERSION",
+def load_audio_sources(runtime_sources: Path) -> dict:
+    decoded = json.loads(runtime_sources.read_text(encoding="utf-8"))
+    if not isinstance(decoded, dict):
+        raise ValueError("Runtime source manifest must be a JSON object")
+    cosyvoice = decoded.get("cosyVoice")
+    sft = decoded.get("models", {}).get("sft")
+    vsco = decoded.get("vsco2Ce")
+    sfizz = decoded.get("sfizz")
+    if not all(isinstance(value, dict) for value in (cosyvoice, sft, vsco, sfizz)):
+        raise ValueError("Runtime source manifest is incomplete")
+    expected = (
+        (cosyvoice, "commit", COSYVOICE_COMMIT),
+        (cosyvoice, "license", "Apache-2.0"),
+        (sft, "repo", "FunAudioLLM/CosyVoice-300M-SFT"),
+        (sft, "revision", SFT_REVISION),
+        (sft, "license", "Apache-2.0"),
+        (vsco, "commit", VSCO_COMMIT),
+        (vsco, "license", "CC0-1.0"),
+        (sfizz, "version", "1.2.3"),
+        (sfizz, "license", "BSD-2-Clause"),
     )
-    if not isinstance(records, dict):
-        raise ValueError("SoundFont source manifest resources are missing")
-    for filename in required:
-        record = records.get(filename)
-        target = soundfont.parent / filename
-        if not isinstance(record, dict) or not target.is_file():
-            raise ValueError("SoundFont source resource is missing: {}".format(filename))
-        expected_hash = str(record.get("sha256", "")).lower()
-        expected_size = record.get("sizeBytes")
-        if not _is_sha256(expected_hash) or expected_size != target.stat().st_size:
-            raise ValueError("SoundFont source record is invalid: {}".format(filename))
-        if _sha256_file(target) != expected_hash:
-            raise ValueError("SoundFont source hash mismatch: {}".format(filename))
-    return decoded
-
-
-def _sha256_file(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as source:
-        for chunk in iter(lambda: source.read(1024 * 1024), b""):
-            digest.update(chunk)
-    return digest.hexdigest()
+    for record, key, value in expected:
+        if record.get(key) != value:
+            raise ValueError("Unexpected runtime source {}".format(key))
+    patch_hashes = vsco.get("patchHashes")
+    if not isinstance(patch_hashes, dict):
+        raise ValueError("VSCO patch hashes are missing")
+    approved_patch_hashes = {}
+    for patch_name in REQUIRED_PATCHES:
+        digest = str(patch_hashes.get(patch_name, "")).lower()
+        if not _is_sha256(digest):
+            raise ValueError("Invalid VSCO patch hash: {}".format(patch_name))
+        approved_patch_hashes[patch_name] = digest
+    archive_hash = str(sfizz.get("archiveSha256", "")).lower()
+    if not _is_sha256(archive_hash):
+        raise ValueError("Invalid sfizz archive hash")
+    return {
+        "voiceEngine": {
+            "name": "CosyVoice",
+            "commit": COSYVOICE_COMMIT,
+            "license": "Apache-2.0",
+        },
+        "voiceModel": {
+            "repo": "FunAudioLLM/CosyVoice-300M-SFT",
+            "revision": SFT_REVISION,
+            "license": "Apache-2.0",
+            "speaker": DEFAULT_SPEAKER,
+            "speed": DEFAULT_SPEED,
+        },
+        "sampleLibrary": {
+            "name": "VSCO 2 CE",
+            "commit": VSCO_COMMIT,
+            "license": "CC0-1.0",
+            "patchHashes": approved_patch_hashes,
+        },
+        "sampler": {
+            "name": "sfizz",
+            "version": "1.2.3",
+            "license": "BSD-2-Clause",
+            "archiveSha256": archive_hash,
+        },
+    }
 
 
 def _is_sha256(value: str) -> bool:
@@ -432,88 +511,97 @@ def _is_sha256(value: str) -> bool:
 def generate(
     output: Path,
     cover_source: Path,
-    soundfont: Path,
+    cosyvoice_root: Path,
+    model_dir: Path,
+    sfizz_render: Path,
+    vsco_root: Path,
+    runtime_sources: Path,
     *,
-    voice: str = DEFAULT_VOICE,
-    preview_track: str = "",
-    preview_seconds: int = 45,
+    speaker: str = DEFAULT_SPEAKER,
+    speed: float = DEFAULT_SPEED,
+    model_factory=None,
 ) -> None:
     validate_track_specs(TRACKS)
-    _require_tools()
-    if not soundfont.is_file():
-        raise FileNotFoundError("SoundFont does not exist: {}".format(soundfont))
-    if preview_track:
-        source = next((track for track in TRACKS if track.slug == preview_track), None)
-        if source is None:
-            raise ValueError("Unknown preview track: {}".format(preview_track))
-        render_tracks = (preview_track_spec(source, preview_seconds),)
-        soundfont_sources = None
-    else:
-        render_tracks = TRACKS
-        soundfont_sources = load_soundfont_sources(soundfont)
+    if speaker != DEFAULT_SPEAKER or speed != DEFAULT_SPEED:
+        raise ValueError("Production voice must remain 中文女 at speed 0.92")
+    _require_tools(sfizz_render)
+    if not cover_source.is_file():
+        raise FileNotFoundError("Cover file does not exist: {}".format(cover_source))
+    if not vsco_root.is_dir():
+        raise FileNotFoundError("VSCO root does not exist: {}".format(vsco_root))
+    audio_sources = load_audio_sources(runtime_sources)
+    model = _load_cosyvoice_model(
+        cosyvoice_root,
+        model_dir,
+        model_factory=model_factory,
+    )
+
     output.mkdir(parents=True, exist_ok=True)
     common_cover = output / "cover.png"
-    if cover_source != common_cover.resolve():
+    if cover_source.resolve() != common_cover.resolve():
         shutil.copy2(cover_source, common_cover)
-    if not preview_track:
-        readme = output / "README.txt"
-        readme.write_text(
-            "拉玛泽呼吸引导（原创）\n\n"
-            "本套音频用于呼吸陪伴，不替代医生或助产士的现场判断。\n"
-            "现场医护指令始终优先。若头晕、手脚发麻或不适，请停止练习、恢复自然呼吸并告诉医护人员。\n"
-            "03-暂缓用力仅在医护人员明确要求暂缓用力时使用。\n",
-            encoding="utf-8",
-        )
+    (output / "README.txt").write_text(
+        "拉玛泽呼吸引导（原创）\n\n"
+        "本套音频用于呼吸陪伴，不替代医生或助产士的现场判断。\n"
+        "现场医护指令始终优先。若头晕、手脚发麻或不适，请停止练习、恢复自然呼吸并告诉医护人员。\n"
+        "03-暂缓用力仅在医护人员明确要求暂缓用力时使用。\n",
+        encoding="utf-8",
+    )
 
-    for track in render_tracks:
-        print("Generating {} ({}s, {} BPM)".format(track.slug, track.duration_seconds, track.bpm))
-        with tempfile.TemporaryDirectory(prefix="lamaze-audio-") as temp_dir:
-            work = Path(temp_dir)
-            stems = render_score_stems(track, work, soundfont)
-            voice_cues = _render_voice_cues(track, work, voice=voice)
-            target_slug = (
-                "{}-{}s".format(track.slug, preview_seconds)
-                if preview_track
-                else track.slug
+    for track in TRACKS:
+        print(
+            "Generating {} ({}s, {} BPM)".format(
+                track.slug, track.duration_seconds, track.bpm
             )
-            wav_target = output / "{}.wav".format(target_slug)
-            mp3_target = output / "{}.mp3".format(target_slug)
+        )
+        with tempfile.TemporaryDirectory(prefix="lamaze-cosyvoice-") as temp_dir:
+            work = Path(temp_dir)
+            stems = render_production_stems(track, work, sfizz_render, vsco_root)
+            voice_cues = _render_voice_cues(
+                track,
+                work,
+                model=model,
+                speaker=speaker,
+                speed=speed,
+            )
+            wav_target = output / "{}.wav".format(track.slug)
+            mp3_target = output / "{}.mp3".format(track.slug)
             _mix_track(track, stems, voice_cues, wav_target)
             _encode_mp3(track, wav_target, common_cover, mp3_target)
-            if not preview_track:
-                _write_sidecars(
-                    track,
-                    output,
-                    common_cover,
-                    voice=voice,
-                    soundfont_sources=soundfont_sources,
-                )
+            _write_sidecars(
+                track,
+                output,
+                common_cover,
+                audio_sources=audio_sources,
+            )
 
 
 def build_argument_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="Generate original Lamaze guide audio")
+    parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output", required=True, type=Path)
     parser.add_argument("--cover", required=True, type=Path)
-    parser.add_argument("--soundfont", required=True, type=Path)
-    parser.add_argument("--voice", default=DEFAULT_VOICE)
-    parser.add_argument("--preview-track", default="")
-    parser.add_argument("--preview-seconds", default=45, type=int)
+    parser.add_argument("--cosyvoice-root", required=True, type=Path)
+    parser.add_argument("--model-dir", required=True, type=Path)
+    parser.add_argument("--sfizz-render", required=True, type=Path)
+    parser.add_argument("--vsco-root", required=True, type=Path)
+    parser.add_argument("--runtime-sources", required=True, type=Path)
+    parser.add_argument("--speaker", default=DEFAULT_SPEAKER)
+    parser.add_argument("--speed", default=DEFAULT_SPEED, type=float)
     return parser
 
 
 def main() -> None:
     args = build_argument_parser().parse_args()
-    if not args.cover.is_file():
-        raise SystemExit("Cover file does not exist: {}".format(args.cover))
-    if not args.soundfont.is_file():
-        raise SystemExit("SoundFont does not exist: {}".format(args.soundfont))
     generate(
         args.output.expanduser().resolve(),
         args.cover.expanduser().resolve(),
-        args.soundfont.expanduser().resolve(),
-        voice=args.voice,
-        preview_track=args.preview_track,
-        preview_seconds=args.preview_seconds,
+        args.cosyvoice_root.expanduser().resolve(),
+        args.model_dir.expanduser().resolve(),
+        args.sfizz_render.expanduser().resolve(),
+        args.vsco_root.expanduser().resolve(),
+        args.runtime_sources.expanduser().resolve(),
+        speaker=args.speaker,
+        speed=args.speed,
     )
 
 

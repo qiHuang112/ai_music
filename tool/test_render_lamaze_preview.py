@@ -33,6 +33,7 @@ class LamazePreviewMixTests(unittest.TestCase):
         self.assertIn("attack=200", command)
         self.assertIn("release=900", command)
         self.assertIn("loudnorm=I=-18:TP=-1.5:LRA=8", command)
+        self.assertIn("alimiter=limit=0.8414:level=false", command)
         self.assertIn("pcm_s24le", command)
         self.assertNotIn("aecho", command)
 

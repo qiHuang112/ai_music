@@ -1,22 +1,34 @@
 #!/usr/bin/env python3
-"""Verify generated Lamaze deliverables and write reproducibility records."""
+"""Verify CosyVoice/VSCO Lamaze deliverables and write reproducibility records."""
+
+from __future__ import annotations
 
 import argparse
 import hashlib
 import json
 import re
 import subprocess
-import wave
 from datetime import datetime, timezone
 from pathlib import Path
 
 from generate_lamaze_audio import (
     BANNED_ANNOUNCEMENTS,
+    COSYVOICE_COMMIT,
     FORBIDDEN_CLAIMS,
+    REQUIRED_PATCHES,
     SAMPLE_RATE,
+    SFT_REVISION,
     TRACKS,
+    VSCO_COMMIT,
     render_lrc,
 )
+
+
+EXPECTED_INSTRUMENTS = [
+    "VSCO Upright Piano",
+    "VSCO Quiet Violin Ensemble",
+    "VSCO Quiet Cello Ensemble",
+]
 
 
 def sha256_file(path: Path) -> str:
@@ -33,10 +45,9 @@ def ffprobe_audio(path: Path) -> dict:
             "ffprobe",
             "-v",
             "error",
-            "-select_streams",
-            "a:0",
             "-show_entries",
-            "stream=codec_type,codec_name,sample_rate,channels,bit_rate:format=duration,size",
+            "stream=codec_type,codec_name,sample_rate,channels,bit_rate,"
+            "bits_per_sample,bits_per_raw_sample,duration:format=duration,size,bit_rate",
             "-of",
             "json",
             str(path),
@@ -44,6 +55,8 @@ def ffprobe_audio(path: Path) -> dict:
         check=True,
         capture_output=True,
         text=True,
+        encoding="utf-8",
+        errors="replace",
     )
     return json.loads(process.stdout)
 
@@ -65,6 +78,8 @@ def ffmpeg_audio_metrics(path: Path, runner=subprocess.run) -> dict:
         check=True,
         capture_output=True,
         text=True,
+        encoding="utf-8",
+        errors="replace",
     )
     summary = process.stderr.rpartition("Summary:")[2]
     loudness = re.search(r"I:\s*(-?\d+(?:\.\d+)?)\s*LUFS", summary)
@@ -73,7 +88,20 @@ def ffmpeg_audio_metrics(path: Path, runner=subprocess.run) -> dict:
         raise ValueError("FFmpeg did not report loudness and true peak")
     return {
         "integratedLufs": float(loudness.group(1)),
-        "truePeakDbfs": float(true_peak.group(1)),
+        "truePeakDbtp": float(true_peak.group(1)),
+    }
+
+
+def normalize_wav_probe(probe: dict) -> dict:
+    stream = _single_audio_stream(probe)
+    file_format = probe.get("format", {})
+    bit_depth = stream.get("bits_per_raw_sample") or stream.get("bits_per_sample")
+    return {
+        "codec": stream.get("codec_name"),
+        "sampleRate": _required_int(stream.get("sample_rate"), "WAV sample rate"),
+        "channels": _required_int(stream.get("channels"), "WAV channel count"),
+        "bitDepth": _required_int(bit_depth, "WAV bit depth"),
+        "duration": float(stream.get("duration") or file_format.get("duration") or 0),
     }
 
 
@@ -82,12 +110,17 @@ def validate_text_delivery(spec, lrc: str, metadata: dict) -> None:
         raise ValueError("LRC must contain exactly the audible guidance cues")
     if any(value in lrc for value in FORBIDDEN_CLAIMS + BANNED_ANNOUNCEMENTS):
         raise ValueError("LRC contains forbidden guidance copy")
+    if "soundFontSources" in metadata:
+        raise ValueError("Legacy SoundFont metadata is not allowed")
     if (
         metadata.get("id") != spec.track_id
         or metadata.get("title") != spec.title
         or metadata.get("bpm") != spec.bpm
         or metadata.get("durationSeconds") != spec.duration_seconds
+        or metadata.get("voice") != "CosyVoice SFT 中文女"
+        or metadata.get("voiceSpeed") != 0.92
         or metadata.get("guidanceStyle") != "spoken-direct-actions"
+        or metadata.get("instruments") != EXPECTED_INSTRUMENTS
     ):
         raise ValueError("Track metadata does not match the approved specification")
     expected_cues = [
@@ -100,56 +133,82 @@ def validate_text_delivery(spec, lrc: str, metadata: dict) -> None:
     ]
     if metadata.get("cues") != expected_cues:
         raise ValueError("Metadata cues must match the spoken LRC cues")
-    sources = metadata.get("soundFontSources")
-    if (
-        not isinstance(sources, dict)
-        or sources.get("license") != "MIT"
-        or not str(sources.get("version", "")).strip()
-    ):
-        raise ValueError("SoundFont license or version metadata is missing")
-    resources = sources.get("resources")
-    if not isinstance(resources, dict):
-        raise ValueError("SoundFont source hashes are missing")
-    for filename in (
-        "MuseScore_General.sf3",
-        "MuseScore_General_License.md",
-        "VERSION",
-    ):
-        record = resources.get(filename)
-        digest = record.get("sha256") if isinstance(record, dict) else None
-        if not isinstance(digest, str) or not re.fullmatch(r"[0-9a-f]{64}", digest):
-            raise ValueError("SoundFont source hash is missing: {}".format(filename))
+    usage = str(metadata.get("usage", ""))
+    if "现场医生和助产士指令始终优先" not in usage:
+        raise ValueError("Clinical priority metadata is missing")
+    if spec.slug == "03-暂缓用力" and "明确要求暂缓用力" not in usage:
+        raise ValueError("Defer-pushing conditional usage metadata is missing")
+    _validate_audio_sources(metadata.get("audioSources"))
+
+
+def _validate_audio_sources(sources) -> None:
+    if not isinstance(sources, dict):
+        raise ValueError("Audio source metadata is missing")
+    voice_engine = sources.get("voiceEngine")
+    voice_model = sources.get("voiceModel")
+    library = sources.get("sampleLibrary")
+    sampler = sources.get("sampler")
+    expected = (
+        (voice_engine, "name", "CosyVoice"),
+        (voice_engine, "commit", COSYVOICE_COMMIT),
+        (voice_engine, "license", "Apache-2.0"),
+        (voice_model, "repo", "FunAudioLLM/CosyVoice-300M-SFT"),
+        (voice_model, "revision", SFT_REVISION),
+        (voice_model, "license", "Apache-2.0"),
+        (voice_model, "speaker", "中文女"),
+        (voice_model, "speed", 0.92),
+        (library, "name", "VSCO 2 CE"),
+        (library, "commit", VSCO_COMMIT),
+        (library, "license", "CC0-1.0"),
+        (sampler, "name", "sfizz"),
+        (sampler, "version", "1.2.3"),
+        (sampler, "license", "BSD-2-Clause"),
+    )
+    for record, key, value in expected:
+        if not isinstance(record, dict) or record.get(key) != value:
+            raise ValueError("Audio source pin is invalid: {}".format(key))
+    patch_hashes = library.get("patchHashes")
+    if not isinstance(patch_hashes, dict):
+        raise ValueError("VSCO patch hashes are missing")
+    for patch_name in REQUIRED_PATCHES:
+        if not _is_sha256(patch_hashes.get(patch_name)):
+            raise ValueError("VSCO patch hash is invalid: {}".format(patch_name))
+    if not _is_sha256(sampler.get("archiveSha256")):
+        raise ValueError("sfizz archive hash is invalid")
 
 
 def validate_audio_delivery(spec, wav_info: dict, mp3_probe: dict, metrics: dict) -> None:
     if (
-        wav_info.get("sampleRate") != SAMPLE_RATE
+        wav_info.get("codec") != "pcm_s24le"
+        or wav_info.get("sampleRate") != SAMPLE_RATE
         or wav_info.get("channels") != 2
-        or abs(float(wav_info.get("duration", 0)) - spec.duration_seconds) > 0.01
+        or wav_info.get("bitDepth") != 24
+        or abs(float(wav_info.get("duration", 0)) - spec.duration_seconds) > 0.1
     ):
-        raise ValueError("{} WAV must be exact 48 kHz stereo".format(spec.slug))
-    streams = mp3_probe.get("streams")
-    audio_stream = next(
-        (
-            stream
-            for stream in streams if stream.get("codec_type", "audio") == "audio"
-        ),
-        None,
-    ) if isinstance(streams, list) else None
+        raise ValueError("{} WAV must be exact 48 kHz 24-bit stereo".format(spec.slug))
+    audio_stream = _single_audio_stream(mp3_probe)
+    bit_rate = _required_int(
+        audio_stream.get("bit_rate") or mp3_probe.get("format", {}).get("bit_rate"),
+        "MP3 bit rate",
+    )
     if (
-        not isinstance(audio_stream, dict)
-        or audio_stream.get("codec_name") not in (None, "mp3")
-        or int(audio_stream.get("sample_rate", 0)) != SAMPLE_RATE
-        or int(audio_stream.get("channels", 0)) != 2
-        or int(audio_stream.get("bit_rate", 0)) != 192_000
+        audio_stream.get("codec_name") != "mp3"
+        or _required_int(audio_stream.get("sample_rate"), "MP3 sample rate")
+        != SAMPLE_RATE
+        or _required_int(audio_stream.get("channels"), "MP3 channel count") != 2
+        or abs(bit_rate - 192_000) > 9_600
     ):
         raise ValueError("{} MP3 must be 192 kbps 48 kHz stereo".format(spec.slug))
-    duration = float(mp3_probe.get("format", {}).get("duration", 0))
+    duration = float(
+        audio_stream.get("duration")
+        or mp3_probe.get("format", {}).get("duration")
+        or 0
+    )
     if abs(duration - spec.duration_seconds) > 0.1:
         raise ValueError("Unexpected MP3 duration for {}".format(spec.slug))
-    true_peak = float(metrics.get("truePeakDbfs", 0))
+    true_peak = float(metrics.get("truePeakDbtp", 0))
     if true_peak > -1.5:
-        raise ValueError("{} true peak exceeds -1.5 dBFS".format(spec.slug))
+        raise ValueError("{} true peak exceeds -1.5 dBTP".format(spec.slug))
 
 
 def verify(root: Path) -> dict:
@@ -163,21 +222,15 @@ def verify(root: Path) -> dict:
         if missing:
             raise ValueError("Missing deliverables: {}".format(", ".join(missing)))
 
-        with wave.open(str(paths["wav"]), "rb") as wav_file:
-            wav_info = {
-                "sampleRate": wav_file.getframerate(),
-                "channels": wav_file.getnchannels(),
-                "duration": wav_file.getnframes() / wav_file.getframerate(),
-            }
-
-        probe = ffprobe_audio(paths["mp3"])
+        wav_probe = ffprobe_audio(paths["wav"])
+        wav_info = normalize_wav_probe(wav_probe)
+        mp3_probe = ffprobe_audio(paths["mp3"])
         metrics = ffmpeg_audio_metrics(paths["wav"])
-
         lrc = paths["lrc"].read_text(encoding="utf-8")
         metadata = json.loads(paths["json"].read_text(encoding="utf-8"))
         validate_text_delivery(spec, lrc, metadata)
-        validate_audio_delivery(spec, wav_info, probe, metrics)
-        stream = probe["streams"][0]
+        validate_audio_delivery(spec, wav_info, mp3_probe, metrics)
+        mp3_stream = _single_audio_stream(mp3_probe)
 
         tracks.append(
             {
@@ -188,12 +241,17 @@ def verify(root: Path) -> dict:
                 "wav": {
                     "sizeBytes": paths["wav"].stat().st_size,
                     "sha256": sha256_file(paths["wav"]),
+                    "sampleRate": wav_info["sampleRate"],
+                    "bitDepth": wav_info["bitDepth"],
                 },
                 "mp3": {
                     "sizeBytes": paths["mp3"].stat().st_size,
                     "sha256": sha256_file(paths["mp3"]),
-                    "sampleRate": int(stream["sample_rate"]),
-                    "bitRate": int(stream["bit_rate"]),
+                    "sampleRate": int(mp3_stream["sample_rate"]),
+                    "bitRate": int(
+                        mp3_stream.get("bit_rate")
+                        or mp3_probe.get("format", {}).get("bit_rate")
+                    ),
                 },
                 "audioMetrics": metrics,
             }
@@ -210,16 +268,43 @@ def verify(root: Path) -> dict:
 def write_records(root: Path, report: dict) -> None:
     report_path = root / "verification-report.json"
     report_path.write_text(
-        json.dumps(report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
+        json.dumps(report, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
     )
     excluded = {"SHA256SUMS.txt", report_path.name}
-    files = sorted(path for path in root.iterdir() if path.is_file() and path.name not in excluded)
+    files = sorted(
+        path for path in root.iterdir() if path.is_file() and path.name not in excluded
+    )
     checksums = ["{}  {}".format(sha256_file(path), path.name) for path in files]
-    (root / "SHA256SUMS.txt").write_text("\n".join(checksums) + "\n", encoding="utf-8")
+    (root / "SHA256SUMS.txt").write_text(
+        "\n".join(checksums) + "\n",
+        encoding="utf-8",
+    )
+
+
+def _single_audio_stream(probe: dict) -> dict:
+    streams = [
+        stream
+        for stream in probe.get("streams", [])
+        if stream.get("codec_type") == "audio"
+    ]
+    if len(streams) != 1:
+        raise ValueError("Expected exactly one audio stream")
+    return streams[0]
+
+
+def _required_int(value, label: str) -> int:
+    if value in (None, "", "N/A"):
+        raise ValueError("{} is missing".format(label))
+    return int(value)
+
+
+def _is_sha256(value) -> bool:
+    return isinstance(value, str) and re.fullmatch(r"[0-9a-f]{64}", value) is not None
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Verify Lamaze delivery files")
+    parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("root", type=Path)
     args = parser.parse_args()
     root = args.root.expanduser().resolve()
