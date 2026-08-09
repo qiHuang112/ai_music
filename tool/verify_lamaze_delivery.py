@@ -21,6 +21,8 @@ from generate_lamaze_audio import (
     TRACKS,
     VSCO_COMMIT,
     render_lrc,
+    render_readme,
+    render_txt,
 )
 
 
@@ -29,6 +31,8 @@ EXPECTED_INSTRUMENTS = [
     "VSCO Quiet Violin Ensemble",
     "VSCO Quiet Cello Ensemble",
 ]
+MIN_INTEGRATED_LUFS = -20.0
+MAX_INTEGRATED_LUFS = -16.0
 
 
 def sha256_file(path: Path) -> str:
@@ -105,9 +109,11 @@ def normalize_wav_probe(probe: dict) -> dict:
     }
 
 
-def validate_text_delivery(spec, lrc: str, metadata: dict) -> None:
+def validate_text_delivery(spec, lrc: str, txt: str, metadata: dict) -> None:
     if lrc != render_lrc(spec):
         raise ValueError("LRC must contain exactly the audible guidance cues")
+    if txt != render_txt(spec):
+        raise ValueError("TXT must contain the exact safety guidance and spoken cues")
     if any(value in lrc for value in FORBIDDEN_CLAIMS + BANNED_ANNOUNCEMENTS):
         raise ValueError("LRC contains forbidden guidance copy")
     if "soundFontSources" in metadata:
@@ -209,9 +215,36 @@ def validate_audio_delivery(spec, wav_info: dict, mp3_probe: dict, metrics: dict
     true_peak = float(metrics.get("truePeakDbtp", 0))
     if true_peak > -1.5:
         raise ValueError("{} true peak exceeds -1.5 dBTP".format(spec.slug))
+    integrated_lufs = float(metrics.get("integratedLufs", 0))
+    if not MIN_INTEGRATED_LUFS <= integrated_lufs <= MAX_INTEGRATED_LUFS:
+        raise ValueError(
+            "{} integrated loudness must stay between {} and {} LUFS".format(
+                spec.slug,
+                MIN_INTEGRATED_LUFS,
+                MAX_INTEGRATED_LUFS,
+            )
+        )
+
+
+def validate_shared_delivery(root: Path) -> None:
+    readme = root / "README.txt"
+    shared_cover = root / "cover.png"
+    if not readme.is_file() or not shared_cover.is_file():
+        raise ValueError("README.txt and cover.png are required")
+    if readme.read_text(encoding="utf-8") != render_readme():
+        raise ValueError("README.txt does not match the approved safety guidance")
+    cover_bytes = shared_cover.read_bytes()
+    if not cover_bytes.startswith(b"\x89PNG\r\n\x1a\n"):
+        raise ValueError("Shared cover must be a PNG file")
+    cover_hash = sha256_file(shared_cover)
+    for spec in TRACKS:
+        track_cover = root / "{}.png".format(spec.slug)
+        if not track_cover.is_file() or sha256_file(track_cover) != cover_hash:
+            raise ValueError("Track cover must match shared cover: {}".format(spec.slug))
 
 
 def verify(root: Path) -> dict:
+    validate_shared_delivery(root)
     tracks = []
     for spec in TRACKS:
         paths = {
@@ -227,8 +260,9 @@ def verify(root: Path) -> dict:
         mp3_probe = ffprobe_audio(paths["mp3"])
         metrics = ffmpeg_audio_metrics(paths["wav"])
         lrc = paths["lrc"].read_text(encoding="utf-8")
+        txt = paths["txt"].read_text(encoding="utf-8")
         metadata = json.loads(paths["json"].read_text(encoding="utf-8"))
-        validate_text_delivery(spec, lrc, metadata)
+        validate_text_delivery(spec, lrc, txt, metadata)
         validate_audio_delivery(spec, wav_info, mp3_probe, metrics)
         mp3_stream = _single_audio_stream(mp3_probe)
 
@@ -267,19 +301,21 @@ def verify(root: Path) -> dict:
 
 def write_records(root: Path, report: dict) -> None:
     report_path = root / "verification-report.json"
-    report_path.write_text(
+    _write_utf8_lf(
+        report_path,
         json.dumps(report, ensure_ascii=False, indent=2) + "\n",
-        encoding="utf-8",
     )
     excluded = {"SHA256SUMS.txt", report_path.name}
     files = sorted(
         path for path in root.iterdir() if path.is_file() and path.name not in excluded
     )
     checksums = ["{}  {}".format(sha256_file(path), path.name) for path in files]
-    (root / "SHA256SUMS.txt").write_text(
-        "\n".join(checksums) + "\n",
-        encoding="utf-8",
-    )
+    _write_utf8_lf(root / "SHA256SUMS.txt", "\n".join(checksums) + "\n")
+
+
+def _write_utf8_lf(path: Path, value: str) -> None:
+    with path.open("w", encoding="utf-8", newline="\n") as target:
+        target.write(value)
 
 
 def _single_audio_stream(probe: dict) -> dict:

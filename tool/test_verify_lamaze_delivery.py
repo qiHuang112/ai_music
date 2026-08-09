@@ -1,7 +1,9 @@
 import copy
 import sys
+import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 
 TOOL_DIR = Path(__file__).resolve().parent
@@ -13,11 +15,15 @@ from generate_lamaze_audio import (  # noqa: E402
     TRACKS,
     VSCO_COMMIT,
     render_lrc,
+    render_readme,
+    render_txt,
 )
 from verify_lamaze_delivery import (  # noqa: E402
     ffmpeg_audio_metrics,
     validate_audio_delivery,
+    validate_shared_delivery,
     validate_text_delivery,
+    write_records,
 )
 
 
@@ -89,6 +95,41 @@ def _metadata(spec):
 
 
 class LamazeDeliveryVerifierTests(unittest.TestCase):
+    def test_shared_readme_and_track_covers_are_required_and_exact(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            cover = b"\x89PNG\r\n\x1a\noriginal-cover"
+            (root / "README.txt").write_text(render_readme(), encoding="utf-8")
+            (root / "cover.png").write_bytes(cover)
+            for spec in TRACKS:
+                (root / "{}.png".format(spec.slug)).write_bytes(cover)
+
+            validate_shared_delivery(root)
+
+            (root / "README.txt").write_text("缺少安全说明\n", encoding="utf-8")
+            with self.assertRaises(ValueError):
+                validate_shared_delivery(root)
+
+            (root / "README.txt").write_text(render_readme(), encoding="utf-8")
+            (root / "{}.png".format(TRACKS[0].slug)).write_bytes(
+                b"\x89PNG\r\n\x1a\nother-cover"
+            )
+            with self.assertRaises(ValueError):
+                validate_shared_delivery(root)
+
+    def test_records_use_lf_even_when_platform_text_writes_translate_newlines(self):
+        def windows_write_text(path, data, encoding=None, **_kwargs):
+            return path.write_bytes(data.replace("\n", "\r\n").encode(encoding or "utf-8"))
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            (root / "音频.mp3").write_bytes(b"ID3")
+            with mock.patch.object(Path, "write_text", windows_write_text):
+                write_records(root, {"status": "passed"})
+
+            self.assertNotIn(b"\r", (root / "verification-report.json").read_bytes())
+            self.assertNotIn(b"\r", (root / "SHA256SUMS.txt").read_bytes())
+
     def test_ffmpeg_metrics_parser_uses_summary_loudness_and_true_peak(self):
         class Result:
             stderr = """
@@ -112,7 +153,9 @@ class LamazeDeliveryVerifierTests(unittest.TestCase):
 
     def test_text_delivery_requires_exact_cues_voice_and_source_pins(self):
         spec = TRACKS[0]
-        validate_text_delivery(spec, render_lrc(spec), _metadata(spec))
+        validate_text_delivery(
+            spec, render_lrc(spec), render_txt(spec), _metadata(spec)
+        )
 
         invalid_rows = []
         wrong_id = _metadata(spec)
@@ -139,23 +182,38 @@ class LamazeDeliveryVerifierTests(unittest.TestCase):
         for metadata in invalid_rows:
             with self.subTest(metadata=metadata.get("id")):
                 with self.assertRaises(ValueError):
-                    validate_text_delivery(spec, render_lrc(spec), metadata)
+                    validate_text_delivery(
+                        spec, render_lrc(spec), render_txt(spec), metadata
+                    )
 
         with self.assertRaises(ValueError):
             validate_text_delivery(
                 spec,
                 render_lrc(spec) + "[04:59.00]这是一段说明\n",
+                render_txt(spec),
+                _metadata(spec),
+            )
+
+        with self.assertRaises(ValueError):
+            validate_text_delivery(
+                spec,
+                render_lrc(spec),
+                render_txt(spec).replace("现场医护指令始终优先。", ""),
                 _metadata(spec),
             )
 
     def test_defer_track_metadata_retains_conditional_usage(self):
         spec = TRACKS[2]
-        validate_text_delivery(spec, render_lrc(spec), _metadata(spec))
+        validate_text_delivery(
+            spec, render_lrc(spec), render_txt(spec), _metadata(spec)
+        )
 
         metadata = _metadata(spec)
         metadata["usage"] = "现场医护优先。"
         with self.assertRaises(ValueError):
-            validate_text_delivery(spec, render_lrc(spec), metadata)
+            validate_text_delivery(
+                spec, render_lrc(spec), render_txt(spec), metadata
+            )
 
     def test_audio_delivery_requires_24_bit_pcm_and_safe_true_peak(self):
         spec = TRACKS[0]
@@ -185,6 +243,20 @@ class LamazeDeliveryVerifierTests(unittest.TestCase):
         bad_peak["truePeakDbtp"] = -0.5
         with self.assertRaises(ValueError):
             validate_audio_delivery(spec, wav, mp3, bad_peak)
+
+        for integrated_lufs in (-20.1, -15.9):
+            with self.subTest(integrated_lufs=integrated_lufs), self.assertRaises(
+                ValueError
+            ):
+                validate_audio_delivery(
+                    spec,
+                    wav,
+                    mp3,
+                    {
+                        "integratedLufs": integrated_lufs,
+                        "truePeakDbtp": -2.0,
+                    },
+                )
 
         bad_depth = copy.deepcopy(wav)
         bad_depth["bitDepth"] = 16

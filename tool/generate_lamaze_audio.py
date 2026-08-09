@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import shutil
 import subprocess
@@ -199,6 +200,15 @@ def render_txt(track: TrackSpec) -> str:
     )
     heading.extend(cue.text for cue in track.cues)
     return "\n".join(heading) + "\n"
+
+
+def render_readme() -> str:
+    return (
+        "拉玛泽呼吸引导（原创）\n\n"
+        "本套音频用于呼吸陪伴，不替代医生或助产士的现场判断。\n"
+        "现场医护指令始终优先。若头晕、手脚发麻或不适，请停止练习、恢复自然呼吸并告诉医护人员。\n"
+        "03-暂缓用力仅在医护人员明确要求暂缓用力时使用。\n"
+    )
 
 
 def _lrc_timestamp(seconds: float) -> str:
@@ -440,7 +450,13 @@ def _write_sidecars(
     shutil.copy2(cover, stem.with_suffix(".png"))
 
 
-def load_audio_sources(runtime_sources: Path) -> dict:
+def load_audio_sources(
+    runtime_sources: Path,
+    cosyvoice_root: Path,
+    model_dir: Path,
+    vsco_root: Path,
+    sfizz_render: Path,
+) -> dict:
     decoded = json.loads(runtime_sources.read_text(encoding="utf-8"))
     if not isinstance(decoded, dict):
         raise ValueError("Runtime source manifest must be a JSON object")
@@ -464,6 +480,15 @@ def load_audio_sources(runtime_sources: Path) -> dict:
     for record, key, value in expected:
         if record.get(key) != value:
             raise ValueError("Unexpected runtime source {}".format(key))
+    runtime_paths = (
+        (cosyvoice.get("path"), cosyvoice_root, "CosyVoice root"),
+        (sft.get("path"), model_dir, "SFT model"),
+        (vsco.get("path"), vsco_root, "VSCO root"),
+        (sfizz.get("executable"), sfizz_render, "sfizz executable"),
+    )
+    for recorded, actual, label in runtime_paths:
+        if not isinstance(recorded, str) or Path(recorded).resolve() != actual.resolve():
+            raise ValueError("Runtime source path does not match {}".format(label))
     patch_hashes = vsco.get("patchHashes")
     if not isinstance(patch_hashes, dict):
         raise ValueError("VSCO patch hashes are missing")
@@ -472,6 +497,9 @@ def load_audio_sources(runtime_sources: Path) -> dict:
         digest = str(patch_hashes.get(patch_name, "")).lower()
         if not _is_sha256(digest):
             raise ValueError("Invalid VSCO patch hash: {}".format(patch_name))
+        patch_path = vsco_root / patch_name
+        if not patch_path.is_file() or _sha256_file(patch_path) != digest:
+            raise ValueError("VSCO patch does not match manifest: {}".format(patch_name))
         approved_patch_hashes[patch_name] = digest
     archive_hash = str(sfizz.get("archiveSha256", "")).lower()
     if not _is_sha256(archive_hash):
@@ -508,6 +536,14 @@ def _is_sha256(value: str) -> bool:
     return len(value) == 64 and all(character in "0123456789abcdef" for character in value)
 
 
+def _sha256_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as source:
+        for chunk in iter(lambda: source.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
 def generate(
     output: Path,
     cover_source: Path,
@@ -529,7 +565,13 @@ def generate(
         raise FileNotFoundError("Cover file does not exist: {}".format(cover_source))
     if not vsco_root.is_dir():
         raise FileNotFoundError("VSCO root does not exist: {}".format(vsco_root))
-    audio_sources = load_audio_sources(runtime_sources)
+    audio_sources = load_audio_sources(
+        runtime_sources,
+        cosyvoice_root,
+        model_dir,
+        vsco_root,
+        sfizz_render,
+    )
     model = _load_cosyvoice_model(
         cosyvoice_root,
         model_dir,
@@ -540,13 +582,7 @@ def generate(
     common_cover = output / "cover.png"
     if cover_source.resolve() != common_cover.resolve():
         shutil.copy2(cover_source, common_cover)
-    (output / "README.txt").write_text(
-        "拉玛泽呼吸引导（原创）\n\n"
-        "本套音频用于呼吸陪伴，不替代医生或助产士的现场判断。\n"
-        "现场医护指令始终优先。若头晕、手脚发麻或不适，请停止练习、恢复自然呼吸并告诉医护人员。\n"
-        "03-暂缓用力仅在医护人员明确要求暂缓用力时使用。\n",
-        encoding="utf-8",
-    )
+    (output / "README.txt").write_text(render_readme(), encoding="utf-8")
 
     for track in TRACKS:
         print(

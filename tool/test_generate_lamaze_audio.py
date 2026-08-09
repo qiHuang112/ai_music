@@ -1,4 +1,5 @@
 import inspect
+import hashlib
 import json
 import sys
 import tempfile
@@ -273,18 +274,51 @@ class LamazeAudioSpecTests(unittest.TestCase):
 
     def test_runtime_source_manifest_is_pinned_and_path_free_in_metadata(self):
         with tempfile.TemporaryDirectory() as temp_dir:
-            manifest = Path(temp_dir) / "runtime-sources.json"
-            manifest.write_text(json.dumps(runtime_manifest()), encoding="utf-8")
-            loaded = generator.load_audio_sources(manifest)
+            root = Path(temp_dir)
+            manifest = root / "runtime-sources.json"
+            cosyvoice = root / "CosyVoice"
+            model = root / "CosyVoice-300M-SFT"
+            vsco = root / "VSCO"
+            cosyvoice.mkdir()
+            model.mkdir()
+            vsco.mkdir()
+            patch_hashes = {}
+            for index, patch_name in enumerate(generator.REQUIRED_PATCHES):
+                patch = vsco / patch_name
+                patch.write_bytes("patch-{}".format(index).encode("ascii"))
+                patch_hashes[patch_name] = hashlib.sha256(
+                    patch.read_bytes()
+                ).hexdigest()
+            sfizz = root / "sfizz_render.exe"
+            sfizz.write_bytes(b"sfizz")
 
-            self.assertEqual(approved_sources(), loaded)
-            self.assertNotIn("E:/", json.dumps(loaded))
+            payload = runtime_manifest()
+            payload["cosyVoice"]["path"] = str(cosyvoice)
+            payload["models"]["sft"]["path"] = str(model)
+            payload["vsco2Ce"]["path"] = str(vsco)
+            payload["vsco2Ce"]["patchHashes"] = patch_hashes
+            payload["sfizz"]["executable"] = str(sfizz)
+            manifest.write_text(json.dumps(payload), encoding="utf-8")
+            loaded = generator.load_audio_sources(
+                manifest, cosyvoice, model, vsco, sfizz
+            )
 
-            invalid = runtime_manifest()
-            invalid["vsco2Ce"]["patchHashes"]["UprightPiano.sfz"] = "bad"
-            manifest.write_text(json.dumps(invalid), encoding="utf-8")
+            self.assertEqual(patch_hashes, loaded["sampleLibrary"]["patchHashes"])
+            self.assertNotIn(str(root), json.dumps(loaded))
+
+            (vsco / generator.REQUIRED_PATCHES[0]).write_bytes(b"changed")
             with self.assertRaises(ValueError):
-                generator.load_audio_sources(manifest)
+                generator.load_audio_sources(
+                    manifest, cosyvoice, model, vsco, sfizz
+                )
+
+            (vsco / generator.REQUIRED_PATCHES[0]).write_bytes(b"patch-0")
+            payload["sfizz"]["executable"] = str(root / "different.exe")
+            manifest.write_text(json.dumps(payload), encoding="utf-8")
+            with self.assertRaises(ValueError):
+                generator.load_audio_sources(
+                    manifest, cosyvoice, model, vsco, sfizz
+                )
 
     def test_sidecars_record_cosyvoice_vsco_sources_and_stable_ids(self):
         with tempfile.TemporaryDirectory() as temp_dir:
