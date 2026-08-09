@@ -6,7 +6,7 @@
 
 **Architecture:** Keep the approved production generator untouched while the preview is under review. Add a small preview-only Python pipeline with three boundaries: a pure timing/copy specification, a CosyVoice cue renderer, and an SFZ-backed music/mix renderer. Run model inference and sample rendering on the Windows host, copy only the finished previews back to the Mac, and do not write under `E:\music` until the user approves one preview.
 
-**Tech Stack:** Python 3.9, CosyVoice `AutoModel`, PyTorch/Torchaudio, VSCO 2 CE SFZ samples, `sfizz_render` 1.2.3, FFmpeg/FFprobe, PowerShell, `unittest`.
+**Tech Stack:** Python 3.10, CosyVoice `AutoModel`, PyTorch/Torchaudio, VSCO 2 CE SFZ samples, `sfizz_render` 1.2.3, FFmpeg/FFprobe, PowerShell, `unittest`.
 
 ## Global Constraints
 
@@ -399,22 +399,23 @@ git commit -m "feat: mix and verify Lamaze CosyVoice previews"
 - Test manually on: `52637@192.168.31.57`
 
 **Interfaces:**
-- Produces: `E:\AIModels\LamazeAudio\venv`
+- Produces: `E:\AIModels\LamazeAudio\venv-py310`
 - Produces: pinned CosyVoice, SFT/Instruct models, VSCO 2 CE, `sfizz_render.exe`, FFmpeg, and `runtime-sources.json`
 
 - [ ] **Step 1: Implement an idempotent PowerShell setup script**
 
-The script must stop on errors, create only `E:\AIModels\LamazeAudio`, use the existing Python 3.9.10 launcher, and perform these exact operations:
+The script must stop on errors, create only `E:\AIModels\LamazeAudio`, install the official Python 3.10 winget package when the 3.10 launcher is absent, and perform these exact operations:
 
 ```powershell
 $Root = 'E:\AIModels\LamazeAudio'
-py -3.9 -m venv "$Root\venv"
-& "$Root\venv\Scripts\python.exe" -m pip install --upgrade 'pip==24.3.1'
+winget install --id Python.Python.3.10 --exact --scope user --silent --accept-package-agreements --accept-source-agreements
+py -3.10 -m venv "$Root\venv-py310"
+& "$Root\venv-py310\Scripts\python.exe" -m pip install --upgrade 'pip==24.3.1'
 git clone --recursive https://github.com/FunAudioLLM/CosyVoice.git "$Root\CosyVoice"
 git -C "$Root\CosyVoice" checkout 074ca6dc9e80a2f424f1f74b48bdd7d3fea531cc
 git -C "$Root\CosyVoice" submodule update --init --recursive
-& "$Root\venv\Scripts\python.exe" -m pip install -r "$Root\CosyVoice\requirements.txt"
-& "$Root\venv\Scripts\python.exe" -m pip install 'huggingface_hub==0.30.2'
+& "$Root\venv-py310\Scripts\python.exe" -m pip install -r "$Root\CosyVoice\requirements.txt"
+& "$Root\venv-py310\Scripts\python.exe" -m pip install 'huggingface_hub==0.30.2'
 git clone --branch SFZ --single-branch https://github.com/sgossner/VSCO-2-CE.git "$Root\VSCO-2-CE"
 git -C "$Root\VSCO-2-CE" checkout 6dd651d55dde97fd4028699be9d4481f26917891
 Invoke-WebRequest -UseBasicParsing -Uri 'https://github.com/sfztools/sfizz/releases/download/1.2.3/sfizz-1.2.3-win64.zip' -OutFile "$Root\sfizz.zip"
@@ -495,14 +496,14 @@ Expected: each directory contains three non-silent WAV files and a manifest; no 
 Render piano, violin, and cello once from the pinned VSCO checkout:
 
 ```text
-E:\AIModels\LamazeAudio\venv\Scripts\python.exe E:\AIHome\lamaze-preview-tool\lamaze_light_score.py --output E:\AIHome\lamaze-preview-output\shared-stems --sfizz-render E:\AIModels\LamazeAudio\sfizz-1.2.3\sfizz_render.exe --vsco-root E:\AIModels\LamazeAudio\VSCO-2-CE
+E:\AIModels\LamazeAudio\venv-py310\Scripts\python.exe E:\AIHome\lamaze-preview-tool\lamaze_light_score.py --output E:\AIHome\lamaze-preview-output\shared-stems --sfizz-render E:\AIModels\LamazeAudio\sfizz-1.2.3\sfizz_render.exe --vsco-root E:\AIModels\LamazeAudio\VSCO-2-CE
 ```
 
 If `sfizz_render.exe` is nested inside the extracted release, Task 5 must record its resolved absolute path in `runtime-sources.json`, and this command must use that recorded path. Then mix the same stems with each cue set:
 
 ```text
-E:\AIModels\LamazeAudio\venv\Scripts\python.exe E:\AIHome\lamaze-preview-tool\render_lamaze_preview.py --stems E:\AIHome\lamaze-preview-output\shared-stems --cues E:\AIHome\lamaze-preview-output\sft\cues --output-prefix E:\AIHome\lamaze-preview-output\sft\01-慢呼放松-CosyVoice-SFT-45s
-E:\AIModels\LamazeAudio\venv\Scripts\python.exe E:\AIHome\lamaze-preview-tool\render_lamaze_preview.py --stems E:\AIHome\lamaze-preview-output\shared-stems --cues E:\AIHome\lamaze-preview-output\instruct\cues --output-prefix E:\AIHome\lamaze-preview-output\instruct\01-慢呼放松-CosyVoice-Instruct-45s
+E:\AIModels\LamazeAudio\venv-py310\Scripts\python.exe E:\AIHome\lamaze-preview-tool\render_lamaze_preview.py --stems E:\AIHome\lamaze-preview-output\shared-stems --cues E:\AIHome\lamaze-preview-output\sft\cues --output-prefix E:\AIHome\lamaze-preview-output\sft\01-慢呼放松-CosyVoice-SFT-45s
+E:\AIModels\LamazeAudio\venv-py310\Scripts\python.exe E:\AIHome\lamaze-preview-tool\render_lamaze_preview.py --stems E:\AIHome\lamaze-preview-output\shared-stems --cues E:\AIHome\lamaze-preview-output\instruct\cues --output-prefix E:\AIHome\lamaze-preview-output\instruct\01-慢呼放松-CosyVoice-Instruct-45s
 ```
 
 Produce:
@@ -519,8 +520,8 @@ Produce:
 Run:
 
 ```text
-E:\AIModels\LamazeAudio\venv\Scripts\python.exe E:\AIHome\lamaze-preview-tool\verify_lamaze_preview.py --wav E:\AIHome\lamaze-preview-output\sft\01-慢呼放松-CosyVoice-SFT-45s.wav --mp3 E:\AIHome\lamaze-preview-output\sft\01-慢呼放松-CosyVoice-SFT-45s.mp3 --cues E:\AIHome\lamaze-preview-output\sft\cues --report E:\AIHome\lamaze-preview-output\sft\verification.json
-E:\AIModels\LamazeAudio\venv\Scripts\python.exe E:\AIHome\lamaze-preview-tool\verify_lamaze_preview.py --wav E:\AIHome\lamaze-preview-output\instruct\01-慢呼放松-CosyVoice-Instruct-45s.wav --mp3 E:\AIHome\lamaze-preview-output\instruct\01-慢呼放松-CosyVoice-Instruct-45s.mp3 --cues E:\AIHome\lamaze-preview-output\instruct\cues --report E:\AIHome\lamaze-preview-output\instruct\verification.json
+E:\AIModels\LamazeAudio\venv-py310\Scripts\python.exe E:\AIHome\lamaze-preview-tool\verify_lamaze_preview.py --wav E:\AIHome\lamaze-preview-output\sft\01-慢呼放松-CosyVoice-SFT-45s.wav --mp3 E:\AIHome\lamaze-preview-output\sft\01-慢呼放松-CosyVoice-SFT-45s.mp3 --cues E:\AIHome\lamaze-preview-output\sft\cues --report E:\AIHome\lamaze-preview-output\sft\verification.json
+E:\AIModels\LamazeAudio\venv-py310\Scripts\python.exe E:\AIHome\lamaze-preview-tool\verify_lamaze_preview.py --wav E:\AIHome\lamaze-preview-output\instruct\01-慢呼放松-CosyVoice-Instruct-45s.wav --mp3 E:\AIHome\lamaze-preview-output\instruct\01-慢呼放松-CosyVoice-Instruct-45s.mp3 --cues E:\AIHome\lamaze-preview-output\instruct\cues --report E:\AIHome\lamaze-preview-output\instruct\verification.json
 ```
 
 Expected for both: 45.0 ± 0.1 seconds, WAV 48 kHz/24-bit/stereo, MP3 192 kbps within 5%, true peak at or below -1.5 dBTP, all three cues above -45 dB mean and longer than 0.5 seconds.
