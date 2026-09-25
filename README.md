@@ -2,12 +2,18 @@
 
 Flutter music search, cache, and playback app.
 
+The active baseline is the Flutter version with LAN library synchronization on
+`main`. See [current project state](CURRENT_STATE.md) and the
+[LAN server guide](tool/LAN_MUSIC_SERVER_README.txt).
+
 ## Local SDK
 
-Use the Flutter SDK checked out beside this app:
+From this project's root, use the existing local Flutter SDK (or set
+`FLUTTER` to your own SDK executable):
 
 ```bash
-../tools/flutter/bin/flutter pub get
+export FLUTTER=/Users/huangqi/AIHome/tools/flutter/bin/flutter
+"$FLUTTER" pub get
 ```
 
 ## Project checks
@@ -15,8 +21,8 @@ Use the Flutter SDK checked out beside this app:
 The current test flow stays the same:
 
 ```bash
-../tools/flutter/bin/flutter test
-../tools/flutter/bin/flutter analyze
+"$FLUTTER" test --no-pub
+"$FLUTTER" analyze --no-pub
 ```
 
 ## iOS IPA build
