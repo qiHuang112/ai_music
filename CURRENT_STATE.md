@@ -34,3 +34,10 @@ Updated: 2026-09-25.
 - Independent review found no blocking issue in the documentation submission or obvious credentials/build artifacts in the current tracked tree. Full Git-history secret auditing was not performed.
 - The relocated Flutter SDK instructions were corrected; LAN deployment instructions now restrict the firewall example to private networks and document unauthenticated access.
 - Existing limitation: health checks hash the library; large-library performance needs separate validation. No application behavior was changed for repository consolidation.
+
+## Active Feature
+
+- Screenshot playlist import and next-track prefetch are approved for development; see `docs/screenshot-playlist-import.md`.
+- Start from consolidated main `9934c8cdd7ff6e993c4a93607e6967a8e9f97d6e`. The developer owns implementation; code review is independent.
+- User sample screenshots exist locally, but their paths have not yet been supplied. Do not claim they were inspected or tested.
+- Developer and reviewer work directly with the user in their own tasks; no routine reporting back to product and no product relay gate.

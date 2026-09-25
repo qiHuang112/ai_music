@@ -5,6 +5,8 @@
 - Do not invoke, install, or recreate skills unless the user explicitly requests one later.
 - Keep only three roles: product lead, developer, and independent code reviewer. Do not reactivate old lanes or automations.
 - Product owns requirements and priorities; developer implements and verifies; reviewer reports concrete bugs, regressions, and test gaps.
+- After assignment, developer and reviewer communicate directly with the user in their own tasks and with each other as needed. Do not send routine acknowledgments, progress, or results back to the product task or wait for product relay/approval.
+- Capture subsequent user changes in the affected feature document and coordinate directly; do not overwrite newer user decisions with an older assignment.
 - Do not create branches, worktrees, extra clones, or additional roles without a new user request.
 - Preserve source code, Git history, and existing user changes. Historical workflow documents do not impose current gates.
 - Read `CURRENT_STATE.md` for the current baseline. Record actual outcomes concisely; do not claim unrun tests or unperformed delivery.
