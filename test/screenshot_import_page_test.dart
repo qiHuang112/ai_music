@@ -316,6 +316,222 @@ void main() {
       root.deleteSync(recursive: true);
     }
   });
+
+  testWidgets('multiple screenshots OCR concurrently but keep image order', (
+    tester,
+  ) async {
+    final root = await tester.runAsync(
+      () => Directory.systemTemp.createTemp('screenshot_parallel_ocr_'),
+    );
+    if (root == null) fail('could not create test image directory');
+    final firstImage = File('${root.path}/first.png');
+    final secondImage = File('${root.path}/second.png');
+    final bytes = base64Decode(
+      'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQIHWP4'
+      'z8DwHwAFgAI/ScL/nwAAAABJRU5ErkJggg==',
+    );
+    await tester.runAsync(() async {
+      await firstImage.writeAsBytes(bytes);
+      await secondImage.writeAsBytes(bytes);
+    });
+    final ocr = _GatedOcr();
+    final handler = MusicAudioHandler();
+    final controller = MusicController(audioHandler: handler);
+    try {
+      await tester.pumpWidget(
+        MaterialApp(
+          home: ScreenshotImportPage(
+            controller: controller,
+            ocr: ocr,
+            openPickerOnStart: true,
+            pickImages: () async => [
+              XFile(firstImage.path),
+              XFile(secondImage.path),
+            ],
+            matcher: ScreenshotMatcher(
+              resolver: _Resolver(),
+              wait: (_) async {},
+            ),
+          ),
+        ),
+      );
+      await tester.pump();
+      await tester.pump();
+      expect(ocr.started, [firstImage.path, secondImage.path]);
+
+      ocr.complete(secondImage.path, '晴天 - 周杰伦');
+      await tester.pump();
+      expect(find.text('晴天'), findsNothing);
+      ocr.complete(firstImage.path, '稻香 - 周杰伦');
+      await tester.pumpAndSettle();
+      expect(find.text('已选 2 首'), findsWidgets);
+      expect(
+        tester.getTopLeft(find.text('稻香')).dy,
+        lessThan(tester.getTopLeft(find.text('晴天')).dy),
+      );
+    } finally {
+      await tester.pumpWidget(const SizedBox.shrink());
+      controller.dispose();
+      unawaited(handler.dispose());
+      root.deleteSync(recursive: true);
+    }
+  });
+
+  testWidgets('saved song concurrency controls the import search pool', (
+    tester,
+  ) async {
+    final root = await tester.runAsync(
+      () => Directory.systemTemp.createTemp('screenshot_search_pool_'),
+    );
+    if (root == null) fail('could not create test image directory');
+    final image = File('${root.path}/shot.png');
+    await tester.runAsync(
+      () => image.writeAsBytes(
+        base64Decode(
+          'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQIHWP4'
+          'z8DwHwAFgAI/ScL/nwAAAABJRU5ErkJggg==',
+        ),
+      ),
+    );
+    final handler = MusicAudioHandler();
+    final controller = MusicController(audioHandler: handler)
+      ..screenshotSearchConcurrency = 5;
+    final gate = Completer<void>();
+    final resolver = _Resolver(searchGate: gate);
+    try {
+      await tester.pumpWidget(
+        MaterialApp(
+          home: ScreenshotImportPage(
+            controller: controller,
+            ocr: const _SixSongsOcr(),
+            openPickerOnStart: true,
+            pickImages: () async => [XFile(image.path)],
+            matcher: ScreenshotMatcher(resolver: resolver, wait: (_) async {}),
+          ),
+        ),
+      );
+      for (var i = 0; i < 12; i += 1) {
+        await tester.pump();
+      }
+      expect(resolver.queries, hasLength(5));
+      gate.complete();
+      await tester.pumpAndSettle();
+      expect(resolver.queries, hasLength(6));
+      expect(find.text('已选 6 首'), findsWidgets);
+    } finally {
+      await tester.pumpWidget(const SizedBox.shrink());
+      controller.dispose();
+      unawaited(handler.dispose());
+      root.deleteSync(recursive: true);
+    }
+  });
+
+  testWidgets('out-of-order failures do not pause a later healthy row', (
+    tester,
+  ) async {
+    final root = await tester.runAsync(
+      () => Directory.systemTemp.createTemp('screenshot_failure_order_'),
+    );
+    if (root == null) fail('could not create test image directory');
+    final image = File('${root.path}/shot.png');
+    await tester.runAsync(
+      () => image.writeAsBytes(
+        base64Decode(
+          'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQIHWP4'
+          'z8DwHwAFgAI/ScL/nwAAAABJRU5ErkJggg==',
+        ),
+      ),
+    );
+    final handler = MusicAudioHandler();
+    final controller = MusicController(audioHandler: handler);
+    final firstGate = Completer<void>();
+    final fifthGate = Completer<void>();
+    final resolver = _OutOfOrderFailureResolver(firstGate, fifthGate);
+    try {
+      await tester.pumpWidget(
+        MaterialApp(
+          home: ScreenshotImportPage(
+            controller: controller,
+            ocr: const _SevenSongsOcr(),
+            openPickerOnStart: true,
+            pickImages: () async => [XFile(image.path)],
+            matcher: ScreenshotMatcher(resolver: resolver, wait: (_) async {}),
+          ),
+        ),
+      );
+      for (var i = 0; i < 16; i += 1) {
+        await tester.pump();
+      }
+      expect(
+        resolver.started,
+        containsAll(['稻香', '晴天', '青花瓷', '七里香', '夜曲', '菊花台']),
+      );
+      expect(resolver.started, isNot(contains('告白气球')));
+
+      firstGate.complete();
+      for (var i = 0; i < 12; i += 1) {
+        await tester.pump();
+      }
+      expect(resolver.started, contains('告白气球'));
+      expect(find.textContaining('已暂停后续查找'), findsNothing);
+
+      fifthGate.complete();
+      await tester.pumpAndSettle();
+    } finally {
+      await tester.pumpWidget(const SizedBox.shrink());
+      controller.dispose();
+      unawaited(handler.dispose());
+      root.deleteSync(recursive: true);
+    }
+  });
+}
+
+class _SixSongsOcr implements ScreenshotOcr {
+  const _SixSongsOcr();
+
+  @override
+  Future<List<ScreenshotTextLine>> recognize(String imagePath) async => [
+    for (var index = 0; index < 6; index += 1)
+      ScreenshotTextLine(
+        text: '${['稻香', '晴天', '青花瓷', '七里香', '夜曲', '菊花台'][index]} - 周杰伦',
+        bounds: Rect.fromLTWH(10, 20 + index * 45, 200, 20),
+      ),
+  ];
+}
+
+class _SevenSongsOcr implements ScreenshotOcr {
+  const _SevenSongsOcr();
+
+  @override
+  Future<List<ScreenshotTextLine>> recognize(String imagePath) async => [
+    for (var index = 0; index < 7; index += 1)
+      ScreenshotTextLine(
+        text: '${['稻香', '晴天', '青花瓷', '七里香', '夜曲', '菊花台', '告白气球'][index]} - 周杰伦',
+        bounds: Rect.fromLTWH(10, 20 + index * 45, 200, 20),
+      ),
+  ];
+}
+
+class _GatedOcr implements ScreenshotOcr {
+  final started = <String>[];
+  final _requests = <String, Completer<List<ScreenshotTextLine>>>{};
+
+  @override
+  Future<List<ScreenshotTextLine>> recognize(String imagePath) {
+    started.add(imagePath);
+    final request = Completer<List<ScreenshotTextLine>>();
+    _requests[imagePath] = request;
+    return request.future;
+  }
+
+  void complete(String imagePath, String text) {
+    _requests[imagePath]!.complete([
+      ScreenshotTextLine(
+        text: text,
+        bounds: const Rect.fromLTWH(10, 20, 200, 20),
+      ),
+    ]);
+  }
 }
 
 class _Ocr implements ScreenshotOcr {
@@ -402,5 +618,27 @@ class _Resolver implements MusicResolver {
       url: 'https://example.test/audio.mp3',
       quality: const MusicQuality(format: 'mp3'),
     );
+  }
+}
+
+class _OutOfOrderFailureResolver extends _Resolver {
+  _OutOfOrderFailureResolver(this.firstGate, this.fifthGate);
+
+  final Completer<void> firstGate;
+  final Completer<void> fifthGate;
+  final started = <String>[];
+
+  @override
+  Future<List<MusicSearchCandidate>> search(
+    String query,
+    MusicDataSource source,
+  ) async {
+    started.add(query);
+    if (query == '稻香') await firstGate.future;
+    if (query == '夜曲' || query == '菊花台') await fifthGate.future;
+    if (query == '稻香' || query == '青花瓷' || query == '七里香') {
+      throw StateError('offline');
+    }
+    return super.search(query, source);
   }
 }

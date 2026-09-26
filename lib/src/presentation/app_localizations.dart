@@ -53,6 +53,10 @@ class AppStrings {
   String get language => isZh ? '语言' : 'Language';
   String get theme => isZh ? '换肤' : 'Theme';
   String get musicSource => isZh ? '音乐源' : 'Music Source';
+  String get screenshotSearchConcurrency =>
+      isZh ? '截图搜歌并发数' : 'Screenshot search concurrency';
+  String screenshotSearchConcurrencyDescription(int count) =>
+      isZh ? '同时搜索 $count 首，范围 1～10 首' : 'Search $count songs at once (1–10)';
   String get lanLibrary => isZh ? '局域网音乐库' : 'LAN Music Library';
   String get lanLibraryAddress => isZh ? '局域网音乐库地址' : 'LAN library address';
   String get lanLibraryDescription => isZh

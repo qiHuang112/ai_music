@@ -45,24 +45,29 @@ class MusicAppSettings {
     this.language = AppLanguage.zh,
     this.theme = AppThemePreference.dark,
     this.lanLibraryUrl = defaultLanLibraryUrl,
+    this.screenshotSearchConcurrency = 3,
   });
 
   final MusicDataSource source;
   final AppLanguage language;
   final AppThemePreference theme;
   final String lanLibraryUrl;
+  final int screenshotSearchConcurrency;
 
   MusicAppSettings copyWith({
     MusicDataSource? source,
     AppLanguage? language,
     AppThemePreference? theme,
     String? lanLibraryUrl,
+    int? screenshotSearchConcurrency,
   }) {
     return MusicAppSettings(
       source: source ?? this.source,
       language: language ?? this.language,
       theme: theme ?? this.theme,
       lanLibraryUrl: lanLibraryUrl ?? this.lanLibraryUrl,
+      screenshotSearchConcurrency:
+          screenshotSearchConcurrency ?? this.screenshotSearchConcurrency,
     );
   }
 
@@ -72,6 +77,7 @@ class MusicAppSettings {
       'language': language.storageValue,
       'themeMode': theme.storageValue,
       'lanLibraryUrl': lanLibraryUrl,
+      'screenshotSearchConcurrency': screenshotSearchConcurrency,
     };
   }
 }
@@ -104,6 +110,9 @@ class MusicSettingsStore {
             decoded['themeMode']?.toString() ?? decoded['theme']?.toString(),
           ),
           lanLibraryUrl: _restoredLanLibraryUrl(decoded['lanLibraryUrl']),
+          screenshotSearchConcurrency: _restoredScreenshotSearchConcurrency(
+            decoded['screenshotSearchConcurrency'],
+          ),
         );
       }
       return MusicAppSettings(source: MusicDataSource.fromStorage(text));
@@ -146,6 +155,13 @@ class MusicSettingsStore {
       }
     });
   }
+}
+
+int _restoredScreenshotSearchConcurrency(Object? value) {
+  final parsed = value is num
+      ? value.toInt()
+      : int.tryParse(value?.toString() ?? '');
+  return (parsed ?? 3).clamp(1, 10);
 }
 
 String _restoredLanLibraryUrl(Object? value) {

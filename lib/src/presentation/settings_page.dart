@@ -64,6 +64,7 @@ class SettingsPage extends StatelessWidget {
                     ),
                   ),
                 ),
+                _ScreenshotSearchConcurrencySetting(controller: controller),
                 ListTile(
                   leading: const Icon(Icons.wifi_tethering),
                   title: Text(strings.lanLibrary),
@@ -81,6 +82,69 @@ class SettingsPage extends StatelessWidget {
           ),
         );
       },
+    );
+  }
+}
+
+class _ScreenshotSearchConcurrencySetting extends StatefulWidget {
+  const _ScreenshotSearchConcurrencySetting({required this.controller});
+
+  final MusicController controller;
+
+  @override
+  State<_ScreenshotSearchConcurrencySetting> createState() =>
+      _ScreenshotSearchConcurrencySettingState();
+}
+
+class _ScreenshotSearchConcurrencySettingState
+    extends State<_ScreenshotSearchConcurrencySetting> {
+  late int _value;
+
+  @override
+  void initState() {
+    super.initState();
+    _value = widget.controller.screenshotSearchConcurrency;
+  }
+
+  @override
+  void didUpdateWidget(
+    covariant _ScreenshotSearchConcurrencySetting oldWidget,
+  ) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.controller != widget.controller) {
+      _value = widget.controller.screenshotSearchConcurrency;
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final strings = AppStringsScope.of(context);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        ListTile(
+          leading: const Icon(Icons.image_search),
+          title: Text(strings.screenshotSearchConcurrency),
+          subtitle: Text(
+            strings.screenshotSearchConcurrencyDescription(_value),
+          ),
+        ),
+        Padding(
+          padding: const EdgeInsets.only(left: 72, right: 24, bottom: 8),
+          child: Slider(
+            key: const Key('screenshotSearchConcurrencySlider'),
+            value: _value.toDouble(),
+            min: 1,
+            max: 10,
+            divisions: 9,
+            label: '$_value',
+            onChanged: (value) => setState(() => _value = value.round()),
+            onChangeEnd: (value) {
+              widget.controller.saveScreenshotSearchConcurrency(value.round());
+            },
+          ),
+        ),
+      ],
     );
   }
 }

@@ -15,6 +15,7 @@ class SettingsController {
     required AppLanguage language,
     required AppThemePreference theme,
     required String lanLibraryUrl,
+    required int screenshotSearchConcurrency,
   }) {
     return settingsStore.saveSettings(
       MusicAppSettings(
@@ -22,6 +23,7 @@ class SettingsController {
         language: language,
         theme: theme,
         lanLibraryUrl: lanLibraryUrl,
+        screenshotSearchConcurrency: screenshotSearchConcurrency,
       ),
     );
   }

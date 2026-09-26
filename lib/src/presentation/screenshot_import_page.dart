@@ -403,14 +403,25 @@ class _ScreenshotImportPageState extends State<ScreenshotImportPage> {
         _recognizing = true;
         _error = null;
       });
-      for (final image in orderedPicked) {
-        if (_ocrLines.containsKey(image.path)) continue;
-        try {
-          _ocrLines[image.path] = await widget.ocr.recognize(image.path);
-        } catch (error) {
-          _error = '图片识别失败：$error';
+      final pendingImages = orderedPicked
+          .where((image) => !_ocrLines.containsKey(image.path))
+          .toList(growable: false);
+      var nextImage = 0;
+      Future<void> recognizeNext() async {
+        while (nextImage < pendingImages.length) {
+          final image = pendingImages[nextImage++];
+          try {
+            _ocrLines[image.path] = await widget.ocr.recognize(image.path);
+          } catch (error) {
+            _error ??= '图片识别失败：$error';
+          }
         }
       }
+
+      await Future.wait([
+        for (var i = 0; i < pendingImages.length && i < 3; i += 1)
+          recognizeNext(),
+      ]);
       if (!mounted) return;
       setState(() {
         _recognizing = false;
@@ -505,29 +516,53 @@ class _ScreenshotImportPageState extends State<ScreenshotImportPage> {
   Future<void> _searchAll(int generation) async {
     setState(() => _searchingAll = true);
     var consecutiveFailures = 0;
+    var paused = false;
     try {
       final pending = List<_ImportRow>.of(_rows);
-      for (var offset = 0; offset < pending.length; offset += 3) {
-        if (!mounted || generation != _searchGeneration) return;
-        final batch = pending.skip(offset).take(3).toList(growable: false);
-        final outcomes = await Future.wait([
-          for (final row in batch)
-            if (_rows.contains(row) && !row.searched && !row.searching)
-              _matchRow(row)
-            else
-              Future<bool>.value(true),
-        ]);
-        for (var index = 0; index < batch.length; index += 1) {
-          if (!_rows.contains(batch[index])) continue;
-          consecutiveFailures = outcomes[index] ? 0 : consecutiveFailures + 1;
+      final outcomes = List<bool?>.filled(pending.length, null);
+      var nextRow = 0;
+      var nextOutcome = 0;
+
+      void recordOutcome(int index, bool succeeded) {
+        outcomes[index] = succeeded;
+        // Requests finish out of order; the pause threshold follows image order.
+        while (nextOutcome < outcomes.length && outcomes[nextOutcome] != null) {
+          consecutiveFailures = outcomes[nextOutcome]!
+              ? 0
+              : consecutiveFailures + 1;
+          nextOutcome += 1;
           if (consecutiveFailures >= 3) {
-            if (mounted && generation == _searchGeneration) {
-              setState(() => _error = '歌源暂不可用，已暂停后续查找');
-            }
-            return;
+            paused = true;
+            setState(() => _error = '歌源暂不可用，已暂停后续查找');
+            break;
           }
         }
       }
+
+      Future<void> searchNext() async {
+        while (nextRow < pending.length && !paused) {
+          if (!mounted || generation != _searchGeneration) return;
+          final index = nextRow++;
+          final row = pending[index];
+          if (!_rows.contains(row) || row.searched || row.searching) {
+            recordOutcome(index, true);
+            continue;
+          }
+          final succeeded = await _matchRow(row);
+          if (!mounted || generation != _searchGeneration) return;
+          recordOutcome(index, !_rows.contains(row) || succeeded);
+        }
+      }
+
+      await Future.wait([
+        for (
+          var i = 0;
+          i < pending.length &&
+              i < widget.controller.screenshotSearchConcurrency;
+          i += 1
+        )
+          searchNext(),
+      ]);
     } finally {
       if (mounted && generation == _searchGeneration) {
         setState(() => _searchingAll = false);

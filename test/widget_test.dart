@@ -536,6 +536,28 @@ void main() {
     expect(find.text('连接成功，共 4 首'), findsOneWidget);
   });
 
+  testWidgets('screenshot search slider saves the 1–10 range', (tester) async {
+    final settings = _FakeSettingsStore();
+    await tester.pumpWidget(_app(settings: settings));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byTooltip('设置'));
+    await tester.pumpAndSettle();
+    final slider = find.byKey(const Key('screenshotSearchConcurrencySlider'));
+    expect(slider, findsOneWidget);
+    expect(find.text('同时搜索 3 首，范围 1～10 首'), findsOneWidget);
+
+    await tester.drag(slider, const Offset(1000, 0));
+    await tester.pumpAndSettle();
+    expect(settings.settings.screenshotSearchConcurrency, 10);
+    expect(find.text('同时搜索 10 首，范围 1～10 首'), findsOneWidget);
+
+    await tester.drag(slider, const Offset(-1000, 0));
+    await tester.pumpAndSettle();
+    expect(settings.settings.screenshotSearchConcurrency, 1);
+    expect(find.text('同时搜索 1 首，范围 1～10 首'), findsOneWidget);
+  });
+
   testWidgets('download manager offers LAN scan and shows result', (
     tester,
   ) async {
@@ -1646,16 +1668,18 @@ Widget _app({
   LanLibraryGateway? lanGateway,
   LanSyncUseCase? lanSyncUseCase,
 }) {
-  final controller = playbackController ?? MusicController(
-    audioHandler: audioHandler ?? MusicAudioHandler(),
-    resolver: resolver ?? _FakeMusicResolver(),
-    cacheStore: cacheStore ?? _FakeCacheStore(),
-    playlistStore: playlistStore ?? _FakePlaylistStore(),
-    settingsStore: settings ?? _FakeSettingsStore(),
-    metadataRepository: metadataRepository ?? _FakeMetadataRepository(),
-    lanLibraryGateway: lanGateway,
-    lanSyncUseCase: lanSyncUseCase,
-  );
+  final controller =
+      playbackController ??
+      MusicController(
+        audioHandler: audioHandler ?? MusicAudioHandler(),
+        resolver: resolver ?? _FakeMusicResolver(),
+        cacheStore: cacheStore ?? _FakeCacheStore(),
+        playlistStore: playlistStore ?? _FakePlaylistStore(),
+        settingsStore: settings ?? _FakeSettingsStore(),
+        metadataRepository: metadataRepository ?? _FakeMetadataRepository(),
+        lanLibraryGateway: lanGateway,
+        lanSyncUseCase: lanSyncUseCase,
+      );
   return AnimatedBuilder(
     animation: controller,
     builder: (context, _) {
@@ -1689,11 +1713,7 @@ class _ControlledPlaybackController extends MusicController {
   final pending = <Completer<void>>[];
 
   @override
-  Future<void> playTrack(
-    Track track, {
-    int? index,
-    List<Track>? queueTracks,
-  }) {
+  Future<void> playTrack(Track track, {int? index, List<Track>? queueTracks}) {
     final completion = Completer<void>();
     pending.add(completion);
     return completion.future;

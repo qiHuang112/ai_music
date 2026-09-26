@@ -182,6 +182,7 @@ class MusicController extends ChangeNotifier {
   PlaybackMode playbackMode = PlaybackMode.sequential;
   AppLanguage language = AppLanguage.zh;
   AppThemePreference themePreference = AppThemePreference.dark;
+  int screenshotSearchConcurrency = 3;
   String lanLibraryUrl = defaultLanLibraryUrl;
   bool isTestingLanConnection = false;
   bool isLanSyncing = false;
@@ -238,6 +239,7 @@ class MusicController extends ChangeNotifier {
     language = settings.language;
     themePreference = settings.theme;
     lanLibraryUrl = settings.lanLibraryUrl;
+    screenshotSearchConcurrency = settings.screenshotSearchConcurrency;
     await _cacheStore.cleanupTemporaryFiles();
     await loadCache();
     notifyListeners();
@@ -289,6 +291,12 @@ class MusicController extends ChangeNotifier {
 
   Future<void> saveTheme(AppThemePreference nextTheme) async {
     themePreference = nextTheme;
+    notifyListeners();
+    await _saveSettings();
+  }
+
+  Future<void> saveScreenshotSearchConcurrency(int value) async {
+    screenshotSearchConcurrency = value.clamp(1, 10);
     notifyListeners();
     await _saveSettings();
   }
@@ -1000,6 +1008,7 @@ class MusicController extends ChangeNotifier {
       language: language,
       theme: themePreference,
       lanLibraryUrl: lanLibraryUrl,
+      screenshotSearchConcurrency: screenshotSearchConcurrency,
     );
   }
 

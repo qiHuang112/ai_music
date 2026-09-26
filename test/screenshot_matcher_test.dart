@@ -138,7 +138,7 @@ void main() {
     expect(resolver.fallbackCalls, 2);
   });
 
-  test('queued rows do not hit a source after its first 429', () async {
+  test('source circuit stops later rows after an overlapping 429', () async {
     final resolver = _StagedResolver(
       primary: (_) async => throw Exception('HTTP 429'),
       fallback: (_, _) async => [candidate('稻香', '周杰伦')],
@@ -150,9 +150,74 @@ void main() {
       matcher.match(draft.copyWith(title: '晴天')),
       matcher.match(draft.copyWith(title: '外婆')),
     ]);
-    expect(resolver.primaryCalls, 1);
-    expect(resolver.fallbackCalls, 3);
+    // An already-started request may overlap the failure; the circuit still
+    // blocks subsequent rows once the 429 arrives.
+    final callsAfterFailure = resolver.primaryCalls;
+    expect(callsAfterFailure, inInclusiveRange(1, 2));
+    await matcher.match(draft.copyWith(title: '后来'));
+    expect(resolver.primaryCalls, callsAfterFailure);
+    expect(resolver.fallbackCalls, 4);
   });
+
+  test('different songs can search the same source concurrently', () async {
+    final gate = Completer<void>();
+    final resolver = _StagedResolver(
+      primary: (title) async {
+        await gate.future;
+        return [candidate(title, '周杰伦')];
+      },
+      fallback: (_, _) async => fail('primary results should suffice'),
+    );
+    final matcher = ScreenshotMatcher(
+      resolver: resolver,
+      requestStartSpacing: Duration.zero,
+    );
+
+    final first = matcher.match(draft);
+    final second = matcher.match(draft.copyWith(title: '晴天'));
+    await Future<void>.delayed(Duration.zero);
+    expect(resolver.primaryCalls, 2);
+    gate.complete();
+    final results = await Future.wait([first, second]);
+    expect(results.map((result) => result.recommended?.name), ['稻香', '晴天']);
+  });
+
+  test(
+    '429 does not block joining an already-running same-title search',
+    () async {
+      final firstStarted = Completer<void>();
+      final firstGate = Completer<void>();
+      final resolver = _StagedResolver(
+        primary: (title) async {
+          if (title == '稻香') {
+            firstStarted.complete();
+            await firstGate.future;
+            return [candidate('稻香', '周杰伦')];
+          }
+          throw Exception('HTTP 429');
+        },
+        fallback: (title, _) async => [candidate(title, '备用歌手')],
+      );
+      final matcher = ScreenshotMatcher(
+        resolver: resolver,
+        requestStartSpacing: Duration.zero,
+      );
+
+      final first = matcher.match(draft);
+      await firstStarted.future;
+      await matcher.match(draft.copyWith(title: '晴天'));
+      final second = matcher.match(draft.copyWith(artist: '周杰伦'));
+      firstGate.complete();
+      final results = await Future.wait([first, second]);
+
+      expect(results.map((result) => result.recommended?.artist), [
+        '周杰伦',
+        '周杰伦',
+      ]);
+      expect(resolver.primaryCalls, 2);
+      expect(resolver.fallbackCalls, 1);
+    },
+  );
 
   test(
     'duplicate titles share one request but choose artists separately',

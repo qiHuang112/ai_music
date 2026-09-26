@@ -52,12 +52,14 @@ class ScreenshotMatcher {
     required this.resolver,
     DateTime Function()? now,
     Future<void> Function(Duration)? wait,
+    this.requestStartSpacing = const Duration(milliseconds: 350),
   }) : _now = now ?? DateTime.now,
        _wait = wait ?? Future<void>.delayed;
 
   final MusicResolver resolver;
   final DateTime Function() _now;
   final Future<void> Function(Duration) _wait;
+  final Duration requestStartSpacing;
   final Map<String, List<MusicSearchCandidate>> _searchCache = {};
   final Map<String, Future<List<MusicSearchCandidate>>> _searchInFlight = {};
   final Map<String, List<MusicSearchCandidate>> _primaryCache = {};
@@ -123,11 +125,11 @@ class ScreenshotMatcher {
   }) async {
     final cached = cache[key];
     if (cached != null) return cached;
+    final pending = inFlight[key];
+    if (pending != null) return pending;
     if (_blockedUntil[source]?.isAfter(_now()) ?? false) {
       throw StateError('$source is temporarily unavailable');
     }
-    final pending = inFlight[key];
-    if (pending != null) return pending;
     final search = _paced(source, action);
     inFlight[key] = search;
     try {
@@ -194,20 +196,23 @@ class ScreenshotMatcher {
 
   Future<T> _paced<T>(String source, Future<T> Function() action) {
     final tail = _networkTails[source] ?? Future<void>.value();
-    final run = tail.then((_) async {
+    final start = tail.then((_) async {
       if (_blockedUntil[source]?.isAfter(_now()) ?? false) {
         throw StateError('$source is temporarily unavailable');
       }
       final last = _lastNetworkStarts[source];
       if (last != null) {
-        final remaining =
-            const Duration(milliseconds: 1500) - _now().difference(last);
+        final remaining = requestStartSpacing - _now().difference(last);
         if (remaining > Duration.zero) await _wait(remaining);
       }
       if (_blockedUntil[source]?.isAfter(_now()) ?? false) {
         throw StateError('$source is temporarily unavailable');
       }
       _lastNetworkStarts[source] = _now();
+    });
+    // Pace request starts, while allowing already-started searches to overlap.
+    _networkTails[source] = start.then<void>((_) {}, onError: (_) {});
+    return start.then((_) async {
       try {
         return await action();
       } catch (error) {
@@ -217,7 +222,5 @@ class ScreenshotMatcher {
         rethrow;
       }
     });
-    _networkTails[source] = run.then<void>((_) {}, onError: (_) {});
-    return run;
   }
 }
