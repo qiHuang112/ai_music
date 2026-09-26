@@ -102,7 +102,7 @@ class DownloadQueueController {
   }
 
   void cancel(String taskId) {
-    _cancelTokens[taskId]?.cancel();
+    if (_cancelTokens[taskId]?.cancel() != true) return;
     update(
       taskId,
       (task) => task.copyWith(status: DownloadTaskStatus.canceled),
@@ -162,13 +162,18 @@ class DownloadQueueController {
 }
 
 String _candidateDownloadKey(MusicSearchCandidate candidate) {
-  // 下载任务身份要比“歌手-歌名”更细；同名不同平台/链接/版本不能互相覆盖。
+  // Ephemeral direct URLs must not split one song into concurrent tasks.
+  final id = candidate.id.trim();
   return [
-    candidate.source.name,
-    candidate.platform,
-    candidate.id,
-    candidate.link,
-    candidate.name,
-    candidate.artist,
+    candidate.source.storageValue,
+    candidate.platform.trim().toLowerCase(),
+    if (id.isNotEmpty) ...[
+      'id',
+      id,
+    ] else ...[
+      'metadata',
+      candidate.name.trim().toLowerCase(),
+      candidate.artist.trim().toLowerCase(),
+    ],
   ].join('|');
 }

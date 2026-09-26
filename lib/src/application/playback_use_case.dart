@@ -1,13 +1,19 @@
+import 'dart:async';
+import 'dart:io';
+
 import 'package:audio_service/audio_service.dart';
+import 'package:just_audio/just_audio.dart';
 
 import '../domain/music_models.dart';
 import '../playback/music_audio_handler.dart';
+import '../playback/on_demand_audio_source.dart';
 import 'music_mappers.dart';
 
 class PlaybackUseCase {
-  PlaybackUseCase({required this.audioHandler});
+  PlaybackUseCase({required this.audioHandler, this.prepareOnlineTrack});
 
   final MusicAudioHandler audioHandler;
+  final Future<File> Function(Track track)? prepareOnlineTrack;
   String? _lastRequestedTrackId;
   String? _lastQueueSignature;
 
@@ -16,6 +22,7 @@ class PlaybackUseCase {
     int? index,
     required List<Track> fallbackQueue,
     List<Track>? queueTracks,
+    bool Function()? shouldPlay,
   }) async {
     final queue = (queueTracks ?? fallbackQueue).isEmpty
         ? <Track>[track]
@@ -28,8 +35,9 @@ class PlaybackUseCase {
     // 去重必须同时看歌曲和队列；同一首在收藏/缓存/歌单里点击，下一首应按当前列表走。
     final sameQueue = _lastQueueSignature == queueSignature;
     if (sameTrack && sameQueue) {
-      if (!audioHandler.playbackState.value.playing) {
-        await audioHandler.play();
+      if (!audioHandler.playbackState.value.playing &&
+          (shouldPlay?.call() ?? true)) {
+        _startPlayback();
       }
       return false;
     }
@@ -43,15 +51,49 @@ class PlaybackUseCase {
         for (final item in queue)
           PlayableAudio(
             mediaItem: mediaItemFromTrack(item),
-            uri: _uriForTrack(item),
+            source: item.playbackSource.isEmpty
+                ? OnDemandAudioSource(
+                    tag: mediaItemFromTrack(item),
+                    prepare: () {
+                      final prepare = prepareOnlineTrack;
+                      if (prepare == null) {
+                        throw StateError(
+                          'Online track preparation is unavailable',
+                        );
+                      }
+                      return prepare(item);
+                    },
+                  )
+                : AudioSource.uri(
+                    _uriForTrack(item),
+                    tag: mediaItemFromTrack(item),
+                  ),
           ),
       ],
       initialIndex: safeIndex,
       initialPosition: initialPosition,
+      playWhenReady: shouldPlay == null,
     );
+    if (shouldPlay?.call() ?? false) {
+      _startPlayback();
+    }
     _lastRequestedTrackId = track.id;
     _lastQueueSignature = queueSignature;
     return true;
+  }
+
+  void _startPlayback() {
+    unawaited(
+      audioHandler.play().catchError((Object error, StackTrace stack) {
+        audioHandler.playbackState.add(
+          audioHandler.playbackState.value.copyWith(
+            processingState: AudioProcessingState.error,
+            playing: false,
+            errorMessage: error.toString(),
+          ),
+        );
+      }),
+    );
   }
 
   Future<void> togglePlayPause() async {

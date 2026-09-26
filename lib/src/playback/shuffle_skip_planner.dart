@@ -40,6 +40,8 @@ class ShuffleSkipPlanner {
     return _nextAfter(currentId, markEarlySkip: false);
   }
 
+  String? peekNextAfter(String currentId) => _nextAllowedAfter(currentId);
+
   String? _nextAfter(String currentId, {required bool markEarlySkip}) {
     if (_order.length <= 1 || !_order.contains(currentId)) {
       return null;

@@ -15,6 +15,7 @@ import 'list_search.dart';
 import 'player_page.dart';
 import 'playlist_actions.dart';
 import 'settings_page.dart';
+import 'screenshot_import_page.dart';
 
 class MusicHomePage extends StatefulWidget {
   const MusicHomePage({super.key, required this.controller});
@@ -90,6 +91,7 @@ class _MusicHomePageState extends State<MusicHomePage> {
                     onChanged: _handleSearchChanged,
                     onSearch: () => controller.search(_searchController.text),
                     onSubmitted: controller.search,
+                    onImportScreenshots: _openScreenshotImport,
                   ),
                   if (_shouldShowSearchPanel)
                     Expanded(
@@ -145,6 +147,17 @@ class _MusicHomePageState extends State<MusicHomePage> {
       controller.clearSearch();
     }
     setState(() {});
+  }
+
+  void _openScreenshotImport() {
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => ScreenshotImportPage(
+          controller: controller,
+          openPickerOnStart: true,
+        ),
+      ),
+    );
   }
 
   void _handleRootBack(AppStrings strings) {
@@ -267,6 +280,7 @@ class _SearchHeader extends StatelessWidget {
     required this.onChanged,
     required this.onSearch,
     required this.onSubmitted,
+    required this.onImportScreenshots,
   });
 
   final TextEditingController controller;
@@ -274,6 +288,7 @@ class _SearchHeader extends StatelessWidget {
   final ValueChanged<String> onChanged;
   final VoidCallback onSearch;
   final ValueChanged<String> onSubmitted;
+  final VoidCallback onImportScreenshots;
 
   @override
   Widget build(BuildContext context) {
@@ -294,6 +309,11 @@ class _SearchHeader extends StatelessWidget {
                 decoration: InputDecoration(
                   hintText: strings.searchHint,
                   prefixIcon: const Icon(Icons.search),
+                  suffixIcon: IconButton(
+                    tooltip: strings.importScreenshots,
+                    onPressed: onImportScreenshots,
+                    icon: const Icon(Icons.add_photo_alternate_outlined),
+                  ),
                   border: const OutlineInputBorder(),
                   isDense: true,
                 ),

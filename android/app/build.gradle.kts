@@ -7,6 +7,10 @@ plugins {
     id("dev.flutter.flutter-gradle-plugin")
 }
 
+dependencies {
+    implementation("com.google.mlkit:text-recognition-chinese:16.0.1")
+}
+
 val releaseKeystoreProperties = Properties()
 val releaseKeystoreFile = rootProject.file("key.properties")
 if (releaseKeystoreFile.exists()) {

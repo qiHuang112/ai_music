@@ -208,6 +208,22 @@ abstract class MusicResolver {
   Future<ResolvedMusic> resolve(MusicSearchCandidate candidate);
 }
 
+abstract interface class ScreenshotSearchResolver {
+  Future<List<MusicSearchCandidate>> searchScreenshot(
+    String title,
+    String artist,
+  );
+}
+
+abstract interface class StagedScreenshotSearchResolver {
+  Future<List<MusicSearchCandidate>> searchScreenshotPrimary(String title);
+
+  Future<List<MusicSearchCandidate>> searchScreenshotFallback(
+    String title,
+    String artist,
+  );
+}
+
 class MusicSearchProgress {
   const MusicSearchProgress({
     required this.candidates,

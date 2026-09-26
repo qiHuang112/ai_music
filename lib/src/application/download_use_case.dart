@@ -2,17 +2,21 @@ import '../data/music_cache.dart';
 import '../data/music_resolver.dart';
 import 'download_queue_controller.dart';
 import 'music_ui_message.dart';
+import 'screenshot_matcher.dart';
+import 'screenshot_song_parser.dart';
 
 class DownloadUseCaseResult {
   const DownloadUseCaseResult({
     this.cached,
     this.statusMessage,
     this.errorDetail,
+    this.failure,
   });
 
   final CachedTrack? cached;
   final MusicUiMessage? statusMessage;
   final String? errorDetail;
+  final Object? failure;
 }
 
 class DownloadUseCase {
@@ -28,6 +32,7 @@ class DownloadUseCase {
 
   Future<DownloadUseCaseResult> downloadCandidate(
     MusicSearchCandidate candidate, {
+    bool requireExactIdentity = false,
     required void Function(MusicUiMessage message) onStatus,
     required void Function() onChanged,
   }) async {
@@ -48,6 +53,20 @@ class DownloadUseCase {
     try {
       final resolved = await resolver.resolve(candidate);
       token.throwIfCanceled();
+      if (requireExactIdentity &&
+          !const ScreenshotMatchPolicy().resolvedStillMatches(
+            ScreenshotSongDraft(
+              imageId: '',
+              row: 0,
+              title: candidate.name,
+              artist: candidate.artist,
+              version: '',
+              rawText: '',
+            ),
+            resolved,
+          )) {
+        throw const AudioValidationException('Resolved song identity changed');
+      }
       onStatus(
         MusicUiMessage(MusicUiMessageCode.downloading, subject: resolved.name),
       );
@@ -131,7 +150,7 @@ class DownloadUseCase {
         ),
         onChanged,
       );
-      return DownloadUseCaseResult(errorDetail: errorDetail);
+      return DownloadUseCaseResult(errorDetail: errorDetail, failure: exception);
     } finally {
       queue.release(taskId);
       onChanged();

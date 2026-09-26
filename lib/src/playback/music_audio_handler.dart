@@ -10,10 +10,10 @@ import 'playback_index_tracker.dart';
 import 'shuffle_skip_planner.dart';
 
 class PlayableAudio {
-  const PlayableAudio({required this.mediaItem, required this.uri});
+  const PlayableAudio({required this.mediaItem, required this.source});
 
   final MediaItem mediaItem;
-  final Uri uri;
+  final AudioSource source;
 }
 
 class MusicAudioHandler extends BaseAudioHandler
@@ -41,7 +41,7 @@ class MusicAudioHandler extends BaseAudioHandler
     });
   }
 
-  final AudioPlayer _player = AudioPlayer();
+  final AudioPlayer _player = AudioPlayer(maxSkipsOnError: 20);
   static const MethodChannel _ohosMediaControlsChannel = MethodChannel(
     'com.qi.ai_music.ohos_media_controls',
   );
@@ -63,6 +63,28 @@ class MusicAudioHandler extends BaseAudioHandler
   Duration get currentBufferedPosition => _player.bufferedPosition;
   double get currentSpeed => _player.speed;
   int? get currentQueueIndex => _player.currentIndex;
+  int? get nextQueueIndex {
+    final current = mediaItem.value;
+    if (_shuffleModeEnabled && current != null) {
+      final next = _shuffleSkipPlanner.peekNextAfter(current.id);
+      final index = _items.indexWhere((item) => item.mediaItem.id == next);
+      return index < 0 ? null : index;
+    }
+    return _nextSequentialIndex();
+  }
+
+  int? followingQueueIndex(String mediaId) {
+    if (_shuffleModeEnabled) {
+      final nextId = _shuffleSkipPlanner.peekNextAfter(mediaId);
+      final index = _items.indexWhere((item) => item.mediaItem.id == nextId);
+      return index < 0 ? null : index;
+    }
+    final index = _items.indexWhere((item) => item.mediaItem.id == mediaId);
+    if (index < 0) return null;
+    if (index + 1 < _items.length) return index + 1;
+    return _player.loopMode == LoopMode.all && _items.length > 1 ? 0 : null;
+  }
+
   Stream<Duration> get positionStream => _player.positionStream;
 
   Future<void> configure() async {
@@ -90,11 +112,11 @@ class MusicAudioHandler extends BaseAudioHandler
     }
 
     final safeIndex = initialIndex.clamp(0, _items.length - 1);
+    if (!playWhenReady && _player.playing) {
+      await _player.pause();
+    }
     await _player.setAudioSources(
-      [
-        for (final item in _items)
-          AudioSource.uri(item.uri, tag: item.mediaItem),
-      ],
+      [for (final item in _items) item.source],
       initialIndex: safeIndex,
       initialPosition: initialPosition,
     );
@@ -115,7 +137,7 @@ class MusicAudioHandler extends BaseAudioHandler
     _items = List<PlayableAudio>.unmodifiable([
       for (var i = 0; i < _items.length; i += 1)
         i == index
-            ? PlayableAudio(mediaItem: updated, uri: _items[i].uri)
+            ? PlayableAudio(mediaItem: updated, source: _items[i].source)
             : _items[i],
     ]);
     queue.add(_items.map((item) => item.mediaItem).toList(growable: false));
@@ -141,7 +163,20 @@ class MusicAudioHandler extends BaseAudioHandler
   }
 
   @override
-  Future<void> play() => _player.play();
+  Future<void> play() {
+    unawaited(
+      _player.play().catchError((Object error, StackTrace stack) {
+        playbackState.add(
+          playbackState.value.copyWith(
+            processingState: AudioProcessingState.error,
+            playing: false,
+            errorMessage: error.toString(),
+          ),
+        );
+      }),
+    );
+    return Future<void>.value();
+  }
 
   @override
   Future<void> pause() => _player.pause();

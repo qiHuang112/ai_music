@@ -3,18 +3,28 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'json_file_store.dart';
+import 'saved_online_track.dart';
 import '../platform/app_storage.dart';
 
 const favoritePlaylistId = 'favorite';
 
 class PlaylistTrackEntry {
-  const PlaylistTrackEntry({required this.trackId, required this.addedAt});
+  const PlaylistTrackEntry({
+    required this.trackId,
+    required this.addedAt,
+    this.onlineTrack,
+  });
 
   final String trackId;
   final DateTime addedAt;
+  final SavedOnlineTrack? onlineTrack;
 
   Map<String, Object?> toJson() {
-    return {'trackId': trackId, 'addedAt': addedAt.toIso8601String()};
+    return {
+      'trackId': trackId,
+      'addedAt': addedAt.toIso8601String(),
+      if (onlineTrack != null) 'onlineTrack': onlineTrack!.toJson(),
+    };
   }
 
   static PlaylistTrackEntry? fromJson(Object? value, DateTime fallbackAddedAt) {
@@ -33,8 +43,14 @@ class PlaylistTrackEntry {
     if (id.isEmpty) {
       return null;
     }
+    final onlineTrack = SavedOnlineTrack.fromJson(json['onlineTrack']);
+    if (json.containsKey('onlineTrack') &&
+        (onlineTrack == null || onlineTrack.trackId != id)) {
+      return null;
+    }
     return PlaylistTrackEntry(
       trackId: id,
+      onlineTrack: onlineTrack,
       addedAt:
           DateTime.tryParse(json['addedAt']?.toString() ?? '') ??
           fallbackAddedAt,
@@ -260,7 +276,10 @@ class PlaylistStore {
       return unique;
     }
     return unique
-        .where((entry) => validTrackIds.contains(entry.trackId))
+        .where(
+          (entry) =>
+              validTrackIds.contains(entry.trackId) || entry.onlineTrack != null,
+        )
         .toList(growable: false);
   }
 
@@ -315,7 +334,13 @@ List<PlaylistTrackEntry> _uniqueEntries(List<PlaylistTrackEntry> entries) {
   for (final entry in entries) {
     final id = entry.trackId.trim();
     if (id.isNotEmpty && seen.add(id)) {
-      unique.add(PlaylistTrackEntry(trackId: id, addedAt: entry.addedAt));
+      unique.add(
+        PlaylistTrackEntry(
+          trackId: id,
+          addedAt: entry.addedAt,
+          onlineTrack: entry.onlineTrack,
+        ),
+      );
     }
   }
   return unique;

@@ -17,7 +17,12 @@ import 'resolver_http_client.dart';
 import 'resolver_models.dart';
 import 'resolver_utils.dart';
 
-class RemoteMusicResolver implements MusicResolver, ProgressiveMusicResolver {
+class RemoteMusicResolver
+    implements
+        MusicResolver,
+        ProgressiveMusicResolver,
+        ScreenshotSearchResolver,
+        StagedScreenshotSearchResolver {
   RemoteMusicResolver({
     MusicResolverHttp? httpClient,
     String? initialFlacCookie,
@@ -48,6 +53,40 @@ class RemoteMusicResolver implements MusicResolver, ProgressiveMusicResolver {
 
   late final BuguyyResolver _buguyy;
   late final FlacResolver _flac;
+
+  @override
+  Future<List<MusicSearchCandidate>> searchScreenshot(
+    String title,
+    String artist,
+  ) async {
+    final query = title.trim();
+    if (query.isEmpty) return const [];
+    Object? firstFailure;
+    var candidates = <MusicSearchCandidate>[];
+    try {
+      candidates = await searchScreenshotPrimary(query);
+    } catch (error) {
+      firstFailure = error;
+    }
+    if (candidates.isNotEmpty) return candidates;
+    try {
+      return [...candidates, ...await searchScreenshotFallback(query, artist)];
+    } catch (_) {
+      if (candidates.isNotEmpty) return candidates;
+      if (firstFailure != null) throw firstFailure;
+      rethrow;
+    }
+  }
+
+  @override
+  Future<List<MusicSearchCandidate>> searchScreenshotPrimary(String title) =>
+      _buguyy.searchSingleKeyword(title.trim());
+
+  @override
+  Future<List<MusicSearchCandidate>> searchScreenshotFallback(
+    String title,
+    String artist,
+  ) => _flac.searchFirstPages(title.trim(), stopAfterPage: (_) => true);
 
   @override
   Future<List<MusicSearchCandidate>> search(

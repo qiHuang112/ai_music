@@ -74,6 +74,9 @@ class BuguyyResolver {
     return candidates.take(30).toList(growable: false);
   }
 
+  Future<List<MusicSearchCandidate>> searchSingleKeyword(String query) =>
+      _searchKeyword(query, query);
+
   Future<ResolvedMusic> resolve(MusicSearchCandidate candidate) async {
     final playJson = await _json('/api/geturl', {'id': candidate.id});
     final directUrl = playJson['success'] == true

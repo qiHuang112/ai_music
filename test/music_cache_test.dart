@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
@@ -6,6 +7,200 @@ import 'package:ai_music/src/data/music_resolver.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
+  test(
+    'cache promotion boundary rejects early cancel and ignores late cancel',
+    () {
+      final early = DownloadCancelToken();
+      expect(early.cancel(), isTrue);
+      expect(early.beginCommit, throwsA(isA<DownloadCancelledException>()));
+
+      final committed = DownloadCancelToken()..beginCommit();
+      expect(committed.cancel(), isFalse);
+      expect(committed.isCanceled, isFalse);
+    },
+  );
+
+  test('HTTP downloader rejects partial GET without promoting cache', () async {
+    final root = await Directory.systemTemp.createTemp('partial_get_');
+    final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+    server.listen((request) async {
+      request.response.statusCode = HttpStatus.partialContent;
+      request.response.headers.contentType = ContentType('audio', 'mpeg');
+      request.response.headers.set(
+        HttpHeaders.contentRangeHeader,
+        'bytes 0-32767/3000000',
+      );
+      request.response.add([0x49, 0x44, 0x33, ...List<int>.filled(32765, 0)]);
+      await request.response.close();
+    });
+    final store = CachedTrackStore(
+      rootProvider: () async => root,
+      downloader: HttpAudioDownloader(),
+    );
+    try {
+      final music = _resolvedMusicWithUrl(
+        'http://127.0.0.1:${server.port}/song.mp3',
+      );
+      await expectLater(
+        store.downloadOrReuse(music),
+        throwsA(isA<HttpException>()),
+      );
+      expect(await store.listCached(), isEmpty);
+      expect(root.listSync().whereType<File>(), isEmpty);
+    } finally {
+      await server.close(force: true);
+      await root.delete(recursive: true);
+    }
+  });
+
+  test('HTTP 429 exposes Retry-After without writing a file', () async {
+    final root = await Directory.systemTemp.createTemp('retry_after_');
+    final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+    server.listen((request) async {
+      request.response.statusCode = HttpStatus.tooManyRequests;
+      request.response.headers.set(HttpHeaders.retryAfterHeader, '90');
+      await request.response.close();
+    });
+    final target = File('${root.path}/song.mp3');
+    try {
+      await expectLater(
+        HttpAudioDownloader().download(
+          Uri.parse('http://127.0.0.1:${server.port}/song.mp3'),
+          target,
+        ),
+        throwsA(
+          isA<AudioRetryAfterException>().having(
+            (error) => error.retryAfter,
+            'retryAfter',
+            const Duration(seconds: 90),
+          ),
+        ),
+      );
+      expect(await target.exists(), isFalse);
+    } finally {
+      await server.close(force: true);
+      await root.delete(recursive: true);
+    }
+  });
+
+  test('truncated full GET never promotes a formal cached track', () async {
+    final root = await Directory.systemTemp.createTemp('truncated_get_');
+    final server = await ServerSocket.bind(InternetAddress.loopbackIPv4, 0);
+    server.listen((socket) async {
+      await socket.first;
+      socket.add(
+        ascii.encode(
+          'HTTP/1.1 200 OK\r\nContent-Type: audio/mpeg\r\n'
+          'Content-Length: 32768\r\nConnection: close\r\n\r\n',
+        ),
+      );
+      socket.add([0x49, 0x44, 0x33, ...List<int>.filled(16381, 0)]);
+      await socket.flush();
+      socket.destroy();
+    });
+    final store = CachedTrackStore(
+      rootProvider: () async => root,
+      downloader: HttpAudioDownloader(),
+    );
+    try {
+      final music = _resolvedMusicWithUrl(
+        'http://127.0.0.1:${server.port}/song.mp3',
+      );
+      await expectLater(
+        store.downloadOrReuse(music),
+        throwsA(anyOf(isA<AudioTruncatedException>(), isA<HttpException>())),
+      );
+      expect(await store.listCached(), isEmpty);
+      expect(root.listSync().whereType<File>(), isEmpty);
+    } finally {
+      await server.close();
+      await root.delete(recursive: true);
+    }
+  });
+
+  test('stalled response body times out without promoting cache', () async {
+    final root = await Directory.systemTemp.createTemp('stalled_get_');
+    final server = await ServerSocket.bind(InternetAddress.loopbackIPv4, 0);
+    final release = Completer<void>();
+    server.listen((socket) async {
+      await socket.first;
+      socket.add(
+        ascii.encode(
+          'HTTP/1.1 200 OK\r\nContent-Type: audio/mpeg\r\n'
+          'Content-Length: 32768\r\nConnection: close\r\n\r\n',
+        ),
+      );
+      await socket.flush();
+      await release.future;
+      socket.destroy();
+    });
+    final store = CachedTrackStore(
+      rootProvider: () async => root,
+      downloader: HttpAudioDownloader(
+        bodyIdleTimeout: const Duration(milliseconds: 50),
+      ),
+    );
+    try {
+      await expectLater(
+        store.downloadOrReuse(
+          _resolvedMusicWithUrl('http://127.0.0.1:${server.port}/song.mp3'),
+        ),
+        throwsA(isA<TimeoutException>()),
+      );
+      expect(await store.listCached(), isEmpty);
+      expect(root.listSync().whereType<File>(), isEmpty);
+    } finally {
+      release.complete();
+      await server.close();
+      await root.delete(recursive: true);
+    }
+  });
+
+  test('cancel interrupts a stalled body before its idle deadline', () async {
+    final root = await Directory.systemTemp.createTemp('cancel_stalled_get_');
+    final server = await ServerSocket.bind(InternetAddress.loopbackIPv4, 0);
+    final sentHeaders = Completer<void>();
+    final release = Completer<void>();
+    server.listen((socket) async {
+      await socket.first;
+      socket.add(
+        ascii.encode(
+          'HTTP/1.1 200 OK\r\nContent-Type: audio/mpeg\r\n'
+          'Content-Length: 32768\r\nConnection: close\r\n\r\n',
+        ),
+      );
+      await socket.flush();
+      sentHeaders.complete();
+      await release.future;
+      socket.destroy();
+    });
+    final token = DownloadCancelToken();
+    final store = CachedTrackStore(
+      rootProvider: () async => root,
+      downloader: HttpAudioDownloader(
+        bodyIdleTimeout: const Duration(seconds: 5),
+      ),
+    );
+    try {
+      final work = store.downloadOrReuse(
+        _resolvedMusicWithUrl('http://127.0.0.1:${server.port}/song.mp3'),
+        cancelToken: token,
+      );
+      await sentHeaders.future;
+      token.cancel();
+      await expectLater(
+        work.timeout(const Duration(seconds: 1)),
+        throwsA(isA<DownloadCancelledException>()),
+      );
+      expect(await store.listCached(), isEmpty);
+      expect(root.listSync().whereType<File>(), isEmpty);
+    } finally {
+      release.complete();
+      await server.close();
+      await root.delete(recursive: true);
+    }
+  });
+
   test('downloadOrReuse keeps a long-lived cached file', () async {
     final root = await Directory.systemTemp.createTemp('ai_music_cache_test_');
     final downloader = _FakeDownloader();
@@ -187,27 +382,36 @@ void main() {
     }
   });
 
-  test(
-    'HttpAudioDownloader rejects cleartext URLs when HTTPS is required',
-    () async {
-      final root = await Directory.systemTemp.createTemp('ai_music_https_');
-      final target = File('${root.path}${Platform.pathSeparator}song.mp3');
-      final downloader = HttpAudioDownloader(requireHttps: true);
-
-      try {
-        await expectLater(
-          downloader.download(
-            Uri.parse('http://cdn.example.test/song.mp3'),
-            target,
-          ),
-          throwsA(isA<AudioValidationException>()),
+  test('HTTP audio and an HTTP redirect keep content validation', () async {
+    final root = await Directory.systemTemp.createTemp('ai_music_http_');
+    final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+    final audio = [0x49, 0x44, 0x33, ...List<int>.filled(16 * 1024, 0x42)];
+    server.listen((request) async {
+      if (request.uri.path == '/redirect') {
+        request.response.statusCode = HttpStatus.found;
+        request.response.headers.set(
+          HttpHeaders.locationHeader,
+          'http://127.0.0.1:${server.port}/audio',
         );
-        expect(await target.exists(), isFalse);
-      } finally {
-        await root.delete(recursive: true);
+      } else {
+        request.response.headers.contentType = ContentType('audio', 'mpeg');
+        request.response.add(audio);
       }
-    },
-  );
+      await request.response.close();
+    });
+    try {
+      final target = File('${root.path}${Platform.pathSeparator}song.mp3');
+      final bytes = await HttpAudioDownloader().download(
+        Uri.parse('http://127.0.0.1:${server.port}/redirect'),
+        target,
+      );
+      expect(bytes, audio.length);
+      expect(await target.readAsBytes(), audio);
+    } finally {
+      await server.close(force: true);
+      await root.delete(recursive: true);
+    }
+  });
 
   test('deleteCached removes audio lyrics and index row', () async {
     final root = await Directory.systemTemp.createTemp(
@@ -291,6 +495,20 @@ ResolvedMusic _resolvedMusic({String id = 'song-1'}) {
     artist: '周杰伦',
     album: '',
     url: 'https://cdn.example.test/$id.mp3',
+    quality: const MusicQuality(format: 'mp3'),
+  );
+}
+
+ResolvedMusic _resolvedMusicWithUrl(String url) {
+  return ResolvedMusic(
+    query: '周杰伦 稻香',
+    source: MusicDataSource.buguyy,
+    platform: 'buguyy',
+    id: 'local-server-song',
+    name: '稻香',
+    artist: '周杰伦',
+    album: '',
+    url: url,
     quality: const MusicQuality(format: 'mp3'),
   );
 }

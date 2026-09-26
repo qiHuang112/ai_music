@@ -2,9 +2,64 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:ai_music/src/data/music_playlists.dart';
+import 'package:ai_music/src/data/music_resolver.dart';
+import 'package:ai_music/src/data/saved_online_track.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
+  test('unfetched online track survives cache filtering and restart', () async {
+    final root = await Directory.systemTemp.createTemp('online_playlist_');
+    final store = PlaylistStore(rootProvider: () async => root);
+    final online = SavedOnlineTrack(
+      candidate: const MusicSearchCandidate(
+        query: '周杰伦 稻香',
+        source: MusicDataSource.buguyy,
+        platform: 'buguyy',
+        keyword: '稻香',
+        page: 1,
+        id: 'song-1',
+        name: '稻香',
+        artist: '周杰伦',
+        album: '',
+        duration: 223,
+        link: 'https://expired.example.test/audio.mp3',
+        coverUrl: '',
+        qualities: [],
+        score: 210,
+        raw: {},
+      ),
+    );
+    final now = DateTime(2026);
+    try {
+      await store.write(
+        PlaylistLibrary(
+          playlists: [
+            MusicPlaylist(
+              id: 'imported',
+              name: '截图歌单',
+              entries: [
+                PlaylistTrackEntry(
+                  trackId: online.trackId,
+                  addedAt: now,
+                  onlineTrack: online,
+                ),
+              ],
+              createdAt: now,
+              updatedAt: now,
+            ),
+          ],
+        ),
+        validTrackIds: const {},
+      );
+      final loaded = await store.load(validTrackIds: const {});
+      final entry = loaded.playlists.single.entries.single;
+      expect(entry.trackId, online.trackId);
+      expect(entry.onlineTrack?.candidate.name, '稻香');
+      expect(entry.onlineTrack?.candidate.link, isEmpty);
+    } finally {
+      await root.delete(recursive: true);
+    }
+  });
   test('playlist store preserves favorites and custom playlists', () async {
     final root = await Directory.systemTemp.createTemp('ai_music_playlists_');
     final store = PlaylistStore(rootProvider: () async => root);

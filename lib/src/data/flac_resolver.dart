@@ -89,6 +89,22 @@ class FlacResolver {
         .toList(growable: false);
   }
 
+  Future<List<MusicSearchCandidate>> searchFirstPages(
+    String query, {
+    bool Function(MusicSearchCandidate)? stopAfterPage,
+  }) async {
+    final candidates = <MusicSearchCandidate>[];
+    for (var i = 0; i < platforms.length; i += 1) {
+      if (i > 0) {
+        await Future<void>.delayed(const Duration(milliseconds: 1500));
+      }
+      final page = await _searchPage(query, platforms[i], query, 1);
+      candidates.addAll(page);
+      if (stopAfterPage != null && page.any(stopAfterPage)) break;
+    }
+    return candidates.take(20).toList(growable: false);
+  }
+
   Future<ResolvedMusic> resolve(MusicSearchCandidate candidate) async {
     final qualities = qualityOrder(candidate.qualities, prefer);
     if (qualities.isEmpty) {

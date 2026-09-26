@@ -177,6 +177,11 @@ class _SpyAudioHandler extends MusicAudioHandler {
   }
 
   @override
+  Future<void> play() async {
+    playbackState.add(playbackState.value.copyWith(playing: true));
+  }
+
+  @override
   Future<void> seek(Duration position) async {
     seekedPositions.add(position);
   }

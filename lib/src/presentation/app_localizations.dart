@@ -38,6 +38,8 @@ class AppStrings {
   String get pressBackAgainToExit =>
       isZh ? '再按一次返回桌面' : 'Press back again to exit';
   String get searchOnline => isZh ? '在线搜索' : 'Search online';
+  String get importScreenshots =>
+      isZh ? '导入歌单截图' : 'Import playlist screenshots';
   String get listSearchHint => isZh ? '搜索当前列表' : 'Search this list';
   String get noMatchingTracks => isZh ? '没有匹配的歌曲' : 'No matching songs';
   String get retrySearch => isZh ? '重新搜索' : 'Retry search';

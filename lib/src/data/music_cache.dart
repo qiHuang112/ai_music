@@ -141,6 +141,19 @@ class AudioValidationException implements Exception {
   String toString() => message;
 }
 
+class AudioTruncatedException extends AudioValidationException {
+  const AudioTruncatedException(super.message);
+}
+
+class AudioRetryAfterException implements Exception {
+  const AudioRetryAfterException(this.retryAfter);
+
+  final Duration retryAfter;
+
+  @override
+  String toString() => 'Audio source is rate limited';
+}
+
 class CachedDownloadProgress {
   const CachedDownloadProgress({required this.bytes, required this.totalBytes});
 
@@ -165,11 +178,22 @@ class DownloadCancelledException implements Exception {
 
 class DownloadCancelToken {
   bool _isCanceled = false;
+  bool _committing = false;
+  final Completer<void> _canceled = Completer<void>();
 
   bool get isCanceled => _isCanceled;
+  Future<void> get whenCanceled => _canceled.future;
 
-  void cancel() {
+  bool cancel() {
+    if (_isCanceled || _committing) return false;
     _isCanceled = true;
+    _canceled.complete();
+    return true;
+  }
+
+  void beginCommit() {
+    throwIfCanceled();
+    _committing = true;
   }
 
   void throwIfCanceled() {
@@ -189,16 +213,19 @@ abstract class AudioDownloader {
 }
 
 class HttpAudioDownloader implements AudioDownloader {
-  HttpAudioDownloader({this.client, bool? requireHttps})
-    : requireHttps =
-          requireHttps ?? const bool.fromEnvironment('dart.vm.product');
+  HttpAudioDownloader({
+    this.client,
+    this.bodyIdleTimeout = const Duration(seconds: 30),
+    this.bodyTotalTimeout = const Duration(minutes: 15),
+  });
 
   static const _userAgent =
       'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 '
       '(KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36';
 
   final HttpClient? client;
-  final bool requireHttps;
+  final Duration bodyIdleTimeout;
+  final Duration bodyTotalTimeout;
 
   @override
   Future<int> download(
@@ -207,11 +234,6 @@ class HttpAudioDownloader implements AudioDownloader {
     void Function(CachedDownloadProgress progress)? onProgress,
     DownloadCancelToken? cancelToken,
   }) async {
-    if (requireHttps && url.scheme.toLowerCase() != 'https') {
-      throw const AudioValidationException(
-        'Release builds require HTTPS audio URLs',
-      );
-    }
     final ownsClient = client == null;
     final httpClient = client ?? HttpClient();
     try {
@@ -224,17 +246,23 @@ class HttpAudioDownloader implements AudioDownloader {
       final response = await request.close().timeout(
         const Duration(seconds: 30),
       );
-      if (requireHttps &&
-          response.redirects.any(
-            (redirect) =>
-                redirect.location.hasScheme &&
-                redirect.location.scheme.toLowerCase() != 'https',
-          )) {
-        throw const AudioValidationException(
-          'Release builds reject redirects to non-HTTPS audio URLs',
-        );
+      if (response.statusCode == HttpStatus.tooManyRequests) {
+        final header = response.headers.value(HttpHeaders.retryAfterHeader);
+        Duration retryAfter = Duration.zero;
+        final seconds = int.tryParse(header ?? '');
+        if (seconds != null && seconds > 0) {
+          retryAfter = Duration(seconds: seconds);
+        } else if (header != null) {
+          try {
+            final until = HttpDate.parse(
+              header,
+            ).difference(DateTime.now().toUtc());
+            if (until > Duration.zero) retryAfter = until;
+          } catch (_) {}
+        }
+        throw AudioRetryAfterException(retryAfter);
       }
-      if (response.statusCode < 200 || response.statusCode >= 300) {
+      if (response.statusCode != HttpStatus.ok) {
         throw HttpException('download HTTP ${response.statusCode}', uri: url);
       }
       final mimeType = response.headers.contentType?.mimeType.toLowerCase();
@@ -253,22 +281,76 @@ class HttpAudioDownloader implements AudioDownloader {
       final sink = target.openWrite();
       var bytes = 0;
       var lastProgressAt = DateTime.fromMillisecondsSinceEpoch(0);
+      final bodyDone = Completer<void>();
+      StreamSubscription<List<int>>? subscription;
+      Timer? idleTimer;
+      Timer? totalTimer;
+      void fail(Object error, StackTrace stackTrace) {
+        if (bodyDone.isCompleted) return;
+        bodyDone.completeError(error, stackTrace);
+        final active = subscription;
+        if (active != null) unawaited(active.cancel());
+      }
+
+      void restartIdleTimer() {
+        idleTimer?.cancel();
+        idleTimer = Timer(
+          bodyIdleTimeout,
+          () => fail(
+            TimeoutException('Audio body stopped sending bytes'),
+            StackTrace.current,
+          ),
+        );
+      }
+
       try {
-        await for (final chunk in response) {
-          cancelToken?.throwIfCanceled();
-          bytes += chunk.length;
-          sink.add(chunk);
-          final now = DateTime.now();
-          if (now.difference(lastProgressAt).inMilliseconds >= 500 ||
-              (totalBytes != null && bytes >= totalBytes)) {
-            lastProgressAt = now;
-            onProgress?.call(
-              CachedDownloadProgress(bytes: bytes, totalBytes: totalBytes),
-            );
-          }
-        }
+        subscription = response.listen(
+          (chunk) {
+            try {
+              cancelToken?.throwIfCanceled();
+              bytes += chunk.length;
+              sink.add(chunk);
+              restartIdleTimer();
+              final now = DateTime.now();
+              if (now.difference(lastProgressAt).inMilliseconds >= 500 ||
+                  (totalBytes != null && bytes >= totalBytes)) {
+                lastProgressAt = now;
+                onProgress?.call(
+                  CachedDownloadProgress(bytes: bytes, totalBytes: totalBytes),
+                );
+              }
+            } catch (error, stackTrace) {
+              fail(error, stackTrace);
+            }
+          },
+          onError: fail,
+          onDone: () {
+            if (!bodyDone.isCompleted) bodyDone.complete();
+          },
+          cancelOnError: true,
+        );
+        restartIdleTimer();
+        totalTimer = Timer(
+          bodyTotalTimeout,
+          () => fail(
+            TimeoutException('Audio body exceeded the download time limit'),
+            StackTrace.current,
+          ),
+        );
+        cancelToken?.whenCanceled.then((_) {
+          fail(const DownloadCancelledException(), StackTrace.current);
+        });
+        await bodyDone.future;
       } finally {
+        idleTimer?.cancel();
+        totalTimer?.cancel();
+        await subscription?.cancel();
         await sink.close();
+      }
+      if (totalBytes != null && bytes != totalBytes) {
+        throw AudioTruncatedException(
+          'download ended at $bytes bytes, expected $totalBytes',
+        );
       }
       return bytes;
     } finally {
@@ -300,25 +382,31 @@ class CachedTrackStore {
       throw UnsupportedError('Cloud-drive links cannot be cached as audio.');
     }
     final root = await _rootProvider();
+    cancelToken?.throwIfCanceled();
     if (!await root.exists()) {
       await root.create(recursive: true);
     }
+    cancelToken?.throwIfCanceled();
     // cacheId 绑定来源、平台、id 和质量，避免同名歌曲/不同版本互相复用。
     final cacheId = cacheIdForResolved(result);
     final target = File(_targetPath(root, result));
     final existing = await _lookup(cacheId);
+    cancelToken?.throwIfCanceled();
     if (existing != null && await File(existing.filePath).exists()) {
       final file = File(existing.filePath);
       try {
         await _validateAudioFile(file, result);
+        cancelToken?.throwIfCanceled();
       } on AudioValidationException {
         await _deleteIfExists(file);
       }
     }
+    cancelToken?.throwIfCanceled();
     if (existing != null && await File(existing.filePath).exists()) {
       final file = File(existing.filePath);
       final stat = await file.stat();
       final lyricsPath = await _writeLyricsIfNeeded(result, file);
+      cancelToken?.beginCommit();
       final cached = CachedTrack(
         cacheId: existing.cacheId,
         music: result,
@@ -335,14 +423,17 @@ class CachedTrackStore {
     if (await target.exists()) {
       try {
         await _validateAudioFile(target, result);
+        cancelToken?.throwIfCanceled();
       } on AudioValidationException {
         await _deleteIfExists(target);
       }
     }
 
+    cancelToken?.throwIfCanceled();
     if (await target.exists()) {
       final stat = await target.stat();
       final lyricsPath = await _writeLyricsIfNeeded(result, target);
+      cancelToken?.beginCommit();
       final cached = CachedTrack(
         cacheId: cacheId,
         music: result,
@@ -359,6 +450,7 @@ class CachedTrackStore {
     final temp = File(
       '${target.path}.download-${DateTime.now().microsecondsSinceEpoch}.tmp',
     );
+    var createdTarget = false;
     try {
       // 先写临时文件并完成音频校验，通过后才 rename 和写索引，避免半文件进入缓存。
       final bytes = await _downloader.download(
@@ -369,11 +461,14 @@ class CachedTrackStore {
       );
       cancelToken?.throwIfCanceled();
       await _validateAudioFile(temp, result);
+      cancelToken?.throwIfCanceled();
       if (await target.exists()) {
         await temp.delete();
         await _validateAudioFile(target, result);
+        cancelToken?.throwIfCanceled();
         final stat = await target.stat();
         final lyricsPath = await _writeLyricsIfNeeded(result, target);
+        cancelToken?.beginCommit();
         final cached = CachedTrack(
           cacheId: cacheId,
           music: result,
@@ -386,7 +481,9 @@ class CachedTrackStore {
         await _upsert(cached);
         return cached;
       }
+      cancelToken?.beginCommit();
       await temp.rename(target.path);
+      createdTarget = true;
       await _validateAudioFile(target, result);
       final lyricsPath = await _writeLyricsIfNeeded(result, target);
       final cached = CachedTrack(
@@ -404,6 +501,7 @@ class CachedTrackStore {
       if (await temp.exists()) {
         await temp.delete();
       }
+      if (createdTarget) await _deleteIfExists(target);
       rethrow;
     }
   }

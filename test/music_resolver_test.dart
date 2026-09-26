@@ -11,6 +11,69 @@ void main() {
   });
 
   test(
+    'screenshot search returns first nonempty source batch without filling ten choices',
+    () async {
+      final requests = <Uri>[];
+      final resolver = RemoteMusicResolver(
+        httpClient: _FakeResolverHttp(
+          onGet: (uri, _) async {
+            requests.add(uri);
+            return _json(uri, {
+              'data': [
+                {'id': 'song-0', 'title': '稻香', 'singer': '周杰伦'},
+              ],
+            });
+          },
+        ),
+      );
+
+      final found = await resolver.searchScreenshot('稻香', '周杰伦');
+
+      expect(found, hasLength(1));
+      expect(requests, hasLength(1));
+      expect(requests.single.path, '/api/search');
+      expect(requests.single.queryParameters['keyword'], '稻香');
+    },
+  );
+
+  test(
+    'screenshot fallback stops after its first nonempty provider page',
+    () async {
+      final platforms = <String>[];
+      final resolver = RemoteMusicResolver(
+        httpClient: _FakeResolverHttp(
+          onGet: (uri, _) async => _json(uri, {'data': const []}),
+          onPostForm: (uri, form, _) async {
+            platforms.add(form['platform']!);
+            return _json(uri, {
+              'data': {
+                'list': [
+                  {
+                    'id': 'flac-1',
+                    'name': '稻香',
+                    'artist': '别的歌手',
+                    'duration': 220,
+                    'minfo': [
+                      {'format': 'mp3', 'bitrate': '320', 'size': '9M'},
+                    ],
+                  },
+                ],
+              },
+            });
+          },
+        ),
+        initialFlacCookie: 'sl-session=test',
+      );
+
+      final found = await resolver.searchScreenshot('稻香', '周杰伦');
+
+      expect(found, hasLength(1));
+      expect(found.single.artist, '别的歌手');
+      expect(platforms, ['kuwo']);
+    },
+  );
+
+  test(
     'buguyy search normalizes candidates and resolves direct URLs',
     () async {
       final http = _FakeResolverHttp(
