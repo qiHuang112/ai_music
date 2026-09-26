@@ -59,6 +59,158 @@ void main() {
     }
   });
 
+  test('lyrics prefetch is shared and reused after audio is cached', () async {
+    final root = await Directory.systemTemp.createTemp(
+      'ai_music_prefetch_lrc_',
+    );
+    final cache = MetadataCacheStore(rootProvider: () async => root);
+    final lyrics = _CountingLyricsProvider(
+      metadata: const TrackMetadata(
+        lyrics: [LyricLine(time: Duration(seconds: 2), text: '提前取得')],
+      ),
+    );
+    final artwork = _CountingArtworkProvider();
+    final repository = TrackMetadataRepository(
+      cacheStore: cache,
+      providers: [artwork, lyrics],
+    );
+    final online = _cachedTrack(filePath: '').copyWith(cacheId: 'online');
+    final cached = _cachedTrack(
+      filePath: '${root.path}${Platform.pathSeparator}song.mp3',
+    );
+
+    try {
+      final prefetched = await Future.wait([
+        repository.prefetchLyrics(online),
+        repository.prefetchLyrics(online),
+      ]);
+      expect(prefetched.every((item) => item.hasLyrics), isTrue);
+      expect(lyrics.calls, 1);
+      expect(artwork.calls, 0);
+      expect(await File(cached.filePath).exists(), isFalse);
+
+      final loaded = await repository.load(cached);
+      expect(loaded.lyrics.single.text, '提前取得');
+      expect(lyrics.calls, 1);
+      expect(
+        await File(lyricsPathForAudioPath(cached.filePath)).exists(),
+        isTrue,
+      );
+    } finally {
+      await root.delete(recursive: true);
+    }
+  });
+
+  test(
+    'plain cached lyrics upgrade to timed lyrics and matching sidecar',
+    () async {
+      final root = await Directory.systemTemp.createTemp('ai_music_timed_');
+      final cache = MetadataCacheStore(rootProvider: () async => root);
+      final track = _cachedTrack(
+        filePath: '${root.path}${Platform.pathSeparator}song.mp3',
+      );
+      final sidecar = File(lyricsPathForAudioPath(track.filePath));
+      final provider = _TimedKuwoLyricsProvider();
+      final repository = TrackMetadataRepository(
+        cacheStore: cache,
+        providers: [provider],
+      );
+      try {
+        await cache.write(
+          track.cacheId,
+          TrackMetadata(
+            artworkUri: Uri.parse('https://example.test/cover.jpg'),
+            lyrics: const [
+              LyricLine(time: Duration.zero, text: '第一句'),
+              LyricLine(time: Duration.zero, text: '第二句'),
+            ],
+          ),
+        );
+        await sidecar.writeAsString('作词 : 某人\n第一句\n第二句\n');
+
+        final results = await Future.wait([
+          repository.upgradeTimedLyrics(track),
+          repository.upgradeTimedLyrics(track),
+        ]);
+
+        expect(provider.calls, 1);
+        expect(results.first.lyrics.last.time, const Duration(seconds: 6));
+        expect(
+          (await cache.read(track.cacheId))?.lyrics.last.time,
+          const Duration(seconds: 6),
+        );
+        expect(await sidecar.readAsString(), contains('[00:06.00]第二句'));
+        await repository.upgradeTimedLyrics(track);
+        expect(provider.calls, 1);
+      } finally {
+        await root.delete(recursive: true);
+      }
+    },
+  );
+
+  test('local LRC takes priority over lyrics prefetched earlier', () async {
+    final root = await Directory.systemTemp.createTemp('ai_music_local_lrc_');
+    final cache = MetadataCacheStore(rootProvider: () async => root);
+    final provider = _CountingLyricsProvider(
+      metadata: const TrackMetadata(
+        lyrics: [LyricLine(time: Duration(seconds: 2), text: '预取歌词')],
+      ),
+    );
+    final repository = TrackMetadataRepository(
+      cacheStore: cache,
+      providers: [const CachedLyricsFileProvider(), provider],
+    );
+    final track = _cachedTrack(
+      filePath: '${root.path}${Platform.pathSeparator}song.mp3',
+    );
+    final sidecar = File(lyricsPathForAudioPath(track.filePath));
+    try {
+      await repository.prefetchLyrics(track.copyWith(filePath: ''));
+      await sidecar.writeAsString('[00:05.00]本地歌词\n');
+
+      final loaded = await repository.load(track);
+
+      expect(loaded.lyrics.single.text, '本地歌词');
+      expect(loaded.lyrics.single.time, const Duration(seconds: 5));
+      expect(await sidecar.readAsString(), '[00:05.00]本地歌词\n');
+      expect(provider.calls, 1);
+    } finally {
+      await root.delete(recursive: true);
+    }
+  });
+
+  test('timed upgrade preserves a different existing lyrics sidecar', () async {
+    final root = await Directory.systemTemp.createTemp('ai_music_custom_lrc_');
+    final cache = MetadataCacheStore(rootProvider: () async => root);
+    final track = _cachedTrack(
+      filePath: '${root.path}${Platform.pathSeparator}song.mp3',
+    );
+    final sidecar = File(lyricsPathForAudioPath(track.filePath));
+    final repository = TrackMetadataRepository(
+      cacheStore: cache,
+      providers: [_TimedKuwoLyricsProvider()],
+    );
+    try {
+      await cache.write(
+        track.cacheId,
+        const TrackMetadata(
+          lyrics: [
+            LyricLine(time: Duration.zero, text: '第一句'),
+            LyricLine(time: Duration.zero, text: '第二句'),
+          ],
+        ),
+      );
+      await sidecar.writeAsString('自定义第一句\n自定义第二句\n');
+
+      final upgraded = await repository.upgradeTimedLyrics(track);
+
+      expect(upgraded.lyrics.last.time, const Duration(seconds: 6));
+      expect(await sidecar.readAsString(), '自定义第一句\n自定义第二句\n');
+    } finally {
+      await root.delete(recursive: true);
+    }
+  });
+
   test('resolved lyrics provider reads lyrics from cached result', () async {
     final provider = const ResolvedLyricsProvider();
     final metadata = await provider.find(
@@ -566,6 +718,20 @@ plain text
     expect(lines.last.time, const Duration(seconds: 12));
   });
 
+  test('LRC parser keeps a timed song with a frequently repeated chorus', () {
+    final lrc = [
+      for (var i = 0; i < 93; i += 1)
+        '[${(i * 2 ~/ 60).toString().padLeft(2, '0')}:${(i * 2 % 60).toString().padLeft(2, '0')}.00]'
+            'Verse or chorus phrase ${i % 16}',
+    ].join('\n');
+
+    final lines = parseLrcLines(lrc);
+
+    expect(lines, hasLength(93));
+    expect(lines.first.text, 'Verse or chorus phrase 0');
+    expect(lines.last.time, const Duration(seconds: 184));
+  });
+
   test('LRC parser rejects repeated html metadata garbage', () {
     final lines = parseLrcLines('''
 [00:01.00]坏孩子<br />作词：Vae 作曲：Vae<br /> 演唱：许嵩
@@ -722,6 +888,27 @@ class _CountingArtworkProvider extends _CountingMetadataProvider
 class _CountingLyricsProvider extends _CountingMetadataProvider
     implements LyricsMetadataProvider {
   _CountingLyricsProvider({super.metadata});
+}
+
+class _TimedKuwoLyricsProvider extends BuguyyKuwoLyricsProvider {
+  _TimedKuwoLyricsProvider()
+    : super(
+        challengeClient: ChallengeClient(httpClient: HttpMusicResolverClient()),
+      );
+
+  int calls = 0;
+
+  @override
+  Future<TrackMetadata> find(CachedTrack track) async {
+    calls += 1;
+    return const TrackMetadata(
+      lyrics: [
+        LyricLine(time: Duration(seconds: 3), text: '第一句'),
+        LyricLine(time: Duration(seconds: 6), text: '第二句'),
+      ],
+      source: 'flac:getLyric:matched-kuwo-audio',
+    );
+  }
 }
 
 class _FakeResolverHttp implements MusicResolverHttp {

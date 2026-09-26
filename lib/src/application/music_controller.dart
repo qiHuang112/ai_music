@@ -153,7 +153,10 @@ class MusicController extends ChangeNotifier {
       _handleMediaItemChanged,
     );
     _playbackSubscription = audioHandler.playbackState.listen((state) {
-      if (state.playing) _maybePrefetchNext();
+      if (state.playing) {
+        _maybePrefetchNext();
+        _maybePrefetchUpcomingLyrics();
+      }
     });
   }
 
@@ -195,6 +198,8 @@ class MusicController extends ChangeNotifier {
   Future<void> _playLoadTail = Future<void>.value();
   String? _prefetchForCurrentId;
   final Set<String> _prefetchRejectedForCurrent = {};
+  String? _lyricsPrefetchQueueKey;
+  int _lyricsPrefetchRequest = 0;
   @visibleForTesting
   String? get pendingPrefetchTrackId => _nextPrefetch.trackId;
   List<CachedTrack> _cachedRecords = const [];
@@ -204,6 +209,7 @@ class MusicController extends ChangeNotifier {
   int _searchRequest = 0;
   String? _metadataTrackId;
   final Set<String> _autoMetadataRecoveryAttempted = {};
+  final Set<String> _timedLyricsUpgradeAttempted = {};
   bool _legacyRepairRunning = false;
   bool _isDisposed = false;
 
@@ -866,6 +872,8 @@ class MusicController extends ChangeNotifier {
         _nextPrefetch.cancel();
         _prefetchForCurrentId = null;
         _prefetchRejectedForCurrent.clear();
+        _lyricsPrefetchQueueKey = null;
+        _lyricsPrefetchRequest += 1;
       }
       _activeQueueTracks = queue;
       final loaded = await playbackUseCase.playTrack(
@@ -899,6 +907,8 @@ class MusicController extends ChangeNotifier {
     _activeQueueTracks = const [];
     _prefetchForCurrentId = null;
     _prefetchRejectedForCurrent.clear();
+    _lyricsPrefetchQueueKey = null;
+    _lyricsPrefetchRequest += 1;
     await _playLoadTail;
     await playbackUseCase.stop();
   }
@@ -976,6 +986,79 @@ class MusicController extends ChangeNotifier {
     _nextPrefetch.activate(next.id);
   }
 
+  void _maybePrefetchUpcomingLyrics() {
+    if (playbackMode == PlaybackMode.repeatOne) return;
+    final currentId = audioHandler.mediaItem.value?.id;
+    if (currentId == null) return;
+    final upcoming = <Track>[];
+    final seen = {currentId};
+    var cursor = currentId;
+    for (var i = 0; i < 3; i += 1) {
+      final index = audioHandler.followingQueueIndex(cursor);
+      if (index == null || index < 0 || index >= _activeQueueTracks.length) {
+        break;
+      }
+      final track = _activeQueueTracks[index];
+      if (!seen.add(track.id)) break;
+      upcoming.add(track);
+      cursor = track.id;
+    }
+    if (upcoming.isEmpty) return;
+    final key = '$currentId|${upcoming.map((track) => track.id).join('|')}';
+    if (_lyricsPrefetchQueueKey == key) return;
+    _lyricsPrefetchQueueKey = key;
+    final request = ++_lyricsPrefetchRequest;
+    unawaited(_prefetchUpcomingLyrics(upcoming, request));
+  }
+
+  Future<void> _prefetchUpcomingLyrics(
+    List<Track> upcoming,
+    int request,
+  ) async {
+    await Future.wait([
+      for (var i = 0; i < upcoming.length; i += 1)
+        () async {
+          if (i > 0) {
+            await Future<void>.delayed(Duration(milliseconds: i * 350));
+          }
+          if (_isDisposed || request != _lyricsPrefetchRequest) return;
+          final track = upcoming[i];
+          final cached = _cachedRecordForTrack(track);
+          final record = cached ?? _lyricsPrefetchRecordForOnline(track);
+          if (record == null) return;
+          try {
+            await metadataUseCase.prefetchLyrics(record);
+          } catch (_) {
+            // Lyrics prefetch is best effort and never interrupts playback.
+          }
+        }(),
+    ]);
+  }
+
+  CachedTrack? _lyricsPrefetchRecordForOnline(Track track) {
+    final candidate = _onlineTrackForId(track.id)?.candidate;
+    if (candidate == null) return null;
+    return CachedTrack(
+      cacheId: 'online-lyrics-${track.id}',
+      filePath: '',
+      sizeBytes: 0,
+      fromCache: false,
+      music: ResolvedMusic(
+        query: candidate.query,
+        source: candidate.source,
+        platform: candidate.platform,
+        id: candidate.id,
+        name: candidate.name,
+        artist: candidate.artist,
+        album: candidate.album,
+        url: '',
+        quality:
+            candidate.qualities.firstOrNull ?? const MusicQuality(format: ''),
+        coverUrl: candidate.coverUrl,
+      ),
+    );
+  }
+
   String? _nextAfterDefinitivePrefetchFailure(String failedId) {
     _prefetchRejectedForCurrent.add(failedId);
     var cursor = failedId;
@@ -1050,8 +1133,11 @@ class MusicController extends ChangeNotifier {
       _nextPrefetch.cancel();
       _prefetchForCurrentId = null;
       _prefetchRejectedForCurrent.clear();
+      _lyricsPrefetchQueueKey = null;
+      _lyricsPrefetchRequest += 1;
       if (audioHandler.playbackState.value.playing) {
         _maybePrefetchNext();
+        _maybePrefetchUpcomingLyrics();
       }
     }
     await _syncOhosControlState();
@@ -1358,8 +1444,11 @@ class MusicController extends ChangeNotifier {
   void _handleMediaItemChanged(MediaItem? item) {
     if (item != null && audioHandler.playbackState.value.playing) {
       _maybePrefetchNext();
+      _maybePrefetchUpcomingLyrics();
     }
     if (item == null) {
+      _lyricsPrefetchQueueKey = null;
+      _lyricsPrefetchRequest += 1;
       _metadataRequest += 1;
       _metadataTrackId = null;
       currentMetadata = const TrackMetadata();
@@ -1415,6 +1504,12 @@ class MusicController extends ChangeNotifier {
         return;
       }
       currentMetadata = metadata;
+      if (cached.music.source == MusicDataSource.buguyy &&
+          metadata.hasLyrics &&
+          !metadata.lyrics.any((line) => line.time > Duration.zero) &&
+          _timedLyricsUpgradeAttempted.add(track.id)) {
+        unawaited(_upgradeTimedLyricsForTrack(track, cached));
+      }
       final active = audioHandler.mediaItem.value;
       if (active?.id == track.id &&
           metadata.artworkUri != null &&
@@ -1433,6 +1528,28 @@ class MusicController extends ChangeNotifier {
         isLoadingMetadata = false;
         notifyListeners();
       }
+    }
+  }
+
+  Future<void> _upgradeTimedLyricsForTrack(
+    Track track,
+    CachedTrack cached,
+  ) async {
+    var hasTimedLyrics = false;
+    try {
+      final upgraded = await metadataUseCase.upgradeTimedLyrics(cached);
+      hasTimedLyrics = upgraded.lyrics.any((line) => line.time > Duration.zero);
+      if (!_isDisposed &&
+          _metadataTrackId == track.id &&
+          audioHandler.mediaItem.value?.id == track.id &&
+          hasTimedLyrics) {
+        currentMetadata = upgraded;
+        notifyListeners();
+      }
+    } catch (_) {
+      // Keep the existing plain lyrics when synchronized lyrics are unavailable.
+    } finally {
+      if (!hasTimedLyrics) _timedLyricsUpgradeAttempted.remove(track.id);
     }
   }
 

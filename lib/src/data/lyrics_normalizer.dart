@@ -213,7 +213,11 @@ bool _isUsableLyricLines(List<LyricLine> lines) {
   if (lines.length >= 4 && uniqueCount <= 2) {
     return false;
   }
-  if (lines.length >= 8 && uniqueCount / lines.length < 0.35) {
+  // Repeated choruses can make a real timed song mostly duplicate lines.
+  // Reject near-constant output, but keep songs with several distinct lines.
+  if (lines.length >= 8 &&
+      uniqueCount < 4 &&
+      uniqueCount / lines.length < 0.35) {
     return false;
   }
   final averageLength =

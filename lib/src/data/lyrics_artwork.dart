@@ -3,6 +3,8 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:crypto/crypto.dart';
+
 import 'challenge_client.dart';
 import 'buguyy_resolver.dart';
 import 'flac_resolver.dart';
@@ -104,6 +106,8 @@ class TrackMetadataRepository {
   final List<TrackMetadataProvider> _providers;
   final DateTime Function() _now;
   final Map<String, DateTime> _lyricsMissUntil = {};
+  final Map<String, Future<TrackMetadata>> _pendingLyricsPrefetch = {};
+  final Map<String, Future<TrackMetadata>> _pendingTimedUpgrade = {};
 
   static const Duration lyricsMissTtl = Duration(minutes: 30);
 
@@ -115,13 +119,106 @@ class TrackMetadataRepository {
     return _load(track, bypassLyricsMiss: true);
   }
 
+  Future<TrackMetadata> prefetchLyrics(CachedTrack track) {
+    final key = _lyricsPrefetchCacheId(track.music);
+    final pending = _pendingLyricsPrefetch[key];
+    if (pending != null) return pending;
+    final work = _load(
+      track.copyWith(cacheId: key),
+      bypassLyricsMiss: false,
+      lyricsOnly: true,
+    );
+    _pendingLyricsPrefetch[key] = work;
+    return work.whenComplete(() => _pendingLyricsPrefetch.remove(key));
+  }
+
+  Future<TrackMetadata> upgradeTimedLyrics(CachedTrack track) {
+    final pending = _pendingTimedUpgrade[track.cacheId];
+    if (pending != null) return pending;
+    final work = _upgradeTimedLyrics(track);
+    _pendingTimedUpgrade[track.cacheId] = work;
+    return work.whenComplete(() => _pendingTimedUpgrade.remove(track.cacheId));
+  }
+
+  Future<TrackMetadata> _upgradeTimedLyrics(CachedTrack track) async {
+    final current = await _cacheStore.read(track.cacheId);
+    if (current == null ||
+        !current.hasLyrics ||
+        _hasTimedLyrics(current.lyrics)) {
+      return current ?? const TrackMetadata();
+    }
+    final local = await _localLyricsFor(track);
+    if (local.hasLyrics && !_sameLyricLines(local.lyrics, current.lyrics)) {
+      final preferred = TrackMetadata(
+        artworkUri: current.artworkUri,
+        lyrics: local.lyrics,
+        source: local.source,
+      );
+      await _cacheStore.write(track.cacheId, preferred);
+      return preferred;
+    }
+    final provider = _providers
+        .whereType<BuguyyKuwoLyricsProvider>()
+        .firstOrNull;
+    if (provider == null) return current;
+    final found = await provider.find(track);
+    if (!_hasTimedLyrics(found.lyrics)) return current;
+    final upgraded = TrackMetadata(
+      artworkUri: current.artworkUri ?? found.artworkUri,
+      lyrics: found.lyrics,
+      source: found.source,
+    );
+    await _cacheStore.write(track.cacheId, upgraded);
+    await _writeLyricsSidecar(
+      track,
+      upgraded.lyrics,
+      replacePlainLyrics: current.lyrics,
+    );
+    return upgraded;
+  }
+
+  bool _hasTimedLyrics(List<LyricLine> lyrics) =>
+      lyrics.any((line) => line.time > Duration.zero);
+
+  Future<TrackMetadata> _localLyricsFor(CachedTrack track) {
+    final provider = _providers
+        .whereType<CachedLyricsFileProvider>()
+        .firstOrNull;
+    return provider?.find(track) ?? Future.value(const TrackMetadata());
+  }
+
+  bool _sameLyricLines(List<LyricLine> a, List<LyricLine> b) =>
+      a.length == b.length &&
+      a.asMap().entries.every(
+        (entry) =>
+            entry.value.time == b[entry.key].time &&
+            entry.value.text == b[entry.key].text,
+      );
+
   Future<TrackMetadata> _load(
     CachedTrack track, {
     required bool bypassLyricsMiss,
+    bool lyricsOnly = false,
   }) async {
     var metadata =
         await _cacheStore.read(track.cacheId) ?? const TrackMetadata();
-    if (_isComplete(metadata)) {
+    final prefetchKey = _lyricsPrefetchCacheId(track.music);
+    if (!lyricsOnly && !metadata.hasLyrics && track.cacheId != prefetchKey) {
+      final local = await _localLyricsFor(track);
+      if (local.hasLyrics) {
+        metadata = _merge(metadata, local);
+      } else {
+        final prefetched =
+            await (_pendingLyricsPrefetch[prefetchKey] ??
+                _cacheStore.read(prefetchKey));
+        if (prefetched?.hasLyrics == true) {
+          metadata = _merge(metadata, prefetched!);
+          await _writeLyricsSidecar(track, prefetched.lyrics);
+        }
+      }
+    }
+    bool complete() => lyricsOnly ? metadata.hasLyrics : _isComplete(metadata);
+    if (complete()) {
       await _writeLyricsSidecar(
         track,
         metadata.lyrics,
@@ -133,6 +230,7 @@ class TrackMetadataRepository {
     final lyricsMissActive =
         !bypassLyricsMiss && _hasFreshLyricsMiss(track.cacheId);
     for (final provider in _providers) {
+      if (lyricsOnly && provider is! LyricsMetadataProvider) continue;
       if (_shouldSkipProvider(
         provider,
         metadata,
@@ -145,7 +243,7 @@ class TrackMetadataRepository {
         await _writeLyricsSidecar(track, next.lyrics);
       }
       metadata = _merge(metadata, next);
-      if (_isComplete(metadata)) {
+      if (complete()) {
         break;
       }
     }
@@ -156,6 +254,17 @@ class TrackMetadataRepository {
     }
     await _cacheStore.write(track.cacheId, metadata);
     return metadata;
+  }
+
+  String _lyricsPrefetchCacheId(ResolvedMusic music) {
+    final identity = [
+      music.source.storageValue,
+      music.platform.trim().toLowerCase(),
+      music.id.trim(),
+      music.name.trim().toLowerCase(),
+      music.artist.trim().toLowerCase(),
+    ].join('|');
+    return 'lyrics-${sha1.convert(utf8.encode(identity))}';
   }
 
   Future<void> delete(String cacheId) {
@@ -217,6 +326,7 @@ class TrackMetadataRepository {
     CachedTrack track,
     List<LyricLine> lyrics, {
     bool repairExistingOnly = false,
+    List<LyricLine>? replacePlainLyrics,
   }) async {
     if (lyrics.isEmpty) {
       return;
@@ -234,7 +344,11 @@ class TrackMetadataRepository {
       if (repairExistingOnly && !exists) {
         return;
       }
-      if (exists && !isStandaloneWebUrl(await file.readAsString())) {
+      if (exists &&
+          !_canReplaceLyricsSidecar(
+            await file.readAsString(),
+            replacePlainLyrics,
+          )) {
         return;
       }
       temp = File('${file.path}.tmp-${DateTime.now().microsecondsSinceEpoch}');
@@ -244,7 +358,10 @@ class TrackMetadataRepository {
       ].join('\n');
       await temp.writeAsString(content);
       if (await file.exists() &&
-          !isStandaloneWebUrl(await file.readAsString())) {
+          !_canReplaceLyricsSidecar(
+            await file.readAsString(),
+            replacePlainLyrics,
+          )) {
         await temp.delete();
       } else {
         await temp.rename(file.path);
@@ -259,6 +376,18 @@ class TrackMetadataRepository {
         // Keep the original sidecar untouched if cleanup also fails.
       }
     }
+  }
+
+  bool _canReplaceLyricsSidecar(
+    String content,
+    List<LyricLine>? replacePlainLyrics,
+  ) {
+    if (isStandaloneWebUrl(content)) return true;
+    if (replacePlainLyrics == null) return false;
+    final existing = parseLrcLines(content);
+    return existing.every((line) => line.time == Duration.zero) &&
+        replacePlainLyrics.every((line) => line.time == Duration.zero) &&
+        _sameLyricLines(existing, replacePlainLyrics);
   }
 }
 
@@ -320,22 +449,24 @@ class FlacLyricsProvider
 
   Future<TrackMetadata> _find(CachedTrack track) async {
     final music = track.music;
-    final candidates = await FlacResolver(
+    final resolver = FlacResolver(
       challengeClient: _challenge,
       platforms: [music.platform],
       pages: 1,
-    ).searchFirstPages(music.name);
-    final candidate = candidates
-        .where(
-          (item) =>
-              item.platform == music.platform &&
-              item.id == music.id &&
-              item.name.trim().toLowerCase() ==
-                  music.name.trim().toLowerCase() &&
-              item.artist.trim().toLowerCase() ==
-                  music.artist.trim().toLowerCase(),
-        )
-        .firstOrNull;
+    );
+    bool exact(MusicSearchCandidate item) =>
+        item.platform == music.platform &&
+        item.id == music.id &&
+        item.name.trim().toLowerCase() == music.name.trim().toLowerCase() &&
+        item.artist.trim().toLowerCase() == music.artist.trim().toLowerCase();
+
+    var candidate = (await resolver.searchFirstPages(
+      music.name,
+    )).where(exact).firstOrNull;
+    // Common titles can push the exact recording beyond the first page.
+    candidate ??= (await resolver.searchFirstPages(
+      '${music.artist} ${music.name}',
+    )).where(exact).firstOrNull;
     if (candidate == null) return const TrackMetadata();
     final response = await _challenge.postFlacApi('getLyric', {
       'platform': candidate.platform,
@@ -381,52 +512,58 @@ class BuguyyKuwoLyricsProvider
 
   Future<TrackMetadata> _find(CachedTrack track, String resource) async {
     final music = track.music;
-    final candidates = await FlacResolver(
+    final resolver = FlacResolver(
       challengeClient: _challenge,
       platforms: const ['kuwo'],
       pages: 1,
-    ).searchFirstPages(music.name);
+    );
     var probed = 0;
-    for (final candidate in candidates) {
-      if (candidate.name.trim().toLowerCase() !=
-              music.name.trim().toLowerCase() ||
-          candidate.artist.trim().toLowerCase() !=
-              music.artist.trim().toLowerCase()) {
-        continue;
+    final seen = <String>{};
+    for (final query in [music.name, '${music.artist} ${music.name}']) {
+      final candidates = await resolver.searchFirstPages(query);
+      for (final candidate in candidates) {
+        if (candidate.name.trim().toLowerCase() !=
+                music.name.trim().toLowerCase() ||
+            candidate.artist.trim().toLowerCase() !=
+                music.artist.trim().toLowerCase() ||
+            !seen.add(candidate.id)) {
+          continue;
+        }
+        final mp3 = candidate.qualities
+            .where((quality) => quality.format.toLowerCase() == 'mp3')
+            .firstOrNull;
+        if (mp3 == null) continue;
+        if (probed >= 5) break;
+        if (probed > 0) {
+          await Future<void>.delayed(const Duration(milliseconds: 500));
+        }
+        probed += 1;
+        try {
+          final urlResponse = await _challenge.postFlacApi('getUrl', {
+            'platform': candidate.platform,
+            'songid': candidate.id,
+            'format': mp3.format,
+            'bitrate': mp3.bitrate,
+            'time': candidate.raw['time']?.toString() ?? '',
+            'sign': candidate.raw['sign']?.toString() ?? '',
+          });
+          final url = asStringMap(urlResponse['data'])['url']?.toString() ?? '';
+          if (_kuwoMediaResource(url) != resource) continue;
+          final lyricResponse = await _challenge.postFlacApi('getLyric', {
+            'platform': candidate.platform,
+            'songid': candidate.id,
+            'time': candidate.raw['time']?.toString() ?? '',
+            'sign': candidate.raw['sign']?.toString() ?? '',
+          });
+          return _metadataFromFlacLyricResponse(
+            lyricResponse,
+            'flac:getLyric:matched-kuwo-audio',
+          );
+        } catch (_) {
+          // One failed candidate does not establish a media match.
+        }
       }
-      final mp3 = candidate.qualities
-          .where((quality) => quality.format.toLowerCase() == 'mp3')
-          .firstOrNull;
-      if (mp3 == null) continue;
       if (probed >= 5) break;
-      if (probed > 0) {
-        await Future<void>.delayed(const Duration(milliseconds: 500));
-      }
-      probed += 1;
-      try {
-        final urlResponse = await _challenge.postFlacApi('getUrl', {
-          'platform': candidate.platform,
-          'songid': candidate.id,
-          'format': mp3.format,
-          'bitrate': mp3.bitrate,
-          'time': candidate.raw['time']?.toString() ?? '',
-          'sign': candidate.raw['sign']?.toString() ?? '',
-        });
-        final url = asStringMap(urlResponse['data'])['url']?.toString() ?? '';
-        if (_kuwoMediaResource(url) != resource) continue;
-        final lyricResponse = await _challenge.postFlacApi('getLyric', {
-          'platform': candidate.platform,
-          'songid': candidate.id,
-          'time': candidate.raw['time']?.toString() ?? '',
-          'sign': candidate.raw['sign']?.toString() ?? '',
-        });
-        return _metadataFromFlacLyricResponse(
-          lyricResponse,
-          'flac:getLyric:matched-kuwo-audio',
-        );
-      } catch (_) {
-        // One failed candidate does not establish a media match.
-      }
     }
     return const TrackMetadata();
   }
@@ -441,12 +578,24 @@ String? _kuwoMediaResource(String url) {
   }
   final parts = uri.pathSegments;
   final index = parts.indexOf('resource');
-  if (index < 0 ||
-      index >= parts.length - 1 ||
-      !RegExp(r'^\d+\.mp3$', caseSensitive: false).hasMatch(parts.last)) {
+  if (index < 0 || index >= parts.length - 1) {
     return null;
   }
-  return parts.skip(index).join('/');
+  final resource = parts.skip(index).toList(growable: false);
+  final numericMp3 = RegExp(
+    r'^\d+\.mp3$',
+    caseSensitive: false,
+  ).hasMatch(resource.last);
+  final trackMediaMp3 =
+      resource.length == 4 &&
+      RegExp(r'^\d+$').hasMatch(resource[1]) &&
+      resource[2] == 'trackmedia' &&
+      RegExp(
+        r'^M[0-9A-Za-z]+\.mp3$',
+        caseSensitive: false,
+      ).hasMatch(resource.last);
+  if (!numericMp3 && !trackMediaMp3) return null;
+  return resource.join('/');
 }
 
 TrackMetadata _metadataFromFlacLyricResponse(

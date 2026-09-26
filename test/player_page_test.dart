@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:ai_music/src/application/music_controller.dart';
@@ -157,6 +158,55 @@ void main() {
     }
   });
 
+  testWidgets('upgraded timed lyrics become tappable without replaying', (
+    tester,
+  ) async {
+    final cached = _cachedTrack();
+    final handler = _SpyAudioHandler();
+    final metadata = _UpgradingMetadataRepository();
+    final controller = MusicController(
+      audioHandler: handler,
+      resolver: _FakeMusicResolver(),
+      cacheStore: _FakeCacheStore(cached: [cached]),
+      playlistStore: _FakePlaylistStore(),
+      settingsStore: _FakeSettingsStore(),
+      metadataRepository: metadata,
+    );
+
+    try {
+      await controller.initialize();
+      final track = trackFromCached(cached);
+      await controller.playTrack(track);
+      handler.emit(mediaItemFromTrack(track));
+      await controller.loadMetadataForCurrentTrack();
+      expect(controller.currentLyrics.last.time, Duration.zero);
+
+      metadata.finishUpgrade();
+      await tester.pump();
+      expect(metadata.upgradeCalls, 1);
+      expect(controller.currentLyrics.last.time, const Duration(seconds: 20));
+
+      await tester.pumpWidget(
+        AppStringsScope(
+          language: AppLanguage.zh,
+          child: MaterialApp(
+            home: Scaffold(
+              body: SizedBox(
+                height: 360,
+                child: LyricsPanelForTesting(controller: controller),
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.tap(find.text('第二句'));
+      await tester.pump();
+      expect(handler.seekedPositions, [const Duration(seconds: 20)]);
+    } finally {
+      controller.dispose();
+    }
+  });
+
   testWidgets('missing lyrics panel can retry metadata recovery', (
     tester,
   ) async {
@@ -266,6 +316,39 @@ class _StaticMetadataRepository extends TrackMetadataRepository {
   @override
   Future<TrackMetadata> load(CachedTrack track) async {
     return metadata;
+  }
+
+  @override
+  Future<TrackMetadata> upgradeTimedLyrics(CachedTrack track) async => metadata;
+}
+
+class _UpgradingMetadataRepository extends TrackMetadataRepository {
+  final Completer<TrackMetadata> _upgrade = Completer<TrackMetadata>();
+  int upgradeCalls = 0;
+
+  @override
+  Future<TrackMetadata> load(CachedTrack track) async => const TrackMetadata(
+    lyrics: [
+      LyricLine(time: Duration.zero, text: '第一句'),
+      LyricLine(time: Duration.zero, text: '第二句'),
+    ],
+  );
+
+  @override
+  Future<TrackMetadata> upgradeTimedLyrics(CachedTrack track) {
+    upgradeCalls += 1;
+    return _upgrade.future;
+  }
+
+  void finishUpgrade() {
+    _upgrade.complete(
+      const TrackMetadata(
+        lyrics: [
+          LyricLine(time: Duration(seconds: 1), text: '第一句'),
+          LyricLine(time: Duration(seconds: 20), text: '第二句'),
+        ],
+      ),
+    );
   }
 }
 

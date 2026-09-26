@@ -15,6 +15,14 @@ class MetadataUseCase {
     return repository.loadBypassingLyricsMiss(track);
   }
 
+  Future<TrackMetadata> prefetchLyrics(CachedTrack track) {
+    return repository.prefetchLyrics(track);
+  }
+
+  Future<TrackMetadata> upgradeTimedLyrics(CachedTrack track) {
+    return repository.upgradeTimedLyrics(track);
+  }
+
   Future<void> delete(String trackId) {
     return repository.delete(trackId);
   }

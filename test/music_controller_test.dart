@@ -578,6 +578,86 @@ void main() {
   );
 
   test(
+    'playing on mobile data prefetches lyrics for the next three songs',
+    () async {
+      final handler = _SpyAudioHandler()..nextQueueIndexOverride = 1;
+      final records = [
+        for (final id in ['a', 'b', 'c', 'd', 'e'])
+          _cachedTrack(id: id, name: id),
+      ];
+      final cacheStore = _DownloadCacheStore()..cached.addAll(records);
+      final metadata = _StaticMetadataRepository();
+      final controller = MusicController(
+        audioHandler: handler,
+        resolver: _FakeMusicResolver(),
+        cacheStore: cacheStore,
+        playlistStore: _FakePlaylistStore(),
+        settingsStore: _FakeSettingsStore(),
+        metadataRepository: metadata,
+        connectivityChanges: const Stream<List<ConnectivityResult>>.empty(),
+        checkConnectivity: () async => [ConnectivityResult.mobile],
+      );
+      try {
+        await controller.initialize();
+        final queue = records.map(trackFromCached).toList();
+        await controller.playTrack(queue.first, queueTracks: queue);
+        handler.emit(mediaItemFromTrack(queue.first));
+        handler.playbackState.add(
+          handler.playbackState.value.copyWith(playing: true),
+        );
+        await Future<void>.delayed(const Duration(milliseconds: 850));
+
+        expect(controller.isOnWifi, isFalse);
+        expect(metadata.prefetchedIds, ['b', 'c', 'd']);
+        expect(cacheStore.downloadIds, isEmpty);
+      } finally {
+        controller.dispose();
+        await handler.dispose();
+      }
+    },
+  );
+
+  test(
+    'untimed lyrics upgrade retries when the song is played again',
+    () async {
+      final handler = _SpyAudioHandler();
+      final cached = _cachedTrack(id: 'retry-lyrics', name: '待补时间轴');
+      final metadata = _RetryingTimedMetadataRepository();
+      final controller = MusicController(
+        audioHandler: handler,
+        resolver: _FakeMusicResolver(),
+        cacheStore: _DownloadCacheStore()..cached.add(cached),
+        playlistStore: _FakePlaylistStore(),
+        settingsStore: _FakeSettingsStore(),
+        metadataRepository: metadata,
+      );
+      try {
+        await controller.initialize();
+        final track = trackFromCached(cached);
+        await controller.playTrack(track);
+        handler.emit(mediaItemFromTrack(track));
+        await Future<void>.delayed(Duration.zero);
+        expect(metadata.upgradeCalls, 1);
+
+        metadata.finishFirstAttemptWithoutTiming();
+        await Future<void>.delayed(Duration.zero);
+        expect(controller.currentLyrics.last.time, Duration.zero);
+
+        await controller.stop();
+        await controller.playTrack(track);
+        handler.emit(mediaItemFromTrack(track));
+        await Future<void>.delayed(Duration.zero);
+
+        expect(metadata.upgradeCalls, 2);
+        expect(controller.currentLyrics.last.time, const Duration(seconds: 20));
+      } finally {
+        controller.dispose();
+        await handler.dispose();
+      }
+    },
+  );
+
+  test(
     'queue change cancels a resolving prefetch before cache promotion',
     () async {
       final handler = _SpyAudioHandler()..nextQueueIndexOverride = 1;
@@ -1861,6 +1941,12 @@ class _SpyAudioHandler extends MusicAudioHandler {
   int? get nextQueueIndex => nextQueueIndexOverride;
 
   @override
+  int? followingQueueIndex(String mediaId) {
+    final index = loadedIds.indexOf(mediaId);
+    return index >= 0 && index + 1 < loadedIds.length ? index + 1 : null;
+  }
+
+  @override
   Future<void> loadQueue(
     List<PlayableAudio> items, {
     int initialIndex = 0,
@@ -1974,6 +2060,7 @@ class _StaticMetadataRepository extends TrackMetadataRepository {
 
   final TrackMetadata metadata;
   final loadIds = <String>[];
+  final prefetchedIds = <String>[];
   final deletedIds = <String>[];
 
   @override
@@ -1989,9 +2076,49 @@ class _StaticMetadataRepository extends TrackMetadataRepository {
   }
 
   @override
+  Future<TrackMetadata> prefetchLyrics(CachedTrack track) async {
+    prefetchedIds.add(track.music.id);
+    return metadata;
+  }
+
+  @override
+  Future<TrackMetadata> upgradeTimedLyrics(CachedTrack track) async => metadata;
+
+  @override
   Future<void> delete(String cacheId) async {
     deletedIds.add(cacheId);
   }
+}
+
+class _RetryingTimedMetadataRepository extends _StaticMetadataRepository {
+  _RetryingTimedMetadataRepository()
+    : super(
+        metadata: const TrackMetadata(
+          lyrics: [
+            LyricLine(time: Duration.zero, text: '第一句'),
+            LyricLine(time: Duration.zero, text: '第二句'),
+          ],
+        ),
+      );
+
+  final Completer<TrackMetadata> _firstAttempt = Completer<TrackMetadata>();
+  int upgradeCalls = 0;
+
+  @override
+  Future<TrackMetadata> upgradeTimedLyrics(CachedTrack track) {
+    upgradeCalls += 1;
+    if (upgradeCalls == 1) return _firstAttempt.future;
+    return Future.value(
+      const TrackMetadata(
+        lyrics: [
+          LyricLine(time: Duration(seconds: 1), text: '第一句'),
+          LyricLine(time: Duration(seconds: 20), text: '第二句'),
+        ],
+      ),
+    );
+  }
+
+  void finishFirstAttemptWithoutTiming() => _firstAttempt.complete(metadata);
 }
 
 class _CompletingMetadataRepository extends TrackMetadataRepository {

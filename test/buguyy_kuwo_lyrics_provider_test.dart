@@ -30,9 +30,35 @@ void main() {
         challengeClient: api,
       ).find(_track());
       expect(result.hasLyrics, isFalse);
-      expect(api.actions, ['search', 'getUrl:studio', 'getUrl:live']);
+      expect(api.actions, ['search', 'getUrl:studio', 'getUrl:live', 'search']);
     },
   );
+
+  test('artist and title query finds the exact matching audio', () async {
+    final api = _Api(onlyArtistQuery: true);
+    final result = await BuguyyKuwoLyricsProvider(
+      challengeClient: api,
+    ).find(_track());
+    expect(result.lyrics.single.time, const Duration(seconds: 1));
+    expect(api.actions, [
+      'search',
+      'search',
+      'getUrl:studio',
+      'getUrl:live',
+      'getLyric:live',
+    ]);
+  });
+
+  test('matches the exact Kuwo trackmedia MP3 resource', () async {
+    const resource = 'resource/30106/trackmedia/M800002S3TYo3YJY0x.mp3';
+    final api = _Api(onlyArtistQuery: true, resourcePath: resource);
+    final result = await BuguyyKuwoLyricsProvider(
+      challengeClient: api,
+    ).find(_track(url: 'https://car-lv.kuwo.cn/token/$resource'));
+
+    expect(result.lyrics.single.time, const Duration(seconds: 1));
+    expect(api.actions.last, 'getLyric:live');
+  });
 
   test('non-Kuwo audio cannot trigger the cross-source lookup', () async {
     final api = _Api();
@@ -74,11 +100,17 @@ CachedTrack _track({
 );
 
 class _Api extends ChallengeClient {
-  _Api({this.matchingResource = true, this.lyric = '[00:01.00]同一现场版歌词'})
-    : super(httpClient: HttpMusicResolverClient());
+  _Api({
+    this.matchingResource = true,
+    this.lyric = '[00:01.00]同一现场版歌词',
+    this.onlyArtistQuery = false,
+    this.resourcePath = 'resource/n2/80/0/906563066.mp3',
+  }) : super(httpClient: HttpMusicResolverClient());
 
   final bool matchingResource;
   final String lyric;
+  final bool onlyArtistQuery;
+  final String resourcePath;
   final actions = <String>[];
 
   @override
@@ -89,12 +121,15 @@ class _Api extends ChallengeClient {
     if (act == 'search') {
       actions.add(act);
       expect(form['platform'], 'kuwo');
-      expect(form['keyword'], '冬天的秘密');
+      expect(form['keyword'], anyOf('冬天的秘密', '周传雄 冬天的秘密'));
       return {
         'code': 0,
         'data': {
           'list': [
-            for (final id in ['studio', 'live'])
+            for (final id
+                in onlyArtistQuery && form['keyword'] == '冬天的秘密'
+                    ? <String>[]
+                    : ['studio', 'live'])
               {
                 'id': id,
                 'name': '冬天的秘密',
@@ -118,8 +153,8 @@ class _Api extends ChallengeClient {
         'code': 0,
         'data': {
           'url':
-              'https://other-lv.kuwo.cn/token/time/lx/resource/n2/80/0/'
-              '${id == 'live' && matchingResource ? '906563066' : 'different'}.mp3',
+              'https://other-lv.kuwo.cn/token/time/lx/'
+              '${id == 'live' && matchingResource ? resourcePath : 'resource/n2/80/0/different.mp3'}',
         },
       };
     }

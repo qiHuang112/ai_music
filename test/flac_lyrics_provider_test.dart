@@ -25,6 +25,19 @@ void main() {
     },
   );
 
+  test(
+    'artist and title search finds an exact song missing from title page',
+    () async {
+      final api = _Api(matchOnlyWithArtistQuery: true);
+      final result = await FlacLyricsProvider(
+        challengeClient: api,
+      ).find(_track());
+      expect(result.lyrics.single.text, '测试歌词');
+      expect(api.searchKeywords, ['测试曲', '测试歌手 测试曲']);
+      expect(api.actions, ['search', 'search', 'getLyric']);
+    },
+  );
+
   for (final field in ['id', 'name', 'artist']) {
     test('rejects mismatched $field without requesting lyrics', () async {
       final api = _Api(mismatch: field);
@@ -32,7 +45,7 @@ void main() {
         challengeClient: api,
       ).find(_track());
       expect(result.hasLyrics, isFalse);
-      expect(api.actions, ['search']);
+      expect(api.actions, ['search', 'search']);
     });
   }
 
@@ -80,12 +93,18 @@ CachedTrack _track() => CachedTrack(
 );
 
 class _Api extends ChallengeClient {
-  _Api({this.mismatch, this.content = '[00:01.00]测试歌词', this.code = 0})
-    : super(httpClient: HttpMusicResolverClient());
+  _Api({
+    this.mismatch,
+    this.content = '[00:01.00]测试歌词',
+    this.code = 0,
+    this.matchOnlyWithArtistQuery = false,
+  }) : super(httpClient: HttpMusicResolverClient());
   final String? mismatch;
   final String content;
   final int code;
+  final bool matchOnlyWithArtistQuery;
   final actions = <String>[];
+  final searchKeywords = <String>[];
   Map<String, String>? lyricForm;
   @override
   Future<Map<String, dynamic>> postFlacApi(
@@ -95,8 +114,14 @@ class _Api extends ChallengeClient {
     actions.add(act);
     if (act == 'search') {
       expect(form['platform'], 'kuwo');
-      expect(form['keyword'], '测试曲');
       expect(form['page'], '1');
+      searchKeywords.add(form['keyword'] ?? '');
+      if (matchOnlyWithArtistQuery && form['keyword'] == '测试曲') {
+        return {
+          'code': 0,
+          'data': {'list': []},
+        };
+      }
       return {
         'code': 0,
         'data': {
