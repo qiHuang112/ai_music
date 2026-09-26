@@ -16,6 +16,8 @@ class SettingsController {
     required AppThemePreference theme,
     required String lanLibraryUrl,
     required int screenshotSearchConcurrency,
+    required int playlistDownloadConcurrency,
+    required bool downloadPlaylistsOnWifi,
   }) {
     return settingsStore.saveSettings(
       MusicAppSettings(
@@ -24,6 +26,8 @@ class SettingsController {
         theme: theme,
         lanLibraryUrl: lanLibraryUrl,
         screenshotSearchConcurrency: screenshotSearchConcurrency,
+        playlistDownloadConcurrency: playlistDownloadConcurrency,
+        downloadPlaylistsOnWifi: downloadPlaylistsOnWifi,
       ),
     );
   }

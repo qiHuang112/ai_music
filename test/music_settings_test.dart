@@ -22,6 +22,8 @@ void main() {
       expect(settings.theme, AppThemePreference.dark);
       expect(settings.lanLibraryUrl, defaultLanLibraryUrl);
       expect(settings.screenshotSearchConcurrency, 3);
+      expect(settings.playlistDownloadConcurrency, 3);
+      expect(settings.downloadPlaylistsOnWifi, isTrue);
     } finally {
       await root.delete(recursive: true);
     }
@@ -41,6 +43,8 @@ void main() {
       expect(settings.theme, AppThemePreference.dark);
       expect(settings.lanLibraryUrl, defaultLanLibraryUrl);
       expect(settings.screenshotSearchConcurrency, 3);
+      expect(settings.playlistDownloadConcurrency, 3);
+      expect(settings.downloadPlaylistsOnWifi, isTrue);
     } finally {
       await root.delete(recursive: true);
     }
@@ -60,6 +64,8 @@ void main() {
           theme: AppThemePreference.light,
           lanLibraryUrl: 'http://10.0.0.9:9000',
           screenshotSearchConcurrency: 7,
+          playlistDownloadConcurrency: 5,
+          downloadPlaylistsOnWifi: false,
         ),
       );
 
@@ -69,6 +75,8 @@ void main() {
       expect(restored.theme, AppThemePreference.light);
       expect(restored.lanLibraryUrl, 'http://10.0.0.9:9000');
       expect(restored.screenshotSearchConcurrency, 7);
+      expect(restored.playlistDownloadConcurrency, 5);
+      expect(restored.downloadPlaylistsOnWifi, isFalse);
     } finally {
       await root.delete(recursive: true);
     }
@@ -85,6 +93,22 @@ void main() {
       expect((await store.loadSettings()).screenshotSearchConcurrency, 1);
       await file.writeAsString('{"screenshotSearchConcurrency":12}');
       expect((await store.loadSettings()).screenshotSearchConcurrency, 10);
+    } finally {
+      await root.delete(recursive: true);
+    }
+  });
+
+  test('settings store bounds playlist download concurrency to 1–10', () async {
+    final root = await Directory.systemTemp.createTemp(
+      'ai_music_settings_download_concurrency_',
+    );
+    final file = File('${root.path}${Platform.pathSeparator}settings.json');
+    final store = MusicSettingsStore(rootProvider: () async => root);
+    try {
+      await file.writeAsString('{"playlistDownloadConcurrency":0}');
+      expect((await store.loadSettings()).playlistDownloadConcurrency, 1);
+      await file.writeAsString('{"playlistDownloadConcurrency":12}');
+      expect((await store.loadSettings()).playlistDownloadConcurrency, 10);
     } finally {
       await root.delete(recursive: true);
     }

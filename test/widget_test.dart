@@ -74,7 +74,7 @@ void main() {
     expect(find.byKey(const ValueKey('home-favorites-entry')), findsOneWidget);
     expect(find.byKey(const ValueKey('home-playlist-road')), findsOneWidget);
     expect(find.text('1 首 · Alpha'), findsOneWidget);
-    expect(find.text('1 首 · Beta'), findsOneWidget);
+    expect(find.text('Beta'), findsOneWidget);
     expect(find.text('搜索音乐'), findsNothing);
     expect(find.text('输入歌手或歌曲名，下载后会保存在本机缓存里。'), findsNothing);
 
@@ -516,6 +516,7 @@ void main() {
 
     await tester.tap(find.byTooltip('设置'));
     await tester.pumpAndSettle();
+    await tester.scrollUntilVisible(find.text('局域网音乐库'), 200);
     await tester.tap(find.text('局域网音乐库'));
     await tester.pumpAndSettle();
 
@@ -556,6 +557,212 @@ void main() {
     await tester.pumpAndSettle();
     expect(settings.settings.screenshotSearchConcurrency, 1);
     expect(find.text('同时搜索 1 首，范围 1～10 首'), findsOneWidget);
+  });
+
+  testWidgets('playlist download slider saves the 1–10 range', (tester) async {
+    final settings = _FakeSettingsStore();
+    await tester.pumpWidget(_app(settings: settings));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byTooltip('设置'));
+    await tester.pumpAndSettle();
+    final slider = find.byKey(const Key('playlistDownloadConcurrencySlider'));
+    await tester.scrollUntilVisible(slider, 150);
+    expect(find.text('同时下载 3 首，范围 1～10 首'), findsOneWidget);
+
+    await tester.drag(slider, const Offset(1000, 0));
+    await tester.pumpAndSettle();
+    expect(settings.settings.playlistDownloadConcurrency, 10);
+
+    await tester.drag(slider, const Offset(-1000, 0));
+    await tester.pumpAndSettle();
+    expect(settings.settings.playlistDownloadConcurrency, 1);
+  });
+
+  testWidgets('Wi-Fi playlist download switch defaults on and saves off', (
+    tester,
+  ) async {
+    final settings = _FakeSettingsStore();
+    await tester.pumpWidget(_app(settings: settings));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byTooltip('设置'));
+    await tester.pumpAndSettle();
+    final toggle = find.byKey(const Key('downloadPlaylistsOnWifiSwitch'));
+    expect(tester.widget<SwitchListTile>(toggle).value, isTrue);
+    await tester.tap(toggle);
+    await tester.pumpAndSettle();
+    expect(settings.settings.downloadPlaylistsOnWifi, isFalse);
+    expect(tester.widget<SwitchListTile>(toggle).value, isFalse);
+  });
+
+  testWidgets('opening a custom playlist starts Wi-Fi auto download once', (
+    tester,
+  ) async {
+    final controller = _RecordingPlaylistDownloadController(
+      _homeLibraryFixture(),
+      wifi: true,
+    )..autoResult = const PlaylistDownloadSummary(failed: 1);
+    await tester.pumpWidget(_app(playbackController: controller));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const ValueKey('home-playlist-road')));
+    await tester.pumpAndSettle();
+    expect(controller.requests, [true]);
+    expect(find.byKey(const ValueKey('download-all-playlist')), findsOneWidget);
+    await tester.pump();
+    expect(controller.requests, [true]);
+
+    await tester.pageBack();
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('home-playlist-road')));
+    await tester.pumpAndSettle();
+    expect(controller.requests, [true]);
+  });
+
+  testWidgets('playlist download action hides while searching', (tester) async {
+    final controller = _RecordingPlaylistDownloadController(
+      _homeLibraryFixture(),
+      wifi: false,
+    );
+    await tester.pumpWidget(_app(playbackController: controller));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('home-playlist-road')));
+    await tester.pumpAndSettle();
+
+    final action = find.byKey(const ValueKey('download-all-playlist'));
+    expect(action, findsOneWidget);
+    expect(find.text('一键全部下载'), findsNothing);
+    expect(find.byTooltip('一键全部下载'), findsOneWidget);
+    final search = find.byType(TextField);
+    await tester.tap(search);
+    await tester.pumpAndSettle();
+    expect(action, findsNothing);
+
+    await tester.enterText(search, 'road');
+    await tester.pumpAndSettle();
+    expect(action, findsNothing);
+    await tester.enterText(search, '');
+    await tester.pumpAndSettle();
+    expect(action, findsNothing);
+
+    tester.binding.focusManager.primaryFocus?.unfocus();
+    await tester.pumpAndSettle();
+    expect(action, findsOneWidget);
+  });
+
+  testWidgets('custom playlist offers manual download without Wi-Fi', (
+    tester,
+  ) async {
+    final controller = _RecordingPlaylistDownloadController(
+      _homeLibraryFixture(),
+      wifi: false,
+    );
+    await tester.pumpWidget(_app(playbackController: controller));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const ValueKey('home-playlist-road')));
+    await tester.pumpAndSettle();
+    expect(controller.requests, isEmpty);
+    await tester.tap(find.byKey(const ValueKey('download-all-playlist')));
+    await tester.pumpAndSettle();
+    expect(controller.requests, [false]);
+    expect(find.textContaining('已缓存 1 首'), findsOneWidget);
+  });
+
+  testWidgets(
+    'playlist and download manager show batch progress then hide it',
+    (tester) async {
+      final controller =
+          _RecordingPlaylistDownloadController(
+              _homeLibraryFixture(),
+              wifi: false,
+            )
+            ..progress = const PlaylistDownloadProgress(
+              total: 1,
+              processed: 0,
+              failed: 0,
+            );
+      await tester.pumpWidget(_app(playbackController: controller));
+      await tester.pumpAndSettle();
+
+      expect(find.text('(1/1)'), findsNothing);
+      await tester.tap(find.byKey(const ValueKey('home-playlist-road')));
+      await tester.pumpAndSettle();
+      expect(find.text('(1/1)'), findsNothing);
+      expect(
+        find.byKey(const ValueKey('playlist-progress-road')),
+        findsOneWidget,
+      );
+
+      await tester.pageBack();
+      await tester.pumpAndSettle();
+      await tester.tap(find.byTooltip('下载'));
+      await tester.pumpAndSettle();
+      expect(find.text('歌曲 1 首 · 已下载 1 首'), findsOneWidget);
+      expect(
+        find.byKey(const ValueKey('playlist-progress-road')),
+        findsOneWidget,
+      );
+
+      controller.progress = null;
+      controller.notifyListeners();
+      await tester.pumpAndSettle();
+      expect(find.text('歌曲 1 首 · 已下载 1 首'), findsOneWidget);
+      expect(
+        find.byKey(const ValueKey('playlist-progress-road')),
+        findsNothing,
+      );
+    },
+  );
+
+  testWidgets('home download icon spins during work and still opens manager', (
+    tester,
+  ) async {
+    final controller = _RecordingPlaylistDownloadController(
+      _homeLibraryFixture(),
+      wifi: false,
+    );
+    await tester.pumpWidget(_app(playbackController: controller));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('home-download-spinner')), findsNothing);
+
+    controller.downloadActive = true;
+    controller.notifyListeners();
+    await tester.pump();
+    expect(find.byKey(const ValueKey('home-download-spinner')), findsOneWidget);
+    await tester.tap(find.byTooltip('下载'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 400));
+    expect(find.text('下载管理'), findsOneWidget);
+
+    await tester.pageBack();
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 400));
+    controller.downloadActive = false;
+    controller.notifyListeners();
+    await tester.pump();
+    expect(find.byKey(const ValueKey('home-download-spinner')), findsNothing);
+    expect(find.byIcon(Icons.download), findsOneWidget);
+  });
+
+  testWidgets('download manager playlist button starts its whole batch', (
+    tester,
+  ) async {
+    final controller = _RecordingPlaylistDownloadController(
+      _homeLibraryFixture(),
+      wifi: false,
+    );
+    await tester.pumpWidget(_app(playbackController: controller));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byTooltip('下载'));
+    await tester.pumpAndSettle();
+    expect(find.text('歌曲 1 首 · 已下载 1 首'), findsOneWidget);
+    await tester.tap(find.byKey(const ValueKey('manager-download-road')));
+    await tester.pumpAndSettle();
+    expect(controller.requests, [false]);
+    expect(find.textContaining('已缓存 1 首'), findsOneWidget);
   });
 
   testWidgets('download manager offers LAN scan and shows result', (
@@ -1717,6 +1924,47 @@ class _ControlledPlaybackController extends MusicController {
     final completion = Completer<void>();
     pending.add(completion);
     return completion.future;
+  }
+}
+
+class _RecordingPlaylistDownloadController extends MusicController {
+  _RecordingPlaylistDownloadController(
+    _HomeLibraryFixture fixture, {
+    required this.wifi,
+  }) : super(
+         audioHandler: MusicAudioHandler(),
+         resolver: _FakeMusicResolver(),
+         cacheStore: fixture.cacheStore,
+         playlistStore: fixture.playlistStore,
+         settingsStore: _FakeSettingsStore(),
+         metadataRepository: _FakeMetadataRepository(),
+       );
+
+  final bool wifi;
+  final requests = <bool>[];
+  PlaylistDownloadProgress? progress;
+  bool downloadActive = false;
+  PlaylistDownloadSummary autoResult = const PlaylistDownloadSummary(
+    skipped: 1,
+  );
+
+  @override
+  bool get isOnWifi => wifi;
+
+  @override
+  bool get hasActiveDownloads => downloadActive;
+
+  @override
+  PlaylistDownloadProgress? playlistDownloadProgress(MusicPlaylist playlist) =>
+      progress;
+
+  @override
+  Future<PlaylistDownloadSummary> downloadPlaylist(
+    MusicPlaylist playlist, {
+    bool wifiOnly = false,
+  }) async {
+    requests.add(wifiOnly);
+    return wifiOnly ? autoResult : const PlaylistDownloadSummary(skipped: 1);
   }
 }
 

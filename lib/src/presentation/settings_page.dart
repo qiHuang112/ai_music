@@ -65,6 +65,15 @@ class SettingsPage extends StatelessWidget {
                   ),
                 ),
                 _ScreenshotSearchConcurrencySetting(controller: controller),
+                SwitchListTile(
+                  key: const Key('downloadPlaylistsOnWifiSwitch'),
+                  secondary: const Icon(Icons.wifi),
+                  title: Text(strings.downloadPlaylistsOnWifi),
+                  subtitle: Text(strings.downloadPlaylistsOnWifiDescription),
+                  value: controller.downloadPlaylistsOnWifi,
+                  onChanged: controller.saveDownloadPlaylistsOnWifi,
+                ),
+                _PlaylistDownloadConcurrencySetting(controller: controller),
                 ListTile(
                   leading: const Icon(Icons.wifi_tethering),
                   title: Text(strings.lanLibrary),
@@ -142,6 +151,68 @@ class _ScreenshotSearchConcurrencySettingState
             onChangeEnd: (value) {
               widget.controller.saveScreenshotSearchConcurrency(value.round());
             },
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _PlaylistDownloadConcurrencySetting extends StatefulWidget {
+  const _PlaylistDownloadConcurrencySetting({required this.controller});
+
+  final MusicController controller;
+
+  @override
+  State<_PlaylistDownloadConcurrencySetting> createState() =>
+      _PlaylistDownloadConcurrencySettingState();
+}
+
+class _PlaylistDownloadConcurrencySettingState
+    extends State<_PlaylistDownloadConcurrencySetting> {
+  late int _value;
+
+  @override
+  void initState() {
+    super.initState();
+    _value = widget.controller.playlistDownloadConcurrency;
+  }
+
+  @override
+  void didUpdateWidget(
+    covariant _PlaylistDownloadConcurrencySetting oldWidget,
+  ) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.controller != widget.controller) {
+      _value = widget.controller.playlistDownloadConcurrency;
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final strings = AppStringsScope.of(context);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        ListTile(
+          leading: const Icon(Icons.download_for_offline_outlined),
+          title: Text(strings.playlistDownloadConcurrency),
+          subtitle: Text(
+            strings.playlistDownloadConcurrencyDescription(_value),
+          ),
+        ),
+        Padding(
+          padding: const EdgeInsets.only(left: 72, right: 24, bottom: 8),
+          child: Slider(
+            key: const Key('playlistDownloadConcurrencySlider'),
+            value: _value.toDouble(),
+            min: 1,
+            max: 10,
+            divisions: 9,
+            label: '$_value',
+            onChanged: (value) => setState(() => _value = value.round()),
+            onChangeEnd: (value) => widget.controller
+                .savePlaylistDownloadConcurrency(value.round()),
           ),
         ),
       ],

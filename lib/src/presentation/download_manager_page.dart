@@ -2,9 +2,11 @@ import 'package:flutter/material.dart';
 
 import '../application/download_queue_controller.dart';
 import '../application/music_controller.dart';
+import '../data/music_playlists.dart';
 import '../domain/music_models.dart';
 import 'app_localizations.dart';
 import 'list_search.dart';
+import 'playlist_download_progress.dart';
 
 enum _DownloadSortMode { initial, downloadedAt }
 
@@ -63,6 +65,71 @@ class _DownloadManagerPageState extends State<DownloadManagerPage> {
             child: ListView(
               padding: const EdgeInsets.fromLTRB(12, 8, 12, 96),
               children: [
+                if (controller.customPlaylists.isNotEmpty) ...[
+                  _SectionHeader(title: strings.playlistDownloads),
+                  for (final playlist in controller.customPlaylists)
+                    Card(
+                      key: ValueKey('manager-playlist-${playlist.id}'),
+                      child: Padding(
+                        padding: const EdgeInsets.all(12),
+                        child: Row(
+                          children: [
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    playlist.name,
+                                    style: Theme.of(
+                                      context,
+                                    ).textTheme.titleSmall,
+                                  ),
+                                  const SizedBox(height: 4),
+                                  Text(
+                                    strings.playlistDownloadCounts(
+                                      playlist.entries.length,
+                                      controller.cachedCountForPlaylist(
+                                        playlist,
+                                      ),
+                                    ),
+                                  ),
+                                  if (controller.playlistDownloadProgress(
+                                        playlist,
+                                      ) !=
+                                      null) ...[
+                                    const SizedBox(height: 8),
+                                    PlaylistDownloadProgressView(
+                                      controller: controller,
+                                      playlist: playlist,
+                                    ),
+                                  ],
+                                ],
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            IconButton(
+                              key: ValueKey('manager-download-${playlist.id}'),
+                              tooltip: strings.downloadAllPlaylist,
+                              onPressed:
+                                  controller.isPlaylistDownloading(playlist)
+                                  ? null
+                                  : () => _downloadPlaylist(playlist),
+                              icon: controller.isPlaylistDownloading(playlist)
+                                  ? const SizedBox.square(
+                                      dimension: 20,
+                                      child: CircularProgressIndicator(
+                                        strokeWidth: 2,
+                                      ),
+                                    )
+                                  : const Icon(
+                                      Icons.download_for_offline_outlined,
+                                    ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                ],
                 _SectionHeader(title: strings.activeDownloads),
                 if (activeTasks.isEmpty)
                   _EmptyLine(text: strings.noDownloads)
@@ -127,6 +194,25 @@ class _DownloadManagerPageState extends State<DownloadManagerPage> {
         break;
     }
     return sorted;
+  }
+
+  Future<void> _downloadPlaylist(MusicPlaylist playlist) async {
+    final result = await widget.controller.downloadPlaylist(playlist);
+    if (!mounted) return;
+    final strings = AppStringsScope.of(context);
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(
+        SnackBar(
+          content: Text(
+            strings.playlistDownloadSummary(
+              result.downloaded,
+              result.skipped,
+              result.failed,
+            ),
+          ),
+        ),
+      );
   }
 }
 

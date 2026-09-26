@@ -94,7 +94,7 @@ void main() {
         expect(resolver.queries, ['稻向', '稻香']);
         expect(find.text('稻香', skipOffstage: false), findsWidgets);
         expect(find.text('加入歌单'), findsOneWidget);
-        expect(find.text('下载已选'), findsOneWidget);
+        expect(find.text('下载已选'), findsNothing);
       } finally {
         await tester.pumpWidget(const SizedBox.shrink());
         controller.dispose();
@@ -206,7 +206,7 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.text('稻香'), findsOneWidget);
       expect(find.text('已选 1 首'), findsOneWidget);
-      expect(find.text('下载已选'), findsOneWidget);
+      expect(find.text('下载已选'), findsNothing);
     } finally {
       await tester.pumpWidget(const SizedBox.shrink());
       controller.dispose();
@@ -259,7 +259,7 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.text('晴天'), findsOneWidget);
       expect(find.text('已选 2 首'), findsWidgets);
-      expect(find.text('下载已选'), findsOneWidget);
+      expect(find.text('下载已选'), findsNothing);
     } finally {
       await tester.pumpWidget(const SizedBox.shrink());
       controller.dispose();

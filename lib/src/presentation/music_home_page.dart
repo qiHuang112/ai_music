@@ -15,6 +15,7 @@ import 'download_manager_page.dart';
 import 'list_search.dart';
 import 'player_page.dart';
 import 'playlist_actions.dart';
+import 'playlist_download_progress.dart';
 import 'settings_page.dart';
 import 'screenshot_import_page.dart';
 
@@ -69,7 +70,13 @@ class _MusicHomePageState extends State<MusicHomePage> {
                 IconButton(
                   tooltip: strings.downloads,
                   onPressed: _openDownloads,
-                  icon: const Icon(Icons.download),
+                  icon: controller.hasActiveDownloads
+                      ? const SizedBox.square(
+                          key: ValueKey('home-download-spinner'),
+                          dimension: 22,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Icon(Icons.download),
                 ),
                 IconButton(
                   tooltip: strings.playlists,
@@ -604,6 +611,7 @@ class _HomeLibrarySection extends StatelessWidget {
                 strings,
                 controller.tracksForPlaylist(playlist),
                 emptyText: strings.noSongsInPlaylist,
+                includeCount: false,
               ),
               onTap: () =>
                   _openList(context, _LibraryListSpec.custom(playlist)),
@@ -666,12 +674,15 @@ String _librarySubtitle(
   AppStrings strings,
   List<Track> tracks, {
   required String emptyText,
+  bool includeCount = true,
 }) {
   if (tracks.isEmpty) {
     return emptyText;
   }
   final preview = tracks.take(3).map((track) => track.title).join(' / ');
-  return '${strings.songCount(tracks.length)} · $preview';
+  return includeCount
+      ? '${strings.songCount(tracks.length)} · $preview'
+      : preview;
 }
 
 class _LibraryPage extends StatelessWidget {
@@ -754,7 +765,6 @@ class _LibraryLanding extends StatelessWidget {
         else
           for (final playlist in playlists) ...[
             _CustomPlaylistTile(
-              controller: controller,
               playlist: playlist,
               onTap: () =>
                   _openList(context, _LibraryListSpec.custom(playlist)),
@@ -834,25 +844,17 @@ class _EmptyCustomPlaylists extends StatelessWidget {
 }
 
 class _CustomPlaylistTile extends StatelessWidget {
-  const _CustomPlaylistTile({
-    required this.controller,
-    required this.playlist,
-    required this.onTap,
-  });
+  const _CustomPlaylistTile({required this.playlist, required this.onTap});
 
-  final MusicController controller;
   final MusicPlaylist playlist;
   final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
-    final count = controller.tracksForPlaylist(playlist).length;
-    final strings = AppStringsScope.of(context);
     return ListTile(
       contentPadding: EdgeInsets.zero,
       leading: const Icon(Icons.queue_music),
       title: Text(playlist.name, maxLines: 1, overflow: TextOverflow.ellipsis),
-      subtitle: Text(strings.songCount(count)),
       trailing: const Icon(Icons.chevron_right),
       onTap: onTap,
     );
@@ -990,6 +992,7 @@ class _PlaylistDetailPageState extends State<_PlaylistDetailPage> {
   String? _preparingTrackId;
   int _playRequestId = 0;
   final _searchController = TextEditingController();
+  final _searchFocusNode = FocusNode();
   final List<String> _selectedTrackIds = <String>[];
   final List<String> _reorderDraftTrackIds = <String>[];
   String _query = '';
@@ -999,9 +1002,36 @@ class _PlaylistDetailPageState extends State<_PlaylistDetailPage> {
   MusicController get controller => widget.controller;
 
   @override
+  void initState() {
+    super.initState();
+    _searchFocusNode.addListener(_onSearchFocusChanged);
+    controller.addListener(_maybeStartWifiDownload);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _maybeStartWifiDownload();
+    });
+  }
+
+  @override
   void dispose() {
+    controller.removeListener(_maybeStartWifiDownload);
+    _searchFocusNode.dispose();
     _searchController.dispose();
     super.dispose();
+  }
+
+  void _onSearchFocusChanged() {
+    if (mounted) setState(() {});
+  }
+
+  void _maybeStartWifiDownload() {
+    if (!mounted) return;
+    if (widget.selection.kind != _LibraryListKind.custom) return;
+    final playlist = controller.customPlaylists
+        .where((item) => item.id == widget.selection.id)
+        .firstOrNull;
+    if (playlist == null || playlist.entries.isEmpty) return;
+    final download = controller.startWifiPlaylistDownloadOnce(playlist);
+    if (download != null) unawaited(download);
   }
 
   @override
@@ -1091,7 +1121,56 @@ class _PlaylistDetailPageState extends State<_PlaylistDetailPage> {
                   if (!_isReorderEditing)
                     ListSearchField(
                       controller: _searchController,
+                      focusNode: _searchFocusNode,
                       onChanged: (value) => setState(() => _query = value),
+                      emptySuffix:
+                          list.canManage &&
+                              list.playlist != null &&
+                              sortedTracks.isNotEmpty &&
+                              !_searchFocusNode.hasFocus
+                          ? Padding(
+                              padding: const EdgeInsets.only(right: 4),
+                              child: IconButton(
+                                key: const ValueKey('download-all-playlist'),
+                                tooltip:
+                                    controller.isPlaylistDownloading(
+                                      list.playlist!,
+                                    )
+                                    ? strings.downloadingPlaylist
+                                    : strings.downloadAllPlaylist,
+                                onPressed:
+                                    controller.isPlaylistDownloading(
+                                      list.playlist!,
+                                    )
+                                    ? null
+                                    : () =>
+                                          _downloadAllPlaylist(list.playlist!),
+                                icon:
+                                    controller.isPlaylistDownloading(
+                                      list.playlist!,
+                                    )
+                                    ? const SizedBox.square(
+                                        dimension: 20,
+                                        child: CircularProgressIndicator(
+                                          strokeWidth: 2,
+                                        ),
+                                      )
+                                    : const Icon(
+                                        Icons.download_for_offline_outlined,
+                                      ),
+                              ),
+                            )
+                          : null,
+                    ),
+                  if (list.playlist != null &&
+                      controller.playlistDownloadProgress(list.playlist!) !=
+                          null)
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+                      child: PlaylistDownloadProgressView(
+                        controller: controller,
+                        playlist: list.playlist!,
+                      ),
                     ),
                   Expanded(
                     child: controller.isLoadingCache
@@ -1148,6 +1227,25 @@ class _PlaylistDetailPageState extends State<_PlaylistDetailPage> {
         setState(() => _preparingTrackId = null);
       }
     }
+  }
+
+  Future<void> _downloadAllPlaylist(MusicPlaylist playlist) async {
+    final result = await controller.downloadPlaylist(playlist);
+    if (!mounted) return;
+    final strings = AppStringsScope.of(context);
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(
+        SnackBar(
+          content: Text(
+            strings.playlistDownloadSummary(
+              result.downloaded,
+              result.skipped,
+              result.failed,
+            ),
+          ),
+        ),
+      );
   }
 
   PreferredSizeWidget _selectionAppBar(

@@ -16,6 +16,7 @@ import 'package:ai_music/src/domain/music_models.dart';
 import 'package:ai_music/src/playback/music_audio_handler.dart';
 import 'package:audio_service/audio_service.dart';
 import 'package:crypto/crypto.dart';
+import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
@@ -1340,6 +1341,314 @@ void main() {
     },
   );
 
+  test(
+    'Wi-Fi playlist batch skips cache and continues after one failure',
+    () async {
+      final connectivity =
+          StreamController<List<ConnectivityResult>>.broadcast();
+      final handler = _SpyAudioHandler();
+      final cacheStore = _DownloadCacheStore()
+        ..cached.add(_cachedTrack(id: 'cached', name: '已缓存'));
+      final resolver = _SelectivePlaylistResolver();
+      final controller = MusicController(
+        audioHandler: handler,
+        resolver: resolver,
+        cacheStore: cacheStore,
+        playlistStore: _MemoryPlaylistStore(),
+        settingsStore: _FakeSettingsStore(),
+        metadataRepository: _StaticMetadataRepository(),
+        connectivityChanges: connectivity.stream,
+        checkConnectivity: () async => [ConnectivityResult.mobile],
+      );
+      try {
+        await controller.initialize();
+        final playlist = await controller.createPlaylist('批量下载');
+        await controller.addCandidatesToPlaylist(playlist!, [
+          _candidate(id: 'cached', name: '已缓存'),
+          _candidate(id: 'bad', name: '失败'),
+          _candidate(id: 'good', name: '成功'),
+        ]);
+
+        final offline = await controller.downloadPlaylist(
+          playlist,
+          wifiOnly: true,
+        );
+        expect(offline.stoppedForWifi, isTrue);
+        expect(resolver.resolveIds, isEmpty);
+
+        connectivity.add([ConnectivityResult.wifi]);
+        await Future<void>.delayed(const Duration(milliseconds: 1));
+        expect(controller.isOnWifi, isTrue);
+        final result = await controller.downloadPlaylist(
+          playlist,
+          wifiOnly: true,
+        );
+        expect(result.downloaded, 1);
+        expect(result.skipped, 1);
+        expect(result.failed, 1);
+        expect(resolver.resolveIds, ['bad', 'good']);
+        expect(cacheStore.downloadIds, ['good']);
+        expect(controller.isPlaylistDownloading(playlist), isFalse);
+      } finally {
+        controller.dispose();
+        await handler.dispose();
+        await connectivity.close();
+      }
+    },
+  );
+
+  test(
+    'Wi-Fi loss cancels the active auto download and stops the batch',
+    () async {
+      final connectivity =
+          StreamController<List<ConnectivityResult>>.broadcast();
+      final handler = _SpyAudioHandler();
+      final cacheStore = _DownloadCacheStore();
+      final resolver = _GatedPlaylistResolver();
+      final controller = MusicController(
+        audioHandler: handler,
+        resolver: resolver,
+        cacheStore: cacheStore,
+        playlistStore: _MemoryPlaylistStore(),
+        settingsStore: _FakeSettingsStore(),
+        metadataRepository: _StaticMetadataRepository(),
+        connectivityChanges: connectivity.stream,
+        checkConnectivity: () async => [ConnectivityResult.wifi],
+      );
+      try {
+        await controller.initialize();
+        final playlist = await controller.createPlaylist('WiFi断开');
+        controller.playlistDownloadConcurrency = 1;
+        await controller.addCandidatesToPlaylist(playlist!, [
+          _candidate(id: 'first', name: '第一首'),
+          _candidate(id: 'second', name: '第二首'),
+        ]);
+
+        final batch = controller.downloadPlaylist(playlist, wifiOnly: true);
+        await resolver.started.future;
+        connectivity.add([ConnectivityResult.mobile]);
+        await Future<void>.delayed(const Duration(milliseconds: 1));
+        resolver.release.complete();
+        final result = await batch;
+
+        expect(result.stoppedForWifi, isTrue);
+        expect(resolver.resolveIds, ['first']);
+        expect(cacheStore.downloadIds, isEmpty);
+      } finally {
+        controller.dispose();
+        await handler.dispose();
+        await connectivity.close();
+      }
+    },
+  );
+
+  test(
+    'brief Wi-Fi loss remains resumable when canceled work settles after recovery',
+    () async {
+      final connectivity =
+          StreamController<List<ConnectivityResult>>.broadcast();
+      final handler = _SpyAudioHandler();
+      final cacheStore = _DownloadCacheStore();
+      final resolver = _GatedPlaylistResolver();
+      final controller = MusicController(
+        audioHandler: handler,
+        resolver: resolver,
+        cacheStore: cacheStore,
+        playlistStore: _MemoryPlaylistStore(),
+        settingsStore: _FakeSettingsStore(),
+        metadataRepository: _StaticMetadataRepository(),
+        connectivityChanges: connectivity.stream,
+        checkConnectivity: () async => [ConnectivityResult.wifi],
+      );
+      try {
+        await controller.initialize();
+        final playlist = await controller.createPlaylist('WiFi 闪断');
+        controller.playlistDownloadConcurrency = 1;
+        await controller.addCandidatesToPlaylist(playlist!, [
+          _candidate(id: 'first', name: '第一首'),
+          _candidate(id: 'second', name: '第二首'),
+        ]);
+
+        final firstBatch = controller.startWifiPlaylistDownloadOnce(playlist)!;
+        await resolver.started.future;
+        connectivity.add([ConnectivityResult.mobile]);
+        await Future<void>.delayed(const Duration(milliseconds: 1));
+        connectivity.add([ConnectivityResult.wifi]);
+        await Future<void>.delayed(const Duration(milliseconds: 1));
+        resolver.release.complete();
+        final interrupted = await firstBatch;
+
+        expect(interrupted.stoppedForWifi, isTrue);
+        expect(resolver.resolveIds, ['first']);
+        expect(cacheStore.downloadIds, isEmpty);
+
+        final resumed = controller.startWifiPlaylistDownloadOnce(playlist);
+        expect(resumed, isNotNull);
+        final finished = await resumed!;
+        expect(finished.downloaded, 2);
+        expect(cacheStore.downloadIds, ['first', 'second']);
+        expect(controller.startWifiPlaylistDownloadOnce(playlist), isNull);
+      } finally {
+        controller.dispose();
+        await handler.dispose();
+        await connectivity.close();
+      }
+    },
+  );
+
+  test(
+    'playlist batch runs three downloads in parallel and reports progress',
+    () async {
+      final handler = _SpyAudioHandler();
+      final cacheStore = _DownloadCacheStore();
+      final resolver = _ConcurrentPlaylistResolver();
+      final controller = MusicController(
+        audioHandler: handler,
+        resolver: resolver,
+        cacheStore: cacheStore,
+        playlistStore: _MemoryPlaylistStore(),
+        settingsStore: _FakeSettingsStore(),
+        metadataRepository: _StaticMetadataRepository(),
+        connectivityChanges: const Stream<List<ConnectivityResult>>.empty(),
+        checkConnectivity: () async => [ConnectivityResult.mobile],
+      );
+      try {
+        await controller.initialize();
+        expect(controller.playlistDownloadConcurrency, 3);
+        final playlist = await controller.createPlaylist('并行');
+        await controller.addCandidatesToPlaylist(playlist!, [
+          for (final id in ['a', 'b', 'c', 'd', 'e'])
+            _candidate(id: id, name: id),
+        ]);
+
+        final batch = controller.downloadPlaylist(playlist);
+        await resolver.waitForStarts(3);
+        expect(resolver.started, ['a', 'b', 'c']);
+        expect(controller.isPlaylistDownloading(playlist), isTrue);
+        expect(controller.hasActiveDownloads, isTrue);
+        expect(controller.playlistDownloadProgress(playlist)?.processed, 0);
+
+        resolver.release('b');
+        await resolver.waitForStarts(4);
+        expect(resolver.started, ['a', 'b', 'c', 'd']);
+        expect(controller.playlistDownloadProgress(playlist)?.processed, 1);
+
+        resolver.release('c');
+        await resolver.waitForStarts(5);
+        resolver.release('a');
+        resolver.release('d');
+        resolver.release('e');
+        final result = await batch;
+
+        expect(result.downloaded, 5);
+        expect(resolver.maxActive, 3);
+        expect(controller.cachedCountForPlaylist(playlist), 5);
+        expect(controller.playlistDownloadProgress(playlist), isNull);
+        expect(controller.isPlaylistDownloading(playlist), isFalse);
+        expect(controller.hasActiveDownloads, isFalse);
+      } finally {
+        controller.dispose();
+        await handler.dispose();
+      }
+    },
+  );
+
+  test(
+    'playlist batch is registered before progress listeners can reenter',
+    () async {
+      final handler = _SpyAudioHandler();
+      final cacheStore = _DownloadCacheStore();
+      final resolver = _GatedPlaylistResolver();
+      final controller = MusicController(
+        audioHandler: handler,
+        resolver: resolver,
+        cacheStore: cacheStore,
+        playlistStore: _MemoryPlaylistStore(),
+        settingsStore: _FakeSettingsStore(),
+        metadataRepository: _StaticMetadataRepository(),
+        connectivityChanges: const Stream<List<ConnectivityResult>>.empty(),
+        checkConnectivity: () async => [ConnectivityResult.wifi],
+      );
+      try {
+        await controller.initialize();
+        final playlist = await controller.createPlaylist('重入');
+        await controller.addCandidatesToPlaylist(playlist!, [
+          _candidate(id: 'first', name: '第一首'),
+        ]);
+
+        PlaylistDownloadProgress? firstProgress;
+        Future<PlaylistDownloadSummary>? reentrantBatch;
+        var reentered = false;
+        var progressWasReplaced = false;
+        var progressWithoutBatch = false;
+        controller.addListener(() {
+          final progress = controller.playlistDownloadProgress(playlist);
+          if (progress == null || progress.processed != 0) return;
+          if (!controller.isPlaylistDownloading(playlist)) {
+            progressWithoutBatch = true;
+          }
+          if (firstProgress != null && !identical(firstProgress, progress)) {
+            progressWasReplaced = true;
+          }
+          firstProgress ??= progress;
+          if (!reentered) {
+            reentered = true;
+            reentrantBatch = controller.downloadPlaylist(
+              playlist,
+              wifiOnly: true,
+            );
+          }
+        });
+
+        final manualBatch = controller.downloadPlaylist(playlist);
+        await resolver.started.future;
+        expect(reentrantBatch, isNotNull);
+        expect(progressWithoutBatch, isFalse);
+        expect(progressWasReplaced, isFalse);
+        resolver.release.complete();
+        final results = await Future.wait([manualBatch, reentrantBatch!]);
+        expect(results.map((result) => result.downloaded), [1, 1]);
+        expect(cacheStore.downloadIds, ['first']);
+        expect(controller.isPlaylistDownloading(playlist), isFalse);
+        expect(controller.playlistDownloadProgress(playlist), isNull);
+      } finally {
+        controller.dispose();
+        await handler.dispose();
+      }
+    },
+  );
+
+  test('manual playlist download works on mobile data', () async {
+    final handler = _SpyAudioHandler();
+    final cacheStore = _DownloadCacheStore();
+    final resolver = _DelayedMusicResolver();
+    final controller = MusicController(
+      audioHandler: handler,
+      resolver: resolver,
+      cacheStore: cacheStore,
+      playlistStore: _MemoryPlaylistStore(),
+      settingsStore: _FakeSettingsStore(),
+      metadataRepository: _StaticMetadataRepository(),
+      connectivityChanges: const Stream<List<ConnectivityResult>>.empty(),
+      checkConnectivity: () async => [ConnectivityResult.mobile],
+    );
+    try {
+      await controller.initialize();
+      final playlist = await controller.createPlaylist('手动');
+      await controller.addCandidatesToPlaylist(playlist!, [
+        _candidate(id: 'mobile', name: '移动网络下载'),
+      ]);
+
+      final result = await controller.downloadPlaylist(playlist);
+      expect(result.downloaded, 1);
+      expect(result.stoppedForWifi, isFalse);
+      expect(cacheStore.downloadIds, ['mobile']);
+    } finally {
+      controller.dispose();
+      await handler.dispose();
+    }
+  });
+
   test('failed downloads remain visible as recent tasks', () async {
     final handler = _SpyAudioHandler();
     final controller = MusicController(
@@ -1869,6 +2178,82 @@ class _DelayedMusicResolver implements MusicResolver {
   Future<ResolvedMusic> resolve(MusicSearchCandidate candidate) async {
     resolveIds.add(candidate.id);
     await Future<void>.delayed(const Duration(milliseconds: 40));
+    return ResolvedMusic(
+      query: candidate.query,
+      source: candidate.source,
+      platform: candidate.platform,
+      id: candidate.id,
+      name: candidate.name,
+      artist: candidate.artist,
+      album: candidate.album,
+      url: 'https://cdn.example.test/${candidate.id}.mp3',
+      quality: const MusicQuality(format: 'mp3'),
+    );
+  }
+}
+
+class _SelectivePlaylistResolver extends _DelayedMusicResolver {
+  @override
+  Future<ResolvedMusic> resolve(MusicSearchCandidate candidate) {
+    if (candidate.id == 'bad') {
+      resolveIds.add(candidate.id);
+      throw StateError('one song failed');
+    }
+    return super.resolve(candidate);
+  }
+}
+
+class _GatedPlaylistResolver extends _DelayedMusicResolver {
+  final started = Completer<void>();
+  final release = Completer<void>();
+
+  @override
+  Future<ResolvedMusic> resolve(MusicSearchCandidate candidate) async {
+    resolveIds.add(candidate.id);
+    if (!started.isCompleted) started.complete();
+    await release.future;
+    return ResolvedMusic(
+      query: candidate.query,
+      source: candidate.source,
+      platform: candidate.platform,
+      id: candidate.id,
+      name: candidate.name,
+      artist: candidate.artist,
+      album: candidate.album,
+      url: 'https://cdn.example.test/${candidate.id}.mp3',
+      quality: const MusicQuality(format: 'mp3'),
+    );
+  }
+}
+
+class _ConcurrentPlaylistResolver extends _DelayedMusicResolver {
+  final started = <String>[];
+  final _gates = <String, Completer<void>>{};
+  final _startWaiters = <int, Completer<void>>{};
+  int active = 0;
+  int maxActive = 0;
+
+  Future<void> waitForStarts(int count) {
+    if (started.length >= count) return Future<void>.value();
+    return (_startWaiters[count] ??= Completer<void>()).future;
+  }
+
+  void release(String id) => _gates[id]!.complete();
+
+  @override
+  Future<ResolvedMusic> resolve(MusicSearchCandidate candidate) async {
+    started.add(candidate.id);
+    active += 1;
+    if (active > maxActive) maxActive = active;
+    final gate = Completer<void>();
+    _gates[candidate.id] = gate;
+    for (final entry in _startWaiters.entries) {
+      if (started.length >= entry.key && !entry.value.isCompleted) {
+        entry.value.complete();
+      }
+    }
+    await gate.future;
+    active -= 1;
     return ResolvedMusic(
       query: candidate.query,
       source: candidate.source,

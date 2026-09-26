@@ -8,10 +8,14 @@ class ListSearchField extends StatelessWidget {
     super.key,
     required this.controller,
     required this.onChanged,
+    this.focusNode,
+    this.emptySuffix,
   });
 
   final TextEditingController controller;
   final ValueChanged<String> onChanged;
+  final FocusNode? focusNode;
+  final Widget? emptySuffix;
 
   @override
   Widget build(BuildContext context) {
@@ -20,13 +24,14 @@ class ListSearchField extends StatelessWidget {
       padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
       child: TextField(
         controller: controller,
+        focusNode: focusNode,
         textInputAction: TextInputAction.search,
         onChanged: onChanged,
         decoration: InputDecoration(
           hintText: strings.listSearchHint,
           prefixIcon: const Icon(Icons.search),
           suffixIcon: controller.text.isEmpty
-              ? null
+              ? emptySuffix
               : IconButton(
                   tooltip: MaterialLocalizations.of(
                     context,

@@ -6,7 +6,6 @@ import 'package:image_picker_android/image_picker_android.dart';
 import 'package:image_picker_platform_interface/image_picker_platform_interface.dart';
 
 import '../application/music_controller.dart';
-import '../application/download_queue_controller.dart';
 import '../application/screenshot_matcher.dart';
 import '../application/screenshot_song_parser.dart';
 import '../data/music_resolver.dart';
@@ -68,7 +67,6 @@ class _ScreenshotImportPageState extends State<ScreenshotImportPage> {
   final _images = <XFile>[];
   final _ocrLines = <String, List<ScreenshotTextLine>>{};
   final _rows = <_ImportRow>[];
-  final _downloadErrors = <String, String>{};
   final _parser = const ScreenshotSongParser();
   late final ScreenshotMatcher _matcher;
   bool _recognizing = false;
@@ -253,13 +251,6 @@ class _ScreenshotImportPageState extends State<ScreenshotImportPage> {
                     onPressed: selected == 0 || _adding ? null : _addToPlaylist,
                     child: Text(zh ? '加入歌单' : 'Add to playlist'),
                   ),
-                  const SizedBox(width: 8),
-                  FilledButton(
-                    onPressed: selected == 0 || _adding
-                        ? null
-                        : _downloadSelectedTracks,
-                    child: Text(zh ? '下载已选' : 'Download selected'),
-                  ),
                 ],
               ),
             ),
@@ -340,24 +331,6 @@ class _ScreenshotImportPageState extends State<ScreenshotImportPage> {
             child: Text(
               row.error!,
               style: TextStyle(color: Theme.of(context).colorScheme.error),
-            ),
-          ),
-        if (row.selected != null &&
-            _downloadErrors.containsKey(_candidateKey(row.selected!)))
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16),
-            child: Row(
-              children: [
-                Expanded(
-                  child: Text(_downloadErrors[_candidateKey(row.selected!)]!),
-                ),
-                TextButton(
-                  onPressed: _adding
-                      ? null
-                      : () => _retryDownload(row.selected!),
-                  child: Text(zh ? '重试下载' : 'Retry download'),
-                ),
-              ],
             ),
           ),
         if (row.expanded)
@@ -649,72 +622,6 @@ class _ScreenshotImportPageState extends State<ScreenshotImportPage> {
     } finally {
       if (mounted) setState(() => _adding = false);
     }
-  }
-
-  Future<void> _downloadSelectedTracks() async {
-    final selected = [
-      for (final row in _rows)
-        if (row.selected != null) row.selected!,
-    ];
-    setState(() => _adding = true);
-    var downloaded = 0;
-    var failed = 0;
-    try {
-      for (final candidate in selected) {
-        if (!mounted) return;
-        final error = await _downloadSelected(candidate);
-        if (error == null) {
-          downloaded += 1;
-        } else {
-          failed += 1;
-        }
-      }
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('下载 $downloaded 首，失败 $failed 首')),
-        );
-      }
-    } finally {
-      if (mounted) setState(() => _adding = false);
-    }
-  }
-
-  Future<String?> _downloadSelected(MusicSearchCandidate candidate) async {
-    final key = _candidateKey(candidate);
-    if (widget.controller.isCandidateCached(candidate)) {
-      if (mounted) setState(() => _downloadErrors.remove(key));
-      return null;
-    }
-    try {
-      final task = await widget.controller.downloadCandidateAndWait(
-        candidate,
-        requireExactIdentity: false,
-      );
-      final error = task?.status == DownloadTaskStatus.completed
-          ? null
-          : task?.error.isNotEmpty == true
-          ? task!.error
-          : '下载未完成';
-      if (mounted) {
-        setState(() {
-          if (error == null) {
-            _downloadErrors.remove(key);
-          } else {
-            _downloadErrors[key] = error;
-          }
-        });
-      }
-      return error;
-    } catch (error) {
-      if (mounted) setState(() => _downloadErrors[key] = '$error');
-      return '$error';
-    }
-  }
-
-  Future<void> _retryDownload(MusicSearchCandidate candidate) async {
-    setState(() => _adding = true);
-    await _downloadSelected(candidate);
-    if (mounted) setState(() => _adding = false);
   }
 
   static String _candidateKey(MusicSearchCandidate candidate) =>

@@ -57,6 +57,28 @@ class AppStrings {
       isZh ? '截图搜歌并发数' : 'Screenshot search concurrency';
   String screenshotSearchConcurrencyDescription(int count) =>
       isZh ? '同时搜索 $count 首，范围 1～10 首' : 'Search $count songs at once (1–10)';
+  String get playlistDownloadConcurrency =>
+      isZh ? '歌单下载并发数' : 'Playlist download concurrency';
+  String playlistDownloadConcurrencyDescription(int count) =>
+      isZh ? '同时下载 $count 首，范围 1～10 首' : 'Download $count songs at once (1–10)';
+  String playlistDownloadCounts(int total, int cached) => isZh
+      ? '歌曲 $total 首 · 已下载 $cached 首'
+      : '$total songs · $cached downloaded';
+  String get playlistDownloads => isZh ? '歌单下载' : 'Playlist downloads';
+  String playlistDownloadProgress(int cached, int total, int processed) => isZh
+      ? '已下载 $cached/$total 首 · 已处理 $processed 首'
+      : 'Downloaded $cached/$total · processed $processed';
+  String get downloadPlaylistsOnWifi =>
+      isZh ? 'WiFi下默认下载' : 'Download on Wi-Fi by default';
+  String get downloadPlaylistsOnWifiDescription => isZh
+      ? '进入自建歌单后，按歌单顺序下载未缓存的歌曲；离开 WiFi 时暂停'
+      : 'Download uncached songs in playlist order when opening a custom playlist; pause off Wi-Fi';
+  String get downloadAllPlaylist => isZh ? '一键全部下载' : 'Download all';
+  String get downloadingPlaylist => isZh ? '正在下载歌单' : 'Downloading playlist';
+  String playlistDownloadSummary(int downloaded, int skipped, int failed) =>
+      isZh
+      ? '下载 $downloaded 首，已缓存 $skipped 首，失败 $failed 首'
+      : 'Downloaded $downloaded, already cached $skipped, failed $failed';
   String get lanLibrary => isZh ? '局域网音乐库' : 'LAN Music Library';
   String get lanLibraryAddress => isZh ? '局域网音乐库地址' : 'LAN library address';
   String get lanLibraryDescription => isZh

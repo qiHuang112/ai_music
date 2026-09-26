@@ -46,6 +46,8 @@ class MusicAppSettings {
     this.theme = AppThemePreference.dark,
     this.lanLibraryUrl = defaultLanLibraryUrl,
     this.screenshotSearchConcurrency = 3,
+    this.playlistDownloadConcurrency = 3,
+    this.downloadPlaylistsOnWifi = true,
   });
 
   final MusicDataSource source;
@@ -53,6 +55,8 @@ class MusicAppSettings {
   final AppThemePreference theme;
   final String lanLibraryUrl;
   final int screenshotSearchConcurrency;
+  final int playlistDownloadConcurrency;
+  final bool downloadPlaylistsOnWifi;
 
   MusicAppSettings copyWith({
     MusicDataSource? source,
@@ -60,6 +64,8 @@ class MusicAppSettings {
     AppThemePreference? theme,
     String? lanLibraryUrl,
     int? screenshotSearchConcurrency,
+    int? playlistDownloadConcurrency,
+    bool? downloadPlaylistsOnWifi,
   }) {
     return MusicAppSettings(
       source: source ?? this.source,
@@ -68,6 +74,10 @@ class MusicAppSettings {
       lanLibraryUrl: lanLibraryUrl ?? this.lanLibraryUrl,
       screenshotSearchConcurrency:
           screenshotSearchConcurrency ?? this.screenshotSearchConcurrency,
+      playlistDownloadConcurrency:
+          playlistDownloadConcurrency ?? this.playlistDownloadConcurrency,
+      downloadPlaylistsOnWifi:
+          downloadPlaylistsOnWifi ?? this.downloadPlaylistsOnWifi,
     );
   }
 
@@ -78,6 +88,8 @@ class MusicAppSettings {
       'themeMode': theme.storageValue,
       'lanLibraryUrl': lanLibraryUrl,
       'screenshotSearchConcurrency': screenshotSearchConcurrency,
+      'playlistDownloadConcurrency': playlistDownloadConcurrency,
+      'downloadPlaylistsOnWifi': downloadPlaylistsOnWifi,
     };
   }
 }
@@ -113,6 +125,12 @@ class MusicSettingsStore {
           screenshotSearchConcurrency: _restoredScreenshotSearchConcurrency(
             decoded['screenshotSearchConcurrency'],
           ),
+          playlistDownloadConcurrency: _restoredPlaylistDownloadConcurrency(
+            decoded['playlistDownloadConcurrency'],
+          ),
+          downloadPlaylistsOnWifi: decoded['downloadPlaylistsOnWifi'] is bool
+              ? decoded['downloadPlaylistsOnWifi'] as bool
+              : true,
         );
       }
       return MusicAppSettings(source: MusicDataSource.fromStorage(text));
@@ -158,6 +176,13 @@ class MusicSettingsStore {
 }
 
 int _restoredScreenshotSearchConcurrency(Object? value) {
+  final parsed = value is num
+      ? value.toInt()
+      : int.tryParse(value?.toString() ?? '');
+  return (parsed ?? 3).clamp(1, 10);
+}
+
+int _restoredPlaylistDownloadConcurrency(Object? value) {
   final parsed = value is num
       ? value.toInt()
       : int.tryParse(value?.toString() ?? '');
