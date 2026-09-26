@@ -155,6 +155,7 @@ class MusicController extends ChangeNotifier {
     audioHandler.onOhosToggleFavoriteRequested =
         _handleOhosToggleFavoriteRequested;
     audioHandler.onToggleFavoriteRequested = _handleToggleFavoriteRequested;
+    audioHandler.onTogglePlaybackModeRequested = cyclePlaybackMode;
     _mediaItemSubscription = audioHandler.mediaItem.listen(
       _handleMediaItemChanged,
     );
@@ -234,6 +235,7 @@ class MusicController extends ChangeNotifier {
   MusicSearchCandidate? get busyCandidate => downloadQueue.busyCandidate;
   Set<String> get busyCandidateKeys => downloadQueue.busyCandidateKeys;
   PlaybackMode playbackMode = PlaybackMode.sequential;
+  Future<void> _playbackModeChange = Future<void>.value();
   AppLanguage language = AppLanguage.zh;
   AppThemePreference themePreference = AppThemePreference.dark;
   int screenshotSearchConcurrency = 3;
@@ -1260,29 +1262,34 @@ class MusicController extends ChangeNotifier {
     }
   }
 
-  Future<void> setPlaybackMode(PlaybackMode mode) async {
+  Future<void> setPlaybackMode(PlaybackMode mode) {
     final changed = playbackMode != mode;
     playbackMode = mode;
     notifyListeners();
-    await playbackUseCase.applyPlaybackMode(mode);
-    if (changed) {
-      _nextPrefetch.cancel();
-      _prefetchForCurrentId = null;
-      _prefetchRejectedForCurrent.clear();
-      _lyricsPrefetchQueueKey = null;
-      _lyricsPrefetchRequest += 1;
-      if (audioHandler.playbackState.value.playing) {
-        _maybePrefetchNext();
-        _maybePrefetchUpcomingLyrics();
+    // Keep the user-visible mode immediate, but apply each two-step player update
+    // in tap order so an older request cannot overwrite a newer selection.
+    final operation = _playbackModeChange.then((_) async {
+      await playbackUseCase.applyPlaybackMode(mode);
+      if (changed) {
+        _nextPrefetch.cancel();
+        _prefetchForCurrentId = null;
+        _prefetchRejectedForCurrent.clear();
+        _lyricsPrefetchQueueKey = null;
+        _lyricsPrefetchRequest += 1;
+        if (audioHandler.playbackState.value.playing) {
+          _maybePrefetchNext();
+          _maybePrefetchUpcomingLyrics();
+        }
       }
-    }
-    await _syncOhosControlState();
+      await _syncOhosControlState();
+    });
+    _playbackModeChange = operation.catchError((Object _, StackTrace _) {});
+    return operation;
   }
 
   Future<void> cyclePlaybackMode() {
     final nextMode = switch (playbackMode) {
-      PlaybackMode.sequential => PlaybackMode.loopAll,
-      PlaybackMode.loopAll => PlaybackMode.repeatOne,
+      PlaybackMode.sequential => PlaybackMode.repeatOne,
       PlaybackMode.repeatOne => PlaybackMode.shuffle,
       PlaybackMode.shuffle => PlaybackMode.sequential,
     };
@@ -1570,7 +1577,7 @@ class MusicController extends ChangeNotifier {
     );
     _activeQueueTracks = remainingQueue;
     if (loaded) {
-      await playbackUseCase.applyPlaybackMode(playbackMode);
+      await setPlaybackMode(playbackMode);
     }
     if (!wasPlaying) {
       await audioHandler.pause();
@@ -1876,7 +1883,7 @@ class MusicController extends ChangeNotifier {
   Future<void> _handleOhosLoopModeRequested(String loopMode) {
     final mode = switch (loopMode) {
       'single' => PlaybackMode.repeatOne,
-      'list' => PlaybackMode.loopAll,
+      'list' => PlaybackMode.sequential,
       'shuffle' => PlaybackMode.shuffle,
       'sequence' => PlaybackMode.sequential,
       _ => playbackMode,
@@ -1913,6 +1920,7 @@ class MusicController extends ChangeNotifier {
     audioHandler.onOhosLoopModeRequested = null;
     audioHandler.onOhosToggleFavoriteRequested = null;
     audioHandler.onToggleFavoriteRequested = null;
+    audioHandler.onTogglePlaybackModeRequested = null;
     unawaited(_mediaItemSubscription.cancel());
     unawaited(_playbackSubscription.cancel());
     unawaited(_connectivitySubscription?.cancel());

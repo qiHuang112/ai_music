@@ -123,10 +123,6 @@ class PlaybackUseCase {
     switch (mode) {
       case PlaybackMode.sequential:
         await audioHandler.setShuffleMode(AudioServiceShuffleMode.none);
-        await audioHandler.setRepeatMode(AudioServiceRepeatMode.none);
-        break;
-      case PlaybackMode.loopAll:
-        await audioHandler.setShuffleMode(AudioServiceShuffleMode.none);
         await audioHandler.setRepeatMode(AudioServiceRepeatMode.all);
         break;
       case PlaybackMode.repeatOne:

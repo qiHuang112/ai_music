@@ -891,7 +891,6 @@ bool _hasTimedLyrics(List<LyricLine> lyrics) =>
 IconData _modeIcon(PlaybackMode mode) {
   return switch (mode) {
     PlaybackMode.sequential => Icons.playlist_play,
-    PlaybackMode.loopAll => Icons.repeat,
     PlaybackMode.repeatOne => Icons.repeat_one,
     PlaybackMode.shuffle => Icons.shuffle,
   };
@@ -900,7 +899,6 @@ IconData _modeIcon(PlaybackMode mode) {
 String _modeTooltip(AppStrings strings, PlaybackMode mode) {
   return switch (mode) {
     PlaybackMode.sequential => strings.modeSequential,
-    PlaybackMode.loopAll => strings.modeLoopAll,
     PlaybackMode.repeatOne => strings.modeRepeatOne,
     PlaybackMode.shuffle => strings.modeShuffle,
   };

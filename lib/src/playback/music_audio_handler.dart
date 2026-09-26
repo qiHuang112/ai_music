@@ -46,9 +46,11 @@ class MusicAudioHandler extends BaseAudioHandler
     'com.qi.ai_music.ohos_media_controls',
   );
   static const String toggleFavoriteAction = 'toggleFavorite';
+  static const String togglePlaybackModeAction = 'togglePlaybackMode';
   Future<void> Function(String loopMode)? onOhosLoopModeRequested;
   Future<void> Function(String mediaId)? onOhosToggleFavoriteRequested;
   Future<void> Function(String mediaId)? onToggleFavoriteRequested;
+  Future<void> Function()? onTogglePlaybackModeRequested;
   late final StreamSubscription<PlaybackEvent> _playbackEventSubscription;
   late final StreamSubscription<int?> _currentIndexSubscription;
   late final StreamSubscription<Duration?> _durationSubscription;
@@ -254,7 +256,12 @@ class MusicAudioHandler extends BaseAudioHandler
       AudioServiceRepeatMode.group => LoopMode.all,
     };
     await _player.setLoopMode(loopMode);
-    playbackState.add(playbackState.value.copyWith(repeatMode: repeatMode));
+    playbackState.add(
+      playbackState.value.copyWith(
+        repeatMode: repeatMode,
+        controls: _mediaControls(repeatMode: repeatMode),
+      ),
+    );
     unawaited(_syncOhosControlState(repeatMode: repeatMode));
   }
 
@@ -272,7 +279,12 @@ class MusicAudioHandler extends BaseAudioHandler
     // 手动下一首需要走 Dart 层的稳定随机顺序和短听排除策略；
     // 不启用 just_audio 内建 shuffle，避免真机下一首被播放器内部顺序接管。
     await _player.setShuffleModeEnabled(false);
-    playbackState.add(playbackState.value.copyWith(shuffleMode: shuffleMode));
+    playbackState.add(
+      playbackState.value.copyWith(
+        shuffleMode: shuffleMode,
+        controls: _mediaControls(shuffleMode: shuffleMode),
+      ),
+    );
     unawaited(_syncOhosControlState(shuffleMode: shuffleMode));
   }
 
@@ -311,6 +323,10 @@ class MusicAudioHandler extends BaseAudioHandler
       if (callback != null) {
         await callback(_mediaIdFromExtras(extras) ?? mediaItem.value?.id ?? '');
       }
+      return null;
+    }
+    if (name == togglePlaybackModeAction) {
+      await onTogglePlaybackModeRequested?.call();
       return null;
     }
     return super.customAction(name, extras);
@@ -566,7 +582,16 @@ class MusicAudioHandler extends BaseAudioHandler
 
   static const List<int> _androidCompactActionIndices = [0, 2, 3];
 
-  List<MediaControl> _mediaControls() {
+  List<MediaControl> _mediaControls({
+    AudioServiceRepeatMode? repeatMode,
+    AudioServiceShuffleMode? shuffleMode,
+  }) {
+    final shuffled =
+        (shuffleMode ?? playbackState.value.shuffleMode) !=
+        AudioServiceShuffleMode.none;
+    final repeatsOne =
+        (repeatMode ?? playbackState.value.repeatMode) ==
+        AudioServiceRepeatMode.one;
     return [
       MediaControl.custom(
         androidIcon: _isCurrentFavorite
@@ -579,6 +604,19 @@ class MusicAudioHandler extends BaseAudioHandler
       MediaControl.skipToPrevious,
       if (_player.playing) MediaControl.pause else MediaControl.play,
       MediaControl.skipToNext,
+      MediaControl.custom(
+        androidIcon: shuffled
+            ? 'drawable/ic_notification_shuffle'
+            : repeatsOne
+            ? 'drawable/ic_notification_repeat_one'
+            : 'drawable/ic_notification_repeat_all',
+        label: shuffled
+            ? '随机播放'
+            : repeatsOne
+            ? '单曲循环'
+            : '顺序播放',
+        name: togglePlaybackModeAction,
+      ),
     ];
   }
 

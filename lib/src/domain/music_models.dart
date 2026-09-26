@@ -1,4 +1,4 @@
-enum PlaybackMode { sequential, loopAll, repeatOne, shuffle }
+enum PlaybackMode { sequential, repeatOne, shuffle }
 
 class Track {
   const Track({

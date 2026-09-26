@@ -158,6 +158,79 @@ void main() {
     }
   });
 
+  test(
+    'sequential mode repeats the queue and system action cycles three modes',
+    () async {
+      final handler = _SpyAudioHandler();
+      final controller = MusicController(
+        audioHandler: handler,
+        resolver: _FakeMusicResolver(),
+        cacheStore: _FakeCacheStore(cached: const []),
+        playlistStore: _FakePlaylistStore(),
+        settingsStore: _FakeSettingsStore(),
+        metadataRepository: _StaticMetadataRepository(),
+      );
+      try {
+        await controller.initialize();
+        await controller.setPlaybackMode(PlaybackMode.sequential);
+        expect(handler.shuffleMode, AudioServiceShuffleMode.none);
+        expect(handler.repeatMode, AudioServiceRepeatMode.all);
+
+        await handler.customAction(MusicAudioHandler.togglePlaybackModeAction);
+        expect(controller.playbackMode, PlaybackMode.repeatOne);
+        expect(handler.repeatMode, AudioServiceRepeatMode.one);
+
+        await handler.customAction(MusicAudioHandler.togglePlaybackModeAction);
+        expect(controller.playbackMode, PlaybackMode.shuffle);
+        expect(handler.shuffleMode, AudioServiceShuffleMode.all);
+
+        await handler.customAction(MusicAudioHandler.togglePlaybackModeAction);
+        expect(controller.playbackMode, PlaybackMode.sequential);
+        expect(handler.repeatMode, AudioServiceRepeatMode.all);
+        expect(handler.shuffleMode, AudioServiceShuffleMode.none);
+      } finally {
+        controller.dispose();
+        await handler.dispose();
+      }
+    },
+  );
+
+  test(
+    'rapid mode taps keep the final player mode in sync with the UI',
+    () async {
+      final handler = _DelayedPlaybackModeHandler();
+      final controller = MusicController(
+        audioHandler: handler,
+        resolver: _FakeMusicResolver(),
+        cacheStore: _FakeCacheStore(cached: const []),
+        playlistStore: _FakePlaylistStore(),
+        settingsStore: _FakeSettingsStore(),
+        metadataRepository: _StaticMetadataRepository(),
+      );
+      try {
+        await controller.initialize();
+        await controller.setPlaybackMode(PlaybackMode.sequential);
+        handler.blockNextShuffleChange = true;
+
+        final firstTap = controller.cyclePlaybackMode();
+        await handler.shuffleChangeStarted.future;
+        final secondTap = handler.customAction(
+          MusicAudioHandler.togglePlaybackModeAction,
+        );
+        await Future<void>.delayed(const Duration(milliseconds: 1));
+        handler.releaseShuffleChange.complete();
+        await Future.wait([firstTap, secondTap]);
+
+        expect(controller.playbackMode, PlaybackMode.shuffle);
+        expect(handler.repeatMode, AudioServiceRepeatMode.all);
+        expect(handler.shuffleMode, AudioServiceShuffleMode.all);
+      } finally {
+        controller.dispose();
+        await handler.dispose();
+      }
+    },
+  );
+
   test('default cached playback keeps the cache queue for next', () async {
     final handler = _SpyAudioHandler();
     final first = _cachedTrack(id: 'song-1', name: '第一首');
@@ -2340,6 +2413,22 @@ class _SpyAudioHandler extends MusicAudioHandler {
 
   void emit(MediaItem? item) {
     mediaItem.add(item);
+  }
+}
+
+class _DelayedPlaybackModeHandler extends _SpyAudioHandler {
+  final shuffleChangeStarted = Completer<void>();
+  final releaseShuffleChange = Completer<void>();
+  bool blockNextShuffleChange = false;
+
+  @override
+  Future<void> setShuffleMode(AudioServiceShuffleMode shuffleMode) async {
+    if (blockNextShuffleChange) {
+      blockNextShuffleChange = false;
+      shuffleChangeStarted.complete();
+      await releaseShuffleChange.future;
+    }
+    await super.setShuffleMode(shuffleMode);
   }
 }
 

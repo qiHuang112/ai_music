@@ -6,7 +6,7 @@ void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
   test(
-    'android controls use favorite, previous, play pause, and next',
+    'android controls include favorite and a fifth playback mode action',
     () async {
       final handler = MusicAudioHandler();
       try {
@@ -26,6 +26,27 @@ void main() {
         expect(state.controls[1], MediaControl.skipToPrevious);
         expect(state.controls[2], MediaControl.play);
         expect(state.controls[3], MediaControl.skipToNext);
+        expect(state.controls, hasLength(5));
+        expect(state.controls[4].action, MediaAction.custom);
+        expect(
+          state.controls[4].customAction?.name,
+          MusicAudioHandler.togglePlaybackModeAction,
+        );
+        expect(
+          state.controls[4].androidIcon,
+          'drawable/ic_notification_repeat_all',
+        );
+
+        await handler.setRepeatMode(AudioServiceRepeatMode.one);
+        expect(
+          handler.playbackState.value.controls[4].androidIcon,
+          'drawable/ic_notification_repeat_one',
+        );
+        await handler.setShuffleMode(AudioServiceShuffleMode.all);
+        expect(
+          handler.playbackState.value.controls[4].androidIcon,
+          'drawable/ic_notification_shuffle',
+        );
 
         await handler.syncControlState(isFavorite: true);
         state = handler.playbackState.value;
@@ -53,6 +74,21 @@ void main() {
       expect(toggledId, 'song-1');
     } finally {
       handler.onToggleFavoriteRequested = null;
+      await handler.dispose();
+    }
+  });
+
+  test('playback mode custom action calls the controller callback', () async {
+    final handler = MusicAudioHandler();
+    var calls = 0;
+    handler.onTogglePlaybackModeRequested = () async {
+      calls += 1;
+    };
+    try {
+      await handler.customAction(MusicAudioHandler.togglePlaybackModeAction);
+      expect(calls, 1);
+    } finally {
+      handler.onTogglePlaybackModeRequested = null;
       await handler.dispose();
     }
   });

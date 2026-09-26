@@ -224,7 +224,6 @@ class AppStrings {
   String get unknownArtist => isZh ? '未知歌手' : 'Unknown Artist';
   String songCount(int count) => isZh ? '$count 首' : '$count songs';
   String get modeSequential => isZh ? '顺序播放' : 'Sequential';
-  String get modeLoopAll => isZh ? '列表循环' : 'Repeat all';
   String get modeRepeatOne => isZh ? '单曲循环' : 'Repeat one';
   String get modeShuffle => isZh ? '随机播放' : 'Shuffle';
   String get statusResolving => isZh ? '解析中' : 'Resolving';
