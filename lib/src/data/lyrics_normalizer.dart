@@ -72,17 +72,19 @@ String extractLyricsText(Object? value) {
         return found;
       }
     }
-    for (final entry in map.entries) {
-      if (preferredKeys.contains(entry.key)) {
-        continue;
-      }
-      final found = extractLyricsText(entry.value);
-      if (found.isNotEmpty) {
-        return found;
-      }
-    }
   }
   return '';
+}
+
+bool isStandaloneWebUrl(String text) {
+  final value = text.trim();
+  if (value.isEmpty || value.contains(RegExp(r'\s'))) {
+    return false;
+  }
+  final uri = Uri.tryParse(value);
+  return uri != null &&
+      (uri.scheme == 'http' || uri.scheme == 'https') &&
+      uri.host.isNotEmpty;
 }
 
 String normalizeLyricsText(Object? value) {
@@ -100,29 +102,65 @@ String normalizeLyricsText(Object? value) {
 }
 
 List<LyricLine> parseLrcLines(String text) {
+  final normalized = normalizeLyricsText(text);
+  if (!_isUsableLyricsText(normalized)) {
+    return const [];
+  }
   final lines = <LyricLine>[];
-  for (final rawLine in const LineSplitter().convert(
-    normalizeLyricsText(text),
-  )) {
+  var hasTimestamp = false;
+  final rawLines = const LineSplitter().convert(normalized);
+  for (final rawLine in rawLines) {
     final matches = _timeTagPattern.allMatches(rawLine).toList();
     if (matches.isEmpty) {
       continue;
     }
-    final lyricText = _cleanLyricText(
-      rawLine.replaceAll(_timeTagPattern, '').trim(),
-    );
-    if (lyricText.isEmpty) {
-      continue;
-    }
+    hasTimestamp = true;
+    final pendingTimes = <Duration>[];
+    var cursor = 0;
     for (final match in matches) {
+      final precedingText = rawLine.substring(cursor, match.start);
+      if (precedingText.trim().isNotEmpty && pendingTimes.isNotEmpty) {
+        _appendTimedLyrics(lines, pendingTimes, precedingText);
+        pendingTimes.clear();
+      }
       final time = _durationFromTag(match);
       if (time != null) {
-        lines.add(LyricLine(time: time, text: lyricText));
+        pendingTimes.add(time);
       }
+      cursor = match.end;
     }
+    _appendTimedLyrics(lines, pendingTimes, rawLine.substring(cursor));
   }
   lines.sort((a, b) => a.time.compareTo(b.time));
-  return _isUsableLyricLines(lines) ? lines : const [];
+  if (hasTimestamp) {
+    return _isUsableLyricLines(lines) ? lines : const [];
+  }
+  final plainLines = [
+    for (final rawLine in rawLines)
+      if (!RegExp(r'^\[[a-z]+:', caseSensitive: false).hasMatch(rawLine) &&
+          !_isPlainLyricCredit(rawLine))
+        LyricLine(time: Duration.zero, text: rawLine.trim()),
+  ];
+  return _isUsableLyricLines(plainLines) ? plainLines : const [];
+}
+
+void _appendTimedLyrics(
+  List<LyricLine> lines,
+  List<Duration> times,
+  String rawText,
+) {
+  final text = _cleanLyricText(rawText);
+  if (text.isEmpty) return;
+  for (final time in times) {
+    lines.add(LyricLine(time: time, text: text));
+  }
+}
+
+bool _isPlainLyricCredit(String text) {
+  return RegExp(
+    r'^(作词|作曲|编曲|制作人|演唱|歌手|所属专辑|发行时间|上传者|歌词来源|lyrics by|composer|lyricist)\s*[:：]',
+    caseSensitive: false,
+  ).hasMatch(text.trim());
 }
 
 String _normalizeLyricLine(String line) {
@@ -143,6 +181,7 @@ String _cleanLyricText(String text) {
 
 bool _isUsableLyricsText(String text) {
   if (text.isEmpty ||
+      isStandaloneWebUrl(text) ||
       RegExp(
         r'^(歌词获取失败|暂无歌词|无歌词|null|undefined)$',
         caseSensitive: false,
@@ -167,7 +206,7 @@ bool _isUsableLyricLines(List<LyricLine> lines) {
     return false;
   }
   final metadataLike = texts.where(_looksLikeSongMetadata).length;
-  if (metadataLike >= 2 || metadataLike / texts.length > 0.35) {
+  if (metadataLike / texts.length > 0.35) {
     return false;
   }
   final uniqueCount = texts.toSet().length;

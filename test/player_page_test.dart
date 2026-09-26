@@ -102,6 +102,61 @@ void main() {
     }
   });
 
+  testWidgets('plain lyrics show all lines without seek or timing guide', (
+    tester,
+  ) async {
+    final cached = _cachedTrack();
+    final handler = _SpyAudioHandler();
+    final controller = MusicController(
+      audioHandler: handler,
+      resolver: _FakeMusicResolver(),
+      cacheStore: _FakeCacheStore(cached: [cached]),
+      playlistStore: _FakePlaylistStore(),
+      settingsStore: _FakeSettingsStore(),
+      metadataRepository: _StaticMetadataRepository(
+        metadata: const TrackMetadata(
+          lyrics: [
+            LyricLine(time: Duration.zero, text: '纯文本第一句'),
+            LyricLine(time: Duration.zero, text: '纯文本第二句'),
+            LyricLine(time: Duration.zero, text: '纯文本第三句'),
+          ],
+        ),
+      ),
+    );
+
+    try {
+      await controller.initialize();
+      final track = trackFromCached(cached);
+      await controller.playTrack(track);
+      handler.emit(mediaItemFromTrack(track));
+      await controller.loadMetadataForCurrentTrack();
+      await tester.pumpWidget(
+        AppStringsScope(
+          language: AppLanguage.zh,
+          child: MaterialApp(
+            home: Scaffold(
+              body: SizedBox(
+                height: 360,
+                child: LyricsPanelForTesting(controller: controller),
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pump();
+
+      expect(find.text('纯文本第一句'), findsOneWidget);
+      expect(find.text('纯文本第二句'), findsOneWidget);
+      expect(find.text('纯文本第三句'), findsOneWidget);
+      expect(find.text('00:00'), findsNothing);
+      await tester.tap(find.text('纯文本第二句'));
+      await tester.pump();
+      expect(handler.seekedPositions, isEmpty);
+    } finally {
+      controller.dispose();
+    }
+  });
+
   testWidgets('missing lyrics panel can retry metadata recovery', (
     tester,
   ) async {

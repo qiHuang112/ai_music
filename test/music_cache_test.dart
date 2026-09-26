@@ -326,6 +326,43 @@ void main() {
     }
   });
 
+  test('downloadOrReuse never writes an audio URL as lyrics', () async {
+    final root = await Directory.systemTemp.createTemp('ai_music_url_lrc_');
+    final store = CachedTrackStore(
+      rootProvider: () async => root,
+      downloader: _FakeDownloader(),
+    );
+    const music = ResolvedMusic(
+      query: '偏向',
+      source: MusicDataSource.flac,
+      platform: 'kuwo',
+      id: 'url-only',
+      name: '偏向',
+      artist: '孟维来',
+      album: '',
+      url: 'https://cdn.example.test/audio.flac',
+      quality: MusicQuality(format: 'flac'),
+      lyrics: ResolvedLyrics(
+        source: 'flac:getUrl:payload',
+        text: 'https://cdn.example.test/audio.flac',
+        lines: 1,
+        timed: false,
+      ),
+    );
+
+    try {
+      final cached = await store.downloadOrReuse(music);
+
+      expect(cached.lyricsPath, isEmpty);
+      expect(
+        await File(lyricsPathForAudioPath(cached.filePath)).exists(),
+        isFalse,
+      );
+    } finally {
+      await root.delete(recursive: true);
+    }
+  });
+
   test(
     'downloadOrReuse cancellation removes temp files and skips index',
     () async {

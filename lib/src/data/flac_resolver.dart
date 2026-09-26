@@ -92,6 +92,7 @@ class FlacResolver {
   Future<List<MusicSearchCandidate>> searchFirstPages(
     String query, {
     bool Function(MusicSearchCandidate)? stopAfterPage,
+    int maxResults = 20,
   }) async {
     final candidates = <MusicSearchCandidate>[];
     for (var i = 0; i < platforms.length; i += 1) {
@@ -102,7 +103,7 @@ class FlacResolver {
       candidates.addAll(page);
       if (stopAfterPage != null && page.any(stopAfterPage)) break;
     }
-    return candidates.take(20).toList(growable: false);
+    return candidates.take(maxResults).toList(growable: false);
   }
 
   Future<ResolvedMusic> resolve(MusicSearchCandidate candidate) =>

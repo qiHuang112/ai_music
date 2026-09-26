@@ -461,11 +461,16 @@ class _LyricsPreviewContent extends StatelessWidget {
     return StreamBuilder<Duration>(
       stream: controller.positionStream,
       builder: (context, snapshot) {
-        final activeIndex = _activeLyricIndex(
-          lyrics,
-          snapshot.data ?? Duration.zero,
-        );
-        final rows = _previewLyricRows(lyrics, activeIndex);
+        final synchronized = _hasTimedLyrics(lyrics);
+        final rows = synchronized
+            ? _previewLyricRows(
+                lyrics,
+                _activeLyricIndex(lyrics, snapshot.data ?? Duration.zero),
+              )
+            : [
+                for (final line in lyrics.take(3))
+                  _PreviewLyricRow(line: line, active: false),
+              ];
         return Column(
           mainAxisSize: MainAxisSize.min,
           children: [
@@ -628,6 +633,22 @@ class _LyricsPanelState extends State<_LyricsPanel> {
     if (lyrics.isEmpty) {
       return _wrapContent(
         Center(child: _MissingLyricsContent(controller: controller)),
+      );
+    }
+    if (!_hasTimedLyrics(lyrics)) {
+      return _wrapContent(
+        ListView.builder(
+          padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
+          itemCount: lyrics.length,
+          itemBuilder: (context, index) => Padding(
+            padding: const EdgeInsets.symmetric(vertical: 10),
+            child: Text(
+              lyrics[index].text,
+              textAlign: TextAlign.center,
+              style: Theme.of(context).textTheme.bodyLarge,
+            ),
+          ),
+        ),
       );
     }
 
@@ -863,6 +884,9 @@ int _activeLyricIndex(List<LyricLine> lyrics, Duration position) {
   }
   return active;
 }
+
+bool _hasTimedLyrics(List<LyricLine> lyrics) =>
+    lyrics.any((line) => line.time > Duration.zero);
 
 IconData _modeIcon(PlaybackMode mode) {
   return switch (mode) {

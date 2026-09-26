@@ -30,6 +30,13 @@ class BuguyyConnectionException implements Exception {
   String toString() => buguyyConnectionMessage;
 }
 
+class UnsupportedEncryptedAudioException implements Exception {
+  const UnsupportedEncryptedAudioException();
+
+  @override
+  String toString() => '音源只提供加密音频，无法直接下载或播放';
+}
+
 class BuguyyResolver {
   BuguyyResolver({
     required MusicResolverHttp httpClient,
@@ -85,6 +92,11 @@ class BuguyyResolver {
     final lyrics = _chooseLyrics(playJson, candidate.raw);
 
     if (directUrl.isNotEmpty) {
+      // Kuwo's .mflac payload is encrypted rather than a regular FLAC file.
+      // Reject it before downloading a large file that cannot pass validation.
+      if (urlExtension(directUrl) == '.mflac') {
+        throw const UnsupportedEncryptedAudioException();
+      }
       final extension = urlExtension(directUrl).replaceFirst('.', '');
       return ResolvedMusic(
         query: candidate.query,

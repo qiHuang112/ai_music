@@ -13,6 +13,7 @@ import 'buguyy_resolver.dart';
 import 'candidate_scorer.dart';
 import 'challenge_client.dart';
 import 'flac_resolver.dart';
+import 'lyrics_normalizer.dart';
 import 'resolver_http_client.dart';
 import 'resolver_models.dart';
 import 'resolver_utils.dart';
@@ -199,7 +200,7 @@ class RemoteMusicResolver
   @override
   Future<ResolvedMusic> resolve(MusicSearchCandidate candidate) async {
     final resolved = await switch (candidate.source) {
-      MusicDataSource.buguyy => _buguyy.resolve(candidate),
+      MusicDataSource.buguyy => _resolveBuguyy(candidate),
       MusicDataSource.flac => _flac.resolve(candidate),
       MusicDataSource.auto => throw StateError(
         'Auto candidates must be tagged with their concrete source.',
@@ -216,6 +217,81 @@ class RemoteMusicResolver
       'hasLyrics=${resolved.lyrics?.text.trim().isNotEmpty ?? false}',
     );
     return resolved;
+  }
+
+  Future<ResolvedMusic> _resolveBuguyy(MusicSearchCandidate candidate) async {
+    try {
+      return await _buguyy.resolve(candidate);
+    } on UnsupportedEncryptedAudioException {
+      // An encrypted URL cannot be downloaded as ordinary audio. Check both
+      // platform first pages before deciding whether the identity is unique.
+      final found = await _flac.searchFirstPages(
+        candidate.name,
+        maxResults: 40,
+      );
+      final matches = found
+          .where(
+            (item) =>
+                item.name.trim().toLowerCase() ==
+                    candidate.name.trim().toLowerCase() &&
+                item.artist.trim().toLowerCase() ==
+                    candidate.artist.trim().toLowerCase(),
+          )
+          .toList(growable: false);
+      if (matches.length != 1) {
+        throw const UnsupportedEncryptedAudioException();
+      }
+      // The verified alternate for 梧桐灯 is MP3. A FLAC choice can itself
+      // resolve to encrypted .mflac, so restrict this fallback to MP3 URLs.
+      final match = matches.single;
+      final mp3Qualities = match.qualities
+          .where((quality) => quality.format.toLowerCase() == 'mp3')
+          .toList(growable: false);
+      if (mp3Qualities.isEmpty) {
+        throw const UnsupportedEncryptedAudioException();
+      }
+      final playable = await _flac.resolve(
+        MusicSearchCandidate(
+          query: match.query,
+          source: match.source,
+          platform: match.platform,
+          keyword: match.keyword,
+          page: match.page,
+          id: match.id,
+          name: match.name,
+          artist: match.artist,
+          album: match.album,
+          duration: match.duration,
+          link: match.link,
+          coverUrl: match.coverUrl,
+          qualities: mp3Qualities,
+          score: match.score,
+          raw: match.raw,
+        ),
+      );
+      if (urlExtension(playable.url) == '.mflac') {
+        throw const UnsupportedEncryptedAudioException();
+      }
+      // Keep the user's saved playlist identity so a later cache lookup finds
+      // the downloaded audio. The alternate source supplies only its media.
+      return ResolvedMusic(
+        query: candidate.query,
+        source: candidate.source,
+        platform: candidate.platform,
+        id: candidate.id,
+        name: candidate.name,
+        artist: candidate.artist,
+        album: playable.album,
+        url: playable.url,
+        quality: playable.quality,
+        coverUrl: candidate.coverUrl.isNotEmpty
+            ? candidate.coverUrl
+            : playable.coverUrl,
+        lyrics:
+            playable.lyrics ??
+            makeResolvedLyrics(candidate.raw['about'], 'buguyy:search:about'),
+      );
+    }
   }
 
   Future<List<MusicSearchCandidate>> _searchAuto(String query) async {

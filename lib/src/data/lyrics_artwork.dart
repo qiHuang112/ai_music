@@ -5,6 +5,7 @@ import 'dart:io';
 
 import 'challenge_client.dart';
 import 'buguyy_resolver.dart';
+import 'flac_resolver.dart';
 import '../domain/music_models.dart';
 import '../platform/app_storage.dart';
 import 'json_file_store.dart';
@@ -74,11 +75,16 @@ class CachedLyricsFileProvider
       return const TrackMetadata();
     }
     final file = File(path);
-    if (!await file.exists()) {
+    try {
+      if (!await file.exists()) {
+        return const TrackMetadata();
+      }
+      final lines = parseLrcLines(await file.readAsString());
+      return TrackMetadata(lyrics: lines, source: 'cache:lrc');
+    } catch (_) {
+      // A damaged optional sidecar must not block later online providers.
       return const TrackMetadata();
     }
-    final lines = parseLrcLines(await file.readAsString());
-    return TrackMetadata(lyrics: lines, source: 'cache:lrc');
   }
 }
 
@@ -116,6 +122,11 @@ class TrackMetadataRepository {
     var metadata =
         await _cacheStore.read(track.cacheId) ?? const TrackMetadata();
     if (_isComplete(metadata)) {
+      await _writeLyricsSidecar(
+        track,
+        metadata.lyrics,
+        repairExistingOnly: true,
+      );
       return metadata;
     }
     // 歌词搜索失败通常是来源短时间内确实无结果；半小时内不重复打网络请求。
@@ -169,7 +180,9 @@ class TrackMetadataRepository {
     required bool skipNetworkLyrics,
   }) {
     if (skipNetworkLyrics &&
-        (provider is BuguyyLyricsProvider ||
+        (provider is FlacLyricsProvider ||
+            provider is BuguyyLyricsProvider ||
+            provider is BuguyyKuwoLyricsProvider ||
             provider is LrcApiLyricsProvider)) {
       return true;
     }
@@ -202,8 +215,9 @@ class TrackMetadataRepository {
 
   Future<void> _writeLyricsSidecar(
     CachedTrack track,
-    List<LyricLine> lyrics,
-  ) async {
+    List<LyricLine> lyrics, {
+    bool repairExistingOnly = false,
+  }) async {
     if (lyrics.isEmpty) {
       return;
     }
@@ -214,26 +228,35 @@ class TrackMetadataRepository {
       return;
     }
     final file = File(path);
-    if (await file.exists()) {
-      return;
-    }
-    final temp = File(
-      '${file.path}.tmp-${DateTime.now().microsecondsSinceEpoch}',
-    );
-    final content = [
-      for (final line in lyrics) '${_formatLrcTime(line.time)}${line.text}',
-      '',
-    ].join('\n');
+    File? temp;
     try {
+      final exists = await file.exists();
+      if (repairExistingOnly && !exists) {
+        return;
+      }
+      if (exists && !isStandaloneWebUrl(await file.readAsString())) {
+        return;
+      }
+      temp = File('${file.path}.tmp-${DateTime.now().microsecondsSinceEpoch}');
+      final content = [
+        for (final line in lyrics) '${_formatLrcTime(line.time)}${line.text}',
+        '',
+      ].join('\n');
       await temp.writeAsString(content);
-      if (await file.exists()) {
+      if (await file.exists() &&
+          !isStandaloneWebUrl(await file.readAsString())) {
         await temp.delete();
       } else {
         await temp.rename(file.path);
       }
     } catch (_) {
-      if (await temp.exists()) {
-        await temp.delete();
+      // The sidecar is optional: a damaged file must not hide cached metadata.
+      try {
+        if (temp != null && await temp.exists()) {
+          await temp.delete();
+        }
+      } catch (_) {
+        // Keep the original sidecar untouched if cleanup also fails.
       }
     }
   }
@@ -250,14 +273,196 @@ String _formatLrcTime(Duration value) {
 
 List<TrackMetadataProvider> _defaultProviders(MusicResolverHttp httpClient) {
   // provider 顺序从“零成本/本地”到“网络兜底”，避免每次进播放页都重新搜歌词。
+  final flacChallenge = ChallengeClient(httpClient: httpClient);
   return [
     const CandidateArtworkProvider(),
     const ResolvedLyricsProvider(),
     const CachedLyricsFileProvider(),
+    FlacLyricsProvider(challengeClient: flacChallenge),
     BuguyyLyricsProvider(httpClient: httpClient),
+    BuguyyKuwoLyricsProvider(challengeClient: flacChallenge),
     LrcApiLyricsProvider(httpClient: httpClient),
     const EmptyLyricsProvider(),
   ];
+}
+
+/// Uses the same getLyric action as the source site's LRC download button.
+/// Cached audio has no current search credentials, so refresh only its exact ID.
+class FlacLyricsProvider
+    implements TrackMetadataProvider, LyricsMetadataProvider {
+  FlacLyricsProvider({required ChallengeClient challengeClient})
+    : _challenge = challengeClient;
+
+  final ChallengeClient _challenge;
+  final Map<String, Future<TrackMetadata>> _pending = {};
+
+  @override
+  Future<TrackMetadata> find(CachedTrack track) {
+    final music = track.music;
+    if (music.source != MusicDataSource.flac ||
+        music.id.trim().isEmpty ||
+        music.name.trim().isEmpty ||
+        music.artist.trim().isEmpty ||
+        !const ['kuwo', 'wyy'].contains(music.platform)) {
+      return Future.value(const TrackMetadata());
+    }
+    return _pending.putIfAbsent(track.cacheId, () async {
+      try {
+        return await _find(track);
+      } catch (_) {
+        // A missing lyric must never prevent local audio playback.
+        return const TrackMetadata();
+      } finally {
+        _pending.remove(track.cacheId);
+      }
+    });
+  }
+
+  Future<TrackMetadata> _find(CachedTrack track) async {
+    final music = track.music;
+    final candidates = await FlacResolver(
+      challengeClient: _challenge,
+      platforms: [music.platform],
+      pages: 1,
+    ).searchFirstPages(music.name);
+    final candidate = candidates
+        .where(
+          (item) =>
+              item.platform == music.platform &&
+              item.id == music.id &&
+              item.name.trim().toLowerCase() ==
+                  music.name.trim().toLowerCase() &&
+              item.artist.trim().toLowerCase() ==
+                  music.artist.trim().toLowerCase(),
+        )
+        .firstOrNull;
+    if (candidate == null) return const TrackMetadata();
+    final response = await _challenge.postFlacApi('getLyric', {
+      'platform': candidate.platform,
+      'songid': candidate.id,
+      'time': candidate.raw['time']?.toString() ?? '',
+      'sign': candidate.raw['sign']?.toString() ?? '',
+    });
+    if (response['code'] != 0) return const TrackMetadata();
+    return _metadataFromFlacLyricResponse(response, 'flac:getLyric');
+  }
+}
+
+/// BuguYY sometimes serves the same Kuwo audio file without lyrics. We only
+/// cross sources when the actual Kuwo media resource path is identical.
+class BuguyyKuwoLyricsProvider
+    implements TrackMetadataProvider, LyricsMetadataProvider {
+  BuguyyKuwoLyricsProvider({required ChallengeClient challengeClient})
+    : _challenge = challengeClient;
+
+  final ChallengeClient _challenge;
+  final Map<String, Future<TrackMetadata>> _pending = {};
+
+  @override
+  Future<TrackMetadata> find(CachedTrack track) {
+    final music = track.music;
+    final resource = _kuwoMediaResource(music.url);
+    if (music.source != MusicDataSource.buguyy ||
+        resource == null ||
+        music.name.trim().isEmpty ||
+        music.artist.trim().isEmpty) {
+      return Future.value(const TrackMetadata());
+    }
+    return _pending.putIfAbsent(track.cacheId, () async {
+      try {
+        return await _find(track, resource);
+      } catch (_) {
+        return const TrackMetadata();
+      } finally {
+        _pending.remove(track.cacheId);
+      }
+    });
+  }
+
+  Future<TrackMetadata> _find(CachedTrack track, String resource) async {
+    final music = track.music;
+    final candidates = await FlacResolver(
+      challengeClient: _challenge,
+      platforms: const ['kuwo'],
+      pages: 1,
+    ).searchFirstPages(music.name);
+    var probed = 0;
+    for (final candidate in candidates) {
+      if (candidate.name.trim().toLowerCase() !=
+              music.name.trim().toLowerCase() ||
+          candidate.artist.trim().toLowerCase() !=
+              music.artist.trim().toLowerCase()) {
+        continue;
+      }
+      final mp3 = candidate.qualities
+          .where((quality) => quality.format.toLowerCase() == 'mp3')
+          .firstOrNull;
+      if (mp3 == null) continue;
+      if (probed >= 5) break;
+      if (probed > 0) {
+        await Future<void>.delayed(const Duration(milliseconds: 500));
+      }
+      probed += 1;
+      try {
+        final urlResponse = await _challenge.postFlacApi('getUrl', {
+          'platform': candidate.platform,
+          'songid': candidate.id,
+          'format': mp3.format,
+          'bitrate': mp3.bitrate,
+          'time': candidate.raw['time']?.toString() ?? '',
+          'sign': candidate.raw['sign']?.toString() ?? '',
+        });
+        final url = asStringMap(urlResponse['data'])['url']?.toString() ?? '';
+        if (_kuwoMediaResource(url) != resource) continue;
+        final lyricResponse = await _challenge.postFlacApi('getLyric', {
+          'platform': candidate.platform,
+          'songid': candidate.id,
+          'time': candidate.raw['time']?.toString() ?? '',
+          'sign': candidate.raw['sign']?.toString() ?? '',
+        });
+        return _metadataFromFlacLyricResponse(
+          lyricResponse,
+          'flac:getLyric:matched-kuwo-audio',
+        );
+      } catch (_) {
+        // One failed candidate does not establish a media match.
+      }
+    }
+    return const TrackMetadata();
+  }
+}
+
+String? _kuwoMediaResource(String url) {
+  final uri = Uri.tryParse(url);
+  if (uri == null ||
+      !const ['http', 'https'].contains(uri.scheme) ||
+      !(uri.host == 'kuwo.cn' || uri.host.endsWith('.kuwo.cn'))) {
+    return null;
+  }
+  final parts = uri.pathSegments;
+  final index = parts.indexOf('resource');
+  if (index < 0 ||
+      index >= parts.length - 1 ||
+      !RegExp(r'^\d+\.mp3$', caseSensitive: false).hasMatch(parts.last)) {
+    return null;
+  }
+  return parts.skip(index).join('/');
+}
+
+TrackMetadata _metadataFromFlacLyricResponse(
+  Map<String, dynamic> response,
+  String source,
+) {
+  if (response['code'] != 0) return const TrackMetadata();
+  final content = response['data'];
+  if (content is! String ||
+      RegExp(
+        r'<\s*/?\s*[a-z][^>]*>|&lt;\s*/?\s*[a-z][^&]*&gt;',
+        caseSensitive: false,
+      ).hasMatch(content)) {
+    return const TrackMetadata();
+  }
+  return TrackMetadata(lyrics: parseLrcLines(content), source: source);
 }
 
 class BuguyyLyricsProvider

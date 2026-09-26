@@ -5,6 +5,180 @@ import 'package:ai_music/src/data/music_resolver.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
+  test('encrypted BuguYY audio uses the sole exact playable result', () async {
+    final actions = <String>[];
+    final resolver = RemoteMusicResolver(
+      initialFlacCookie: 'sl-session=test',
+      httpClient: _FakeResolverHttp(
+        onGet: (uri, _) async {
+          expect(uri.path, '/api/geturl');
+          return _json(uri, {
+            'success': true,
+            'name': '梧桐灯',
+            'url': 'https://car-er.kuwo.cn/resource/encrypted.mflac',
+          });
+        },
+        onPostForm: (uri, form, _) async {
+          actions.add(uri.queryParameters['act']!);
+          if (uri.queryParameters['act'] == 'search') {
+            expect(form['keyword'], '梧桐灯');
+            return _json(uri, {
+              'code': 0,
+              'data': {
+                'list': form['platform'] == 'kuwo'
+                    ? [
+                        {
+                          'id': 'kuwo-1',
+                          'name': '梧桐灯',
+                          'artist': '许嵩',
+                          'album': '不如吃茶去',
+                          'time': 'fresh',
+                          'sign': 'sig',
+                          'minfo': [
+                            {'format': 'mp3', 'bitrate': '128', 'size': '4M'},
+                          ],
+                        },
+                      ]
+                    : [],
+              },
+            });
+          }
+          expect(uri.queryParameters['act'], 'getUrl');
+          expect(form['songid'], 'kuwo-1');
+          return _json(uri, {
+            'code': 0,
+            'data': {'url': 'https://cdn.example.test/playable.mp3'},
+          });
+        },
+      ),
+    );
+
+    final result = await resolver.resolve(_encryptedBuguyyCandidate());
+    expect(result.url, 'https://cdn.example.test/playable.mp3');
+    expect(result.source, MusicDataSource.buguyy);
+    expect(result.id, 'buguyy-1');
+    expect(result.quality.format, 'mp3');
+    expect(result.panLink, isFalse);
+    expect(actions, ['search', 'search', 'getUrl']);
+  });
+
+  test('encrypted BuguYY audio never chooses an ambiguous recording', () async {
+    final resolver = RemoteMusicResolver(
+      initialFlacCookie: 'sl-session=test',
+      httpClient: _FakeResolverHttp(
+        onGet: (uri, _) async => _json(uri, {
+          'success': true,
+          'url': 'https://car-er.kuwo.cn/resource/encrypted.mflac',
+        }),
+        onPostForm: (uri, form, _) async {
+          expect(uri.queryParameters['act'], 'search');
+          return _json(uri, {
+            'code': 0,
+            'data': {
+              'list': form['platform'] == 'kuwo'
+                  ? [
+                      for (final id in ['version-1', 'version-2'])
+                        {'id': id, 'name': '梧桐灯', 'artist': '许嵩'},
+                    ]
+                  : [],
+            },
+          });
+        },
+      ),
+    );
+
+    await expectLater(
+      resolver.resolve(_encryptedBuguyyCandidate()),
+      throwsA(isA<UnsupportedEncryptedAudioException>()),
+    );
+  });
+
+  test('encrypted audio rejects exact matches across both platforms', () async {
+    final searched = <String>[];
+    final resolver = RemoteMusicResolver(
+      initialFlacCookie: 'sl-session=test',
+      httpClient: _FakeResolverHttp(
+        onGet: (uri, _) async => _json(uri, {
+          'success': true,
+          'url': 'https://car-er.kuwo.cn/resource/encrypted.mflac',
+        }),
+        onPostForm: (uri, form, _) async {
+          expect(uri.queryParameters['act'], 'search');
+          searched.add(form['platform']!);
+          return _json(uri, {
+            'code': 0,
+            'data': {
+              'list': [
+                {
+                  'id': '${form['platform']}-1',
+                  'name': '梧桐灯',
+                  'artist': '许嵩',
+                  'minfo': [
+                    {'format': 'mp3', 'bitrate': '128'},
+                  ],
+                },
+              ],
+            },
+          });
+        },
+      ),
+    );
+
+    await expectLater(
+      resolver.resolve(_encryptedBuguyyCandidate()),
+      throwsA(isA<UnsupportedEncryptedAudioException>()),
+    );
+    expect(searched, ['kuwo', 'wyy']);
+  });
+
+  test(
+    'encrypted audio fallback requests MP3 even when FLAC is listed',
+    () async {
+      final requestedFormats = <String>[];
+      final resolver = RemoteMusicResolver(
+        initialFlacCookie: 'sl-session=test',
+        httpClient: _FakeResolverHttp(
+          onGet: (uri, _) async => _json(uri, {
+            'success': true,
+            'url': 'https://car-er.kuwo.cn/resource/encrypted.mflac',
+          }),
+          onPostForm: (uri, form, _) async {
+            if (uri.queryParameters['act'] == 'search') {
+              return _json(uri, {
+                'code': 0,
+                'data': {
+                  'list': form['platform'] == 'kuwo'
+                      ? [
+                          {
+                            'id': 'kuwo-1',
+                            'name': '梧桐灯',
+                            'artist': '许嵩',
+                            'minfo': [
+                              {'format': 'flac', 'bitrate': '900'},
+                              {'format': 'mp3', 'bitrate': '128'},
+                            ],
+                          },
+                        ]
+                      : [],
+                },
+              });
+            }
+            requestedFormats.add(form['format']!);
+            return _json(uri, {
+              'code': 0,
+              'data': {'url': 'https://cdn.example.test/playable.mp3'},
+            });
+          },
+        ),
+      );
+
+      final result = await resolver.resolve(_encryptedBuguyyCandidate());
+      expect(requestedFormats, ['mp3']);
+      expect(result.url, 'https://cdn.example.test/playable.mp3');
+      expect(result.quality.format, 'mp3');
+    },
+  );
+
   test('buguyy endpoint is HTTPS off Apple platforms and HTTP on Apple', () {
     expect(defaultBuguyyBaseUrl(isApplePlatform: false), 'https://buguyy.top');
     expect(defaultBuguyyBaseUrl(isApplePlatform: true), 'http://buguyy.top');
@@ -360,6 +534,7 @@ void main() {
       final resolved = await resolver.resolve(_expiredFlacCandidate());
 
       expect(resolved.url, 'https://cdn.example.test/fresh.mp3');
+      expect(resolved.lyrics, isNull);
       expect(searches, 1);
       expect(forms.map((form) => form['sign']), ['old-sign', 'fresh-sign']);
     },
@@ -589,6 +764,24 @@ void main() {
     expect(flacRequests, greaterThan(0));
   });
 }
+
+MusicSearchCandidate _encryptedBuguyyCandidate() => const MusicSearchCandidate(
+  query: '梧桐灯',
+  source: MusicDataSource.buguyy,
+  platform: 'buguyy',
+  keyword: '梧桐灯',
+  page: 1,
+  id: 'buguyy-1',
+  name: '梧桐灯',
+  artist: '许嵩',
+  album: '',
+  duration: 0,
+  link: '',
+  coverUrl: '',
+  qualities: [MusicQuality(format: 'mp3')],
+  score: 1,
+  raw: {},
+);
 
 ResolverHttpResponse _json(Uri uri, Object body) {
   return ResolverHttpResponse(

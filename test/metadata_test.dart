@@ -123,6 +123,135 @@ void main() {
   });
 
   test(
+    'metadata repository replaces only a poisoned URL lyrics sidecar',
+    () async {
+      final root = await Directory.systemTemp.createTemp('ai_music_bad_lrc_');
+      final cache = MetadataCacheStore(rootProvider: () async => root);
+      final track = _cachedTrack(
+        filePath: '${root.path}${Platform.pathSeparator}song.mp3',
+      );
+      final lrc = File(lyricsPathForAudioPath(track.filePath));
+      await lrc.writeAsString('https://cdn.example.test/audio.mp3\n');
+      final repository = TrackMetadataRepository(
+        cacheStore: cache,
+        providers: const [
+          CachedLyricsFileProvider(),
+          _StaticMetadataProvider(
+            TrackMetadata(
+              lyrics: [LyricLine(time: Duration(seconds: 1), text: '真实歌词')],
+            ),
+          ),
+        ],
+      );
+
+      try {
+        final metadata = await repository.load(track);
+
+        expect(metadata.lyrics.single.text, '真实歌词');
+        expect(await lrc.readAsString(), '[00:01.00]真实歌词\n');
+      } finally {
+        await root.delete(recursive: true);
+      }
+    },
+  );
+
+  test(
+    'complete metadata repairs a poisoned sidecar without provider calls',
+    () async {
+      final root = await Directory.systemTemp.createTemp('ai_music_full_lrc_');
+      final cache = MetadataCacheStore(rootProvider: () async => root);
+      final track = _cachedTrack(
+        filePath: '${root.path}${Platform.pathSeparator}song.mp3',
+      );
+      final lrc = File(lyricsPathForAudioPath(track.filePath));
+      await lrc.writeAsString('https://cdn.example.test/audio.mp3\n');
+      await cache.write(
+        track.cacheId,
+        TrackMetadata(
+          artworkUri: Uri.parse('https://cdn.example.test/cover.jpg'),
+          lyrics: const [LyricLine(time: Duration(seconds: 1), text: '已有歌词')],
+        ),
+      );
+      final provider = _CountingMetadataProvider();
+      final repository = TrackMetadataRepository(
+        cacheStore: cache,
+        providers: [provider],
+      );
+
+      try {
+        final metadata = await repository.load(track);
+
+        expect(metadata.lyrics.single.text, '已有歌词');
+        expect(await lrc.readAsString(), '[00:01.00]已有歌词\n');
+        expect(provider.calls, 0);
+      } finally {
+        await root.delete(recursive: true);
+      }
+    },
+  );
+
+  test('complete metadata survives an unreadable lyrics sidecar', () async {
+    final root = await Directory.systemTemp.createTemp('ai_music_broken_lrc_');
+    final cache = MetadataCacheStore(rootProvider: () async => root);
+    final track = _cachedTrack(
+      filePath: '${root.path}${Platform.pathSeparator}song.mp3',
+    );
+    final lrc = File(lyricsPathForAudioPath(track.filePath));
+    const damagedBytes = [0xff, 0xfe, 0x80];
+    await lrc.writeAsBytes(damagedBytes);
+    await cache.write(
+      track.cacheId,
+      TrackMetadata(
+        artworkUri: Uri.parse('https://cdn.example.test/cover.jpg'),
+        lyrics: const [LyricLine(time: Duration(seconds: 1), text: '已有歌词')],
+      ),
+    );
+    final repository = TrackMetadataRepository(
+      cacheStore: cache,
+      providers: [_CountingMetadataProvider()],
+    );
+
+    try {
+      final metadata = await repository.load(track);
+      expect(metadata.lyrics.single.text, '已有歌词');
+      expect(await lrc.readAsBytes(), damagedBytes);
+    } finally {
+      await root.delete(recursive: true);
+    }
+  });
+
+  test('unreadable sidecar does not block metadata lyric fallback', () async {
+    final root = await Directory.systemTemp.createTemp('ai_music_bad_lrc_');
+    final cache = MetadataCacheStore(rootProvider: () async => root);
+    final track = _cachedTrack(
+      filePath: '${root.path}${Platform.pathSeparator}song.mp3',
+    );
+    final lrc = File(lyricsPathForAudioPath(track.filePath));
+    const damagedBytes = [0xff, 0xfe, 0x80];
+    await lrc.writeAsBytes(damagedBytes);
+    final repository = TrackMetadataRepository(
+      cacheStore: cache,
+      providers: const [
+        CachedLyricsFileProvider(),
+        _StaticMetadataProvider(
+          TrackMetadata(
+            lyrics: [LyricLine(time: Duration(seconds: 1), text: '后备歌词')],
+          ),
+        ),
+      ],
+    );
+
+    try {
+      final metadata = await repository.load(track);
+      expect(metadata.lyrics.single.text, '后备歌词');
+      expect(await lrc.readAsBytes(), damagedBytes);
+      expect((await cache.read(track.cacheId))?.lyrics.single.text, '后备歌词');
+    } finally {
+      await root.delete(recursive: true);
+    }
+  });
+
+  test(
     'metadata repository does not refetch lyrics when lyrics are cached',
     () async {
       final root = await Directory.systemTemp.createTemp('ai_music_meta_skip_');
@@ -355,6 +484,86 @@ plain text
     expect(lines[1].time, const Duration(seconds: 3));
     expect(lines[2].time, const Duration(milliseconds: 4250));
     expect(lines[2].text, '重复句');
+  });
+
+  test('LRC parser splits consecutive timed lyrics without newlines', () {
+    final lines = parseLrcLines(
+      '[00:00.41]歌名 - 歌手'
+      '[00:20.53]第一句'
+      '[00:23.74]第二句'
+      '[00:27.38][00:29.53]重复句',
+    );
+
+    expect(lines.map((line) => line.text), [
+      '歌名 - 歌手',
+      '第一句',
+      '第二句',
+      '重复句',
+      '重复句',
+    ]);
+    expect(lines.map((line) => line.time.inMilliseconds), [
+      410,
+      20530,
+      23740,
+      27380,
+      29530,
+    ]);
+  });
+
+  test('LRC parser retains plain lyrics without inventing timestamps', () {
+    final lines = parseLrcLines('''
+[ti:测试]
+第一句
+第二句
+第三句
+''');
+
+    expect(lines.map((line) => line.text), ['第一句', '第二句', '第三句']);
+    expect(lines.every((line) => line.time == Duration.zero), isTrue);
+    expect(parseLrcLines('https://cdn.example.test/audio.mp3'), isEmpty);
+  });
+
+  test('LRC parser keeps plain lyrics after multiple credit lines', () {
+    final lines = parseLrcLines('''
+作词：甲
+作曲：乙
+编曲：丙
+制作人：丁
+窗边还有一盏灯
+街上落下细雨
+我沿着旧路走
+夜色慢慢亮起
+''');
+
+    expect(lines.map((line) => line.text), [
+      '窗边还有一盏灯',
+      '街上落下细雨',
+      '我沿着旧路走',
+      '夜色慢慢亮起',
+    ]);
+    expect(lines.every((line) => line.time == Duration.zero), isTrue);
+  });
+
+  test('LRC parser keeps timed lyrics with a few credit lines', () {
+    final lines = parseLrcLines('''
+[00:00.00]作词：甲
+[00:01.00]作曲：乙
+[00:02.00]编曲：丙
+[00:03.00]第一句
+[00:04.00]第二句
+[00:05.00]第三句
+[00:06.00]第四句
+[00:07.00]第五句
+[00:08.00]第六句
+[00:09.00]第七句
+[00:10.00]第八句
+[00:11.00]第九句
+[00:12.00]第十句
+''');
+
+    expect(lines, hasLength(13));
+    expect(lines.last.text, '第十句');
+    expect(lines.last.time, const Duration(seconds: 12));
   });
 
   test('LRC parser rejects repeated html metadata garbage', () {

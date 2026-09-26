@@ -8,6 +8,7 @@ import 'package:crypto/crypto.dart';
 import 'json_file_store.dart';
 import 'lan_library_client.dart';
 import 'lan_library_models.dart';
+import 'lyrics_normalizer.dart';
 import 'music_resolver.dart';
 import '../platform/app_storage.dart';
 
@@ -800,7 +801,9 @@ class CachedTrackStore {
     File audioFile,
   ) async {
     final lyrics = result.lyrics;
-    if (lyrics == null || lyrics.text.trim().isEmpty) {
+    if (lyrics == null ||
+        lyrics.text.trim().isEmpty ||
+        isStandaloneWebUrl(lyrics.text)) {
       return '';
     }
     final target = File(lyricsPathForAudioPath(audioFile.path));
