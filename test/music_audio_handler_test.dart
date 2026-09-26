@@ -1,6 +1,10 @@
+import 'dart:async';
+
 import 'package:ai_music/src/playback/music_audio_handler.dart';
 import 'package:audio_service/audio_service.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:just_audio/just_audio.dart';
+import 'package:just_audio_platform_interface/just_audio_platform_interface.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -128,6 +132,126 @@ void main() {
       await handler.dispose();
     }
   });
+
+  test('manual next and previous publish each selected song once', () async {
+    final originalPlatform = JustAudioPlatform.instance;
+    JustAudioPlatform.instance = _TestJustAudioPlatform();
+    final handler = MusicAudioHandler();
+    final publishedIds = <String>[];
+    final subscription = handler.mediaItem.stream.listen((item) {
+      if (item != null) publishedIds.add(item.id);
+    });
+    try {
+      await handler.loadQueue([
+        PlayableAudio(
+          mediaItem: const MediaItem(id: 'a', title: 'A'),
+          source: AudioSource.uri(Uri.parse('https://example.com/a.mp3')),
+        ),
+        PlayableAudio(
+          mediaItem: const MediaItem(id: 'b', title: 'B'),
+          source: AudioSource.uri(Uri.parse('https://example.com/b.mp3')),
+        ),
+      ], playWhenReady: false);
+      await Future<void>.delayed(Duration.zero);
+      publishedIds.clear();
+
+      await handler.setRepeatMode(AudioServiceRepeatMode.one);
+      await Future<void>.delayed(Duration.zero);
+      publishedIds.clear();
+      await handler.skipToNext();
+      await Future<void>.delayed(Duration.zero);
+      expect(publishedIds, ['b']);
+
+      publishedIds.clear();
+      await handler.skipToPrevious();
+      await Future<void>.delayed(Duration.zero);
+      expect(publishedIds, ['a']);
+    } finally {
+      await subscription.cancel();
+      await handler.dispose();
+      JustAudioPlatform.instance = originalPlatform;
+    }
+  });
+}
+
+class _TestJustAudioPlatform extends JustAudioPlatform {
+  final _players = <String, _TestAudioPlayerPlatform>{};
+
+  @override
+  Future<AudioPlayerPlatform> init(InitRequest request) async {
+    final player = _TestAudioPlayerPlatform(request.id);
+    _players[request.id] = player;
+    return player;
+  }
+
+  @override
+  Future<DisposePlayerResponse> disposePlayer(
+    DisposePlayerRequest request,
+  ) async {
+    await _players.remove(request.id)?.close();
+    return DisposePlayerResponse();
+  }
+}
+
+class _TestAudioPlayerPlatform extends AudioPlayerPlatform {
+  _TestAudioPlayerPlatform(super.id);
+
+  final _events = StreamController<PlaybackEventMessage>.broadcast();
+  int? _index;
+
+  @override
+  Stream<PlaybackEventMessage> get playbackEventMessageStream => _events.stream;
+
+  @override
+  Future<LoadResponse> load(LoadRequest request) async {
+    _index = request.initialIndex ?? 0;
+    _emit();
+    return LoadResponse(duration: null);
+  }
+
+  @override
+  Future<SeekResponse> seek(SeekRequest request) async {
+    _index = request.index ?? _index;
+    _emit();
+    return SeekResponse();
+  }
+
+  @override
+  Future<PlayResponse> play(PlayRequest request) async => PlayResponse();
+
+  @override
+  Future<SetVolumeResponse> setVolume(SetVolumeRequest request) async =>
+      SetVolumeResponse();
+
+  @override
+  Future<SetSpeedResponse> setSpeed(SetSpeedRequest request) async =>
+      SetSpeedResponse();
+
+  @override
+  Future<SetLoopModeResponse> setLoopMode(SetLoopModeRequest request) async =>
+      SetLoopModeResponse();
+
+  @override
+  Future<SetShuffleModeResponse> setShuffleMode(
+    SetShuffleModeRequest request,
+  ) async => SetShuffleModeResponse();
+
+  Future<void> close() => _events.close();
+
+  void _emit() {
+    _events.add(
+      PlaybackEventMessage(
+        processingState: ProcessingStateMessage.ready,
+        updatePosition: Duration.zero,
+        updateTime: DateTime.now(),
+        bufferedPosition: Duration.zero,
+        duration: null,
+        icyMetadata: null,
+        currentIndex: _index,
+        androidAudioSessionId: null,
+      ),
+    );
+  }
 }
 
 class _PositionedAudioHandler extends MusicAudioHandler {

@@ -14,6 +14,7 @@ import 'package:ai_music/src/data/saved_online_track.dart';
 import 'package:ai_music/src/domain/music_models.dart';
 import 'package:ai_music/src/presentation/app_localizations.dart';
 import 'package:ai_music/src/presentation/music_home_page.dart';
+import 'package:ai_music/src/presentation/player_page.dart';
 import 'package:ai_music/src/playback/music_audio_handler.dart';
 import 'package:audio_service/audio_service.dart';
 import 'package:flutter/material.dart';
@@ -56,6 +57,82 @@ void main() {
     expect(find.byTooltip('下载'), findsOneWidget);
     expect(find.byTooltip('播放列表'), findsOneWidget);
     expect(find.text('No cached music yet'), findsNothing);
+  });
+
+  testWidgets('mini player and song page swipe between songs', (tester) async {
+    final handler = _WidgetAudioHandler();
+    final controller = _SwipePlaybackController(handler);
+    try {
+      await tester.pumpWidget(_app(playbackController: controller));
+      await tester.pumpAndSettle();
+      handler.emit(
+        const MediaItem(
+          id: 'swipe-song',
+          title: 'Swipe Song',
+          artist: 'Singer',
+          duration: Duration(minutes: 3),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      final miniPlayer = find.byKey(const ValueKey('mini-player-swipe-area'));
+      expect(miniPlayer, findsOneWidget);
+      await tester.drag(miniPlayer, const Offset(-140, 0));
+      await tester.pump();
+      expect(controller.nextCalls, 1);
+      await tester.drag(miniPlayer, const Offset(140, 0));
+      await tester.pump();
+      expect(controller.previousCalls, 1);
+      await tester.drag(miniPlayer, const Offset(30, 0));
+      await tester.pump();
+      expect(controller.nextCalls, 1);
+      expect(controller.previousCalls, 1);
+      expect(find.byType(PlayerPage), findsNothing);
+
+      await tester.tap(find.text('Swipe Song'));
+      await tester.pumpAndSettle();
+      expect(find.byType(PlayerPage), findsOneWidget);
+      final player = find.byKey(const ValueKey('player-swipe-area'));
+      await tester.drag(player, const Offset(-140, 0));
+      await tester.pump();
+      expect(controller.nextCalls, 2);
+      await tester.drag(player, const Offset(140, 0));
+      await tester.pump();
+      expect(controller.previousCalls, 2);
+
+      await tester.drag(player, const Offset(0, -500));
+      await tester.pump();
+      expect(controller.nextCalls, 2);
+      expect(controller.previousCalls, 2);
+      expect(find.byType(Slider), findsOneWidget);
+      await tester.drag(find.byType(Slider), const Offset(100, 0));
+      await tester.pump();
+      expect(controller.nextCalls, 2);
+      expect(controller.previousCalls, 2);
+      expect(controller.seekCalls, 1);
+
+      await tester.scrollUntilVisible(
+        find.byKey(const ValueKey('lyrics-preview')),
+        -180,
+        scrollable: find.descendant(
+          of: player,
+          matching: find.byType(Scrollable),
+        ),
+      );
+      await tester.tapAt(
+        tester.getTopLeft(find.byKey(const ValueKey('lyrics-preview'))) +
+            const Offset(24, 18),
+      );
+      await tester.pumpAndSettle();
+      final lyrics = find.byKey(const ValueKey('lyrics-swipe-area'));
+      expect(lyrics, findsOneWidget);
+      await tester.drag(lyrics, const Offset(-140, 0));
+      await tester.pump();
+      expect(controller.nextCalls, 3);
+    } finally {
+      await tester.pumpWidget(const SizedBox.shrink());
+      controller.dispose();
+    }
   });
 
   testWidgets('home defaults to favorite and custom playlist summaries', (
@@ -1983,6 +2060,37 @@ class _ControlledPlaybackController extends MusicController {
     final completion = Completer<void>();
     pending.add(completion);
     return completion.future;
+  }
+}
+
+class _SwipePlaybackController extends MusicController {
+  _SwipePlaybackController(_WidgetAudioHandler handler)
+    : super(
+        audioHandler: handler,
+        resolver: _FakeMusicResolver(),
+        cacheStore: _FakeCacheStore(),
+        playlistStore: _FakePlaylistStore(),
+        settingsStore: _FakeSettingsStore(),
+        metadataRepository: _FakeMetadataRepository(),
+      );
+
+  int nextCalls = 0;
+  int previousCalls = 0;
+  int seekCalls = 0;
+
+  @override
+  Future<void> next() async {
+    nextCalls += 1;
+  }
+
+  @override
+  Future<void> previous() async {
+    previousCalls += 1;
+  }
+
+  @override
+  Future<void> seek(Duration position) async {
+    seekCalls += 1;
   }
 }
 

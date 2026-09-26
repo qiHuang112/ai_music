@@ -218,32 +218,29 @@ class MusicAudioHandler extends BaseAudioHandler
           targetIndex: nextIndex,
         );
         await _player.seek(Duration.zero, index: nextIndex);
-        _publishCurrentItem(nextIndex);
         await play();
         return;
       }
     }
-    final nextIndex = _nextSequentialIndex();
-    if (nextIndex != null) {
-      _indexTracker.markManualTarget(
-        currentIndex: _player.currentIndex,
-        targetIndex: nextIndex,
-      );
-    }
-    await _player.seekToNext();
+    final nextIndex = _manualAdjacentIndex(1);
+    if (nextIndex == null) return;
+    _indexTracker.markManualTarget(
+      currentIndex: _player.currentIndex,
+      targetIndex: nextIndex,
+    );
+    await _player.seek(Duration.zero, index: nextIndex);
     await play();
   }
 
   @override
   Future<void> skipToPrevious() async {
-    final previousIndex = _previousSequentialIndex();
-    if (previousIndex != null) {
-      _indexTracker.markManualTarget(
-        currentIndex: _player.currentIndex,
-        targetIndex: previousIndex,
-      );
-    }
-    await _player.seekToPrevious();
+    final previousIndex = _manualAdjacentIndex(-1);
+    if (previousIndex == null) return;
+    _indexTracker.markManualTarget(
+      currentIndex: _player.currentIndex,
+      targetIndex: previousIndex,
+    );
+    await _player.seek(Duration.zero, index: previousIndex);
     await play();
   }
 
@@ -374,7 +371,9 @@ class MusicAudioHandler extends BaseAudioHandler
         _redirectAutomaticShuffleAdvance(index);
         return;
       case PlaybackIndexChangeAction.publish:
-        _publishCurrentItem(index);
+        if (_indexTracker.lastIndex != index) {
+          _publishCurrentItem(index);
+        }
     }
   }
 
@@ -631,14 +630,11 @@ class MusicAudioHandler extends BaseAudioHandler
     return _player.loopMode == LoopMode.all ? 0 : null;
   }
 
-  int? _previousSequentialIndex() {
+  int? _manualAdjacentIndex(int offset) {
     final index = _player.currentIndex;
     if (index == null || _items.isEmpty) {
       return null;
     }
-    if (index > 0) {
-      return index - 1;
-    }
-    return _player.loopMode == LoopMode.all ? _items.length - 1 : index;
+    return (index + offset + _items.length) % _items.length;
   }
 }

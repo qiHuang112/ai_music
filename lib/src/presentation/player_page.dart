@@ -7,6 +7,7 @@ import '../application/music_controller.dart';
 import '../domain/music_models.dart';
 import 'app_localizations.dart';
 import 'playlist_actions.dart';
+import 'swipe_to_skip.dart';
 
 class PlayerPage extends StatefulWidget {
   const PlayerPage({super.key, required this.controller});
@@ -91,41 +92,46 @@ class _PlayerPageState extends State<PlayerPage> {
                   builder: (context, stateSnapshot) {
                     final state = stateSnapshot.data ?? PlaybackState();
                     final duration = item.duration ?? Duration.zero;
-                    return ListView(
-                      padding: const EdgeInsets.fromLTRB(24, 12, 24, 32),
-                      children: [
-                        _Artwork(
-                          uri: item.artUri ?? controller.currentArtworkUri,
-                        ),
-                        const SizedBox(height: 18),
-                        Text(
-                          item.title,
-                          maxLines: 2,
-                          overflow: TextOverflow.ellipsis,
-                          textAlign: TextAlign.center,
-                          style: Theme.of(context).textTheme.headlineSmall,
-                        ),
-                        const SizedBox(height: 6),
-                        Text(
-                          item.artist ?? '',
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          textAlign: TextAlign.center,
-                          style: Theme.of(context).textTheme.bodyLarge,
-                        ),
-                        const SizedBox(height: 18),
-                        _LyricsPreview(controller: controller),
-                        const SizedBox(height: 18),
-                        _PositionSlider(
-                          controller: controller,
-                          duration: duration,
-                        ),
-                        const SizedBox(height: 16),
-                        _PlaybackControls(
-                          controller: controller,
-                          playing: state.playing,
-                        ),
-                      ],
+                    return SwipeToSkip(
+                      key: const ValueKey('player-swipe-area'),
+                      onNext: controller.next,
+                      onPrevious: controller.previous,
+                      child: ListView(
+                        padding: const EdgeInsets.fromLTRB(24, 12, 24, 32),
+                        children: [
+                          _Artwork(
+                            uri: item.artUri ?? controller.currentArtworkUri,
+                          ),
+                          const SizedBox(height: 18),
+                          Text(
+                            item.title,
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                            textAlign: TextAlign.center,
+                            style: Theme.of(context).textTheme.headlineSmall,
+                          ),
+                          const SizedBox(height: 6),
+                          Text(
+                            item.artist ?? '',
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            textAlign: TextAlign.center,
+                            style: Theme.of(context).textTheme.bodyLarge,
+                          ),
+                          const SizedBox(height: 18),
+                          _LyricsPreview(controller: controller),
+                          const SizedBox(height: 18),
+                          _PositionSlider(
+                            controller: controller,
+                            duration: duration,
+                          ),
+                          const SizedBox(height: 16),
+                          _PlaybackControls(
+                            controller: controller,
+                            playing: state.playing,
+                          ),
+                        ],
+                      ),
                     );
                   },
                 );
@@ -234,49 +240,54 @@ class _LyricsDetailPage extends StatelessWidget {
                   builder: (context, stateSnapshot) {
                     final state = stateSnapshot.data ?? PlaybackState();
                     final duration = item.duration ?? Duration.zero;
-                    return Column(
-                      children: [
-                        Padding(
-                          padding: const EdgeInsets.fromLTRB(24, 8, 24, 12),
-                          child: Column(
-                            children: [
-                              Text(
-                                item.title,
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                textAlign: TextAlign.center,
-                                style: Theme.of(context).textTheme.titleLarge,
-                              ),
-                              const SizedBox(height: 4),
-                              Text(
-                                item.artist ?? '',
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                textAlign: TextAlign.center,
-                                style: Theme.of(context).textTheme.bodyMedium,
-                              ),
-                            ],
+                    return SwipeToSkip(
+                      key: const ValueKey('lyrics-swipe-area'),
+                      onNext: controller.next,
+                      onPrevious: controller.previous,
+                      child: Column(
+                        children: [
+                          Padding(
+                            padding: const EdgeInsets.fromLTRB(24, 8, 24, 12),
+                            child: Column(
+                              children: [
+                                Text(
+                                  item.title,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  textAlign: TextAlign.center,
+                                  style: Theme.of(context).textTheme.titleLarge,
+                                ),
+                                const SizedBox(height: 4),
+                                Text(
+                                  item.artist ?? '',
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  textAlign: TextAlign.center,
+                                  style: Theme.of(context).textTheme.bodyMedium,
+                                ),
+                              ],
+                            ),
                           ),
-                        ),
-                        Expanded(
-                          child: _LyricsPanel(
+                          Expanded(
+                            child: _LyricsPanel(
+                              controller: controller,
+                              fillsAvailable: true,
+                            ),
+                          ),
+                          Padding(
+                            padding: const EdgeInsets.fromLTRB(24, 8, 24, 0),
+                            child: _PositionSlider(
+                              controller: controller,
+                              duration: duration,
+                            ),
+                          ),
+                          _PlaybackControls(
                             controller: controller,
-                            fillsAvailable: true,
+                            playing: state.playing,
                           ),
-                        ),
-                        Padding(
-                          padding: const EdgeInsets.fromLTRB(24, 8, 24, 0),
-                          child: _PositionSlider(
-                            controller: controller,
-                            duration: duration,
-                          ),
-                        ),
-                        _PlaybackControls(
-                          controller: controller,
-                          playing: state.playing,
-                        ),
-                        const SizedBox(height: 12),
-                      ],
+                          const SizedBox(height: 12),
+                        ],
+                      ),
                     );
                   },
                 );
@@ -418,6 +429,7 @@ class _LyricsPreview extends StatelessWidget {
   Widget build(BuildContext context) {
     final colors = Theme.of(context).colorScheme;
     return InkWell(
+      key: const ValueKey('lyrics-preview'),
       borderRadius: BorderRadius.circular(8),
       onTap: () => Navigator.of(context).push<void>(
         MaterialPageRoute(
