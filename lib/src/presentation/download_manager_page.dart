@@ -11,9 +11,14 @@ import 'playlist_download_progress.dart';
 enum _DownloadSortMode { initial, downloadedAt }
 
 class DownloadManagerPage extends StatefulWidget {
-  const DownloadManagerPage({super.key, required this.controller});
+  const DownloadManagerPage({
+    super.key,
+    required this.controller,
+    required this.onOpenPlaylist,
+  });
 
   final MusicController controller;
+  final ValueChanged<MusicPlaylist> onOpenPlaylist;
 
   @override
   State<DownloadManagerPage> createState() => _DownloadManagerPageState();
@@ -70,62 +75,42 @@ class _DownloadManagerPageState extends State<DownloadManagerPage> {
                   for (final playlist in controller.customPlaylists)
                     Card(
                       key: ValueKey('manager-playlist-${playlist.id}'),
-                      child: Padding(
-                        padding: const EdgeInsets.all(12),
-                        child: Row(
+                      child: ListTile(
+                        onTap: () => widget.onOpenPlaylist(playlist),
+                        title: Text(playlist.name),
+                        subtitle: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            Expanded(
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Text(
-                                    playlist.name,
-                                    style: Theme.of(
-                                      context,
-                                    ).textTheme.titleSmall,
-                                  ),
-                                  const SizedBox(height: 4),
-                                  Text(
-                                    strings.playlistDownloadCounts(
-                                      playlist.entries.length,
-                                      controller.cachedCountForPlaylist(
-                                        playlist,
-                                      ),
-                                    ),
-                                  ),
-                                  if (controller.playlistDownloadProgress(
-                                        playlist,
-                                      ) !=
-                                      null) ...[
-                                    const SizedBox(height: 8),
-                                    PlaylistDownloadProgressView(
-                                      controller: controller,
-                                      playlist: playlist,
-                                    ),
-                                  ],
-                                ],
+                            Text(
+                              strings.playlistDownloadCounts(
+                                playlist.entries.length,
+                                controller.cachedCountForPlaylist(playlist),
                               ),
                             ),
-                            const SizedBox(width: 8),
-                            IconButton(
-                              key: ValueKey('manager-download-${playlist.id}'),
-                              tooltip: strings.downloadAllPlaylist,
-                              onPressed:
-                                  controller.isPlaylistDownloading(playlist)
-                                  ? null
-                                  : () => _downloadPlaylist(playlist),
-                              icon: controller.isPlaylistDownloading(playlist)
-                                  ? const SizedBox.square(
-                                      dimension: 20,
-                                      child: CircularProgressIndicator(
-                                        strokeWidth: 2,
-                                      ),
-                                    )
-                                  : const Icon(
-                                      Icons.download_for_offline_outlined,
-                                    ),
-                            ),
+                            if (controller.playlistDownloadProgress(playlist) !=
+                                null) ...[
+                              const SizedBox(height: 8),
+                              PlaylistDownloadProgressView(
+                                controller: controller,
+                                playlist: playlist,
+                              ),
+                            ],
                           ],
+                        ),
+                        trailing: IconButton(
+                          key: ValueKey('manager-download-${playlist.id}'),
+                          tooltip: strings.downloadAllPlaylist,
+                          onPressed: controller.isPlaylistDownloading(playlist)
+                              ? null
+                              : () => _downloadPlaylist(playlist),
+                          icon: controller.isPlaylistDownloading(playlist)
+                              ? const SizedBox.square(
+                                  dimension: 20,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2,
+                                  ),
+                                )
+                              : const Icon(Icons.download_for_offline_outlined),
                         ),
                       ),
                     ),

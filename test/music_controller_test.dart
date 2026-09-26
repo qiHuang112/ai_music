@@ -24,6 +24,45 @@ void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
   test(
+    're-importing chart candidates reports only new playlist entries',
+    () async {
+      final handler = _SpyAudioHandler();
+      final controller = MusicController(
+        audioHandler: handler,
+        resolver: _FakeMusicResolver(),
+      cacheStore: _FakeCacheStore(cached: const []),
+        playlistStore: _MemoryPlaylistStore(),
+        settingsStore: _FakeSettingsStore(),
+        metadataRepository: _StaticMetadataRepository(),
+      );
+      try {
+        await controller.initialize();
+        final playlist = (await controller.createPlaylist('榜单'))!;
+        final first = _candidate(id: 'first', name: '第一首');
+        final second = _candidate(id: 'second', name: '第二首');
+
+        expect(await controller.addCandidatesToPlaylist(playlist, [first]), 1);
+        expect(
+          await controller.addCandidatesToPlaylist(playlist, [
+            first,
+            second,
+            second,
+          ]),
+          1,
+        );
+        expect(
+          await controller.addCandidatesToPlaylist(playlist, [first, second]),
+          0,
+        );
+        expect(controller.customPlaylists.single.trackIds, hasLength(2));
+      } finally {
+        controller.dispose();
+        await handler.dispose();
+      }
+    },
+  );
+
+  test(
     'online playlist entry survives reload and uses cached metadata',
     () async {
       final handler = _SpyAudioHandler();

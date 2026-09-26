@@ -1314,17 +1314,36 @@ class MusicController extends ChangeNotifier {
   ScreenshotMatcher createScreenshotMatcher() =>
       ScreenshotMatcher(resolver: _resolver);
 
-  Future<void> addCandidatesToPlaylist(
+  Future<int> addCandidatesToPlaylist(
     MusicPlaylist playlist,
     List<MusicSearchCandidate> selected,
   ) async {
-    _applyLibrarySnapshot(
-      await libraryUseCase.addOnlineTracksToPlaylist(playlist, [
-        for (final candidate in selected)
-          SavedOnlineTrack(candidate: candidate),
-      ], current: _librarySnapshot),
+    final previousIds =
+        customPlaylists
+            .where((item) => item.id == playlist.id)
+            .firstOrNull
+            ?.trackIds
+            .toSet() ??
+        <String>{};
+    final saved = [
+      for (final candidate in selected) SavedOnlineTrack(candidate: candidate),
+    ];
+    final snapshot = await libraryUseCase.addOnlineTracksToPlaylist(
+      playlist,
+      saved,
+      current: _librarySnapshot,
     );
+    _applyLibrarySnapshot(snapshot);
     notifyListeners();
+    final currentIds =
+        customPlaylists
+            .where((item) => item.id == playlist.id)
+            .firstOrNull
+            ?.trackIds
+            .toSet() ??
+        <String>{};
+    final candidateIds = {for (final track in saved) track.trackId};
+    return currentIds.difference(previousIds).intersection(candidateIds).length;
   }
 
   DateTime? favoriteAddedAt(Track track) {

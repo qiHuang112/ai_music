@@ -8,9 +8,11 @@ import '../application/download_use_case.dart';
 import '../application/music_controller.dart';
 import '../application/music_ui_message.dart';
 import '../data/music_playlists.dart';
+import '../data/music_charts.dart';
 import '../data/music_resolver.dart';
 import '../domain/music_models.dart';
 import 'app_localizations.dart';
+import 'discover_charts.dart';
 import 'download_manager_page.dart';
 import 'list_search.dart';
 import 'player_page.dart';
@@ -128,6 +130,7 @@ class _MusicHomePageState extends State<MusicHomePage> {
                         showDefaultLibrary: _searchController.text
                             .trim()
                             .isEmpty,
+                        onOpenChart: _openChart,
                         onOpenLibrary: _openLibrary,
                       ),
                     ),
@@ -247,7 +250,17 @@ class _MusicHomePageState extends State<MusicHomePage> {
   Future<void> _openDownloads() {
     return Navigator.of(context).push<void>(
       MaterialPageRoute(
-        builder: (context) => DownloadManagerPage(controller: controller),
+        builder: (context) => DownloadManagerPage(
+          controller: controller,
+          onOpenPlaylist: (playlist) => Navigator.of(context).push<void>(
+            MaterialPageRoute(
+              builder: (context) => _PlaylistDetailPage(
+                controller: controller,
+                selection: _LibraryListSpec.custom(playlist),
+              ),
+            ),
+          ),
+        ),
       ),
     );
   }
@@ -256,6 +269,23 @@ class _MusicHomePageState extends State<MusicHomePage> {
     return Navigator.of(context).push<void>(
       MaterialPageRoute(
         builder: (context) => _LibraryPage(controller: controller),
+      ),
+    );
+  }
+
+  Future<void> _openChart(MusicChart chart) {
+    return Navigator.of(context).push<void>(
+      MaterialPageRoute(
+        builder: (context) => MusicChartPage(
+          chart: chart,
+          controller: controller,
+          onSearchSong: (entry) {
+            Navigator.of(context).pop();
+            _searchController.text = entry.title;
+            setState(() {});
+            controller.search(entry.title);
+          },
+        ),
       ),
     );
   }
@@ -482,11 +512,13 @@ class _SearchBody extends StatelessWidget {
   const _SearchBody({
     required this.controller,
     required this.showDefaultLibrary,
+    required this.onOpenChart,
     required this.onOpenLibrary,
   });
 
   final MusicController controller;
   final bool showDefaultLibrary;
+  final ValueChanged<MusicChart> onOpenChart;
   final VoidCallback onOpenLibrary;
 
   @override
@@ -507,6 +539,8 @@ class _SearchBody extends StatelessWidget {
           controller: controller,
           onOpenLibrary: onOpenLibrary,
         ),
+        const SizedBox(height: 20),
+        DiscoverChartsSection(onOpenChart: onOpenChart),
       ],
     );
   }
@@ -1129,13 +1163,13 @@ class _PlaylistDetailPageState extends State<_PlaylistDetailPage> {
                     title: Text(list.title),
                     actions: [
                       if (canAdjustOrder)
-                        TextButton.icon(
+                        IconButton(
                           key: const ValueKey('adjust-order-action'),
+                          tooltip: strings.adjustOrder,
                           onPressed: hasActiveFilter
                               ? () => _showClearSearchToAdjustOrder(context)
                               : () => _startReorderEditing(sortedTracks),
                           icon: const Icon(Icons.drag_indicator),
-                          label: Text(strings.adjustOrder),
                         ),
                       if (!list.canManage)
                         _LibrarySortButton(

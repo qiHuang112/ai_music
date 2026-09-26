@@ -152,6 +152,14 @@ void main() {
     expect(find.byKey(const ValueKey('home-playlist-road')), findsOneWidget);
     expect(find.text('1 首 · Alpha'), findsOneWidget);
     expect(find.text('Beta'), findsOneWidget);
+    expect(
+      tester.getTopLeft(find.text('发现')).dy,
+      greaterThan(
+        tester
+            .getBottomLeft(find.byKey(const ValueKey('home-playlist-road')))
+            .dy,
+      ),
+    );
     expect(find.text('搜索音乐'), findsNothing);
     expect(find.text('输入歌手或歌曲名，下载后会保存在本机缓存里。'), findsNothing);
 
@@ -162,6 +170,8 @@ void main() {
     expect(find.text('Alpha'), findsOneWidget);
 
     await tester.pageBack();
+    await tester.pumpAndSettle();
+    await tester.drag(find.byType(ListView).first, const Offset(0, -300));
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey('home-playlist-road')));
     await tester.pumpAndSettle();
@@ -683,6 +693,8 @@ void main() {
     await tester.pumpWidget(_app(playbackController: controller));
     await tester.pumpAndSettle();
 
+    await tester.drag(find.byType(ListView).first, const Offset(0, -300));
+    await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey('home-playlist-road')));
     await tester.pumpAndSettle();
     expect(controller.requests, [true]);
@@ -692,6 +704,8 @@ void main() {
     expect(controller.requests, [true]);
 
     await tester.pageBack();
+    await tester.pumpAndSettle();
+    await tester.drag(find.byType(ListView).first, const Offset(0, -300));
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey('home-playlist-road')));
     await tester.pumpAndSettle();
@@ -707,6 +721,8 @@ void main() {
     );
     await tester.pumpWidget(_app(playbackController: controller));
     await tester.pumpAndSettle();
+    await tester.drag(find.byType(ListView).first, const Offset(0, -300));
+    await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey('home-playlist-road')));
     await tester.pumpAndSettle();
     expect(controller.autoProgressChoices, [true]);
@@ -714,6 +730,8 @@ void main() {
     await tester.pageBack();
     await tester.pumpAndSettle();
     controller._autoStartedPlaylists.clear(); // Simulate the 24-hour retry.
+    await tester.drag(find.byType(ListView).first, const Offset(0, -300));
+    await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey('home-playlist-road')));
     await tester.pumpAndSettle();
     expect(controller.autoProgressChoices, [true, false]);
@@ -727,6 +745,8 @@ void main() {
       wifi: false,
     );
     await tester.pumpWidget(_app(playbackController: controller));
+    await tester.pumpAndSettle();
+    await tester.drag(find.byType(ListView).first, const Offset(0, -300));
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey('home-playlist-road')));
     await tester.pumpAndSettle();
@@ -746,6 +766,8 @@ void main() {
     );
     await tester.pumpWidget(_app(playbackController: controller));
     await tester.pumpAndSettle();
+    await tester.drag(find.byType(ListView).first, const Offset(0, -300));
+    await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey('home-playlist-road')));
     await tester.pumpAndSettle();
     expect(controller.autoProgressChoices, [true]);
@@ -762,6 +784,8 @@ void main() {
       wifi: false,
     );
     await tester.pumpWidget(_app(playbackController: controller));
+    await tester.pumpAndSettle();
+    await tester.drag(find.byType(ListView).first, const Offset(0, -300));
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey('home-playlist-road')));
     await tester.pumpAndSettle();
@@ -797,6 +821,8 @@ void main() {
     await tester.pumpWidget(_app(playbackController: controller));
     await tester.pumpAndSettle();
 
+    await tester.drag(find.byType(ListView).first, const Offset(0, -300));
+    await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey('home-playlist-road')));
     await tester.pumpAndSettle();
     expect(controller.requests, isEmpty);
@@ -823,6 +849,8 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.text('(1/1)'), findsNothing);
+      await tester.drag(find.byType(ListView).first, const Offset(0, -300));
+      await tester.pumpAndSettle();
       await tester.tap(find.byKey(const ValueKey('home-playlist-road')));
       await tester.pumpAndSettle();
       expect(find.text('(1/1)'), findsNothing);
@@ -899,6 +927,28 @@ void main() {
     await tester.pumpAndSettle();
     expect(controller.requests, [false]);
     expect(find.textContaining('已缓存 1 首'), findsOneWidget);
+  });
+
+  testWidgets('download manager playlist row opens its detail', (tester) async {
+    final controller = _RecordingPlaylistDownloadController(
+      _homeLibraryFixture(),
+      wifi: false,
+    );
+    await tester.pumpWidget(_app(playbackController: controller));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byTooltip('下载'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Road'));
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const ValueKey('download-all-playlist')), findsOneWidget);
+    expect(find.text('Beta'), findsOneWidget);
+    expect(controller.requests, isEmpty);
+
+    await tester.pageBack();
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('manager-download-road')), findsOneWidget);
   });
 
   testWidgets('download manager offers LAN scan and shows result', (
@@ -1476,7 +1526,8 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.byTooltip('排序'), findsNothing);
-    expect(find.text('调整顺序'), findsOneWidget);
+    expect(find.byTooltip('调整顺序'), findsOneWidget);
+    expect(find.text('调整顺序'), findsNothing);
     expect(
       tester.getTopLeft(find.text('Alpha')).dy,
       lessThan(tester.getTopLeft(find.text('Beta')).dy),
@@ -1542,7 +1593,8 @@ void main() {
       lessThan(tester.getTopLeft(find.text('Beta')).dy),
     );
     expect(find.byTooltip('排序'), findsNothing);
-    expect(find.text('调整顺序'), findsOneWidget);
+    expect(find.byTooltip('调整顺序'), findsOneWidget);
+    expect(find.text('调整顺序'), findsNothing);
     expect(
       tester.getCenter(find.byKey(const ValueKey('adjust-order-action'))).dx,
       greaterThan(tester.getCenter(find.text('Road')).dx),
@@ -1613,12 +1665,13 @@ void main() {
     await tester.tap(find.text('Road'));
     await tester.pumpAndSettle();
 
-    expect(find.text('调整顺序'), findsOneWidget);
+    expect(find.byTooltip('调整顺序'), findsOneWidget);
+    expect(find.text('调整顺序'), findsNothing);
     expect(find.byTooltip('排序'), findsNothing);
     expect(find.byTooltip('拖拽排序'), findsNothing);
     expect(find.byTooltip('添加到歌单'), findsWidgets);
 
-    await tester.tap(find.text('调整顺序'));
+    await tester.tap(find.byKey(const ValueKey('adjust-order-action')));
     await tester.pumpAndSettle();
 
     expect(find.byTooltip('拖拽排序'), findsNWidgets(2));
@@ -1698,7 +1751,7 @@ void main() {
 
     expect(find.text('Mini Alpha'), findsOneWidget);
 
-    await tester.tap(find.text('调整顺序'));
+    await tester.tap(find.byKey(const ValueKey('adjust-order-action')));
     await tester.pumpAndSettle();
 
     expect(find.text('Mini Alpha'), findsNothing);
@@ -1757,7 +1810,7 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.text('Road'));
     await tester.pumpAndSettle();
-    await tester.tap(find.text('调整顺序'));
+    await tester.tap(find.byKey(const ValueKey('adjust-order-action')));
     await tester.pumpAndSettle();
 
     final writesBeforeDrag = playlistStore.writeCount;
@@ -1839,7 +1892,7 @@ void main() {
     await tester.enterText(find.byType(TextField), 'Alpha');
     await tester.pumpAndSettle();
 
-    await tester.tap(find.text('调整顺序'));
+    await tester.tap(find.byKey(const ValueKey('adjust-order-action')));
     await tester.pumpAndSettle();
 
     expect(find.text('清除搜索后可调整顺序'), findsOneWidget);
@@ -1899,7 +1952,7 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.text('Road'));
     await tester.pumpAndSettle();
-    await tester.tap(find.text('调整顺序'));
+    await tester.tap(find.byKey(const ValueKey('adjust-order-action')));
     await tester.pumpAndSettle();
     await tester.drag(find.byTooltip('拖拽排序').first, const Offset(0, 220));
     await tester.pumpAndSettle();

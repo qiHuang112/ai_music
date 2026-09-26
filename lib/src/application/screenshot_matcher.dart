@@ -70,7 +70,10 @@ class ScreenshotMatcher {
   final Map<String, DateTime> _lastNetworkStarts = {};
   final Map<String, DateTime> _blockedUntil = {};
 
-  Future<ScreenshotMatchResult> match(ScreenshotSongDraft draft) async {
+  Future<ScreenshotMatchResult> match(
+    ScreenshotSongDraft draft, {
+    bool failOnSourceErrorWhenEmpty = false,
+  }) async {
     if (draft.title.trim().isEmpty) {
       return const ScreenshotMatchResult([], null);
     }
@@ -112,6 +115,11 @@ class ScreenshotMatcher {
     } catch (_) {
       if (primaryFailure != null) throw primaryFailure;
       rethrow;
+    }
+    if (fallback.isEmpty &&
+        primaryFailure != null &&
+        failOnSourceErrorWhenEmpty) {
+      throw primaryFailure;
     }
     return ScreenshotMatchResult(fallback, _recommend(draft, fallback));
   }

@@ -30,6 +30,33 @@ class AppStrings {
   bool get isZh => languageCode == AppLanguage.zh;
 
   String get appTitle => isZh ? '搜音乐' : 'Search Music';
+  String get discover => isZh ? '发现' : 'Discover';
+  String get qqMusic => isZh ? 'QQ音乐' : 'QQ Music';
+  String get neteaseMusic => isZh ? '网易云音乐' : 'NetEase Cloud Music';
+  String get qqPeakCharts => isZh ? '巅峰榜' : 'Peak charts';
+  String get neteaseFeaturedCharts => isZh ? '云音乐特色榜' : 'Featured charts';
+  String get selectAll => isZh ? '全选' : 'Select all';
+  String get clearSelection => isZh ? '取消全选' : 'Clear selection';
+  String get chartEmpty => isZh ? '榜单暂无歌曲' : 'No chart entries';
+  String get mvChartHint => isZh
+      ? 'MV 榜展示视频排名，不能作为音频歌曲加入歌单。'
+      : 'The MV chart lists videos and cannot be added as audio tracks.';
+  String get chartSelectionHint =>
+      isZh ? '选择歌曲后可批量加入自建歌单' : 'Select songs to add them to a playlist';
+  String chartUpdated(String date) =>
+      isZh ? '榜单更新：$date' : 'Chart updated: $date';
+  String chartSelected(int count) => isZh ? '已选 $count 首' : '$count selected';
+  String chartMatching(int completed, int total) =>
+      isZh ? '正在匹配 $completed/$total 首' : 'Matching $completed/$total';
+  String chartAdded(String playlist, int added, int failed) => isZh
+      ? '已向「$playlist」加入 $added 首，未找到 $failed 首'
+      : 'Added $added to "$playlist"; $failed not found';
+  String get chartNoMatches => isZh
+      ? '所选歌曲没有找到可信的同歌名、同歌手结果'
+      : 'No selected songs matched title and artist';
+  String chartMatchInterrupted(int completed, int total) => isZh
+      ? '歌源暂不可用，匹配已暂停（已处理 $completed/$total 首），未修改歌单'
+      : 'Music source unavailable; matching stopped at $completed/$total. Playlist unchanged.';
   String get searchHint => isZh ? '歌手或歌曲' : 'Artist or song';
   String get searchEmptyTitle => isZh ? '搜索音乐' : 'Search music';
   String get searchEmptyBody => isZh
