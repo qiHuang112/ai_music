@@ -10,6 +10,7 @@ import 'package:ai_music/src/data/music_cache.dart';
 import 'package:ai_music/src/data/music_playlists.dart';
 import 'package:ai_music/src/data/music_resolver.dart';
 import 'package:ai_music/src/data/music_settings.dart';
+import 'package:ai_music/src/data/saved_online_track.dart';
 import 'package:ai_music/src/domain/music_models.dart';
 import 'package:ai_music/src/presentation/app_localizations.dart';
 import 'package:ai_music/src/presentation/music_home_page.dart';
@@ -654,6 +655,117 @@ void main() {
 
     expect(find.text('稻香'), findsOneWidget);
     expect(find.textContaining('周杰伦'), findsOneWidget);
+  });
+
+  testWidgets(
+    'uncached playlist play shows preparation and a visible failure',
+    (tester) async {
+      final candidate = _candidate(
+        name: '偏向',
+        artist: '孟维来',
+        source: MusicDataSource.flac,
+        platform: 'kuwo',
+      );
+      final saved = SavedOnlineTrack(candidate: candidate);
+      final playlists = _FakePlaylistStore()
+        ..library = PlaylistLibrary(
+          playlists: [
+            MusicPlaylist(
+              id: 'imported',
+              name: '截图歌单',
+              entries: [
+                PlaylistTrackEntry(
+                  trackId: saved.trackId,
+                  addedAt: DateTime(2026),
+                  onlineTrack: saved,
+                ),
+              ],
+              createdAt: DateTime(2026),
+              updatedAt: DateTime(2026),
+            ),
+          ],
+        );
+      final resolver = _DeferredFailingMusicResolver();
+      await tester.pumpWidget(
+        _app(resolver: resolver, playlistStore: playlists),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byTooltip('播放列表'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.textContaining('截图歌单').last);
+      await tester.pumpAndSettle();
+      await tester.tap(find.byTooltip('播放').first);
+      await tester.pump();
+
+      expect(find.byType(CircularProgressIndicator), findsOneWidget);
+      resolver.fail(StateError('请求已过期'));
+      await tester.pumpAndSettle();
+      expect(find.text('播放失败：请求已过期'), findsOneWidget);
+      expect(find.byType(CircularProgressIndicator), findsNothing);
+    },
+  );
+
+  testWidgets('stale A-B-A play completion does not clear latest preparation', (
+    tester,
+  ) async {
+    final alpha = SavedOnlineTrack(
+      candidate: _candidate(id: 'alpha', name: 'Alpha', artist: 'A'),
+    );
+    final beta = SavedOnlineTrack(
+      candidate: _candidate(id: 'beta', name: 'Beta', artist: 'B'),
+    );
+    final playlists = _FakePlaylistStore()
+      ..library = PlaylistLibrary(
+        playlists: [
+          MusicPlaylist(
+            id: 'imported',
+            name: '截图歌单',
+            entries: [
+              PlaylistTrackEntry(
+                trackId: alpha.trackId,
+                addedAt: DateTime(2026),
+                onlineTrack: alpha,
+              ),
+              PlaylistTrackEntry(
+                trackId: beta.trackId,
+                addedAt: DateTime(2026),
+                onlineTrack: beta,
+              ),
+            ],
+            createdAt: DateTime(2026),
+            updatedAt: DateTime(2026),
+          ),
+        ],
+      );
+    final controller = _ControlledPlaybackController(playlists);
+    await tester.pumpWidget(_app(playbackController: controller));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byTooltip('播放列表'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.textContaining('截图歌单').last);
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Alpha'));
+    await tester.pump();
+    await tester.tap(find.text('Beta'));
+    await tester.pump();
+    await tester.tap(find.text('Alpha'));
+    await tester.pump();
+    expect(controller.pending, hasLength(3));
+    expect(find.byType(CircularProgressIndicator), findsOneWidget);
+
+    controller.pending[0].completeError(StateError('stale A'));
+    controller.pending[1].completeError(StateError('stale B'));
+    await tester.pump();
+    expect(find.byType(CircularProgressIndicator), findsOneWidget);
+    expect(find.textContaining('stale A'), findsNothing);
+    expect(find.textContaining('stale B'), findsNothing);
+
+    controller.pending[2].completeError(StateError('latest A'));
+    await tester.pumpAndSettle();
+    expect(find.text('播放失败：latest A'), findsOneWidget);
+    expect(find.byType(CircularProgressIndicator), findsNothing);
   });
 
   testWidgets('local library track can be deleted from more actions', (
@@ -1524,6 +1636,7 @@ void main() {
 }
 
 Widget _app({
+  MusicController? playbackController,
   _FakeMusicResolver? resolver,
   _FakeCacheStore? cacheStore,
   _FakePlaylistStore? playlistStore,
@@ -1533,7 +1646,7 @@ Widget _app({
   LanLibraryGateway? lanGateway,
   LanSyncUseCase? lanSyncUseCase,
 }) {
-  final controller = MusicController(
+  final controller = playbackController ?? MusicController(
     audioHandler: audioHandler ?? MusicAudioHandler(),
     resolver: resolver ?? _FakeMusicResolver(),
     cacheStore: cacheStore ?? _FakeCacheStore(),
@@ -1560,6 +1673,31 @@ Widget _app({
       );
     },
   );
+}
+
+class _ControlledPlaybackController extends MusicController {
+  _ControlledPlaybackController(_FakePlaylistStore playlists)
+    : super(
+        audioHandler: MusicAudioHandler(),
+        resolver: _FakeMusicResolver(),
+        cacheStore: _FakeCacheStore(),
+        playlistStore: playlists,
+        settingsStore: _FakeSettingsStore(),
+        metadataRepository: _FakeMetadataRepository(),
+      );
+
+  final pending = <Completer<void>>[];
+
+  @override
+  Future<void> playTrack(
+    Track track, {
+    int? index,
+    List<Track>? queueTracks,
+  }) {
+    final completion = Completer<void>();
+    pending.add(completion);
+    return completion.future;
+  }
 }
 
 class _FakeMetadataRepository extends TrackMetadataRepository {
@@ -1675,7 +1813,9 @@ class _FakePlaylistStore extends PlaylistStore {
       final seen = <String>{};
       for (final entry in entries) {
         if (seen.add(entry.trackId) &&
-            (validIds == null || validIds.contains(entry.trackId))) {
+            (validIds == null ||
+                validIds.contains(entry.trackId) ||
+                entry.onlineTrack != null)) {
           unique.add(entry);
         }
       }
@@ -1715,6 +1855,17 @@ class _FakeMusicResolver implements MusicResolver {
   Future<ResolvedMusic> resolve(MusicSearchCandidate candidate) async {
     return _resolvedMusic();
   }
+}
+
+class _DeferredFailingMusicResolver extends _FakeMusicResolver {
+  final _resolution = Completer<ResolvedMusic>();
+
+  @override
+  Future<ResolvedMusic> resolve(MusicSearchCandidate candidate) {
+    return _resolution.future;
+  }
+
+  void fail(Object error) => _resolution.completeError(error);
 }
 
 class _ProgressiveMusicResolver extends _FakeMusicResolver

@@ -370,6 +370,10 @@ void main() {
 
       try {
         await controller.initialize();
+        final loadingStates = <bool>[];
+        controller.addListener(() {
+          loadingStates.add(controller.isLoadingCache);
+        });
 
         await controller.downloadCandidate(candidate);
 
@@ -378,9 +382,11 @@ void main() {
         expect(controller.cachedTracks.single.title, '第一首');
 
         metadata.complete(const TrackMetadata());
-        for (var i = 0; i < 10 && controller.isLoadingCache; i += 1) {
+        for (var i = 0; i < 10 && cacheStore.listCachedCalls < 2; i += 1) {
           await Future<void>.delayed(const Duration(milliseconds: 10));
         }
+        expect(cacheStore.listCachedCalls, 2);
+        expect(loadingStates, isNot(contains(true)));
       } finally {
         controller.dispose();
         await handler.dispose();
@@ -2011,6 +2017,7 @@ class _SequencedSearchResolver extends _FakeMusicResolver {
 class _DownloadCacheStore extends CachedTrackStore {
   final cached = <CachedTrack>[];
   final downloadIds = <String>[];
+  int listCachedCalls = 0;
 
   @override
   Future<CachedTrack> downloadOrReuse(
@@ -2034,6 +2041,7 @@ class _DownloadCacheStore extends CachedTrackStore {
 
   @override
   Future<List<CachedTrack>> listCached() async {
+    listCachedCalls += 1;
     return List<CachedTrack>.unmodifiable(cached);
   }
 

@@ -4,6 +4,7 @@ import 'package:audio_service/audio_service.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import '../application/download_use_case.dart';
 import '../application/music_controller.dart';
 import '../application/music_ui_message.dart';
 import '../data/music_playlists.dart';
@@ -986,6 +987,8 @@ class _PlaylistDetailPage extends StatefulWidget {
 
 class _PlaylistDetailPageState extends State<_PlaylistDetailPage> {
   _LibrarySortMode _sortMode = _LibrarySortMode.time;
+  String? _preparingTrackId;
+  int _playRequestId = 0;
   final _searchController = TextEditingController();
   final List<String> _selectedTrackIds = <String>[];
   final List<String> _reorderDraftTrackIds = <String>[];
@@ -1101,6 +1104,9 @@ class _PlaylistDetailPageState extends State<_PlaylistDetailPage> {
                             isReorderEditing: _isReorderEditing,
                             selectedTrackIds: _selectedTrackIds.toSet(),
                             canReorder: canReorder,
+                            preparingTrackId: _preparingTrackId,
+                            onPlayTrack: (track, index, tracks) =>
+                                unawaited(_playFromList(track, index, tracks)),
                             onStartSelection: _startSelection,
                             onToggleSelection: _toggleSelection,
                             onReorder: (oldIndex, newIndex) =>
@@ -1117,6 +1123,31 @@ class _PlaylistDetailPageState extends State<_PlaylistDetailPage> {
         );
       },
     );
+  }
+
+  Future<void> _playFromList(Track track, int index, List<Track> tracks) async {
+    if (_preparingTrackId == track.id) return;
+    final requestId = ++_playRequestId;
+    setState(() => _preparingTrackId = track.id);
+    try {
+      await controller.playTrack(track, index: index, queueTracks: tracks);
+    } catch (error) {
+      if (!mounted || requestId != _playRequestId) return;
+      final messenger = ScaffoldMessenger.of(context);
+      messenger.hideCurrentSnackBar();
+      messenger.showSnackBar(
+        SnackBar(
+          content: Text(
+            AppStringsScope.of(context).playTrackFailed(friendlyError(error)),
+          ),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    } finally {
+      if (mounted && requestId == _playRequestId) {
+        setState(() => _preparingTrackId = null);
+      }
+    }
   }
 
   PreferredSizeWidget _selectionAppBar(
@@ -1562,6 +1593,8 @@ class _TrackList extends StatelessWidget {
     required this.isReorderEditing,
     required this.selectedTrackIds,
     required this.canReorder,
+    required this.preparingTrackId,
+    required this.onPlayTrack,
     required this.onStartSelection,
     required this.onToggleSelection,
     required this.onReorder,
@@ -1574,6 +1607,8 @@ class _TrackList extends StatelessWidget {
   final bool isReorderEditing;
   final Set<String> selectedTrackIds;
   final bool canReorder;
+  final String? preparingTrackId;
+  final void Function(Track track, int index, List<Track> tracks) onPlayTrack;
   final ValueChanged<Track> onStartSelection;
   final ValueChanged<Track> onToggleSelection;
   final void Function(int oldIndex, int newIndex) onReorder;
@@ -1618,6 +1653,8 @@ class _TrackList extends StatelessWidget {
             isSelecting: isSelecting,
             isReorderEditing: isReorderEditing,
             selected: selectedTrackIds.contains(track.id),
+            isPreparing: preparingTrackId == track.id,
+            onPlayTrack: onPlayTrack,
             onStartSelection: onStartSelection,
             onToggleSelection: onToggleSelection,
             dragHandle: ReorderableDragStartListener(
@@ -1649,6 +1686,8 @@ class _TrackList extends StatelessWidget {
           isSelecting: isSelecting,
           isReorderEditing: isReorderEditing,
           selected: selectedTrackIds.contains(track.id),
+          isPreparing: preparingTrackId == track.id,
+          onPlayTrack: onPlayTrack,
           onStartSelection: onStartSelection,
           onToggleSelection: onToggleSelection,
         );
@@ -1668,6 +1707,8 @@ class _TrackTile extends StatelessWidget {
     required this.isSelecting,
     required this.isReorderEditing,
     required this.selected,
+    required this.isPreparing,
+    required this.onPlayTrack,
     required this.onStartSelection,
     required this.onToggleSelection,
     this.dragHandle,
@@ -1681,6 +1722,8 @@ class _TrackTile extends StatelessWidget {
   final bool isSelecting;
   final bool isReorderEditing;
   final bool selected;
+  final bool isPreparing;
+  final void Function(Track track, int index, List<Track> tracks) onPlayTrack;
   final ValueChanged<Track> onStartSelection;
   final ValueChanged<Track> onToggleSelection;
   final Widget? dragHandle;
@@ -1706,13 +1749,21 @@ class _TrackTile extends StatelessWidget {
                   onChanged: (_) => onToggleSelection(track),
                 )
               : IconButton.filledTonal(
-                  tooltip: active ? strings.playing : strings.play,
-                  onPressed: () => controller.playTrack(
-                    track,
-                    index: index,
-                    queueTracks: tracks,
-                  ),
-                  icon: Icon(active ? Icons.equalizer : Icons.play_arrow),
+                  tooltip: isPreparing
+                      ? strings.preparingPlayback
+                      : active
+                      ? strings.playing
+                      : strings.play,
+                  onPressed: isPreparing
+                      ? null
+                      : () => onPlayTrack(track, index, tracks),
+                  icon: isPreparing
+                      ? const SizedBox(
+                          width: 20,
+                          height: 20,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : Icon(active ? Icons.equalizer : Icons.play_arrow),
                 ),
           title: Text(
             track.title,
@@ -1737,11 +1788,9 @@ class _TrackTile extends StatelessWidget {
               ? null
               : isSelecting
               ? () => onToggleSelection(track)
-              : () => controller.playTrack(
-                  track,
-                  index: index,
-                  queueTracks: tracks,
-                ),
+              : isPreparing
+              ? null
+              : () => onPlayTrack(track, index, tracks),
           onLongPress: isReorderEditing ? null : () => onStartSelection(track),
         );
       },

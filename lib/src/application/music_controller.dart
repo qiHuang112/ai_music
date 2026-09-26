@@ -243,12 +243,17 @@ class MusicController extends ChangeNotifier {
     notifyListeners();
   }
 
-  Future<void> loadCache({bool repairLegacy = true}) async {
+  Future<void> loadCache({
+    bool repairLegacy = true,
+    bool showLoading = true,
+  }) async {
     if (_isDisposed) {
       return;
     }
-    isLoadingCache = true;
-    notifyListeners();
+    if (showLoading) {
+      isLoadingCache = true;
+      notifyListeners();
+    }
     try {
       _applyLibrarySnapshot(await libraryUseCase.loadCache());
       if (_isDisposed) {
@@ -264,7 +269,7 @@ class MusicController extends ChangeNotifier {
       errorDetail = friendlyError(exception);
     } finally {
       if (!_isDisposed) {
-        isLoadingCache = false;
+        if (showLoading) isLoadingCache = false;
         notifyListeners();
       }
     }
@@ -1201,7 +1206,7 @@ class MusicController extends ChangeNotifier {
     if (_isDisposed) {
       return;
     }
-    await loadCache(repairLegacy: false);
+    await loadCache(repairLegacy: false, showLoading: false);
   }
 
   Future<void> autoRecoverMetadataForCurrentTrack() async {

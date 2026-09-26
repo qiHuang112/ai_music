@@ -310,6 +310,158 @@ void main() {
   );
 
   test(
+    'flac refreshes an expired saved candidate once before resolving',
+    () async {
+      final forms = <Map<String, String>>[];
+      var searches = 0;
+      final http = _FakeResolverHttp(
+        onPostForm: (uri, form, _) async {
+          if (uri.queryParameters['act'] == 'search') {
+            searches += 1;
+            expect(form['platform'], 'kuwo');
+            expect(form['keyword'], '偏向(摇滚版)');
+            return _json(uri, {
+              'data': {
+                'list': [
+                  {
+                    'id': 'song-1',
+                    'name': '偏向',
+                    'artist': '孟维来',
+                    'duration': 210,
+                    'time': 'fresh-time',
+                    'sign': 'fresh-sign',
+                    'minfo': [
+                      {'format': 'mp3', 'bitrate': '320'},
+                    ],
+                  },
+                ],
+              },
+            });
+          }
+          if (uri.queryParameters['act'] == 'getUrl') {
+            forms.add(form);
+            return _json(
+              uri,
+              form['sign'] == 'fresh-sign'
+                  ? {
+                      'data': {'url': 'https://cdn.example.test/fresh.mp3'},
+                    }
+                  : {'msg': '请求已过期'},
+            );
+          }
+          fail('Unexpected POST $uri');
+        },
+      );
+      final resolver = RemoteMusicResolver(
+        httpClient: http,
+        initialFlacCookie: 'sl-session=test',
+      );
+
+      final resolved = await resolver.resolve(_expiredFlacCandidate());
+
+      expect(resolved.url, 'https://cdn.example.test/fresh.mp3');
+      expect(searches, 1);
+      expect(forms.map((form) => form['sign']), ['old-sign', 'fresh-sign']);
+    },
+  );
+
+  test(
+    'flac does not substitute a different song for an expired one',
+    () async {
+      var searches = 0;
+      var getUrls = 0;
+      final http = _FakeResolverHttp(
+        onPostForm: (uri, _, _) async {
+          if (uri.queryParameters['act'] == 'search') {
+            searches += 1;
+            return _json(uri, {
+              'data': {
+                'list': [
+                  {
+                    'id': 'different-song',
+                    'name': '偏向',
+                    'artist': '孟维来',
+                    'duration': 210,
+                    'time': 'fresh-time',
+                    'sign': 'fresh-sign',
+                    'minfo': [
+                      {'format': 'mp3', 'bitrate': '320'},
+                    ],
+                  },
+                ],
+              },
+            });
+          }
+          if (uri.queryParameters['act'] == 'getUrl') {
+            getUrls += 1;
+            return _json(uri, {'msg': '请求已过期'});
+          }
+          fail('Unexpected POST $uri');
+        },
+      );
+      final resolver = RemoteMusicResolver(
+        httpClient: http,
+        initialFlacCookie: 'sl-session=test',
+      );
+
+      await expectLater(
+        resolver.resolve(_expiredFlacCandidate()),
+        throwsA(isA<StateError>()),
+      );
+      expect(searches, 1);
+      expect(getUrls, 1);
+    },
+  );
+
+  test(
+    'flac stops after one refresh when fresh credentials also expire',
+    () async {
+      var searches = 0;
+      var getUrls = 0;
+      final http = _FakeResolverHttp(
+        onPostForm: (uri, _, _) async {
+          if (uri.queryParameters['act'] == 'search') {
+            searches += 1;
+            return _json(uri, {
+              'data': {
+                'list': [
+                  {
+                    'id': 'song-1',
+                    'name': '偏向',
+                    'artist': '孟维来',
+                    'duration': 210,
+                    'time': 'fresh-time',
+                    'sign': 'fresh-sign',
+                    'minfo': [
+                      {'format': 'mp3', 'bitrate': '320'},
+                    ],
+                  },
+                ],
+              },
+            });
+          }
+          if (uri.queryParameters['act'] == 'getUrl') {
+            getUrls += 1;
+            return _json(uri, {'msg': '请求已过期'});
+          }
+          fail('Unexpected POST $uri');
+        },
+      );
+      final resolver = RemoteMusicResolver(
+        httpClient: http,
+        initialFlacCookie: 'sl-session=test',
+      );
+
+      await expectLater(
+        resolver.resolve(_expiredFlacCandidate()),
+        throwsA(isA<StateError>()),
+      );
+      expect(searches, 1);
+      expect(getUrls, 2);
+    },
+  );
+
+  test(
     'auto searches buguyy and flac then merges concrete candidates',
     () async {
       var buguyyRequests = 0;
@@ -445,6 +597,24 @@ ResolverHttpResponse _json(Uri uri, Object body) {
     finalUrl: uri,
   );
 }
+
+MusicSearchCandidate _expiredFlacCandidate() => const MusicSearchCandidate(
+  query: '偏向(摇滚版)',
+  source: MusicDataSource.flac,
+  platform: 'kuwo',
+  keyword: '偏向(摇滚版)',
+  page: 1,
+  id: 'song-1',
+  name: '偏向',
+  artist: '孟维来',
+  album: '',
+  duration: 210,
+  link: '',
+  coverUrl: '',
+  qualities: [MusicQuality(format: 'mp3', bitrate: '320')],
+  score: 0,
+  raw: {'time': 'old-time', 'sign': 'old-sign'},
+);
 
 class _FakeResolverHttp implements MusicResolverHttp {
   // ignore: unused_element_parameter

@@ -105,7 +105,13 @@ class FlacResolver {
     return candidates.take(20).toList(growable: false);
   }
 
-  Future<ResolvedMusic> resolve(MusicSearchCandidate candidate) async {
+  Future<ResolvedMusic> resolve(MusicSearchCandidate candidate) =>
+      _resolve(candidate, refreshExpired: true);
+
+  Future<ResolvedMusic> _resolve(
+    MusicSearchCandidate candidate, {
+    required bool refreshExpired,
+  }) async {
     final qualities = qualityOrder(candidate.qualities, prefer);
     if (qualities.isEmpty) {
       throw StateError('No downloadable quality found');
@@ -155,11 +161,45 @@ class FlacResolver {
       }
       final msg = json['msg']?.toString();
       if (msg != null && msg.isNotEmpty) {
+        if (msg.contains('请求已过期')) {
+          if (refreshExpired) {
+            final fresh = await _refreshExpiredCandidate(candidate);
+            if (fresh != null) {
+              return _resolve(fresh, refreshExpired: false);
+            }
+          }
+          throw StateError(msg);
+        }
         errors.add(msg);
       }
     }
 
     throw StateError(errors.firstOrNull ?? 'No URL returned');
+  }
+
+  Future<MusicSearchCandidate?> _refreshExpiredCandidate(
+    MusicSearchCandidate candidate,
+  ) async {
+    final keyword = candidate.keyword.trim().isEmpty
+        ? candidate.name.trim()
+        : candidate.keyword.trim();
+    final fresh = await _searchPage(
+      candidate.query,
+      candidate.platform,
+      keyword,
+      1,
+    );
+    return fresh
+        .where(
+          (item) =>
+              item.platform == candidate.platform &&
+              item.id == candidate.id &&
+              item.name.trim().toLowerCase() ==
+                  candidate.name.trim().toLowerCase() &&
+              item.artist.trim().toLowerCase() ==
+                  candidate.artist.trim().toLowerCase(),
+        )
+        .firstOrNull;
   }
 
   List<ResolvedLyrics?> _lyricsFromPayload(

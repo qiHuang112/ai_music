@@ -43,6 +43,9 @@ class AppStrings {
   String get listSearchHint => isZh ? '搜索当前列表' : 'Search this list';
   String get noMatchingTracks => isZh ? '没有匹配的歌曲' : 'No matching songs';
   String get retrySearch => isZh ? '重新搜索' : 'Retry search';
+  String get preparingPlayback => isZh ? '正在准备播放' : 'Preparing playback';
+  String playTrackFailed(String detail) =>
+      isZh ? '播放失败：$detail' : 'Playback failed: $detail';
   String get settings => isZh ? '设置' : 'Settings';
   String get downloads => isZh ? '下载' : 'Downloads';
   String get downloadManager => isZh ? '下载管理' : 'Download Manager';

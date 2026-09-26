@@ -150,7 +150,10 @@ class DownloadUseCase {
         ),
         onChanged,
       );
-      return DownloadUseCaseResult(errorDetail: errorDetail, failure: exception);
+      return DownloadUseCaseResult(
+        errorDetail: errorDetail,
+        failure: exception,
+      );
     } finally {
       queue.release(taskId);
       onChanged();
@@ -176,6 +179,7 @@ String friendlyError(Object error) {
   return error
       .toString()
       .replaceFirst('Exception: ', '')
+      .replaceFirst('Bad state: ', '')
       .replaceFirst('StateError: ', '')
       .replaceFirst('Unsupported operation: ', '');
 }
