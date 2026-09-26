@@ -7,6 +7,35 @@ import 'package:ai_music/src/data/saved_online_track.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
+  test(
+    'new playlists show first-entry progress but legacy playlists do not',
+    () {
+      final now = DateTime(2026);
+      final created = MusicPlaylist(
+        id: 'new',
+        name: 'New',
+        createdAt: now,
+        updatedAt: now,
+      );
+      expect(created.hasBeenOpened, isFalse);
+      expect(
+        MusicPlaylist.fromJson(
+          created.toJson().cast<String, dynamic>(),
+        )!.hasBeenOpened,
+        isFalse,
+      );
+      expect(
+        MusicPlaylist.fromJson({
+          'id': 'legacy',
+          'name': 'Legacy',
+          'createdAt': now.toIso8601String(),
+          'updatedAt': now.toIso8601String(),
+        })!.hasBeenOpened,
+        isTrue,
+      );
+    },
+  );
+
   test('unfetched online track survives cache filtering and restart', () async {
     final root = await Directory.systemTemp.createTemp('online_playlist_');
     final store = PlaylistStore(rootProvider: () async => root);

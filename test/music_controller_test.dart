@@ -12,6 +12,7 @@ import 'package:ai_music/src/data/music_cache.dart';
 import 'package:ai_music/src/data/music_playlists.dart';
 import 'package:ai_music/src/data/music_resolver.dart';
 import 'package:ai_music/src/data/music_settings.dart';
+import 'package:ai_music/src/data/playlist_auto_download_store.dart';
 import 'package:ai_music/src/domain/music_models.dart';
 import 'package:ai_music/src/playback/music_audio_handler.dart';
 import 'package:audio_service/audio_service.dart';
@@ -1525,6 +1526,9 @@ void main() {
   test(
     'brief Wi-Fi loss remains resumable when canceled work settles after recovery',
     () async {
+      final root = await Directory.systemTemp.createTemp(
+        'ai_music_wifi_flicker_',
+      );
       final connectivity =
           StreamController<List<ConnectivityResult>>.broadcast();
       final handler = _SpyAudioHandler();
@@ -1536,6 +1540,9 @@ void main() {
         cacheStore: cacheStore,
         playlistStore: _MemoryPlaylistStore(),
         settingsStore: _FakeSettingsStore(),
+        playlistAutoDownloadStore: PlaylistAutoDownloadStore(
+          rootProvider: () async => root,
+        ),
         metadataRepository: _StaticMetadataRepository(),
         connectivityChanges: connectivity.stream,
         checkConnectivity: () async => [ConnectivityResult.wifi],
@@ -1572,9 +1579,331 @@ void main() {
         controller.dispose();
         await handler.dispose();
         await connectivity.close();
+        await root.delete(recursive: true);
       }
     },
   );
+
+  test(
+    'unchanged Wi-Fi playlist waits 24 hours across controller restarts',
+    () async {
+      final root = await Directory.systemTemp.createTemp(
+        'ai_music_auto_playlist_',
+      );
+      final playlists = _MemoryPlaylistStore();
+      final cache = _DownloadCacheStore();
+      final resolver = _SelectivePlaylistResolver();
+      final store = PlaylistAutoDownloadStore(rootProvider: () async => root);
+
+      Future<MusicController> makeController(
+        PlaylistAutoDownloadStore attempts,
+      ) async {
+        final controller = MusicController(
+          audioHandler: _SpyAudioHandler(),
+          resolver: resolver,
+          cacheStore: cache,
+          playlistStore: playlists,
+          settingsStore: _FakeSettingsStore(),
+          playlistAutoDownloadStore: attempts,
+          metadataRepository: _StaticMetadataRepository(),
+          connectivityChanges: const Stream<List<ConnectivityResult>>.empty(),
+          checkConnectivity: () async => [ConnectivityResult.wifi],
+        );
+        await controller.initialize();
+        await Future<void>.delayed(const Duration(milliseconds: 1));
+        expect(controller.isOnWifi, isTrue);
+        return controller;
+      }
+
+      MusicController? controller;
+      try {
+        controller = await makeController(store);
+        final playlist = (await controller.createPlaylist('自动下载'))!;
+        await controller.addCandidatesToPlaylist(playlist, [
+          _candidate(id: 'bad', name: '一直失败'),
+        ]);
+        expect(
+          (await controller.startWifiPlaylistDownloadOnce(playlist)!).failed,
+          1,
+        );
+        expect(resolver.resolveIds, ['bad']);
+        controller.dispose();
+
+        final restartedStore = PlaylistAutoDownloadStore(
+          rootProvider: () async => root,
+        );
+        controller = await makeController(restartedStore);
+        final samePlaylist = controller.customPlaylists.single;
+        final suppressed = await controller.startWifiPlaylistDownloadOnce(
+          samePlaylist,
+        )!;
+        expect(suppressed.failed, 0);
+        expect(resolver.resolveIds, ['bad']);
+
+        await controller.addCandidatesToPlaylist(samePlaylist, [
+          _candidate(id: 'good', name: '新加入'),
+        ]);
+        final changed = await controller.startWifiPlaylistDownloadOnce(
+          samePlaylist,
+        )!;
+        expect(changed.failed, 1);
+        expect(changed.downloaded, 1);
+        expect(resolver.resolveIds, ['bad', 'bad', 'good']);
+        final recorded = (await restartedStore.get(playlist.id))!;
+        await restartedStore.record(
+          playlist.id,
+          PlaylistAutoDownloadAttempt(
+            revision: recorded.revision,
+            startedAt: DateTime.now().subtract(const Duration(hours: 25)),
+          ),
+        );
+        controller.dispose();
+
+        controller = await makeController(
+          PlaylistAutoDownloadStore(rootProvider: () async => root),
+        );
+        final expired = await controller.startWifiPlaylistDownloadOnce(
+          controller.customPlaylists.single,
+        )!;
+        expect(expired.failed, 1);
+        expect(resolver.resolveIds, ['bad', 'bad', 'good', 'bad']);
+      } finally {
+        controller?.dispose();
+        await root.delete(recursive: true);
+      }
+    },
+  );
+
+  test(
+    'unfinished persisted auto batch retries after a process restart',
+    () async {
+      final root = await Directory.systemTemp.createTemp(
+        'ai_music_unfinished_auto_',
+      );
+      final playlists = _MemoryPlaylistStore();
+      final cache = _DownloadCacheStore();
+      final firstResolver = _GatedPlaylistResolver();
+      final firstHandler = _SpyAudioHandler();
+      final firstStore = PlaylistAutoDownloadStore(
+        rootProvider: () async => root,
+      );
+      final first = MusicController(
+        audioHandler: firstHandler,
+        resolver: firstResolver,
+        cacheStore: cache,
+        playlistStore: playlists,
+        settingsStore: _FakeSettingsStore(),
+        playlistAutoDownloadStore: firstStore,
+        metadataRepository: _StaticMetadataRepository(),
+        connectivityChanges: const Stream<List<ConnectivityResult>>.empty(),
+        checkConnectivity: () async => [ConnectivityResult.wifi],
+      );
+      MusicController? restarted;
+      _SpyAudioHandler? restartedHandler;
+      try {
+        await first.initialize();
+        final playlist = (await first.createPlaylist('未完成'))!;
+        await first.addCandidatesToPlaylist(playlist, [
+          _candidate(id: 'bad', name: '待重试'),
+        ]);
+        unawaited(first.startWifiPlaylistDownloadOnce(playlist)!);
+        await firstResolver.started.future;
+        expect((await firstStore.get(playlist.id))?.completed, isFalse);
+        first.dispose(); // Model process death before the batch can settle.
+
+        final resolver = _SelectivePlaylistResolver();
+        final secondStore = PlaylistAutoDownloadStore(
+          rootProvider: () async => root,
+        );
+        restartedHandler = _SpyAudioHandler();
+        restarted = MusicController(
+          audioHandler: restartedHandler,
+          resolver: resolver,
+          cacheStore: cache,
+          playlistStore: playlists,
+          settingsStore: _FakeSettingsStore(),
+          playlistAutoDownloadStore: secondStore,
+          metadataRepository: _StaticMetadataRepository(),
+          connectivityChanges: const Stream<List<ConnectivityResult>>.empty(),
+          checkConnectivity: () async => [ConnectivityResult.wifi],
+        );
+        await restarted.initialize();
+        final result = await restarted.startWifiPlaylistDownloadOnce(
+          restarted.customPlaylists.single,
+        )!;
+        expect(result.failed, 1);
+        expect(resolver.resolveIds, ['bad']);
+        expect((await secondStore.get(playlist.id))?.completed, isTrue);
+      } finally {
+        restarted?.dispose();
+        await firstHandler.dispose();
+        await restartedHandler?.dispose();
+        await root.delete(recursive: true);
+      }
+    },
+  );
+
+  test(
+    'playlist change during attempt persistence uses the new revision once',
+    () async {
+      final root = await Directory.systemTemp.createTemp(
+        'ai_music_auto_revision_',
+      );
+      final store = _DelayedPlaylistAutoDownloadStore(root);
+      final resolver = _SelectivePlaylistResolver();
+      final handler = _SpyAudioHandler();
+      final controller = MusicController(
+        audioHandler: handler,
+        resolver: resolver,
+        cacheStore: _DownloadCacheStore(),
+        playlistStore: _MemoryPlaylistStore(),
+        settingsStore: _FakeSettingsStore(),
+        playlistAutoDownloadStore: store,
+        metadataRepository: _StaticMetadataRepository(),
+        connectivityChanges: const Stream<List<ConnectivityResult>>.empty(),
+        checkConnectivity: () async => [ConnectivityResult.wifi],
+      );
+      try {
+        await controller.initialize();
+        final playlist = (await controller.createPlaylist('改动中'))!;
+        await controller.addCandidatesToPlaylist(playlist, [
+          _candidate(id: 'bad', name: '原歌曲'),
+        ]);
+        final staleBatch = controller.startWifiPlaylistDownloadOnce(playlist)!;
+        await store.pendingRecordStarted.future;
+        await controller.addCandidatesToPlaylist(playlist, [
+          _candidate(id: 'good', name: '新增歌曲'),
+        ]);
+        store.releasePendingRecord.complete();
+        expect((await staleBatch).stoppedForWifi, isTrue);
+        expect(resolver.resolveIds, isEmpty);
+
+        final freshBatch = await controller.startWifiPlaylistDownloadOnce(
+          playlist,
+        )!;
+        expect(freshBatch.failed, 1);
+        expect(freshBatch.downloaded, 1);
+        expect(resolver.resolveIds, ['bad', 'good']);
+      } finally {
+        controller.dispose();
+        await handler.dispose();
+        await root.delete(recursive: true);
+      }
+    },
+  );
+
+  test('auto-download store failure does not escape into the page', () async {
+    final handler = _SpyAudioHandler();
+    final resolver = _SelectivePlaylistResolver();
+    final controller = MusicController(
+      audioHandler: handler,
+      resolver: resolver,
+      cacheStore: _DownloadCacheStore(),
+      playlistStore: _MemoryPlaylistStore(),
+      settingsStore: _FakeSettingsStore(),
+      playlistAutoDownloadStore: _FailingPlaylistAutoDownloadStore(),
+      metadataRepository: _StaticMetadataRepository(),
+      connectivityChanges: const Stream<List<ConnectivityResult>>.empty(),
+      checkConnectivity: () async => [ConnectivityResult.wifi],
+    );
+    try {
+      await controller.initialize();
+      final playlist = (await controller.createPlaylist('存储失败'))!;
+      await controller.addCandidatesToPlaylist(playlist, [
+        _candidate(id: 'bad', name: '待下载'),
+      ]);
+      final result = await controller.startWifiPlaylistDownloadOnce(playlist)!;
+      expect(result.failed, 1);
+      expect(controller.errorDetail, isNotNull);
+      expect(controller.startWifiPlaylistDownloadOnce(playlist), isNull);
+      expect(resolver.resolveIds, isEmpty);
+    } finally {
+      controller.dispose();
+      await handler.dispose();
+    }
+  });
+
+  test('only the first automatic playlist batch exposes progress', () async {
+    final root = await Directory.systemTemp.createTemp(
+      'ai_music_first_playlist_progress_',
+    );
+    final playlists = _MemoryPlaylistStore();
+    final cache = _DownloadCacheStore();
+    final firstResolver = _GatedPlaylistResolver();
+    final firstHandler = _SpyAudioHandler();
+    final firstStore = PlaylistAutoDownloadStore(
+      rootProvider: () async => root,
+    );
+    final first = MusicController(
+      audioHandler: firstHandler,
+      resolver: firstResolver,
+      cacheStore: cache,
+      playlistStore: playlists,
+      settingsStore: _FakeSettingsStore(),
+      playlistAutoDownloadStore: firstStore,
+      metadataRepository: _StaticMetadataRepository(),
+      connectivityChanges: const Stream<List<ConnectivityResult>>.empty(),
+      checkConnectivity: () async => [ConnectivityResult.wifi],
+    );
+    MusicController? second;
+    _SpyAudioHandler? secondHandler;
+    try {
+      await first.initialize();
+      final playlist = (await first.createPlaylist('首进进度'))!;
+      await first.addCandidatesToPlaylist(playlist, [
+        _candidate(id: 'first', name: '第一首'),
+      ]);
+      final beforeOpening = first.customPlaylists.single.updatedAt;
+      expect(await first.claimFirstPlaylistOpening(playlist), isTrue);
+      expect(first.customPlaylists.single.updatedAt, beforeOpening);
+      final firstBatch = first.startWifiPlaylistDownloadOnce(
+        playlist,
+        showProgress: true,
+      )!;
+      await firstResolver.started.future;
+      expect(first.playlistDownloadProgress(playlist), isNotNull);
+      firstResolver.release.complete();
+      await firstBatch;
+      expect(first.playlistDownloadProgress(playlist), isNull);
+
+      final nextResolver = _GatedPlaylistResolver();
+      secondHandler = _SpyAudioHandler();
+      second = MusicController(
+        audioHandler: secondHandler,
+        resolver: nextResolver,
+        cacheStore: cache,
+        playlistStore: playlists,
+        settingsStore: _FakeSettingsStore(),
+        playlistAutoDownloadStore: PlaylistAutoDownloadStore(
+          rootProvider: () async => root,
+        ),
+        metadataRepository: _StaticMetadataRepository(),
+        connectivityChanges: const Stream<List<ConnectivityResult>>.empty(),
+        checkConnectivity: () async => [ConnectivityResult.wifi],
+      );
+      await second.initialize();
+      final samePlaylist = second.customPlaylists.single;
+      expect(await second.claimFirstPlaylistOpening(samePlaylist), isFalse);
+      await second.addCandidatesToPlaylist(samePlaylist, [
+        _candidate(id: 'second', name: '第二首'),
+      ]);
+      final laterBatch = second.startWifiPlaylistDownloadOnce(
+        samePlaylist,
+        showProgress: false,
+      )!;
+      await nextResolver.started.future;
+      expect(second.isPlaylistDownloading(samePlaylist), isTrue);
+      expect(second.playlistDownloadProgress(samePlaylist), isNull);
+      nextResolver.release.complete();
+      await laterBatch;
+    } finally {
+      first.dispose();
+      second?.dispose();
+      await firstHandler.dispose();
+      await secondHandler?.dispose();
+      await root.delete(recursive: true);
+    }
+  });
 
   test(
     'playlist batch runs three downloads in parallel and reports progress',
@@ -2327,6 +2656,35 @@ class _SelectivePlaylistResolver extends _DelayedMusicResolver {
       throw StateError('one song failed');
     }
     return super.resolve(candidate);
+  }
+}
+
+class _DelayedPlaylistAutoDownloadStore extends PlaylistAutoDownloadStore {
+  _DelayedPlaylistAutoDownloadStore(Directory root)
+    : super(rootProvider: () async => root);
+
+  final pendingRecordStarted = Completer<void>();
+  final releasePendingRecord = Completer<void>();
+  bool _delayFirstPendingRecord = true;
+
+  @override
+  Future<void> record(
+    String playlistId,
+    PlaylistAutoDownloadAttempt attempt,
+  ) async {
+    if (!attempt.completed && _delayFirstPendingRecord) {
+      _delayFirstPendingRecord = false;
+      pendingRecordStarted.complete();
+      await releasePendingRecord.future;
+    }
+    await super.record(playlistId, attempt);
+  }
+}
+
+class _FailingPlaylistAutoDownloadStore extends PlaylistAutoDownloadStore {
+  @override
+  Future<PlaylistAutoDownloadAttempt?> get(String playlistId) async {
+    throw const FileSystemException('attempt file unavailable');
   }
 }
 

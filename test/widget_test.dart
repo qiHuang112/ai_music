@@ -609,6 +609,7 @@ void main() {
     await tester.tap(find.byKey(const ValueKey('home-playlist-road')));
     await tester.pumpAndSettle();
     expect(controller.requests, [true]);
+    expect(controller.autoProgressChoices, [true]);
     expect(find.byKey(const ValueKey('download-all-playlist')), findsOneWidget);
     await tester.pump();
     expect(controller.requests, [true]);
@@ -618,6 +619,64 @@ void main() {
     await tester.tap(find.byKey(const ValueKey('home-playlist-road')));
     await tester.pumpAndSettle();
     expect(controller.requests, [true]);
+  });
+
+  testWidgets('later Wi-Fi playlist opening requests silent auto download', (
+    tester,
+  ) async {
+    final controller = _RecordingPlaylistDownloadController(
+      _homeLibraryFixture(),
+      wifi: true,
+    );
+    await tester.pumpWidget(_app(playbackController: controller));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('home-playlist-road')));
+    await tester.pumpAndSettle();
+    expect(controller.autoProgressChoices, [true]);
+
+    await tester.pageBack();
+    await tester.pumpAndSettle();
+    controller._autoStartedPlaylists.clear(); // Simulate the 24-hour retry.
+    await tester.tap(find.byKey(const ValueKey('home-playlist-road')));
+    await tester.pumpAndSettle();
+    expect(controller.autoProgressChoices, [true, false]);
+  });
+
+  testWidgets('offline first opening stays silent when Wi-Fi returns', (
+    tester,
+  ) async {
+    final controller = _RecordingPlaylistDownloadController(
+      _homeLibraryFixture(),
+      wifi: false,
+    );
+    await tester.pumpWidget(_app(playbackController: controller));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('home-playlist-road')));
+    await tester.pumpAndSettle();
+    expect(controller.requests, isEmpty);
+
+    controller.wifi = true;
+    controller.notifyListeners();
+    await tester.pumpAndSettle();
+    expect(controller.requests, [true]);
+    expect(controller.autoProgressChoices, [false]);
+  });
+
+  testWidgets('second auto batch on the first page is silent', (tester) async {
+    final controller = _RecordingPlaylistDownloadController(
+      _homeLibraryFixture(),
+      wifi: true,
+    );
+    await tester.pumpWidget(_app(playbackController: controller));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('home-playlist-road')));
+    await tester.pumpAndSettle();
+    expect(controller.autoProgressChoices, [true]);
+
+    controller._autoStartedPlaylists.clear(); // Simulate a changed playlist.
+    controller.notifyListeners();
+    await tester.pumpAndSettle();
+    expect(controller.autoProgressChoices, [true, false]);
   });
 
   testWidgets('playlist download action hides while searching', (tester) async {
@@ -1940,8 +1999,11 @@ class _RecordingPlaylistDownloadController extends MusicController {
          metadataRepository: _FakeMetadataRepository(),
        );
 
-  final bool wifi;
+  bool wifi;
   final requests = <bool>[];
+  final Set<String> _autoStartedPlaylists = {};
+  final Set<String> _openedPlaylists = {};
+  final List<bool> autoProgressChoices = [];
   PlaylistDownloadProgress? progress;
   bool downloadActive = false;
   PlaylistDownloadSummary autoResult = const PlaylistDownloadSummary(
@@ -1952,7 +2014,24 @@ class _RecordingPlaylistDownloadController extends MusicController {
   bool get isOnWifi => wifi;
 
   @override
+  bool get isConnectivityKnown => true;
+
+  @override
   bool get hasActiveDownloads => downloadActive;
+
+  @override
+  Future<bool> claimFirstPlaylistOpening(MusicPlaylist playlist) async =>
+      _openedPlaylists.add(playlist.id);
+
+  @override
+  Future<PlaylistDownloadSummary>? startWifiPlaylistDownloadOnce(
+    MusicPlaylist playlist, {
+    bool showProgress = false,
+  }) {
+    if (!wifi || !_autoStartedPlaylists.add(playlist.id)) return null;
+    autoProgressChoices.add(showProgress);
+    return downloadPlaylist(playlist, wifiOnly: true);
+  }
 
   @override
   PlaylistDownloadProgress? playlistDownloadProgress(MusicPlaylist playlist) =>
@@ -1962,6 +2041,7 @@ class _RecordingPlaylistDownloadController extends MusicController {
   Future<PlaylistDownloadSummary> downloadPlaylist(
     MusicPlaylist playlist, {
     bool wifiOnly = false,
+    MusicPlaylist? playlistSnapshot,
   }) async {
     requests.add(wifiOnly);
     return wifiOnly ? autoResult : const PlaylistDownloadSummary(skipped: 1);

@@ -63,6 +63,7 @@ class MusicPlaylist {
     required this.id,
     required this.name,
     this.lanFolderKey = '',
+    this.hasBeenOpened = false,
     List<String> trackIds = const [],
     List<PlaylistTrackEntry>? entries,
     required this.createdAt,
@@ -72,6 +73,7 @@ class MusicPlaylist {
   final String id;
   final String name;
   final String lanFolderKey;
+  final bool hasBeenOpened;
   final List<PlaylistTrackEntry> entries;
   final DateTime createdAt;
   final DateTime updatedAt;
@@ -84,6 +86,7 @@ class MusicPlaylist {
     String? id,
     String? name,
     String? lanFolderKey,
+    bool? hasBeenOpened,
     bool clearLanFolderKey = false,
     List<String>? trackIds,
     List<PlaylistTrackEntry>? entries,
@@ -97,6 +100,7 @@ class MusicPlaylist {
       lanFolderKey: clearLanFolderKey
           ? ''
           : (lanFolderKey ?? this.lanFolderKey),
+      hasBeenOpened: hasBeenOpened ?? this.hasBeenOpened,
       entries:
           entries ??
           (trackIds == null
@@ -112,6 +116,7 @@ class MusicPlaylist {
       'id': id,
       'name': name,
       if (lanFolderKey.isNotEmpty) 'lanFolderKey': lanFolderKey,
+      'hasBeenOpened': hasBeenOpened,
       'tracks': [for (final entry in entries) entry.toJson()],
       'trackIds': trackIds,
       'createdAt': createdAt.toIso8601String(),
@@ -134,6 +139,11 @@ class MusicPlaylist {
       id: id,
       name: name,
       lanFolderKey: json['lanFolderKey']?.toString().trim() ?? '',
+      // Existing playlists predate first-opening tracking and must not show
+      // a new first-entry progress bar after an app update.
+      hasBeenOpened: json['hasBeenOpened'] is bool
+          ? json['hasBeenOpened'] as bool
+          : true,
       entries: _entriesFromJson(
         json['tracks'] ?? json['trackIds'],
         fallbackAddedAt: updatedAt,
@@ -278,7 +288,8 @@ class PlaylistStore {
     return unique
         .where(
           (entry) =>
-              validTrackIds.contains(entry.trackId) || entry.onlineTrack != null,
+              validTrackIds.contains(entry.trackId) ||
+              entry.onlineTrack != null,
         )
         .toList(growable: false);
   }

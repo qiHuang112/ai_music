@@ -143,6 +143,27 @@ class LibraryUseCase {
     });
   }
 
+  Future<({LibrarySnapshot snapshot, bool first})> claimFirstPlaylistOpening(
+    MusicPlaylist playlist, {
+    required LibrarySnapshot current,
+  }) {
+    return _enqueuePlaylistMutation(() async {
+      final base = _currentSnapshot(current);
+      final saved = base.playlistLibrary.playlists
+          .where((item) => item.id == playlist.id)
+          .firstOrNull;
+      if (saved == null || saved.hasBeenOpened) {
+        return (snapshot: base, first: false);
+      }
+      final snapshot = await _updatePlaylist(
+        playlist.id,
+        current: base,
+        update: (item) => item.copyWith(hasBeenOpened: true),
+      );
+      return (snapshot: snapshot, first: true);
+    });
+  }
+
   Future<LibrarySnapshot> renamePlaylist(
     MusicPlaylist playlist,
     String name, {

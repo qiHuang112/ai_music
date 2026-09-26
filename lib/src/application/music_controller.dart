@@ -1,8 +1,10 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:audio_service/audio_service.dart';
 import 'package:connectivity_plus/connectivity_plus.dart';
+import 'package:crypto/crypto.dart';
 import 'package:flutter/foundation.dart';
 
 import '../data/lyrics_artwork.dart';
@@ -13,6 +15,7 @@ import '../data/music_cache.dart';
 import '../data/music_playlists.dart';
 import '../data/music_resolver.dart';
 import '../data/music_settings.dart';
+import '../data/playlist_auto_download_store.dart';
 import '../data/saved_online_track.dart';
 import '../domain/music_models.dart';
 import '../playback/music_audio_handler.dart';
@@ -69,6 +72,7 @@ class MusicController extends ChangeNotifier {
     CachedTrackStore? cacheStore,
     PlaylistStore? playlistStore,
     MusicSettingsStore? settingsStore,
+    PlaylistAutoDownloadStore? playlistAutoDownloadStore,
     TrackMetadataRepository? metadataRepository,
     LegacyCacheRepairer? legacyRepairer,
     LanLibraryGateway? lanLibraryGateway,
@@ -79,6 +83,8 @@ class MusicController extends ChangeNotifier {
        _cacheStore = cacheStore ?? CachedTrackStore(),
        _playlistStore = playlistStore ?? PlaylistStore(),
        _settingsStore = settingsStore ?? MusicSettingsStore(),
+       _playlistAutoDownloadStore =
+           playlistAutoDownloadStore ?? PlaylistAutoDownloadStore(),
        _metadataRepository = metadataRepository ?? TrackMetadataRepository(),
        _legacyRepairerOverride = legacyRepairer {
     _lanLibraryGateway = lanLibraryGateway ?? LanLibraryClient();
@@ -165,6 +171,7 @@ class MusicController extends ChangeNotifier {
   final CachedTrackStore _cacheStore;
   final PlaylistStore _playlistStore;
   final MusicSettingsStore _settingsStore;
+  final PlaylistAutoDownloadStore _playlistAutoDownloadStore;
   final TrackMetadataRepository _metadataRepository;
   final LegacyCacheRepairer? _legacyRepairerOverride;
   late final LanLibraryGateway _lanLibraryGateway;
@@ -188,10 +195,14 @@ class MusicController extends ChangeNotifier {
   final Map<String, Future<PlaylistDownloadSummary>>
   _playlistDownloadsInFlight = {};
   final Map<String, PlaylistDownloadProgress> _playlistDownloadProgress = {};
-  final Set<String> _wifiPlaylistAttemptsThisProcess = {};
+  final Set<String> _visiblePlaylistProgressIds = {};
+  final Set<String> _wifiPlaylistRunsPending = {};
+  final Map<String, PlaylistAutoDownloadAttempt> _wifiPlaylistAttempts = {};
+  final Map<String, String> _wifiPlaylistRunFailures = {};
   final Set<String> _wifiDownloadTaskIds = {};
   int _wifiPauseGeneration = 0;
   bool _isOnWifi = false;
+  bool _connectivityKnown = false;
   bool _connectivityEventSeen = false;
   List<Track> _activeQueueTracks = const [];
   int _playRequest = 0;
@@ -229,6 +240,7 @@ class MusicController extends ChangeNotifier {
   int playlistDownloadConcurrency = 3;
   bool downloadPlaylistsOnWifi = true;
   bool get isOnWifi => _isOnWifi;
+  bool get isConnectivityKnown => _connectivityKnown;
   String lanLibraryUrl = defaultLanLibraryUrl;
   bool isTestingLanConnection = false;
   bool isLanSyncing = false;
@@ -372,11 +384,13 @@ class MusicController extends ChangeNotifier {
 
   void _handleConnectivity(List<ConnectivityResult> results) {
     if (_isDisposed) return;
+    final wasKnown = _connectivityKnown;
+    _connectivityKnown = true;
     _nextPrefetch.setOnline(
       results.any((result) => result != ConnectivityResult.none),
     );
     final onWifi = results.contains(ConnectivityResult.wifi);
-    if (_isOnWifi == onWifi) return;
+    if (_isOnWifi == onWifi && wasKnown) return;
     _isOnWifi = onWifi;
     if (!onWifi) {
       _wifiPauseGeneration += 1;
@@ -577,7 +591,21 @@ class MusicController extends ChangeNotifier {
       _playlistDownloadsInFlight.containsKey(playlist.id);
 
   PlaylistDownloadProgress? playlistDownloadProgress(MusicPlaylist playlist) =>
-      _playlistDownloadProgress[playlist.id];
+      _visiblePlaylistProgressIds.contains(playlist.id)
+      ? _playlistDownloadProgress[playlist.id]
+      : null;
+
+  Future<bool> claimFirstPlaylistOpening(MusicPlaylist playlist) async {
+    final result = await libraryUseCase.claimFirstPlaylistOpening(
+      playlist,
+      current: _librarySnapshot,
+    );
+    if (result.first) {
+      _applyLibrarySnapshot(result.snapshot);
+      notifyListeners();
+    }
+    return result.first;
+  }
 
   int cachedCountForPlaylist(MusicPlaylist playlist) {
     final current =
@@ -589,37 +617,137 @@ class MusicController extends ChangeNotifier {
   }
 
   Future<PlaylistDownloadSummary>? startWifiPlaylistDownloadOnce(
-    MusicPlaylist playlist,
-  ) {
-    if (_wifiPlaylistAttemptsThisProcess.contains(playlist.id) ||
+    MusicPlaylist playlist, {
+    bool showProgress = false,
+  }) {
+    final current = customPlaylists
+        .where((item) => item.id == playlist.id)
+        .firstOrNull;
+    if (current == null || current.entries.isEmpty) return null;
+    final revision = _playlistDownloadRevision(current);
+    if (_wifiPlaylistRunFailures[playlist.id] == revision) return null;
+    final previous = _wifiPlaylistAttempts[playlist.id];
+    if (previous?.completed == true &&
+        previous?.revision == revision &&
+        DateTime.now().isBefore(
+          previous!.startedAt.add(const Duration(hours: 24)),
+        )) {
+      return null;
+    }
+    if (_wifiPlaylistRunsPending.contains(playlist.id) ||
+        isPlaylistDownloading(playlist) ||
         !downloadPlaylistsOnWifi ||
         !isOnWifi) {
       return null;
     }
-    _wifiPlaylistAttemptsThisProcess.add(playlist.id);
-    if (isPlaylistDownloading(playlist)) return null;
-    return _runWifiPlaylistDownload(playlist);
+    _wifiPlaylistRunsPending.add(playlist.id);
+    return _runWifiPlaylistDownload(current, showProgress: showProgress);
   }
 
   Future<PlaylistDownloadSummary> _runWifiPlaylistDownload(
-    MusicPlaylist playlist,
-  ) async {
-    final result = await downloadPlaylist(playlist, wifiOnly: true);
-    if (result.stoppedForWifi) {
-      _wifiPlaylistAttemptsThisProcess.remove(playlist.id);
-      if (!_isDisposed) notifyListeners();
+    MusicPlaylist playlist, {
+    required bool showProgress,
+  }) async {
+    var ranBatch = false;
+    String? attemptedRevision;
+    try {
+      final previous = await _playlistAutoDownloadStore.get(playlist.id);
+      final current = customPlaylists
+          .where((item) => item.id == playlist.id)
+          .firstOrNull;
+      if (current == null || current.entries.isEmpty) {
+        return const PlaylistDownloadSummary();
+      }
+      final revision = _playlistDownloadRevision(current);
+      attemptedRevision = revision;
+      final now = DateTime.now();
+      if (previous?.completed == true &&
+          previous?.revision == revision &&
+          now.isBefore(previous!.startedAt.add(const Duration(hours: 24)))) {
+        _wifiPlaylistAttempts[playlist.id] = previous;
+        return const PlaylistDownloadSummary();
+      }
+      if (!downloadPlaylistsOnWifi || !isOnWifi) {
+        return const PlaylistDownloadSummary(stoppedForWifi: true);
+      }
+      final attempt = PlaylistAutoDownloadAttempt(
+        revision: revision,
+        startedAt: now,
+        completed: false,
+      );
+      await _playlistAutoDownloadStore.record(playlist.id, attempt);
+      _wifiPlaylistAttempts[playlist.id] = attempt;
+      ranBatch = true;
+      final latest = customPlaylists
+          .where((item) => item.id == playlist.id)
+          .firstOrNull;
+      if (latest == null || _playlistDownloadRevision(latest) != revision) {
+        await _playlistAutoDownloadStore.clearIfCurrent(playlist.id, attempt);
+        _wifiPlaylistAttempts.remove(playlist.id);
+        return const PlaylistDownloadSummary(stoppedForWifi: true);
+      }
+      if (showProgress) _visiblePlaylistProgressIds.add(playlist.id);
+      final result = await downloadPlaylist(
+        current,
+        wifiOnly: true,
+        playlistSnapshot: current,
+      );
+      if (result.stoppedForWifi) {
+        await _playlistAutoDownloadStore.clearIfCurrent(playlist.id, attempt);
+        if (identical(_wifiPlaylistAttempts[playlist.id], attempt)) {
+          _wifiPlaylistAttempts.remove(playlist.id);
+        }
+      } else {
+        final completed = PlaylistAutoDownloadAttempt(
+          revision: revision,
+          startedAt: now,
+        );
+        await _playlistAutoDownloadStore.record(playlist.id, completed);
+        _wifiPlaylistAttempts[playlist.id] = completed;
+      }
+      return result;
+    } on Object catch (error) {
+      _wifiPlaylistRunFailures[playlist.id] =
+          attemptedRevision ?? _playlistDownloadRevision(playlist);
+      if (!_isDisposed) {
+        errorDetail = friendlyError(error);
+        notifyListeners();
+      }
+      return const PlaylistDownloadSummary(failed: 1);
+    } finally {
+      _wifiPlaylistRunsPending.remove(playlist.id);
+      // If the playlist changed during the batch, let the open detail page
+      // check its new revision after the old batch settles.
+      if (ranBatch && !_isDisposed) notifyListeners();
     }
-    return result;
+  }
+
+  String _playlistDownloadRevision(MusicPlaylist playlist) {
+    final members = jsonEncode([
+      for (final entry in playlist.entries) entry.trackId,
+    ]);
+    return '${playlist.updatedAt.toUtc().toIso8601String()}:${sha256.convert(utf8.encode(members))}';
   }
 
   Future<PlaylistDownloadSummary> downloadPlaylist(
     MusicPlaylist playlist, {
     bool wifiOnly = false,
+    MusicPlaylist? playlistSnapshot,
   }) async {
     final running = _playlistDownloadsInFlight[playlist.id];
-    if (running != null) return running;
+    if (running != null) {
+      if (!wifiOnly && _visiblePlaylistProgressIds.add(playlist.id)) {
+        notifyListeners();
+      }
+      return running;
+    }
+    if (!wifiOnly) _visiblePlaylistProgressIds.add(playlist.id);
     final work = Future<PlaylistDownloadSummary>.microtask(
-      () => _downloadPlaylistNow(playlist, wifiOnly: wifiOnly),
+      () => _downloadPlaylistNow(
+        playlist,
+        wifiOnly: wifiOnly,
+        playlistSnapshot: playlistSnapshot,
+      ),
     );
     _playlistDownloadsInFlight[playlist.id] = work;
     notifyListeners();
@@ -628,6 +756,7 @@ class MusicController extends ChangeNotifier {
     } finally {
       _playlistDownloadsInFlight.remove(playlist.id);
       _playlistDownloadProgress.remove(playlist.id);
+      _visiblePlaylistProgressIds.remove(playlist.id);
       if (!_isDisposed) notifyListeners();
     }
   }
@@ -635,6 +764,7 @@ class MusicController extends ChangeNotifier {
   Future<PlaylistDownloadSummary> _downloadPlaylistNow(
     MusicPlaylist playlist, {
     required bool wifiOnly,
+    MusicPlaylist? playlistSnapshot,
   }) async {
     final current = customPlaylists
         .where((item) => item.id == playlist.id)
@@ -645,12 +775,16 @@ class MusicController extends ChangeNotifier {
     var failed = 0;
     var processed = 0;
     var nextEntry = 0;
-    final entries = current.entries;
+    // Auto attempts are recorded against this exact snapshot. New members
+    // added while it runs belong to the next revision's batch.
+    final entries = playlistSnapshot?.entries ?? current.entries;
     final wifiPauseGenerationAtStart = _wifiPauseGeneration;
 
     bool autoPaused() =>
         wifiOnly &&
-        (!_isOnWifi ||
+        (_isDisposed ||
+            !customPlaylists.any((item) => item.id == playlist.id) ||
+            !_isOnWifi ||
             !downloadPlaylistsOnWifi ||
             _wifiPauseGeneration != wifiPauseGenerationAtStart);
 
@@ -660,7 +794,9 @@ class MusicController extends ChangeNotifier {
         processed: processed,
         failed: failed,
       );
-      if (!_isDisposed) notifyListeners();
+      if (!_isDisposed && _visiblePlaylistProgressIds.contains(playlist.id)) {
+        notifyListeners();
+      }
     }
 
     reportProgress();

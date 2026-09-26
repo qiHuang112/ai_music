@@ -998,6 +998,8 @@ class _PlaylistDetailPageState extends State<_PlaylistDetailPage> {
   String _query = '';
   bool _isReorderEditing = false;
   bool _reorderDraftDirty = false;
+  bool? _firstPlaylistOpening;
+  bool _claimingPlaylistOpening = false;
 
   MusicController get controller => widget.controller;
 
@@ -1009,6 +1011,18 @@ class _PlaylistDetailPageState extends State<_PlaylistDetailPage> {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) _maybeStartWifiDownload();
     });
+  }
+
+  @override
+  void didUpdateWidget(covariant _PlaylistDetailPage oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.selection.id != widget.selection.id) {
+      _firstPlaylistOpening = null;
+      _claimingPlaylistOpening = false;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _maybeStartWifiDownload();
+      });
+    }
   }
 
   @override
@@ -1029,9 +1043,39 @@ class _PlaylistDetailPageState extends State<_PlaylistDetailPage> {
     final playlist = controller.customPlaylists
         .where((item) => item.id == widget.selection.id)
         .firstOrNull;
-    if (playlist == null || playlist.entries.isEmpty) return;
-    final download = controller.startWifiPlaylistDownloadOnce(playlist);
+    if (playlist == null) return;
+    if (_firstPlaylistOpening == null) {
+      if (!_claimingPlaylistOpening) {
+        _claimingPlaylistOpening = true;
+        unawaited(_claimPlaylistOpening(playlist));
+      }
+      return;
+    }
+    if (playlist.entries.isEmpty || !controller.downloadPlaylistsOnWifi) {
+      _firstPlaylistOpening = false;
+      return;
+    }
+    if (!controller.isConnectivityKnown) return;
+    final showProgress = _firstPlaylistOpening! && controller.isOnWifi;
+    _firstPlaylistOpening = false;
+    final download = controller.startWifiPlaylistDownloadOnce(
+      playlist,
+      showProgress: showProgress,
+    );
     if (download != null) unawaited(download);
+  }
+
+  Future<void> _claimPlaylistOpening(MusicPlaylist playlist) async {
+    bool first;
+    try {
+      first = await controller.claimFirstPlaylistOpening(playlist);
+    } catch (_) {
+      first = false;
+    }
+    if (!mounted || widget.selection.id != playlist.id) return;
+    _firstPlaylistOpening = first;
+    _claimingPlaylistOpening = false;
+    _maybeStartWifiDownload();
   }
 
   @override
