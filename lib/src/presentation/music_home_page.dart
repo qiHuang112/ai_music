@@ -7,6 +7,7 @@ import 'package:flutter/services.dart';
 
 import '../application/download_use_case.dart';
 import '../application/online_playlist_search.dart';
+import '../application/online_playlist_tasks.dart';
 import '../data/online_playlists.dart';
 import 'online_playlist_page.dart';
 import '../application/music_controller.dart';
@@ -14,6 +15,7 @@ import '../application/music_ui_message.dart';
 import '../data/music_playlists.dart';
 import '../data/music_charts.dart';
 import '../data/music_resolver.dart';
+import '../data/search_history_store.dart';
 import '../domain/music_models.dart';
 import 'app_localizations.dart';
 import 'discover_charts.dart';
@@ -31,9 +33,11 @@ class MusicHomePage extends StatefulWidget {
     super.key,
     required this.controller,
     this.playlistRepository,
+    this.searchHistoryStore,
   });
 
   final OnlinePlaylistRepository? playlistRepository;
+  final SearchHistoryStore? searchHistoryStore;
 
   final MusicController controller;
 
@@ -41,13 +45,18 @@ class MusicHomePage extends StatefulWidget {
   State<MusicHomePage> createState() => _MusicHomePageState();
 }
 
-class _MusicHomePageState extends State<MusicHomePage> {
+class _MusicHomePageState extends State<MusicHomePage>
+    with WidgetsBindingObserver {
   static const _exitBackWindow = Duration(seconds: 2);
 
   final _searchController = TextEditingController();
+  final _searchFocusNode = FocusNode();
   late final OnlinePlaylistSearch _playlistSearch;
+  late final SearchHistoryStore _searchHistory;
   bool _playlistMode = false;
   bool _showPlaylistResults = false;
+  bool _historyEditMode = false;
+  bool _keyboardVisible = false;
   DateTime? _lastEmptyBackAt;
   MusicUiMessage? _lastStatusSnackMessage;
 
@@ -59,7 +68,32 @@ class _MusicHomePageState extends State<MusicHomePage> {
     _playlistSearch = OnlinePlaylistSearch(
       widget.playlistRepository ?? OnlinePlaylistRepository(),
     );
+    _searchHistory = widget.searchHistoryStore ?? SearchHistoryStore();
+    WidgetsBinding.instance.addObserver(this);
+    _searchFocusNode.addListener(_onSearchFocusChanged);
+    unawaited(
+      _searchHistory.load().then((_) {
+        if (mounted) setState(() {});
+      }),
+    );
     unawaited(controller.initialize());
+  }
+
+  void _onSearchFocusChanged() {
+    if (!mounted) return;
+    setState(() {
+      if (!_searchFocusNode.hasFocus) _historyEditMode = false;
+    });
+  }
+
+  @override
+  void didChangeMetrics() {
+    if (!mounted) return;
+    final visible = View.of(context).viewInsets.bottom > 0;
+    if (_keyboardVisible && !visible && _searchFocusNode.hasFocus) {
+      _searchFocusNode.unfocus();
+    }
+    _keyboardVisible = visible;
   }
 
   void _openMatchedPlaylist(MusicPlaylist playlist) {
@@ -75,7 +109,10 @@ class _MusicHomePageState extends State<MusicHomePage> {
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _playlistSearch.dispose();
+    _searchFocusNode.removeListener(_onSearchFocusChanged);
+    _searchFocusNode.dispose();
     _searchController.dispose();
     super.dispose();
   }
@@ -126,9 +163,12 @@ class _MusicHomePageState extends State<MusicHomePage> {
                 children: [
                   _SearchHeader(
                     controller: _searchController,
+                    focusNode: _searchFocusNode,
                     playlistMode: _playlistMode,
-                    onToggleMode: () =>
-                        setState(() => _playlistMode = !_playlistMode),
+                    onToggleMode: () => setState(() {
+                      _playlistMode = !_playlistMode;
+                      _historyEditMode = false;
+                    }),
                     isSearching: _playlistMode
                         ? _playlistSearch.isLoading
                         : controller.isSearching,
@@ -137,52 +177,72 @@ class _MusicHomePageState extends State<MusicHomePage> {
                     onSubmitted: _submitSearch,
                     onImportScreenshots: _openScreenshotImport,
                   ),
-                  OnlinePlaylistTaskEntry(
-                    controller: controller,
-                    onOpenPlaylist: _openMatchedPlaylist,
-                  ),
-                  if (_showPlaylistResults)
+                  if (_searchFocusNode.hasFocus)
                     Expanded(
-                      child: OnlinePlaylistSearchPanel(
-                        search: _playlistSearch,
-                        controller: controller,
-                        onOpenPlaylist: _openMatchedPlaylist,
+                      child: _SearchHistoryPanel(
+                        entries: _searchHistory.entries(
+                          _playlistMode
+                              ? SearchHistoryKind.playlist
+                              : SearchHistoryKind.song,
+                        ),
+                        editing: _historyEditMode,
+                        onLongPress: () =>
+                            setState(() => _historyEditMode = true),
+                        onDone: () => setState(() => _historyEditMode = false),
+                        onSearch: _searchFromHistory,
+                        onDelete: _removeHistory,
                       ),
                     )
-                  else if (_shouldShowSearchPanel)
-                    Expanded(
-                      child: _OnlineSearchPanel(
-                        candidates: controller.candidates,
-                        isSearching: controller.isSearching,
-                        isCandidateBusy: controller.isCandidateDownloading,
-                        isCandidateCached: controller.isCandidateCached,
-                        error:
-                            _localizedMessage(
-                              strings,
-                              controller.errorMessage,
-                            ) ??
-                            controller.errorDetail,
-                        onRetry: () =>
-                            controller.search(_searchController.text),
-                        onSelect: controller.downloadCandidate,
-                        onPlay: controller.playCandidate,
-                      ),
-                    )
-                  else
-                    Expanded(
-                      child: _SearchBody(
-                        controller: controller,
-                        showDefaultLibrary: _searchController.text
-                            .trim()
-                            .isEmpty,
-                        onOpenChart: _openChart,
-                        onOpenLibrary: _openLibrary,
-                      ),
+                  else ...[
+                    OnlinePlaylistTaskEntry(
+                      controller: controller,
+                      onOpenPlaylist: _openMatchedPlaylist,
                     ),
+                    if (_showPlaylistResults)
+                      Expanded(
+                        child: OnlinePlaylistSearchPanel(
+                          search: _playlistSearch,
+                          controller: controller,
+                          onOpenPlaylist: _openMatchedPlaylist,
+                        ),
+                      )
+                    else if (_shouldShowSearchPanel)
+                      Expanded(
+                        child: _OnlineSearchPanel(
+                          candidates: controller.candidates,
+                          isSearching: controller.isSearching,
+                          isCandidateBusy: controller.isCandidateDownloading,
+                          isCandidateCached: controller.isCandidateCached,
+                          error:
+                              _localizedMessage(
+                                strings,
+                                controller.errorMessage,
+                              ) ??
+                              controller.errorDetail,
+                          onRetry: () =>
+                              controller.search(_searchController.text),
+                          onSelect: controller.downloadCandidate,
+                          onPlay: controller.playCandidate,
+                        ),
+                      )
+                    else
+                      Expanded(
+                        child: _SearchBody(
+                          controller: controller,
+                          showDefaultLibrary: _searchController.text
+                              .trim()
+                              .isEmpty,
+                          onOpenChart: _openChart,
+                          onOpenLibrary: _openLibrary,
+                        ),
+                      ),
+                  ],
                 ],
               ),
             ),
-            bottomNavigationBar: _MiniPlayer(controller: controller),
+            bottomNavigationBar: _searchFocusNode.hasFocus
+                ? null
+                : _MiniPlayer(controller: controller),
           ),
         );
       },
@@ -198,14 +258,42 @@ class _MusicHomePageState extends State<MusicHomePage> {
   }
 
   void _submitSearch(String query) {
-    setState(
-      () => _showPlaylistResults = _playlistMode && query.trim().isNotEmpty,
+    final term = query.trim();
+    if (term.isEmpty) return;
+    final kind = _playlistMode
+        ? SearchHistoryKind.playlist
+        : SearchHistoryKind.song;
+    _searchFocusNode.unfocus();
+    setState(() => _showPlaylistResults = _playlistMode);
+    unawaited(
+      _searchHistory.record(kind, term).then((_) {
+        if (mounted) setState(() {});
+      }),
     );
     if (_playlistMode) {
-      _playlistSearch.search(query);
+      _playlistSearch.search(term);
     } else {
-      controller.search(query);
+      controller.search(term);
     }
+  }
+
+  void _searchFromHistory(String query) {
+    _searchController.text = query;
+    _submitSearch(query);
+  }
+
+  void _removeHistory(String query) {
+    final kind = _playlistMode
+        ? SearchHistoryKind.playlist
+        : SearchHistoryKind.song;
+    unawaited(
+      _searchHistory.remove(kind, query).then((_) {
+        if (!mounted) return;
+        setState(() {
+          if (_searchHistory.entries(kind).isEmpty) _historyEditMode = false;
+        });
+      }),
+    );
   }
 
   void _handleSearchChanged(String value) {
@@ -231,6 +319,10 @@ class _MusicHomePageState extends State<MusicHomePage> {
   }
 
   void _handleRootBack(AppStrings strings) {
+    if (_searchFocusNode.hasFocus) {
+      _searchFocusNode.unfocus();
+      return;
+    }
     if (_searchController.text.trim().isNotEmpty || controller.hasSearchState) {
       // 首页返回第一步只收起搜索态；用户再次返回才触发退出提示。
       _clearSearchInputAndState();
@@ -342,8 +434,8 @@ class _MusicHomePageState extends State<MusicHomePage> {
           onSearchSong: (entry) {
             Navigator.of(context).pop();
             _searchController.text = entry.title;
-            setState(() {});
-            controller.search(entry.title);
+            setState(() => _playlistMode = false);
+            _submitSearch(entry.title);
           },
         ),
       ),
@@ -375,6 +467,7 @@ bool _statusOpensDownloads(MusicUiMessage message) {
 class _SearchHeader extends StatelessWidget {
   const _SearchHeader({
     required this.controller,
+    required this.focusNode,
     required this.isSearching,
     required this.onChanged,
     required this.onSearch,
@@ -385,6 +478,7 @@ class _SearchHeader extends StatelessWidget {
   });
 
   final TextEditingController controller;
+  final FocusNode focusNode;
   final bool isSearching;
   final ValueChanged<String> onChanged;
   final VoidCallback onSearch;
@@ -406,6 +500,7 @@ class _SearchHeader extends StatelessWidget {
             Expanded(
               child: TextField(
                 controller: controller,
+                focusNode: focusNode,
                 textInputAction: TextInputAction.search,
                 onChanged: onChanged,
                 onSubmitted: onSubmitted,
@@ -457,6 +552,116 @@ class _SearchHeader extends StatelessWidget {
           ],
         ),
       ),
+    );
+  }
+}
+
+class _SearchHistoryPanel extends StatelessWidget {
+  const _SearchHistoryPanel({
+    required this.entries,
+    required this.editing,
+    required this.onLongPress,
+    required this.onDone,
+    required this.onSearch,
+    required this.onDelete,
+  });
+
+  final List<String> entries;
+  final bool editing;
+  final VoidCallback onLongPress;
+  final VoidCallback onDone;
+  final ValueChanged<String> onSearch;
+  final ValueChanged<String> onDelete;
+
+  @override
+  Widget build(BuildContext context) {
+    final strings = AppStringsScope.of(context);
+    final colors = Theme.of(context).colorScheme;
+    final maxWidth = MediaQuery.sizeOf(context).width - 48;
+    return ListView(
+      key: const ValueKey('search-history-panel'),
+      padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
+      children: [
+        Row(
+          children: [
+            Text(
+              strings.isZh ? '搜索历史' : 'Search history',
+              style: Theme.of(context).textTheme.titleSmall,
+            ),
+            if (editing) ...[
+              const Spacer(),
+              TextButton(
+                onPressed: onDone,
+                child: Text(strings.isZh ? '完成' : 'Done'),
+              ),
+            ],
+          ],
+        ),
+        const SizedBox(height: 10),
+        if (entries.isEmpty)
+          Text(
+            strings.isZh ? '暂无搜索历史' : 'No search history yet',
+            style: TextStyle(color: colors.onSurfaceVariant),
+          )
+        else
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              for (final entry in entries)
+                Material(
+                  color: colors.surfaceContainerHigh,
+                  borderRadius: BorderRadius.circular(8),
+                  child: InkWell(
+                    key: ValueKey('search-history-$entry'),
+                    borderRadius: BorderRadius.circular(8),
+                    onTap: () => onSearch(entry),
+                    onLongPress: onLongPress,
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 10,
+                        vertical: 6,
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          ConstrainedBox(
+                            constraints: BoxConstraints(
+                              maxWidth: maxWidth - (editing ? 28 : 0),
+                            ),
+                            child: Text(
+                              entry,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: Theme.of(context).textTheme.bodyMedium,
+                            ),
+                          ),
+                          if (editing) ...[
+                            const SizedBox(width: 4),
+                            InkWell(
+                              key: ValueKey('search-history-delete-$entry'),
+                              onTap: () => onDelete(entry),
+                              customBorder: const CircleBorder(),
+                              child: Padding(
+                                padding: const EdgeInsets.all(2),
+                                child: Icon(
+                                  Icons.close,
+                                  size: 16,
+                                  semanticLabel: strings.isZh
+                                      ? '删除$entry'
+                                      : 'Delete $entry',
+                                ),
+                              ),
+                            ),
+                          ],
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+            ],
+          ),
+      ],
     );
   }
 }
@@ -673,9 +878,14 @@ class _HomeLibrarySection extends StatelessWidget {
   final VoidCallback onOpenLibrary;
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context) => AnimatedBuilder(
+    animation: controller.onlinePlaylistTasks,
+    builder: (context, _) => _buildContent(context),
+  );
+
+  Widget _buildContent(BuildContext context) {
     final strings = AppStringsScope.of(context);
-    final playlists = controller.frequentlyUsedPlaylists;
+    final playlists = _playlistsWithActiveSyncFirst(controller);
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
@@ -727,12 +937,7 @@ class _HomeLibrarySection extends StatelessWidget {
               key: ValueKey('home-playlist-${playlist.id}'),
               icon: Icons.queue_music,
               title: playlist.name,
-              subtitle: _librarySubtitle(
-                strings,
-                controller.tracksForPlaylist(playlist),
-                emptyText: strings.noSongsInPlaylist,
-                includeCount: false,
-              ),
+              subtitle: _homePlaylistSubtitle(controller, playlist, strings),
               onTap: () =>
                   _openList(context, _LibraryListSpec.custom(playlist)),
             ),
@@ -846,8 +1051,13 @@ class _LibraryLanding extends StatelessWidget {
   final MusicController controller;
 
   @override
-  Widget build(BuildContext context) {
-    final playlists = controller.frequentlyUsedPlaylists;
+  Widget build(BuildContext context) => AnimatedBuilder(
+    animation: controller.onlinePlaylistTasks,
+    builder: (context, _) => _buildContent(context),
+  );
+
+  Widget _buildContent(BuildContext context) {
+    final playlists = _playlistsWithActiveSyncFirst(controller);
     final strings = AppStringsScope.of(context);
     return ListView(
       padding: const EdgeInsets.fromLTRB(16, 12, 16, 96),
@@ -886,6 +1096,7 @@ class _LibraryLanding extends StatelessWidget {
           for (final playlist in playlists) ...[
             _CustomPlaylistTile(
               playlist: playlist,
+              subtitle: _playlistSyncLabel(controller, playlist, strings),
               onTap: () =>
                   _openList(context, _LibraryListSpec.custom(playlist)),
             ),
@@ -975,21 +1186,94 @@ class _EmptyCustomPlaylists extends StatelessWidget {
 }
 
 class _CustomPlaylistTile extends StatelessWidget {
-  const _CustomPlaylistTile({required this.playlist, required this.onTap});
+  const _CustomPlaylistTile({
+    required this.playlist,
+    required this.subtitle,
+    required this.onTap,
+  });
 
   final MusicPlaylist playlist;
+  final String subtitle;
   final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
     return ListTile(
+      key: ValueKey('custom-playlist-${playlist.id}'),
       contentPadding: EdgeInsets.zero,
       leading: const Icon(Icons.queue_music),
       title: Text(playlist.name, maxLines: 1, overflow: TextOverflow.ellipsis),
+      subtitle: subtitle.isEmpty ? null : Text(subtitle),
       trailing: const Icon(Icons.chevron_right),
       onTap: onTap,
     );
   }
+}
+
+List<MusicPlaylist> _playlistsWithActiveSyncFirst(MusicController controller) {
+  final ranked = controller.frequentlyUsedPlaylists;
+  final activeIds = {
+    for (final task in controller.onlinePlaylistTasks.tasks)
+      if (_hasPendingPlaylistSync(task)) ?task.destination?.id,
+  };
+  return [
+    ...ranked.where((playlist) => activeIds.contains(playlist.id)),
+    ...ranked.where((playlist) => !activeIds.contains(playlist.id)),
+  ];
+}
+
+String _playlistSyncLabel(
+  MusicController controller,
+  MusicPlaylist playlist,
+  AppStrings strings,
+) {
+  final task = controller.onlinePlaylistTasks.autoSyncForDestination(
+    playlist.id,
+  );
+  if (task == null || !_hasPendingPlaylistSync(task)) return '';
+  final matched = task.matches.length;
+  final total = task.detail?.songs.length ?? task.loadTotal;
+  if (task.autoSyncError) {
+    return strings.isZh ? '同步失败 · 点击查看' : 'Sync failed · Tap to review';
+  }
+  if (!task.matching && !task.saving) {
+    return strings.isZh
+        ? '识别未完成或需核对 · 歌单已有 ${playlist.entries.length} 首'
+        : 'Matching incomplete or needs review · ${playlist.entries.length} saved';
+  }
+  return strings.isZh
+      ? '已识别 $matched/$total 首 · 歌单已有 ${playlist.entries.length} 首'
+      : 'Matched $matched/$total · ${playlist.entries.length} in playlist';
+}
+
+bool _hasPendingPlaylistSync(OnlinePlaylistTask task) {
+  final detail = task.detail;
+  if (!task.autoSyncEnabled || task.destination == null || detail == null) {
+    return false;
+  }
+  return task.matching ||
+      task.saving ||
+      task.autoSyncError ||
+      task.matches.length < detail.songs.length ||
+      detail.unavailable > 0 ||
+      task.selected.any((index) => !task.savedRows.containsKey(index));
+}
+
+String _homePlaylistSubtitle(
+  MusicController controller,
+  MusicPlaylist playlist,
+  AppStrings strings,
+) {
+  final status = _playlistSyncLabel(controller, playlist, strings);
+  final tracks = controller.tracksForPlaylist(playlist);
+  if (status.isNotEmpty && tracks.isEmpty) return status;
+  final preview = _librarySubtitle(
+    strings,
+    tracks,
+    emptyText: strings.noSongsInPlaylist,
+    includeCount: false,
+  );
+  return status.isEmpty ? preview : '$status · $preview';
 }
 
 enum _LibraryListKind { local, favorite, custom }
@@ -1116,6 +1400,113 @@ class _PlaylistDetailPage extends StatefulWidget {
 
   @override
   State<_PlaylistDetailPage> createState() => _PlaylistDetailPageState();
+}
+
+/// Only this compact status listens to matching updates. Scrolling song rows
+/// do not rebuild for every completed online lookup.
+class _OnlinePlaylistSyncProgress extends StatelessWidget {
+  const _OnlinePlaylistSyncProgress({
+    required this.controller,
+    required this.playlistId,
+    required this.onOpenTask,
+  });
+
+  final MusicController controller;
+  final String playlistId;
+  final ValueChanged<OnlinePlaylistTask> onOpenTask;
+
+  @override
+  Widget build(BuildContext context) => AnimatedBuilder(
+    animation: controller.onlinePlaylistTasks,
+    builder: (context, _) {
+      final task = controller.onlinePlaylistTasks.autoSyncForDestination(
+        playlistId,
+      );
+      final detail = task?.detail;
+      if (task == null || detail == null) return const SizedBox.shrink();
+
+      final total = detail.songs.length;
+      final recognized = task.matches.length;
+      final selected = task.selected.length;
+      final synced = task.selected.where(task.savedRows.containsKey).length;
+      final complete =
+          !task.matching &&
+          !task.saving &&
+          !task.autoSyncError &&
+          recognized >= total &&
+          synced >= selected &&
+          detail.unavailable == 0;
+      if (complete) return const SizedBox.shrink();
+
+      final zh = AppStringsScope.of(context).isZh;
+      final colors = Theme.of(context).colorScheme;
+      final String status;
+      if (task.autoSyncError) {
+        status = zh
+            ? '同步失败 · 已同步 $synced/$selected 首'
+            : 'Sync failed · $synced/$selected saved';
+      } else if (task.saving) {
+        status = zh
+            ? '正在同步歌曲 · 已同步 $synced/$selected 首'
+            : 'Syncing songs · $synced/$selected saved';
+      } else if (task.matching) {
+        status = zh
+            ? '正在识别 $recognized/$total 首 · 已同步 $synced/$selected 首'
+            : 'Matching $recognized/$total · $synced/$selected synced';
+      } else if (recognized < total) {
+        status = zh
+            ? '识别未完成 $recognized/$total 首 · 已同步 $synced/$selected 首'
+            : 'Matching incomplete $recognized/$total · $synced/$selected synced';
+      } else if (synced < selected) {
+        status = zh
+            ? '还有 ${selected - synced} 首未找到或未同步'
+            : '${selected - synced} songs unmatched or unsynced';
+      } else {
+        status = zh
+            ? '${detail.unavailable} 首来源歌曲暂无法读取'
+            : '${detail.unavailable} source songs unavailable';
+      }
+      final progress = task.matching
+          ? (total == 0 ? null : recognized / total)
+          : task.saving
+          ? null
+          : (selected == 0 ? 1.0 : synced / selected);
+      return Padding(
+        key: const ValueKey('online-playlist-sync-progress'),
+        padding: const EdgeInsets.fromLTRB(16, 4, 16, 8),
+        child: DecoratedBox(
+          decoration: BoxDecoration(
+            color: colors.surfaceContainerLow,
+            borderRadius: BorderRadius.circular(10),
+          ),
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(12, 8, 4, 10),
+            child: Column(
+              children: [
+                Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        status,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: Theme.of(context).textTheme.bodySmall,
+                      ),
+                    ),
+                    TextButton(
+                      onPressed: () => onOpenTask(task),
+                      child: Text(zh ? '查看识别' : 'View matches'),
+                    ),
+                  ],
+                ),
+                LinearProgressIndicator(value: progress, minHeight: 3),
+              ],
+            ),
+          ),
+        ),
+      );
+    },
+  );
 }
 
 class _PlaylistDetailPageState extends State<_PlaylistDetailPage> {
@@ -1369,6 +1760,12 @@ class _PlaylistDetailPageState extends State<_PlaylistDetailPage> {
                             )
                           : null,
                     ),
+                  if (list.canManage && list.playlist != null)
+                    _OnlinePlaylistSyncProgress(
+                      controller: controller,
+                      playlistId: list.playlist!.id,
+                      onOpenTask: _openOnlineSyncTask,
+                    ),
                   if (list.playlist != null &&
                       controller.playlistDownloadProgress(list.playlist!) !=
                           null)
@@ -1420,6 +1817,19 @@ class _PlaylistDetailPageState extends State<_PlaylistDetailPage> {
           ),
         );
       },
+    );
+  }
+
+  void _openOnlineSyncTask(OnlinePlaylistTask task) {
+    Navigator.of(context).push<void>(
+      MaterialPageRoute(
+        builder: (_) => OnlinePlaylistPage(
+          playlist: task.playlist,
+          repository: task.repository,
+          controller: controller,
+          onOpenPlaylist: (_) => Navigator.of(context).pop(),
+        ),
+      ),
     );
   }
 

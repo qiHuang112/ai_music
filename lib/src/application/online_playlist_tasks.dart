@@ -4,16 +4,39 @@ import 'package:flutter/foundation.dart';
 import '../data/music_playlists.dart';
 import '../data/music_resolver.dart';
 import '../data/online_playlists.dart';
+import '../data/saved_online_track.dart';
+import 'library_use_case.dart';
 import 'online_playlist_importer.dart';
 import 'screenshot_matcher.dart';
 
+typedef ImportPlaylistRows =
+    Future<MusicPlaylistResult> Function(
+      String name,
+      List<MusicSearchCandidate> candidates,
+      MusicPlaylist? target,
+      List<String> sourceOrderTrackIds,
+    );
+
 /// Lives with the controller, so leaving a route does not cancel its work.
 class OnlinePlaylistTasks extends ChangeNotifier {
-  OnlinePlaylistTasks({required this.matcher, required this.concurrency});
+  OnlinePlaylistTasks({
+    required this.matcher,
+    required this.concurrency,
+    required this.createPlaylist,
+    required this.importRows,
+  });
   final ScreenshotMatcher matcher;
   final int Function() concurrency;
+  final Future<MusicPlaylist?> Function(String name) createPlaylist;
+  final ImportPlaylistRows importRows;
   final Map<String, OnlinePlaylistTask> _tasks = {};
   List<OnlinePlaylistTask> get tasks => _tasks.values.toList(growable: false);
+
+  OnlinePlaylistTask? autoSyncForDestination(String playlistId) => _tasks.values
+      .where(
+        (task) => task.autoSyncEnabled && task.destination?.id == playlistId,
+      )
+      .firstOrNull;
 
   bool canRemoveSavedMatch(OnlinePlaylistTask task, int row, String trackId) {
     final destinationId = task.destination?.id;
@@ -51,6 +74,8 @@ class OnlinePlaylistTasks extends ChangeNotifier {
       repository: repository,
       matcher: matcher,
       concurrency: concurrency,
+      createPlaylist: createPlaylist,
+      importRows: importRows,
     );
     _tasks[playlist.key] = task;
     task.addListener(notifyListeners);
@@ -75,11 +100,15 @@ class OnlinePlaylistTask extends ChangeNotifier {
     required this.repository,
     required this.matcher,
     required this.concurrency,
+    required this.createPlaylist,
+    required this.importRows,
   });
   final OnlinePlaylist playlist;
   final OnlinePlaylistRepository repository;
   final ScreenshotMatcher matcher;
   final int Function() concurrency;
+  final Future<MusicPlaylist?> Function(String name) createPlaylist;
+  final ImportPlaylistRows importRows;
   OnlinePlaylistDetail? detail;
   final selected = <int>{};
   final matches = <int, OnlinePlaylistMatch>{};
@@ -93,6 +122,8 @@ class OnlinePlaylistTask extends ChangeNotifier {
   bool matching = false;
   bool saving = false;
   bool loadFailed = false;
+  bool autoSyncEnabled = false;
+  bool autoSyncError = false;
   bool unavailableNotified = false;
   int loaded = 0;
   int loadTotal = 0;
@@ -101,8 +132,100 @@ class OnlinePlaylistTask extends ChangeNotifier {
   int _generation = 0;
   bool _disposed = false;
   bool _reading = false;
+  Timer? _syncTimer;
   bool get busy => loading || matching || saving;
   int get ready => choices.keys.where((i) => !savedRows.containsKey(i)).length;
+
+  /// Once the user creates a destination, the controller-owned task completes
+  /// this import even if the detail route is closed. Resolved rows are saved
+  /// in small batches while matching continues, then reordered by source row.
+  Future<void> startAutoSync() async {
+    if (_disposed || autoSyncEnabled || saving || detail == null) return;
+    autoSyncEnabled = true;
+    autoSyncError = false;
+    changed();
+    await syncReady(createIfEmpty: true);
+  }
+
+  Future<void> retryAutoSync() async {
+    if (!autoSyncEnabled || !autoSyncError) return;
+    autoSyncError = false;
+    changed();
+    await syncReady();
+  }
+
+  Future<void> syncReady({bool createIfEmpty = false}) async {
+    if (_disposed || !autoSyncEnabled || saving || autoSyncError) return;
+    _syncTimer?.cancel();
+    _syncTimer = null;
+    final indexes = detail!.songs
+        .asMap()
+        .keys
+        .where(
+          (i) =>
+              selected.contains(i) &&
+              choices.containsKey(i) &&
+              !savedRows.containsKey(i),
+        )
+        .toList();
+    if (destination != null && indexes.isEmpty) return;
+    if (destination == null && !createIfEmpty && matching) return;
+
+    saving = true;
+    changed();
+    try {
+      if (destination == null && (matching || indexes.isEmpty)) {
+        destination = await createPlaylist(playlist.name);
+        if (destination == null) throw StateError('Playlist was not created');
+      } else if (indexes.isNotEmpty) {
+        final candidates = [for (final i in indexes) choices[i]!];
+        final rowTrackIds = {
+          for (final i in indexes)
+            i: SavedOnlineTrack(candidate: choices[i]!).trackId,
+          ...savedRows,
+        };
+        final sourceOrderTrackIds = <String>[];
+        final seen = <String>{};
+        for (final i in detail!.songs.asMap().keys) {
+          final id = rowTrackIds[i];
+          if (id != null && seen.add(id)) sourceOrderTrackIds.add(id);
+        }
+        final result = await importRows(
+          playlist.name,
+          candidates,
+          destination,
+          sourceOrderTrackIds,
+        );
+        if (result.playlist == null) throw StateError('Playlist was not saved');
+        destination = result.playlist;
+        ownedTrackIds.addAll(result.addedTrackIds);
+        for (final index in indexes) {
+          savedRows[index] = SavedOnlineTrack(
+            candidate: choices[index]!,
+          ).trackId;
+        }
+      }
+    } catch (_) {
+      autoSyncError = true;
+      if (destination == null) autoSyncEnabled = false;
+    } finally {
+      saving = false;
+      changed();
+    }
+    if (!_disposed &&
+        autoSyncEnabled &&
+        !autoSyncError &&
+        destination != null &&
+        detail!.songs.asMap().keys.any(
+          (i) =>
+              selected.contains(i) &&
+              choices.containsKey(i) &&
+              !savedRows.containsKey(i),
+        )) {
+      // Matching may have completed more rows while a prior batch was saved.
+      unawaited(syncReady());
+    }
+  }
 
   void changed() {
     if (!_disposed) notifyListeners();
@@ -166,23 +289,32 @@ class OnlinePlaylistTask extends ChangeNotifier {
         if (choice != null) choices[index] = choice;
         completed++;
         changed();
+        if (choice != null && autoSyncEnabled && destination != null) {
+          _syncTimer ??= Timer(
+            const Duration(milliseconds: 300),
+            () => unawaited(syncReady()),
+          );
+        }
       },
     );
     if (_disposed || generation != _generation) return;
     matching = false;
     changed();
+    if (autoSyncEnabled) unawaited(syncReady());
   }
 
   void pause() {
     _generation++;
     matching = false;
     changed();
+    if (autoSyncEnabled) unawaited(syncReady());
   }
 
   @override
   void dispose() {
     _disposed = true;
     _generation++;
+    _syncTimer?.cancel();
     super.dispose();
   }
 }

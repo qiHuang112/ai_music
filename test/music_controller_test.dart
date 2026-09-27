@@ -15,6 +15,7 @@ import 'package:ai_music/src/data/music_playlists.dart';
 import 'package:ai_music/src/data/music_resolver.dart';
 import 'package:ai_music/src/data/music_settings.dart';
 import 'package:ai_music/src/data/playlist_auto_download_store.dart';
+import 'package:ai_music/src/data/saved_online_track.dart';
 import 'package:ai_music/src/domain/music_models.dart';
 import 'package:ai_music/src/playback/music_audio_handler.dart';
 import 'package:audio_service/audio_service.dart';
@@ -394,6 +395,202 @@ void main() {
       }
     },
   );
+
+  test(
+    'new playlist matches extend only its active queue without reloading',
+    () async {
+      final handler = _SpyAudioHandler();
+      final controller = MusicController(
+        downloadHistoryStore: MemoryDownloadHistory(),
+        audioHandler: handler,
+        resolver: _FakeMusicResolver(),
+        cacheStore: _FakeCacheStore(cached: const []),
+        playlistStore: _MemoryPlaylistStore(),
+        settingsStore: _FakeSettingsStore(),
+        metadataRepository: _StaticMetadataRepository(),
+      );
+      try {
+        await controller.initialize();
+        final playlist = (await controller.createPlaylist('识别中'))!;
+        final first = _cachedTrack(id: 'first', name: '第一首');
+        final firstTrack = trackFromCached(first);
+        await controller.addTrackToPlaylist(playlist, firstTrack);
+        await controller.playTrack(
+          firstTrack,
+          playlistId: playlist.id,
+          queueTracks: [firstTrack],
+        );
+        final playCalls = handler.playCalls;
+        final position = const Duration(seconds: 37);
+        handler.currentPositionOverride = position;
+        final second = _candidate(id: 'second', name: '第二首');
+        await controller.importPlaylistSelection('识别中', [
+          second,
+        ], target: playlist);
+        expect(handler.loadedIds, [firstTrack.id]);
+        expect(handler.queue.value.map((item) => item.id), [
+          firstTrack.id,
+          SavedOnlineTrack(candidate: second).trackId,
+        ]);
+        expect(handler.mediaItem.value?.id, firstTrack.id);
+        expect(handler.currentPosition, position);
+        expect(handler.playCalls, playCalls);
+
+        await controller.importPlaylistSelection('识别中', [
+          second,
+        ], target: playlist);
+        expect(handler.queue.value.length, 2);
+        await controller.playTrack(firstTrack, queueTracks: [firstTrack]);
+        await controller.importPlaylistSelection('识别中', [
+          _candidate(id: 'third', name: '第三首'),
+        ], target: playlist);
+        expect(handler.queue.value.map((item) => item.id), [firstTrack.id]);
+      } finally {
+        controller.dispose();
+        await handler.dispose();
+      }
+    },
+  );
+
+  test(
+    'matches saved during a playlist queue load are added afterward',
+    () async {
+      final handler = _DelayedSecondLoadHandler();
+      final controller = MusicController(
+        downloadHistoryStore: MemoryDownloadHistory(),
+        audioHandler: handler,
+        resolver: _FakeMusicResolver(),
+        cacheStore: _FakeCacheStore(cached: const []),
+        playlistStore: _MemoryPlaylistStore(),
+        settingsStore: _FakeSettingsStore(),
+        metadataRepository: _StaticMetadataRepository(),
+      );
+      try {
+        await controller.initialize();
+        final playlist = (await controller.createPlaylist('识别中'))!;
+        final first = trackFromCached(_cachedTrack(id: 'first', name: '第一首'));
+        final second = trackFromCached(_cachedTrack(id: 'second', name: '第二首'));
+        await controller.addTracksToPlaylist(playlist, [first, second]);
+        await controller.playTrack(
+          first,
+          playlistId: playlist.id,
+          queueTracks: [first, second],
+        );
+        final next = controller.playTrack(
+          second,
+          playlistId: playlist.id,
+          queueTracks: [first, second],
+        );
+        await handler.secondLoadStarted.future;
+        final third = _candidate(id: 'third', name: '第三首');
+        await controller.importPlaylistSelection('识别中', [
+          third,
+        ], target: playlist);
+        handler.releaseSecondLoad.complete();
+        await next;
+        expect(handler.queue.value.map((item) => item.id), [
+          first.id,
+          second.id,
+          SavedOnlineTrack(candidate: third).trackId,
+        ]);
+      } finally {
+        controller.dispose();
+        await handler.dispose();
+      }
+    },
+  );
+
+  test('reviewing a saved match replaces the upcoming queue item', () async {
+    final handler = _SpyAudioHandler();
+    final controller = MusicController(
+      downloadHistoryStore: MemoryDownloadHistory(),
+      audioHandler: handler,
+      resolver: _FakeMusicResolver(),
+      cacheStore: _FakeCacheStore(cached: const []),
+      playlistStore: _MemoryPlaylistStore(),
+      settingsStore: _FakeSettingsStore(),
+      metadataRepository: _StaticMetadataRepository(),
+    );
+    try {
+      await controller.initialize();
+      final old = _candidate(id: 'old', name: '旧匹配');
+      final replacement = _candidate(id: 'new', name: '新匹配');
+      final playlist = (await controller.importPlaylistCandidates('识别中', [
+        old,
+      ]))!;
+      final first = trackFromCached(_cachedTrack(id: 'first', name: '第一首'));
+      await controller.addTrackToPlaylist(playlist, first);
+      final oldTrack = controller.tracksForPlaylist(playlist).single;
+      await controller.playTrack(
+        first,
+        playlistId: playlist.id,
+        queueTracks: [first, oldTrack],
+      );
+      final playCalls = handler.playCalls;
+      await controller.replaceImportedCandidate(
+        playlist,
+        oldTrack.id,
+        replacement,
+        removePrevious: true,
+      );
+      expect(handler.queue.value.map((item) => item.id), [
+        first.id,
+        SavedOnlineTrack(candidate: replacement).trackId,
+      ]);
+      expect(handler.mediaItem.value?.id, first.id);
+      expect(handler.playCalls, playCalls);
+    } finally {
+      controller.dispose();
+      await handler.dispose();
+    }
+  });
+
+  test('reviewing the playing match keeps it until the next song', () async {
+    final handler = _SpyAudioHandler();
+    final controller = MusicController(
+      downloadHistoryStore: MemoryDownloadHistory(),
+      audioHandler: handler,
+      resolver: _FakeMusicResolver(),
+      cacheStore: _FakeCacheStore(cached: const []),
+      playlistStore: _MemoryPlaylistStore(),
+      settingsStore: _FakeSettingsStore(),
+      metadataRepository: _StaticMetadataRepository(),
+    );
+    try {
+      await controller.initialize();
+      final old = _candidate(id: 'old', name: '旧匹配');
+      final replacement = _candidate(id: 'new', name: '新匹配');
+      final playlist = (await controller.importPlaylistCandidates('识别中', [
+        old,
+      ]))!;
+      final oldTrack = controller
+          .tracksForPlaylist(playlist)
+          .single
+          .copyWith(filePath: '/tmp/old-match.mp3');
+      await controller.playTrack(
+        oldTrack,
+        playlistId: playlist.id,
+        queueTracks: [oldTrack],
+      );
+      final playCalls = handler.playCalls;
+      await controller.replaceImportedCandidate(
+        playlist,
+        oldTrack.id,
+        replacement,
+        removePrevious: true,
+      );
+      final newId = SavedOnlineTrack(candidate: replacement).trackId;
+      expect(handler.mediaItem.value?.id, oldTrack.id);
+      expect(handler.queue.value.map((item) => item.id), [oldTrack.id, newId]);
+      expect(handler.playCalls, playCalls);
+      handler.emit(handler.queue.value.last);
+      await Future<void>.delayed(Duration.zero);
+      expect(handler.queue.value.map((item) => item.id), [newId]);
+    } finally {
+      controller.dispose();
+      await handler.dispose();
+    }
+  });
 
   test('stop waits for an in-flight queue load and stays stopped', () async {
     final handler = _DelayedFirstLoadHandler();
@@ -2576,6 +2773,21 @@ class _SpyAudioHandler extends MusicAudioHandler {
   }
 
   @override
+  Future<void> appendQueue(List<PlayableAudio> additions) async {
+    queue.add([...queue.value, ...additions.map((item) => item.mediaItem)]);
+  }
+
+  @override
+  Future<void> replaceQueueItemAt(int index, PlayableAudio replacement) async {
+    queue.add([...queue.value]..[index] = replacement.mediaItem);
+  }
+
+  @override
+  Future<void> removeQueueItemAt(int index) async {
+    queue.add([...queue.value]..removeAt(index));
+  }
+
+  @override
   Future<void> play() async {
     playCalls += 1;
     playbackState.add(playbackState.value.copyWith(playing: true));
@@ -2657,6 +2869,32 @@ class _DelayedFirstLoadHandler extends _SpyAudioHandler {
     if (_loads == 1) {
       firstLoadStarted.complete();
       await releaseFirstLoad.future;
+    }
+    await super.loadQueue(
+      items,
+      initialIndex: initialIndex,
+      initialPosition: initialPosition,
+      playWhenReady: playWhenReady,
+    );
+  }
+}
+
+class _DelayedSecondLoadHandler extends _SpyAudioHandler {
+  final secondLoadStarted = Completer<void>();
+  final releaseSecondLoad = Completer<void>();
+  var _loads = 0;
+
+  @override
+  Future<void> loadQueue(
+    List<PlayableAudio> items, {
+    int initialIndex = 0,
+    Duration initialPosition = Duration.zero,
+    bool playWhenReady = true,
+  }) async {
+    _loads += 1;
+    if (_loads == 2) {
+      secondLoadStarted.complete();
+      await releaseSecondLoad.future;
     }
     await super.loadQueue(
       items,

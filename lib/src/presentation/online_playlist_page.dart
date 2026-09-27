@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import '../application/music_controller.dart';
@@ -216,7 +218,7 @@ class _OnlinePlaylistPageState extends State<OnlinePlaylistPage> {
         )
         .length;
     return PopScope(
-      canPop: !_task.saving,
+      canPop: !_task.saving || _task.autoSyncEnabled,
       child: Scaffold(
         appBar: AppBar(
           title: Text(
@@ -241,15 +243,19 @@ class _OnlinePlaylistPageState extends State<OnlinePlaylistPage> {
                       detail.songs.isNotEmpty,
                   onChanged: _task.saving || detail.songs.isEmpty
                       ? null
-                      : (value) => setState(() {
-                          if (value == true) {
-                            _task.selected.addAll(
-                              Iterable.generate(detail.songs.length),
-                            );
-                          } else {
-                            _task.selected.clear();
-                          }
-                        }),
+                      : (value) {
+                          setState(() {
+                            if (value == true) {
+                              _task.selected.addAll(
+                                Iterable.generate(detail.songs.length),
+                              );
+                            } else {
+                              _task.selected.clear();
+                            }
+                          });
+                          _task.changed();
+                          unawaited(_task.syncReady());
+                        },
                 ),
               ),
             ],
@@ -296,6 +302,16 @@ class _OnlinePlaylistPageState extends State<OnlinePlaylistPage> {
                       ),
                     ),
                     if (_notice != null) _Message(text: _notice!),
+                    if (_task.autoSyncError)
+                      _Message(
+                        text: _task.destination == null
+                            ? (zh
+                                  ? '新建歌单失败，匹配结果已保留，请重试。'
+                                  : 'Could not create playlist. Matches are retained; retry.')
+                            : (zh
+                                  ? '自动同步失败，匹配结果已保留，请重试同步。'
+                                  : 'Auto sync failed. Matches are retained; retry.'),
+                      ),
                     if (_busy) ...[
                       LinearProgressIndicator(
                         value: _task.saving || _task.matchTotal == 0
@@ -349,11 +365,19 @@ class _OnlinePlaylistPageState extends State<OnlinePlaylistPage> {
                                 label: Text(zh ? '打开歌单' : 'Open playlist'),
                               ),
                             ),
-                          if (_task.destination == null || ready > 0)
+                          if (_task.destination == null ||
+                              (ready > 0 && !_task.autoSyncEnabled))
                             Expanded(
                               child: FilledButton.icon(
-                                onPressed: _task.saving || ready == 0
+                                onPressed:
+                                    _task.saving ||
+                                        (_task.destination != null &&
+                                            ready == 0) ||
+                                        (_task.destination == null &&
+                                            detail.songs.isEmpty)
                                     ? null
+                                    : _task.destination == null
+                                    ? _task.startAutoSync
                                     : () => _import(_task.destination),
                                 icon: const Icon(Icons.playlist_add),
                                 label: Text(
@@ -373,6 +397,14 @@ class _OnlinePlaylistPageState extends State<OnlinePlaylistPage> {
                                     : _chooseTarget,
                                 child: Text(zh ? '加入歌单' : 'Add to playlist'),
                               ),
+                            ),
+                          if (_task.autoSyncError && _task.destination != null)
+                            IconButton(
+                              onPressed: _task.saving
+                                  ? null
+                                  : _task.retryAutoSync,
+                              tooltip: zh ? '重试同步' : 'Retry sync',
+                              icon: const Icon(Icons.sync_problem),
                             ),
                           if (!_task.matching &&
                               _task.detail!.songs.asMap().keys.any(
@@ -429,13 +461,17 @@ class _OnlinePlaylistPageState extends State<OnlinePlaylistPage> {
                   value: _task.selected.contains(index),
                   onChanged: _task.saving
                       ? null
-                      : (value) => setState(() {
-                          if (value == true) {
-                            _task.selected.add(index);
-                          } else {
-                            _task.selected.remove(index);
-                          }
-                        }),
+                      : (value) {
+                          setState(() {
+                            if (value == true) {
+                              _task.selected.add(index);
+                            } else {
+                              _task.selected.remove(index);
+                            }
+                          });
+                          _task.changed();
+                          unawaited(_task.syncReady());
+                        },
                 ),
           title: Text('${index + 1}. ${song.title}'),
           subtitle: Text(
@@ -508,7 +544,8 @@ class _OnlinePlaylistPageState extends State<OnlinePlaylistPage> {
             index,
             previous,
           );
-      setState(() => _task.saving = true);
+      _task.saving = true;
+      _task.changed();
       try {
         final result = await widget.controller.replaceImportedCandidate(
           _task.destination!,
@@ -516,7 +553,6 @@ class _OnlinePlaylistPageState extends State<OnlinePlaylistPage> {
           candidate,
           removePrevious: removePrevious,
         );
-        if (!mounted) return;
         _task.destination = result.playlist;
         if (removePrevious) {
           widget.controller.onlinePlaylistTasks.forgetOwnedMatch(
@@ -526,27 +562,32 @@ class _OnlinePlaylistPageState extends State<OnlinePlaylistPage> {
         }
         _task.ownedTrackIds.addAll(result.addedTrackIds);
         _task.savedRows[index] = next;
+        _task.choices[index] = candidate;
+        _task.reviewed.add(index);
+        _task.selected.add(index);
+        if (mounted) setState(() => _notice = null);
       } catch (_) {
         if (mounted) {
           setState(() {
-            _task.saving = false;
             _notice = _zh
                 ? '更换保存失败，原匹配未改动，请重试。'
                 : 'Could not save. Original match kept; retry.';
           });
         }
         return;
+      } finally {
+        _task.saving = false;
+        _task.changed();
+        if (_task.autoSyncEnabled) unawaited(_task.syncReady());
       }
+      return;
     }
-    if (!mounted) return;
-    setState(() {
-      _task.saving = false;
-      _task.choices[index] = candidate;
-      _task.reviewed.add(index);
-      _task.selected.add(index);
-      _notice = null;
-      _task.changed();
-    });
+    _task.choices[index] = candidate;
+    _task.reviewed.add(index);
+    _task.selected.add(index);
+    _task.changed();
+    if (mounted) setState(() => _notice = null);
+    unawaited(_task.syncReady());
   }
 
   Future<void> _matchPending() {
@@ -557,9 +598,13 @@ class _OnlinePlaylistPageState extends State<OnlinePlaylistPage> {
   void _cancel() {
     _task.pause();
     setState(
-      () => _notice = _zh
-          ? '已暂停匹配，可核对并导入已有结果。'
-          : 'Matching paused. You can review and import ready matches.',
+      () => _notice = _task.autoSyncEnabled
+          ? (_zh
+                ? '已暂停匹配，已匹配歌曲会自动同步。'
+                : 'Matching paused. Matched songs will sync automatically.')
+          : (_zh
+                ? '已暂停匹配，可核对并导入已有结果。'
+                : 'Matching paused. You can review and import ready matches.'),
     );
   }
 
@@ -780,11 +825,19 @@ class OnlinePlaylistTaskList extends StatelessWidget {
           : 'Matching ${task.completed}/${task.matchTotal}';
     }
     if (task.saving) return zh ? '正在保存' : 'Saving';
+    if (task.autoSyncError) {
+      return zh ? '自动同步失败 · 点击重试' : 'Auto sync failed · Retry';
+    }
     final total = task.detail?.songs.length ?? 0;
     if (task.choices.length < total) {
       return zh
           ? '已匹配 ${task.choices.length}/$total · 可核对或重试'
           : '${task.choices.length}/$total matched · Review or retry';
+    }
+    if (task.autoSyncEnabled) {
+      return zh
+          ? '已自动同步 ${task.savedRows.length} 首'
+          : '${task.savedRows.length} songs synced automatically';
     }
     return zh
         ? '匹配完成 · ${task.ready} 首待导入'

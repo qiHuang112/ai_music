@@ -216,6 +216,9 @@ class MusicController extends ChangeNotifier {
   bool _connectivityKnown = false;
   bool _connectivityEventSeen = false;
   List<Track> _activeQueueTracks = const [];
+  String? _activePlaylistId;
+  final Set<String> _retiredQueueTrackIds = {};
+  bool _retiredQueueCleanupRunning = false;
   int _playRequest = 0;
   Future<void> _playLoadTail = Future<void>.value();
   String? _prefetchForCurrentId;
@@ -1002,6 +1005,8 @@ class MusicController extends ChangeNotifier {
 
   Future<void> playCandidate(MusicSearchCandidate candidate) async {
     final request = ++_playRequest;
+    _activePlaylistId = null;
+    _retiredQueueTrackIds.clear();
     var record = _cachedRecordForCandidate(candidate);
     if (record == null) {
       await downloadCandidate(candidate);
@@ -1044,6 +1049,8 @@ class MusicController extends ChangeNotifier {
     int? index,
     List<Track>? queueTracks,
   }) async {
+    _activePlaylistId = null;
+    _retiredQueueTrackIds.clear();
     var prepared = track;
     if (track.playbackSource.isEmpty) {
       final file = await _prepareOnlineTrack(track);
@@ -1063,6 +1070,7 @@ class MusicController extends ChangeNotifier {
     final done = Completer<void>();
     _playLoadTail = done.future;
     await prior;
+    var catchUpPlaylist = false;
     try {
       if (request != _playRequest) return;
       final sameQueue =
@@ -1086,6 +1094,10 @@ class MusicController extends ChangeNotifier {
         queueTracks: queue,
         shouldPlay: () => request == _playRequest && !_isDisposed,
       );
+      if (request == _playRequest) {
+        _activePlaylistId = playlistId;
+        catchUpPlaylist = playlistId != null;
+      }
       if (loaded && request == _playRequest) {
         if (playlistId != null) {
           unawaited(recordPlaylistUsage(playlistId, played: true));
@@ -1094,6 +1106,12 @@ class MusicController extends ChangeNotifier {
       }
     } finally {
       done.complete();
+    }
+    if (catchUpPlaylist) {
+      final current = customPlaylists
+          .where((item) => item.id == playlistId)
+          .firstOrNull;
+      if (current != null) await _appendSyncedPlaylistTracksToQueue(current);
     }
   }
 
@@ -1109,6 +1127,8 @@ class MusicController extends ChangeNotifier {
 
   Future<void> stop() async {
     _playRequest += 1;
+    _activePlaylistId = null;
+    _retiredQueueTrackIds.clear();
     _nextPrefetch.cancel();
     _activeQueueTracks = const [];
     _prefetchForCurrentId = null;
@@ -1387,6 +1407,14 @@ class MusicController extends ChangeNotifier {
       _onlinePlaylistTasks ??= OnlinePlaylistTasks(
         matcher: createOnlinePlaylistMatcher(),
         concurrency: () => screenshotSearchConcurrency,
+        createPlaylist: createPlaylist,
+        importRows: (name, candidates, target, sourceOrderTrackIds) =>
+            importPlaylistSelection(
+              name,
+              candidates,
+              target: target,
+              sourceOrderTrackIds: sourceOrderTrackIds,
+            ),
       );
 
   ScreenshotMatcher createOnlinePlaylistMatcher() =>
@@ -1406,6 +1434,7 @@ class MusicController extends ChangeNotifier {
     String name,
     List<MusicSearchCandidate> candidates, {
     MusicPlaylist? target,
+    List<String>? sourceOrderTrackIds,
   }) async {
     final result = await libraryUseCase.importOnlinePlaylist(
       name,
@@ -1414,11 +1443,54 @@ class MusicController extends ChangeNotifier {
           SavedOnlineTrack(candidate: candidate),
       ],
       target: target,
+      sourceOrderTrackIds: sourceOrderTrackIds,
       current: _librarySnapshot,
     );
     _applyLibrarySnapshot(result.snapshot);
     notifyListeners();
+    if (target != null && result.playlist != null) {
+      await _appendSyncedPlaylistTracksToQueue(result.playlist!);
+    }
     return result;
+  }
+
+  Future<void> _appendSyncedPlaylistTracksToQueue(
+    MusicPlaylist playlist,
+  ) async {
+    if (_activePlaylistId != playlist.id) return;
+    final request = _playRequest;
+    final prior = _playLoadTail;
+    final done = Completer<void>();
+    _playLoadTail = done.future;
+    await prior;
+    try {
+      if (_isDisposed ||
+          request != _playRequest ||
+          _activePlaylistId != playlist.id ||
+          audioHandler.mediaItem.value == null) {
+        return;
+      }
+      final existingIds = {for (final track in _activeQueueTracks) track.id};
+      final additions = [
+        for (final track in tracksForPlaylist(playlist))
+          if (existingIds.add(track.id)) track,
+      ];
+      if (additions.isEmpty) return;
+      try {
+        await playbackUseCase.appendTracks(_activeQueueTracks, additions);
+        _activeQueueTracks = [..._activeQueueTracks, ...additions];
+        _prefetchForCurrentId = null;
+        _lyricsPrefetchQueueKey = null;
+        _maybePrefetchNext();
+        _maybePrefetchUpcomingLyrics();
+      } catch (_) {
+        // The playlist is already saved. A playback-device failure must not
+        // falsely mark its recognition task as a failed import.
+        _activePlaylistId = null;
+      }
+    } finally {
+      done.complete();
+    }
   }
 
   Future<MusicPlaylistResult> replaceImportedCandidate(
@@ -1436,7 +1508,78 @@ class MusicController extends ChangeNotifier {
     );
     _applyLibrarySnapshot(result.snapshot);
     notifyListeners();
+    if (result.playlist != null) {
+      try {
+        await _replaceActivePlaylistQueueItem(
+          result.playlist!,
+          previousId,
+          SavedOnlineTrack(candidate: replacement).trackId,
+        );
+      } catch (_) {
+        // The replacement was persisted; audio-device queue errors must not
+        // present it as an unsaved candidate.
+        _activePlaylistId = null;
+        _retiredQueueTrackIds.clear();
+      }
+    }
     return result;
+  }
+
+  Future<void> _replaceActivePlaylistQueueItem(
+    MusicPlaylist playlist,
+    String previousId,
+    String replacementId,
+  ) async {
+    if (_activePlaylistId != playlist.id) return;
+    final request = _playRequest;
+    final prior = _playLoadTail;
+    final done = Completer<void>();
+    _playLoadTail = done.future;
+    await prior;
+    try {
+      if (_isDisposed ||
+          request != _playRequest ||
+          _activePlaylistId != playlist.id ||
+          audioHandler.mediaItem.value == null) {
+        return;
+      }
+      final oldIndex = _activeQueueTracks.indexWhere(
+        (track) => track.id == previousId,
+      );
+      if (oldIndex >= 0 && !playlist.trackIds.contains(previousId)) {
+        if (audioHandler.mediaItem.value?.id == previousId) {
+          // Let the current song finish; remove it as soon as playback moves.
+          _retiredQueueTrackIds.add(previousId);
+        } else {
+          final replacement = tracksForPlaylist(
+            playlist,
+          ).where((track) => track.id == replacementId).firstOrNull;
+          final alreadyQueued = _activeQueueTracks.any(
+            (track) => track.id == replacementId,
+          );
+          if (replacement != null && !alreadyQueued) {
+            await playbackUseCase.replaceTrackAt(
+              _activeQueueTracks,
+              oldIndex,
+              replacement,
+            );
+            _activeQueueTracks = [
+              for (var i = 0; i < _activeQueueTracks.length; i++)
+                i == oldIndex ? replacement : _activeQueueTracks[i],
+            ];
+          } else {
+            await playbackUseCase.removeTrackAt(_activeQueueTracks, oldIndex);
+            _activeQueueTracks = [..._activeQueueTracks]..removeAt(oldIndex);
+          }
+          _nextPrefetch.cancel();
+          _prefetchForCurrentId = null;
+          _lyricsPrefetchQueueKey = null;
+        }
+      }
+    } finally {
+      done.complete();
+    }
+    await _appendSyncedPlaylistTracksToQueue(playlist);
   }
 
   Future<int> addCandidatesToPlaylist(
@@ -1729,6 +1872,11 @@ class MusicController extends ChangeNotifier {
   }
 
   void _handleMediaItemChanged(MediaItem? item) {
+    if (item != null &&
+        _retiredQueueTrackIds.isNotEmpty &&
+        !_retiredQueueTrackIds.contains(item.id)) {
+      unawaited(_removeRetiredQueueTracks());
+    }
     if (item != null && audioHandler.playbackState.value.playing) {
       _maybePrefetchNext();
       _maybePrefetchUpcomingLyrics();
@@ -1764,6 +1912,41 @@ class MusicController extends ChangeNotifier {
     }
     unawaited(_loadMetadataForTrack(track));
     unawaited(_syncOhosControlState());
+  }
+
+  Future<void> _removeRetiredQueueTracks() async {
+    if (_retiredQueueCleanupRunning || _retiredQueueTrackIds.isEmpty) return;
+    _retiredQueueCleanupRunning = true;
+    final request = _playRequest;
+    final playlistId = _activePlaylistId;
+    final prior = _playLoadTail;
+    final done = Completer<void>();
+    _playLoadTail = done.future;
+    await prior;
+    try {
+      if (_isDisposed ||
+          request != _playRequest ||
+          playlistId == null ||
+          _activePlaylistId != playlistId) {
+        return;
+      }
+      for (final id in _retiredQueueTrackIds.toList()) {
+        if (audioHandler.mediaItem.value?.id == id) continue;
+        final index = _activeQueueTracks.indexWhere((track) => track.id == id);
+        if (index >= 0) {
+          try {
+            await playbackUseCase.removeTrackAt(_activeQueueTracks, index);
+            _activeQueueTracks = [..._activeQueueTracks]..removeAt(index);
+          } catch (_) {
+            continue;
+          }
+        }
+        _retiredQueueTrackIds.remove(id);
+      }
+    } finally {
+      done.complete();
+      _retiredQueueCleanupRunning = false;
+    }
   }
 
   Future<void> _loadMetadataForTrack(Track track) async {

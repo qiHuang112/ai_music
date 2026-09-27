@@ -172,6 +172,66 @@ void main() {
       JustAudioPlatform.instance = originalPlatform;
     }
   });
+
+  test(
+    'appending recognized songs keeps the current item and queue index',
+    () async {
+      final originalPlatform = JustAudioPlatform.instance;
+      JustAudioPlatform.instance = _TestJustAudioPlatform();
+      final handler = MusicAudioHandler();
+      try {
+        await handler.loadQueue([
+          PlayableAudio(
+            mediaItem: const MediaItem(id: 'a', title: 'A'),
+            source: AudioSource.uri(Uri.parse('https://example.com/a.mp3')),
+          ),
+        ], playWhenReady: false);
+        await handler.appendQueue([
+          PlayableAudio(
+            mediaItem: const MediaItem(id: 'b', title: 'B'),
+            source: AudioSource.uri(Uri.parse('https://example.com/b.mp3')),
+          ),
+        ]);
+        expect(handler.mediaItem.value?.id, 'a');
+        expect(handler.currentQueueIndex, 0);
+        expect(handler.queue.value.map((item) => item.id), ['a', 'b']);
+        expect(handler.nextQueueIndex, 1);
+      } finally {
+        await handler.dispose();
+        JustAudioPlatform.instance = originalPlatform;
+      }
+    },
+  );
+
+  test(
+    'replacing an upcoming match keeps the current source selected',
+    () async {
+      final originalPlatform = JustAudioPlatform.instance;
+      JustAudioPlatform.instance = _TestJustAudioPlatform();
+      final handler = MusicAudioHandler();
+      try {
+        PlayableAudio item(String id) => PlayableAudio(
+          mediaItem: MediaItem(id: id, title: id),
+          source: AudioSource.uri(Uri.parse('https://example.com/$id.mp3')),
+        );
+        await handler.loadQueue([
+          item('a'),
+          item('b'),
+          item('c'),
+        ], playWhenReady: false);
+        await handler.replaceQueueItemAt(1, item('d'));
+        expect(handler.queue.value.map((item) => item.id), ['a', 'd', 'c']);
+        expect(handler.mediaItem.value?.id, 'a');
+        expect(handler.currentQueueIndex, 0);
+        await handler.removeQueueItemAt(2);
+        expect(handler.queue.value.map((item) => item.id), ['a', 'd']);
+        expect(handler.mediaItem.value?.id, 'a');
+      } finally {
+        await handler.dispose();
+        JustAudioPlatform.instance = originalPlatform;
+      }
+    },
+  );
 }
 
 class _TestJustAudioPlatform extends JustAudioPlatform {
@@ -215,6 +275,16 @@ class _TestAudioPlayerPlatform extends AudioPlayerPlatform {
     _emit();
     return SeekResponse();
   }
+
+  @override
+  Future<ConcatenatingInsertAllResponse> concatenatingInsertAll(
+    ConcatenatingInsertAllRequest request,
+  ) async => ConcatenatingInsertAllResponse();
+
+  @override
+  Future<ConcatenatingRemoveRangeResponse> concatenatingRemoveRange(
+    ConcatenatingRemoveRangeRequest request,
+  ) async => ConcatenatingRemoveRangeResponse();
 
   @override
   Future<PlayResponse> play(PlayRequest request) async => PlayResponse();

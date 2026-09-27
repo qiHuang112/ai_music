@@ -14,6 +14,7 @@ import 'package:ai_music/src/data/music_playlists.dart';
 import 'package:ai_music/src/data/music_resolver.dart';
 import 'package:ai_music/src/data/music_settings.dart';
 import 'package:ai_music/src/data/saved_online_track.dart';
+import 'package:ai_music/src/data/search_history_store.dart';
 import 'package:ai_music/src/domain/music_models.dart';
 import 'package:ai_music/src/presentation/app_localizations.dart';
 import 'package:ai_music/src/presentation/music_home_page.dart';
@@ -239,10 +240,103 @@ void main() {
     await tester.enterText(find.byType(TextField), '');
     await tester.pumpAndSettle();
 
+    expect(find.byKey(const ValueKey('search-history-panel')), findsOneWidget);
+    expect(find.byKey(const ValueKey('home-favorites-entry')), findsNothing);
+    await tester.binding.handlePopRoute();
+    await tester.pumpAndSettle();
+
     expect(find.byKey(const ValueKey('home-favorites-entry')), findsOneWidget);
     expect(find.byKey(const ValueKey('home-playlist-road')), findsOneWidget);
     expect(find.text('搜索音乐'), findsNothing);
     expect(find.text('输入歌手或歌曲名，下载后会保存在本机缓存里。'), findsNothing);
+  });
+
+  testWidgets(
+    'focus shows compact history, long press deletes, back restores home',
+    (tester) async {
+      final fixture = _homeLibraryFixture();
+      final history = _MemorySearchHistoryStore();
+      await history.record(SearchHistoryKind.song, '稻香');
+      await history.record(SearchHistoryKind.song, '晴天');
+      await history.record(SearchHistoryKind.playlist, '儿童歌曲');
+      await tester.pumpWidget(
+        _app(
+          cacheStore: fixture.cacheStore,
+          playlistStore: fixture.playlistStore,
+          searchHistoryStore: history,
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byType(TextField).first);
+      await tester.pumpAndSettle();
+      expect(
+        find.byKey(const ValueKey('search-history-panel')),
+        findsOneWidget,
+      );
+      expect(find.byKey(const ValueKey('home-favorites-entry')), findsNothing);
+      expect(find.byKey(const ValueKey('home-playlist-road')), findsNothing);
+      expect(find.byKey(const ValueKey('search-history-稻香')), findsOneWidget);
+      expect(find.byKey(const ValueKey('search-history-晴天')), findsOneWidget);
+      expect(find.text('儿童歌曲'), findsNothing);
+
+      await tester.longPress(find.byKey(const ValueKey('search-history-稻香')));
+      await tester.pump();
+      expect(
+        find.byKey(const ValueKey('search-history-delete-稻香')),
+        findsOneWidget,
+      );
+      expect(
+        find.byKey(const ValueKey('search-history-delete-晴天')),
+        findsOneWidget,
+      );
+      await tester.tap(find.byKey(const ValueKey('search-history-delete-稻香')));
+      await tester.pumpAndSettle();
+      expect(find.byKey(const ValueKey('search-history-稻香')), findsNothing);
+
+      await tester.binding.handlePopRoute();
+      await tester.pumpAndSettle();
+      expect(find.byKey(const ValueKey('search-history-panel')), findsNothing);
+      expect(
+        find.byKey(const ValueKey('home-favorites-entry')),
+        findsOneWidget,
+      );
+      expect(history.entries(SearchHistoryKind.song), ['晴天']);
+
+      await tester.tap(find.byKey(const ValueKey('search-mode-toggle')));
+      await tester.tap(find.byType(TextField).first);
+      await tester.pumpAndSettle();
+      expect(find.byKey(const ValueKey('search-history-儿童歌曲')), findsOneWidget);
+      expect(find.byKey(const ValueKey('search-history-晴天')), findsNothing);
+    },
+  );
+
+  testWidgets('history card submits search and returns to results after back', (
+    tester,
+  ) async {
+    final history = _MemorySearchHistoryStore();
+    await history.record(SearchHistoryKind.song, '周杰伦');
+    final resolver = _FakeMusicResolver(
+      candidates: [_candidate(name: '稻香', artist: '周杰伦')],
+    );
+    await tester.pumpWidget(
+      _app(resolver: resolver, searchHistoryStore: history),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byType(TextField).first);
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('search-history-周杰伦')));
+    await tester.pumpAndSettle();
+    expect(find.text('稻香'), findsOneWidget);
+    expect(find.byKey(const ValueKey('search-history-panel')), findsNothing);
+
+    await tester.tap(find.byType(TextField).first);
+    await tester.pumpAndSettle();
+    expect(find.text('稻香'), findsNothing);
+    await tester.binding.handlePopRoute();
+    await tester.pumpAndSettle();
+    expect(find.text('稻香'), findsOneWidget);
   });
 
   testWidgets('empty search does not call resolver', (tester) async {
@@ -381,6 +475,10 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('稻香'), findsNothing);
+    expect(find.byKey(const ValueKey('search-history-panel')), findsOneWidget);
+    expect(find.text('我的音乐'), findsNothing);
+    await tester.binding.handlePopRoute();
+    await tester.pumpAndSettle();
     expect(find.text('我的音乐'), findsOneWidget);
     expect(find.text('搜索音乐'), findsNothing);
     expect(find.text('输入歌手或歌曲名，下载后会保存在本机缓存里。'), findsNothing);
@@ -2285,6 +2383,7 @@ Widget _app({
   MusicAudioHandler? audioHandler,
   LanLibraryGateway? lanGateway,
   LanSyncUseCase? lanSyncUseCase,
+  SearchHistoryStore? searchHistoryStore,
 }) {
   final controller =
       playbackController ??
@@ -2312,10 +2411,40 @@ Widget _app({
           language: controller.language,
           child: child ?? const SizedBox.shrink(),
         ),
-        home: MusicHomePage(controller: controller),
+        home: MusicHomePage(
+          controller: controller,
+          searchHistoryStore: searchHistoryStore ?? _MemorySearchHistoryStore(),
+        ),
       );
     },
   );
+}
+
+class _MemorySearchHistoryStore extends SearchHistoryStore {
+  final _saved = <SearchHistoryKind, List<String>>{
+    SearchHistoryKind.song: [],
+    SearchHistoryKind.playlist: [],
+  };
+
+  @override
+  Future<void> load() async {}
+
+  @override
+  List<String> entries(SearchHistoryKind kind) =>
+      List.unmodifiable(_saved[kind]!);
+
+  @override
+  Future<void> record(SearchHistoryKind kind, String query) async {
+    final term = query.trim();
+    if (term.isEmpty) return;
+    _saved[kind]!.remove(term);
+    _saved[kind]!.insert(0, term);
+  }
+
+  @override
+  Future<void> remove(SearchHistoryKind kind, String query) async {
+    _saved[kind]!.remove(query);
+  }
 }
 
 class _ControlledPlaybackController extends MusicController {

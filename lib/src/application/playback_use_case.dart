@@ -47,29 +47,7 @@ class PlaybackUseCase {
         ? audioHandler.currentPosition
         : Duration.zero;
     await audioHandler.loadQueue(
-      [
-        for (final item in queue)
-          PlayableAudio(
-            mediaItem: mediaItemFromTrack(item),
-            source: item.playbackSource.isEmpty
-                ? OnDemandAudioSource(
-                    tag: mediaItemFromTrack(item),
-                    prepare: () {
-                      final prepare = prepareOnlineTrack;
-                      if (prepare == null) {
-                        throw StateError(
-                          'Online track preparation is unavailable',
-                        );
-                      }
-                      return prepare(item);
-                    },
-                  )
-                : AudioSource.uri(
-                    _uriForTrack(item),
-                    tag: mediaItemFromTrack(item),
-                  ),
-          ),
-      ],
+      [for (final item in queue) _playableFromTrack(item)],
       initialIndex: safeIndex,
       initialPosition: initialPosition,
       playWhenReady: shouldPlay == null,
@@ -80,6 +58,55 @@ class PlaybackUseCase {
     _lastRequestedTrackId = track.id;
     _lastQueueSignature = queueSignature;
     return true;
+  }
+
+  Future<void> appendTracks(
+    List<Track> currentQueue,
+    List<Track> additions,
+  ) async {
+    if (additions.isEmpty) return;
+    await audioHandler.appendQueue([
+      for (final track in additions) _playableFromTrack(track),
+    ]);
+    _lastQueueSignature = _queueSignature([...currentQueue, ...additions]);
+  }
+
+  Future<void> replaceTrackAt(
+    List<Track> currentQueue,
+    int index,
+    Track replacement,
+  ) async {
+    await audioHandler.replaceQueueItemAt(
+      index,
+      _playableFromTrack(replacement),
+    );
+    final updated = [...currentQueue]..[index] = replacement;
+    _lastQueueSignature = _queueSignature(updated);
+  }
+
+  Future<void> removeTrackAt(List<Track> currentQueue, int index) async {
+    await audioHandler.removeQueueItemAt(index);
+    final updated = [...currentQueue]..removeAt(index);
+    _lastQueueSignature = _queueSignature(updated);
+  }
+
+  PlayableAudio _playableFromTrack(Track track) {
+    final mediaItem = mediaItemFromTrack(track);
+    return PlayableAudio(
+      mediaItem: mediaItem,
+      source: track.playbackSource.isEmpty
+          ? OnDemandAudioSource(
+              tag: mediaItem,
+              prepare: () {
+                final prepare = prepareOnlineTrack;
+                if (prepare == null) {
+                  throw StateError('Online track preparation is unavailable');
+                }
+                return prepare(track);
+              },
+            )
+          : AudioSource.uri(_uriForTrack(track), tag: mediaItem),
+    );
   }
 
   void _startPlayback() {

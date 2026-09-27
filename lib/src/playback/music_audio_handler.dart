@@ -58,6 +58,7 @@ class MusicAudioHandler extends BaseAudioHandler
   List<PlayableAudio> _items = const [];
   final ShuffleSkipPlanner _shuffleSkipPlanner;
   final PlaybackIndexTracker _indexTracker = PlaybackIndexTracker();
+  bool _editingQueue = false;
   bool _shuffleModeEnabled = false;
   bool _isCurrentFavorite = false;
 
@@ -125,6 +126,73 @@ class MusicAudioHandler extends BaseAudioHandler
     _publishCurrentItem(safeIndex);
     if (playWhenReady) {
       await play();
+    }
+  }
+
+  /// Adds newly recognized playlist songs without resetting the current
+  /// source, position, or playback state.
+  Future<void> appendQueue(List<PlayableAudio> additions) async {
+    if (additions.isEmpty) return;
+    await _player.addAudioSources([for (final item in additions) item.source]);
+    _items = List<PlayableAudio>.unmodifiable([..._items, ...additions]);
+    _publishQueue();
+  }
+
+  /// Replaces an upcoming or previous item without seeking or restarting the
+  /// current source. The currently playing item is handled by the controller
+  /// after playback advances.
+  Future<void> replaceQueueItemAt(int index, PlayableAudio replacement) async {
+    if (index < 0 || index >= _items.length || index == _player.currentIndex) {
+      throw RangeError.index(index, _items);
+    }
+    _editingQueue = true;
+    try {
+      await _player.insertAudioSource(index, replacement.source);
+      await _player.removeAudioSourceAt(index + 1);
+      _items = List<PlayableAudio>.unmodifiable([
+        for (var i = 0; i < _items.length; i++)
+          i == index ? replacement : _items[i],
+      ]);
+      _publishQueue();
+    } finally {
+      _editingQueue = false;
+      _publishCurrentIfChanged();
+    }
+  }
+
+  @override
+  Future<void> removeQueueItemAt(int index) async {
+    if (index < 0 || index >= _items.length || index == _player.currentIndex) {
+      throw RangeError.index(index, _items);
+    }
+    _editingQueue = true;
+    try {
+      await _player.removeAudioSourceAt(index);
+      _items = List<PlayableAudio>.unmodifiable([
+        for (var i = 0; i < _items.length; i++)
+          if (i != index) _items[i],
+      ]);
+      _publishQueue();
+    } finally {
+      _editingQueue = false;
+      _publishCurrentIfChanged();
+    }
+  }
+
+  void _publishQueue() {
+    _shuffleSkipPlanner.updateQueue(
+      _items.map((item) => item.mediaItem.id).toList(growable: false),
+    );
+    queue.add(_items.map((item) => item.mediaItem).toList(growable: false));
+  }
+
+  void _publishCurrentIfChanged() {
+    final index = _player.currentIndex;
+    if (index == null || index < 0 || index >= _items.length) return;
+    if (mediaItem.value?.id != _items[index].mediaItem.id) {
+      _publishCurrentItem(index);
+    } else {
+      _indexTracker.markPublished(index);
     }
   }
 
@@ -353,6 +421,7 @@ class MusicAudioHandler extends BaseAudioHandler
   }
 
   void _handleCurrentIndexChanged(int? index) {
+    if (_editingQueue) return;
     if (index == null || index < 0 || index >= _items.length) {
       _indexTracker.markPublished(null);
       mediaItem.add(null);

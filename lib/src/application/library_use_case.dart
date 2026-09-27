@@ -148,6 +148,7 @@ class LibraryUseCase {
     String name,
     List<SavedOnlineTrack> tracks, {
     MusicPlaylist? target,
+    List<String>? sourceOrderTrackIds,
     required LibrarySnapshot current,
   }) {
     return _enqueuePlaylistMutation(() async {
@@ -175,12 +176,25 @@ class LibraryUseCase {
               onlineTrack: track,
             ),
       ];
+      var orderedEntries = entries;
+      if (sourceOrderTrackIds != null) {
+        // A retried earlier source row must not be left at the end. Keep any
+        // unrelated local additions after the synced source rows.
+        final order = sourceOrderTrackIds.toSet();
+        final byId = {for (final entry in entries) entry.trackId: entry};
+        orderedEntries = [
+          for (final id in order)
+            if (byId[id] != null) byId[id]!,
+          for (final entry in entries)
+            if (!order.contains(entry.trackId)) entry,
+        ];
+      }
       final playlist =
-          existing?.copyWith(entries: entries, updatedAt: now) ??
+          existing?.copyWith(entries: orderedEntries, updatedAt: now) ??
           MusicPlaylist(
             id: 'playlist-${now.microsecondsSinceEpoch}',
             name: name.trim(),
-            entries: entries,
+            entries: orderedEntries,
             createdAt: now,
             updatedAt: now,
           );

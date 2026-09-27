@@ -582,7 +582,7 @@ void main() {
     },
   );
 
-  testWidgets('a slow row does not block reviewing and importing ready rows', (
+  testWidgets('new playlist automatically imports slow later matches', (
     tester,
   ) async {
     final store = _Store();
@@ -603,13 +603,13 @@ void main() {
     await tester.pump();
     await tester.tap(find.text('新建歌单'));
     await tester.pump();
+    await tester.pump();
     expect(
       store.library.playlists.single.entries.single.onlineTrack!.candidate.id,
       'First alternate',
     );
+    expect(find.textContaining('继续导入'), findsNothing);
     gate.complete(_match('Second'));
-    await tester.pumpAndSettle();
-    await tester.tap(find.text('继续导入(1)'));
     await tester.pumpAndSettle();
     expect(store.library.playlists.length, 1);
     expect(
@@ -622,6 +622,339 @@ void main() {
     await _unmount(tester, controller);
   });
 
+  testWidgets(
+    'replacing a saved match finishes after leaving and resumes later sync',
+    (tester) async {
+      final store = _Store();
+      final laterMatch = Completer<ScreenshotMatchResult>();
+      final controller = _Controller(
+        store,
+        matcher: _Matcher(
+          (draft) async => draft.title == 'Second'
+              ? await laterMatch.future
+              : _match('First'),
+        ),
+      );
+      await _mount(tester, controller, settle: false);
+      await tester.pump();
+      await tester.tap(find.text('新建歌单'));
+      await tester.pump();
+      await tester.pump();
+      final task = controller.onlinePlaylistTasks.tasks.single;
+      expect(task.savedRows.length, 1);
+
+      await tester.tap(find.text('1. First'));
+      await tester.pump();
+      final delayedWrite = Completer<void>();
+      store.writeGate = delayedWrite;
+      await tester.tap(find.text('First alternate'));
+      await tester.pump();
+      expect(task.saving, true);
+      await tester.pumpWidget(
+        MaterialApp(home: MusicHomePage(controller: controller)),
+      );
+      laterMatch.complete(_match('Second'));
+      await tester.pump(const Duration(milliseconds: 350));
+      expect(task.savedRows.length, 1);
+      delayedWrite.complete();
+      await tester.pumpAndSettle();
+
+      expect(task.saving, false);
+      expect(task.choices[0]!.id, 'First alternate');
+      expect(task.savedRows.length, 2);
+      expect(
+        store.library.playlists.single.entries.map(
+          (entry) => entry.onlineTrack!.candidate.id,
+        ),
+        ['First alternate', 'Second'],
+      );
+      await _unmount(tester, controller);
+    },
+  );
+
+  testWidgets(
+    'create before any match and sync out-of-order results off page',
+    (tester) async {
+      final store = _Store();
+      final gates = <String, Completer<ScreenshotMatchResult>>{};
+      final controller = _Controller(
+        store,
+        matcher: _Matcher(
+          (draft) =>
+              (gates[draft.title] = Completer<ScreenshotMatchResult>()).future,
+        ),
+      );
+      await _mount(tester, controller, settle: false);
+      await tester.pump();
+      await tester.tap(find.text('新建歌单'));
+      await tester.pump();
+      await tester.pump();
+      final destination = store.library.playlists.single;
+      expect(destination.entries, isEmpty);
+      await tester.pumpWidget(
+        MaterialApp(home: MusicHomePage(controller: controller)),
+      );
+      await tester.pump();
+      expect(
+        find.byKey(ValueKey('home-playlist-${destination.id}')),
+        findsOneWidget,
+      );
+      await tester.tap(find.byKey(const ValueKey('home-manage-playlists')));
+      await tester.pumpAndSettle();
+      expect(
+        find.byKey(ValueKey('custom-playlist-${destination.id}')),
+        findsOneWidget,
+      );
+      gates['Second']!.complete(_match('Second'));
+      await tester.pump(const Duration(milliseconds: 350));
+      await tester.pump();
+      expect(
+        store.library.playlists.single.entries.single.onlineTrack!.candidate.id,
+        'Second',
+      );
+      expect(find.textContaining('歌单已有 1 首'), findsOneWidget);
+      await tester.tap(
+        find.byKey(ValueKey('custom-playlist-${destination.id}')),
+      );
+      await tester.pumpAndSettle();
+      expect(find.text('Second'), findsOneWidget);
+      gates['First']!.complete(_match('First'));
+      await tester.pumpAndSettle();
+      expect(store.library.playlists.single.id, destination.id);
+      expect(
+        store.library.playlists.single.entries.map(
+          (entry) => entry.onlineTrack!.candidate.id,
+        ),
+        ['First', 'Second'],
+      );
+      expect(store.writes, 4); // Create, two match batches, first opening.
+      await _unmount(tester, controller);
+    },
+  );
+
+  testWidgets('recognizing playlist stays in the visible home playlist list', (
+    tester,
+  ) async {
+    final store = _Store();
+    final gate = Completer<ScreenshotMatchResult>();
+    final controller = _Controller(
+      store,
+      matcher: _Matcher((_) => gate.future),
+    );
+    for (var i = 0; i < 5; i++) {
+      await controller.createPlaylist('旧歌单 $i');
+    }
+    await _mount(tester, controller, settle: false);
+    await tester.pump();
+    await tester.tap(find.text('新建歌单'));
+    await tester.pump();
+    await tester.pump();
+    final destination = store.library.playlists.last;
+    await tester.pumpWidget(
+      MaterialApp(home: MusicHomePage(controller: controller)),
+    );
+    await tester.pump();
+    expect(
+      find.byKey(ValueKey('home-playlist-${destination.id}')),
+      findsOneWidget,
+    );
+    expect(find.textContaining('已识别 0/2 首'), findsOneWidget);
+    await _unmount(tester, controller);
+  });
+
+  testWidgets('failed background sync retries into its original playlist', (
+    tester,
+  ) async {
+    final store = _Store();
+    final gate = Completer<ScreenshotMatchResult>();
+    final controller = _Controller(
+      store,
+      matcher: _Matcher((_) => gate.future),
+    );
+    await _mount(tester, controller, settle: false);
+    await tester.pump();
+    await tester.tap(find.text('新建歌单'));
+    await tester.pump();
+    await tester.pump();
+    final destination = store.library.playlists.single;
+    store.fail = true;
+    gate.complete(_match('First'));
+    await tester.pumpAndSettle();
+    expect(find.textContaining('自动同步失败'), findsOneWidget);
+    expect(store.library.playlists.single.entries, isEmpty);
+    expect(find.textContaining('继续导入'), findsNothing);
+
+    store.fail = false;
+    await tester.tap(find.byTooltip('重试同步'));
+    await tester.pumpAndSettle();
+    expect(store.library.playlists.single.id, destination.id);
+    expect(store.library.playlists.single.entries.length, 1);
+    expect(store.library.playlists.length, 1);
+    expect(find.textContaining('自动同步失败'), findsNothing);
+    await _unmount(tester, controller);
+  });
+
+  testWidgets('retrying an earlier match restores source order', (
+    tester,
+  ) async {
+    final store = _Store();
+    final firstGate = Completer<ScreenshotMatchResult>();
+    var firstCalls = 0;
+    final controller = _Controller(
+      store,
+      matcher: _Matcher((draft) {
+        if (draft.title == 'Second') return Future.value(_match('Second'));
+        firstCalls++;
+        return firstCalls == 1
+            ? firstGate.future
+            : Future.value(_match('First'));
+      }),
+    );
+    await _mount(tester, controller, settle: false);
+    await tester.pump();
+    await tester.tap(find.text('新建歌单'));
+    await tester.pump();
+    final task = controller.onlinePlaylistTasks.tasks.single;
+    task.pause();
+    await tester.pumpAndSettle();
+    expect(
+      store.library.playlists.single.entries.map(
+        (entry) => entry.onlineTrack!.candidate.id,
+      ),
+      ['Second'],
+    );
+    await task.matchPending();
+    await tester.pumpAndSettle();
+    expect(
+      store.library.playlists.single.entries.map(
+        (entry) => entry.onlineTrack!.candidate.id,
+      ),
+      ['First', 'Second'],
+    );
+    firstGate.complete(_match('First'));
+    await tester.pump();
+    await _unmount(tester, controller);
+  });
+
+  testWidgets('new local playlist shows matching and sync until completion', (
+    tester,
+  ) async {
+    final store = _Store();
+    final gates = <String, Completer<ScreenshotMatchResult>>{};
+    final controller = _Controller(
+      store,
+      matcher: _Matcher(
+        (draft) =>
+            (gates[draft.title] = Completer<ScreenshotMatchResult>()).future,
+      ),
+    );
+    await tester.pumpWidget(
+      MaterialApp(
+        home: MusicHomePage(
+          controller: controller,
+          playlistRepository: _CompleteRepository(),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('search-mode-toggle')));
+    await tester.enterText(find.byType(TextField).first, '睡前');
+    await tester.tap(find.byTooltip('搜歌单'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('netease:1')));
+    await tester.pump();
+    await tester.pump();
+    await tester.tap(find.text('新建歌单'));
+    await tester.pump();
+    await tester.pump();
+    await tester.tap(find.text('打开歌单'));
+    await tester.pumpAndSettle();
+
+    expect(
+      find.byKey(const ValueKey('online-playlist-sync-progress')),
+      findsOneWidget,
+    );
+    expect(find.textContaining('正在识别 0/2 首'), findsOneWidget);
+    await tester.tap(find.text('查看识别'));
+    await tester.pumpAndSettle();
+    expect(find.text('已选 2 首'), findsOneWidget);
+    await tester.pageBack();
+    await tester.pumpAndSettle();
+
+    gates['Second']!.complete(_match('Second'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 350));
+    await tester.pumpAndSettle();
+    expect(find.textContaining('正在识别 1/2 首'), findsOneWidget);
+    expect(store.library.playlists.single.entries.length, 1);
+    expect(find.text('Second'), findsOneWidget);
+    gates['First']!.complete(_match('First'));
+    await tester.pumpAndSettle();
+    expect(
+      find.byKey(const ValueKey('online-playlist-sync-progress')),
+      findsNothing,
+    );
+    expect(store.library.playlists.single.entries.length, 2);
+    expect(find.text('First'), findsOneWidget);
+    expect(find.text('Second'), findsOneWidget);
+    await _unmount(tester, controller);
+  });
+
+  testWidgets('local sync failure remains visible and opens retry', (
+    tester,
+  ) async {
+    final store = _Store();
+    final gate = Completer<ScreenshotMatchResult>();
+    final controller = _Controller(
+      store,
+      matcher: _Matcher((_) => gate.future),
+    );
+    await tester.pumpWidget(
+      MaterialApp(
+        home: MusicHomePage(
+          controller: controller,
+          playlistRepository: _CompleteRepository(),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('search-mode-toggle')));
+    await tester.enterText(find.byType(TextField).first, '睡前');
+    await tester.tap(find.byTooltip('搜歌单'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('netease:1')));
+    await tester.pump();
+    await tester.pump();
+    await tester.tap(find.text('新建歌单'));
+    await tester.pump();
+    await tester.pump();
+    await tester.tap(find.text('打开歌单'));
+    await tester.pumpAndSettle();
+
+    store.fail = true;
+    gate.complete(_match('First'));
+    await tester.pumpAndSettle();
+    expect(find.textContaining('同步失败'), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey('online-playlist-sync-progress')),
+      findsOneWidget,
+    );
+    await tester.tap(find.text('查看识别'));
+    await tester.pumpAndSettle();
+    expect(find.byTooltip('重试同步'), findsOneWidget);
+    store.fail = false;
+    await tester.tap(find.byTooltip('重试同步'));
+    await tester.pumpAndSettle();
+    await tester.pageBack();
+    await tester.pumpAndSettle();
+    expect(
+      find.byKey(const ValueKey('online-playlist-sync-progress')),
+      findsNothing,
+    );
+    expect(store.library.playlists.single.entries.length, 1);
+    await _unmount(tester, controller);
+  });
+
   testWidgets('save retry reuses matches and does not leave empty playlist', (
     tester,
   ) async {
@@ -630,7 +963,7 @@ void main() {
     await _mount(tester, controller);
     await tester.tap(find.text('新建歌单'));
     await tester.pumpAndSettle();
-    expect(find.textContaining('保存失败'), findsOneWidget);
+    expect(find.textContaining('新建歌单失败'), findsOneWidget);
     expect(store.library.playlists, isEmpty);
     expect(controller.matcher.calls, 2);
     store.fail = false;
@@ -807,7 +1140,7 @@ void main() {
       gate.complete(_match('Second'));
       await tester.pumpAndSettle();
       expect(find.byKey(const Key('playlist-task-entry')), findsNothing);
-      expect(store.writes, 1); // Background matching never saves automatically.
+      expect(store.writes, 2); // Create, then automatically save the match.
       await tester.tap(find.byKey(const ValueKey('home-manage-playlists')));
       await tester.pumpAndSettle();
       await tester.ensureVisible(find.text('匹配歌单'));
@@ -816,10 +1149,10 @@ void main() {
         tester.getTopLeft(find.text('匹配歌单')).dy,
         greaterThan(tester.getTopLeft(find.text('自建歌单')).dy),
       );
-      expect(find.textContaining('匹配完成'), findsOneWidget);
-      await tester.ensureVisible(find.textContaining('匹配完成'));
+      expect(find.textContaining('已自动同步'), findsOneWidget);
+      await tester.ensureVisible(find.textContaining('已自动同步'));
       await tester.pumpAndSettle();
-      await tester.tap(find.textContaining('匹配完成'));
+      await tester.tap(find.textContaining('已自动同步'));
       await tester.pumpAndSettle();
       expect(find.text('已选 1 首'), findsOneWidget);
       expect(find.text('打开歌单'), findsOneWidget);
@@ -1035,6 +1368,7 @@ class _Store extends PlaylistStore {
   PlaylistLibrary library = const PlaylistLibrary.empty();
   bool fail = false;
   int writes = 0;
+  Completer<void>? writeGate;
   @override
   Future<void> write(
     PlaylistLibrary value, {
@@ -1042,6 +1376,9 @@ class _Store extends PlaylistStore {
   }) async {
     writes++;
     if (fail) throw StateError('disk failure');
+    final gate = writeGate;
+    writeGate = null;
+    if (gate != null) await gate.future;
     library = value;
   }
 
@@ -1077,6 +1414,15 @@ class _Repository extends OnlinePlaylistRepository {
       hasMore: false,
     );
   }
+}
+
+class _CompleteRepository extends _Repository {
+  @override
+  Future<OnlinePlaylistDetail> load(
+    OnlinePlaylist playlist, {
+    bool Function()? isCanceled,
+    void Function(int, int)? onProgress,
+  }) async => const OnlinePlaylistDetail(songs: _songs, total: 2);
 }
 
 Future<void> _mount(
