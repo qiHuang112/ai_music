@@ -106,14 +106,21 @@ class FlacResolver {
     return candidates.take(maxResults).toList(growable: false);
   }
 
-  Future<ResolvedMusic> resolve(MusicSearchCandidate candidate) =>
-      _resolve(candidate, refreshExpired: true);
+  Future<ResolvedMusic> resolve(
+    MusicSearchCandidate candidate, {
+    String? qualityPreference,
+  }) => _resolve(
+    candidate,
+    refreshExpired: true,
+    qualityPreference: qualityPreference ?? prefer,
+  );
 
   Future<ResolvedMusic> _resolve(
     MusicSearchCandidate candidate, {
     required bool refreshExpired,
+    required String qualityPreference,
   }) async {
-    final qualities = qualityOrder(candidate.qualities, prefer);
+    final qualities = qualityOrder(candidate.qualities, qualityPreference);
     if (qualities.isEmpty) {
       throw StateError('No downloadable quality found');
     }
@@ -166,7 +173,11 @@ class FlacResolver {
           if (refreshExpired) {
             final fresh = await _refreshExpiredCandidate(candidate);
             if (fresh != null) {
-              return _resolve(fresh, refreshExpired: false);
+              return _resolve(
+                fresh,
+                refreshExpired: false,
+                qualityPreference: qualityPreference,
+              );
             }
           }
           throw StateError(msg);

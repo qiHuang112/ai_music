@@ -727,7 +727,7 @@ void main() {
         ),
         ['First', 'Second'],
       );
-      expect(store.writes, 4); // Create, two match batches, first opening.
+      expect(store.writes, 3); // Create and two match batches.
       await _unmount(tester, controller);
     },
   );

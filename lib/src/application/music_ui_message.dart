@@ -9,6 +9,7 @@ enum MusicUiMessageCode {
   downloadAlreadyRunning,
   downloadCanceled,
   playingCachedFile,
+  playingOnlineStream,
 }
 
 class MusicUiMessage {

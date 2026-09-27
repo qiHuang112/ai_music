@@ -32,6 +32,7 @@ class DownloadUseCase {
 
   Future<DownloadUseCaseResult> downloadCandidate(
     MusicSearchCandidate candidate, {
+    MusicQualityLevel quality = MusicQualityLevel.high,
     bool requireExactIdentity = false,
     required void Function(MusicUiMessage message) onStatus,
     required void Function() onChanged,
@@ -52,7 +53,12 @@ class DownloadUseCase {
     );
     onChanged();
     try {
-      final resolved = await resolver.resolve(candidate);
+      final resolved = resolver is QualitySelectableMusicResolver
+          ? await (resolver as QualitySelectableMusicResolver).resolveAtQuality(
+              candidate,
+              quality,
+            )
+          : await resolver.resolve(candidate);
       token.throwIfCanceled();
       if (requireExactIdentity &&
           !const ScreenshotMatchPolicy().resolvedStillMatches(

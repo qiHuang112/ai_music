@@ -79,32 +79,34 @@ List<MusicQuality> qualityOrder(List<MusicQuality> qualities, String prefer) {
     }
   }
 
-  add(
-    qualities
-        .where((quality) => quality.format.toLowerCase() == prefer)
-        .firstOrNull,
-  );
-  add(
-    qualities
-        .where((quality) => quality.format.toLowerCase() == 'flac')
-        .firstOrNull,
-  );
-  add(
-    qualities
-        .where(
-          (quality) =>
-              quality.format.toLowerCase() == 'mp3' && quality.bitrate == '320',
-        )
-        .firstOrNull,
-  );
-  add(
-    qualities
-        .where(
-          (quality) =>
-              quality.format.toLowerCase() == 'mp3' && quality.bitrate == '128',
-        )
-        .firstOrNull,
-  );
+  MusicQuality? mp3(String bitrate) => qualities
+      .where(
+        (quality) =>
+            quality.format.toLowerCase() == 'mp3' &&
+            quality.bitrate.trim() == bitrate,
+      )
+      .firstOrNull;
+  final flac = qualities
+      .where((quality) => quality.format.toLowerCase() == 'flac')
+      .firstOrNull;
+  if (prefer == 'mp3:128') {
+    add(mp3('128'));
+    add(mp3('320'));
+    add(flac);
+  } else if (prefer == 'mp3:320') {
+    add(mp3('320'));
+    add(mp3('128'));
+    add(flac);
+  } else {
+    add(
+      qualities
+          .where((quality) => quality.format.toLowerCase() == prefer)
+          .firstOrNull,
+    );
+    add(flac);
+    add(mp3('320'));
+    add(mp3('128'));
+  }
   for (final quality in qualities) {
     add(quality);
   }

@@ -84,14 +84,17 @@ class BuguyyResolver {
   Future<List<MusicSearchCandidate>> searchSingleKeyword(String query) =>
       _searchKeyword(query, query);
 
-  Future<ResolvedMusic> resolve(MusicSearchCandidate candidate) async {
+  Future<ResolvedMusic> resolve(
+    MusicSearchCandidate candidate, {
+    String? qualityPreference,
+  }) async {
     final playJson = await _json('/api/geturl', {'id': candidate.id});
     final directUrl = playJson['success'] == true
         ? playJson['url']?.toString() ?? ''
         : '';
     final lyrics = _chooseLyrics(playJson, candidate.raw);
 
-    if (directUrl.isNotEmpty) {
+    ResolvedMusic directResult() {
       // Kuwo's .mflac payload is encrypted rather than a regular FLAC file.
       // Reject it before downloading a large file that cannot pass validation.
       if (urlExtension(directUrl) == '.mflac') {
@@ -115,8 +118,13 @@ class BuguyyResolver {
       );
     }
 
+    // getdown exposes cloud-drive shares, not HTTP audio. A quality request
+    // cannot turn those links into a playable stream; keep the playable URL.
+    if (directUrl.isNotEmpty) return directResult();
+
     final downJson = await _json('/api/getdown', {'id': candidate.id});
     if (downJson['success'] != true) {
+      if (directUrl.isNotEmpty) return directResult();
       throw StateError(
         downJson['message']?.toString() ?? 'buguyy no URL returned',
       );
@@ -129,8 +137,9 @@ class BuguyyResolver {
           downJson['url'] ??
           '',
     );
-    final chosen = _chooseDownload(downloadUrls, prefer);
+    final chosen = _chooseDownload(downloadUrls, qualityPreference ?? prefer);
     if (chosen == null) {
+      if (directUrl.isNotEmpty) return directResult();
       throw StateError('buguyy no downloadable URL returned');
     }
 
@@ -334,7 +343,9 @@ MapEntry<String, String>? _chooseDownload(
     return null;
   }
   final order = [
-    prefer,
+    if (prefer == 'mp3:128') ...['128', 'mp3'],
+    if (prefer == 'mp3:320') ...['320', 'mp3'],
+    if (!prefer.startsWith('mp3:')) prefer,
     'flac',
     '【hi-res】wav',
     'hi-res',

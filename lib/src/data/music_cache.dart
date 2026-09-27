@@ -25,6 +25,7 @@ class CachedTrack {
     this.lyricsSha256 = '',
     this.artworkSha256 = '',
     this.cachedAt,
+    this.playbackCache = false,
   });
 
   final String cacheId;
@@ -38,6 +39,7 @@ class CachedTrack {
   final String lyricsSha256;
   final String artworkSha256;
   final DateTime? cachedAt;
+  final bool playbackCache;
 
   CachedTrack copyWith({
     String? cacheId,
@@ -51,6 +53,7 @@ class CachedTrack {
     String? lyricsSha256,
     String? artworkSha256,
     DateTime? cachedAt,
+    bool? playbackCache,
   }) {
     return CachedTrack(
       cacheId: cacheId ?? this.cacheId,
@@ -64,6 +67,7 @@ class CachedTrack {
       lyricsSha256: lyricsSha256 ?? this.lyricsSha256,
       artworkSha256: artworkSha256 ?? this.artworkSha256,
       cachedAt: cachedAt ?? this.cachedAt,
+      playbackCache: playbackCache ?? this.playbackCache,
     );
   }
 
@@ -79,6 +83,7 @@ class CachedTrack {
       'lyricsSha256': lyricsSha256,
       'artworkSha256': artworkSha256,
       'cachedAt': cachedAt?.toIso8601String(),
+      'playbackCache': playbackCache,
     };
   }
 
@@ -108,6 +113,7 @@ class CachedTrack {
       lyricsSha256: json['lyricsSha256']?.toString() ?? '',
       artworkSha256: json['artworkSha256']?.toString() ?? '',
       cachedAt: _parseDateTime(json['cachedAt']),
+      playbackCache: json['playbackCache'] == true,
     );
   }
 }
@@ -372,6 +378,94 @@ class CachedTrackStore {
   final Future<Directory> Function() _rootProvider;
   final AudioDownloader _downloader;
   Future<void> _indexTail = Future.value();
+
+  Future<File> playbackTargetFor(ResolvedMusic music) async {
+    final root = await _rootProvider();
+    await root.create(recursive: true);
+    return File(_targetPath(root, music));
+  }
+
+  Future<CachedTrack> finishPlaybackCache(
+    ResolvedMusic music,
+    File file,
+  ) async {
+    await _validateAudioFile(file, music);
+    final existing = await _lookup(cacheIdForResolved(music));
+    if (existing != null && !existing.playbackCache) return existing;
+    final stat = await file.stat();
+    final lyricsPath = await _writeLyricsIfNeeded(music, file);
+    final cached = CachedTrack(
+      cacheId: cacheIdForResolved(music),
+      music: music,
+      filePath: file.path,
+      sizeBytes: stat.size,
+      fromCache: false,
+      lyricsPath: lyricsPath,
+      cachedAt: DateTime.now(),
+      playbackCache: true,
+    );
+    await _upsert(cached);
+    return cached;
+  }
+
+  Future<int> playbackCacheBytes() async {
+    final root = await _rootProvider();
+    var total = 0;
+    for (final track in await listCached()) {
+      if (track.playbackCache) total += track.sizeBytes;
+    }
+    if (await root.exists()) {
+      await for (final entity in root.list()) {
+        if (entity is File && entity.path.endsWith('.part')) {
+          total += await entity.length();
+        }
+      }
+    }
+    return total;
+  }
+
+  Future<void> trimPlaybackParts({
+    Set<String> protectedPaths = const {},
+  }) async {
+    const limit = 200 * 1024 * 1024;
+    final root = await _rootProvider();
+    if (!await root.exists()) return;
+    final parts = <File>[];
+    await for (final entity in root.list()) {
+      if (entity is File && entity.path.endsWith('.part')) parts.add(entity);
+    }
+    var bytes = 0;
+    final stats = <File, FileStat>{};
+    for (final part in parts) {
+      final stat = await part.stat();
+      stats[part] = stat;
+      bytes += stat.size;
+    }
+    parts.sort((a, b) => stats[a]!.modified.compareTo(stats[b]!.modified));
+    for (final part in parts) {
+      if (bytes <= limit) break;
+      if (protectedPaths.contains(part.path)) continue;
+      try {
+        final size = stats[part]!.size;
+        await part.delete();
+        bytes -= size;
+      } catch (_) {}
+    }
+  }
+
+  Future<void> clearPlaybackCache() async {
+    final records = await listCached();
+    for (final track in records.where((track) => track.playbackCache)) {
+      await deleteCached(track.cacheId);
+    }
+    final root = await _rootProvider();
+    if (!await root.exists()) return;
+    await for (final entity in root.list()) {
+      if (entity is File && entity.path.endsWith('.part')) {
+        await _deleteIfExists(entity);
+      }
+    }
+  }
 
   Future<CachedTrack> downloadOrReuse(
     ResolvedMusic result, {
@@ -774,6 +868,7 @@ class CachedTrackStore {
             lyricsSha256: cached.lyricsSha256,
             artworkSha256: cached.artworkSha256,
             cachedAt: cached.cachedAt ?? stat.modified,
+            playbackCache: cached.playbackCache,
           ),
         );
       }

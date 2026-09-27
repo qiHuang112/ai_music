@@ -1,3 +1,5 @@
+// ignore_for_file: experimental_member_use
+
 import 'dart:async';
 import 'dart:io';
 
@@ -7,13 +9,19 @@ import 'package:just_audio/just_audio.dart';
 import '../domain/music_models.dart';
 import '../playback/music_audio_handler.dart';
 import '../playback/on_demand_audio_source.dart';
+import '../playback/resumable_audio_source.dart';
 import 'music_mappers.dart';
 
 class PlaybackUseCase {
-  PlaybackUseCase({required this.audioHandler, this.prepareOnlineTrack});
+  PlaybackUseCase({
+    required this.audioHandler,
+    this.prepareOnlineTrack,
+    this.prepareOnlineStream,
+  });
 
   final MusicAudioHandler audioHandler;
   final Future<File> Function(Track track)? prepareOnlineTrack;
+  final Future<StreamAudioSource> Function(Track track)? prepareOnlineStream;
   String? _lastRequestedTrackId;
   String? _lastQueueSignature;
 
@@ -22,6 +30,7 @@ class PlaybackUseCase {
     int? index,
     required List<Track> fallbackQueue,
     List<Track>? queueTracks,
+    AudioSource? selectedSource,
     bool Function()? shouldPlay,
   }) async {
     final queue = (queueTracks ?? fallbackQueue).isEmpty
@@ -47,7 +56,15 @@ class PlaybackUseCase {
         ? audioHandler.currentPosition
         : Duration.zero;
     await audioHandler.loadQueue(
-      [for (final item in queue) _playableFromTrack(item)],
+      [
+        for (final item in queue)
+          item.id == track.id && selectedSource != null
+              ? PlayableAudio(
+                  mediaItem: mediaItemFromTrack(item),
+                  source: selectedSource,
+                )
+              : _playableFromTrack(item),
+      ],
       initialIndex: safeIndex,
       initialPosition: initialPosition,
       playWhenReady: shouldPlay == null,
@@ -95,16 +112,23 @@ class PlaybackUseCase {
     return PlayableAudio(
       mediaItem: mediaItem,
       source: track.playbackSource.isEmpty
-          ? OnDemandAudioSource(
-              tag: mediaItem,
-              prepare: () {
-                final prepare = prepareOnlineTrack;
-                if (prepare == null) {
-                  throw StateError('Online track preparation is unavailable');
-                }
-                return prepare(track);
-              },
-            )
+          ? prepareOnlineStream != null
+                ? DeferredStreamingAudioSource(
+                    tag: mediaItem,
+                    prepare: () => prepareOnlineStream!(track),
+                  )
+                : OnDemandAudioSource(
+                    tag: mediaItem,
+                    prepare: () {
+                      final prepare = prepareOnlineTrack;
+                      if (prepare == null) {
+                        throw StateError(
+                          'Online track preparation is unavailable',
+                        );
+                      }
+                      return prepare(track);
+                    },
+                  )
           : AudioSource.uri(_uriForTrack(track), tag: mediaItem),
     );
   }

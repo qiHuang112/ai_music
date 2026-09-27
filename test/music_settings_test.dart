@@ -24,6 +24,7 @@ void main() {
       expect(settings.screenshotSearchConcurrency, 3);
       expect(settings.playlistDownloadConcurrency, 3);
       expect(settings.downloadPlaylistsOnWifi, isTrue);
+      expect(settings.defaultDownloadQuality, MusicQualityLevel.high);
     } finally {
       await root.delete(recursive: true);
     }
@@ -45,6 +46,7 @@ void main() {
       expect(settings.screenshotSearchConcurrency, 3);
       expect(settings.playlistDownloadConcurrency, 3);
       expect(settings.downloadPlaylistsOnWifi, isTrue);
+      expect(settings.defaultDownloadQuality, MusicQualityLevel.high);
     } finally {
       await root.delete(recursive: true);
     }
@@ -66,6 +68,7 @@ void main() {
           screenshotSearchConcurrency: 7,
           playlistDownloadConcurrency: 5,
           downloadPlaylistsOnWifi: false,
+          defaultDownloadQuality: MusicQualityLevel.low,
         ),
       );
 
@@ -77,6 +80,7 @@ void main() {
       expect(restored.screenshotSearchConcurrency, 7);
       expect(restored.playlistDownloadConcurrency, 5);
       expect(restored.downloadPlaylistsOnWifi, isFalse);
+      expect(restored.defaultDownloadQuality, MusicQualityLevel.low);
     } finally {
       await root.delete(recursive: true);
     }

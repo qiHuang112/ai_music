@@ -59,6 +59,9 @@ class _MusicHomePageState extends State<MusicHomePage>
   bool _keyboardVisible = false;
   DateTime? _lastEmptyBackAt;
   MusicUiMessage? _lastStatusSnackMessage;
+  String? _preparingCandidateKey;
+  int _candidatePlayRequest = 0;
+  late final StreamSubscription<PlaybackState> _playbackErrorSubscription;
 
   MusicController get controller => widget.controller;
 
@@ -71,6 +74,14 @@ class _MusicHomePageState extends State<MusicHomePage>
     _searchHistory = widget.searchHistoryStore ?? SearchHistoryStore();
     WidgetsBinding.instance.addObserver(this);
     _searchFocusNode.addListener(_onSearchFocusChanged);
+    _playbackErrorSubscription = controller.playbackStateStream.listen((state) {
+      if (state.processingState != AudioProcessingState.error ||
+          state.errorMessage == null ||
+          !mounted) {
+        return;
+      }
+      _showPlaybackError(state.errorMessage!);
+    });
     unawaited(
       _searchHistory.load().then((_) {
         if (mounted) setState(() {});
@@ -114,6 +125,7 @@ class _MusicHomePageState extends State<MusicHomePage>
     _searchFocusNode.removeListener(_onSearchFocusChanged);
     _searchFocusNode.dispose();
     _searchController.dispose();
+    unawaited(_playbackErrorSubscription.cancel());
     super.dispose();
   }
 
@@ -212,7 +224,11 @@ class _MusicHomePageState extends State<MusicHomePage>
                           candidates: controller.candidates,
                           isSearching: controller.isSearching,
                           isCandidateBusy: controller.isCandidateDownloading,
-                          isCandidateCached: controller.isCandidateCached,
+                          isCandidatePreparing: (candidate) =>
+                              _preparingCandidateKey ==
+                              _candidatePlayKey(candidate),
+                          isCandidateManuallyDownloaded:
+                              controller.isCandidateManuallyDownloaded,
                           error:
                               _localizedMessage(
                                 strings,
@@ -222,7 +238,8 @@ class _MusicHomePageState extends State<MusicHomePage>
                           onRetry: () =>
                               controller.search(_searchController.text),
                           onSelect: controller.downloadCandidate,
-                          onPlay: controller.playCandidate,
+                          onPlay: (candidate) =>
+                              unawaited(_playSearchCandidate(candidate)),
                         ),
                       )
                     else
@@ -391,6 +408,38 @@ class _MusicHomePageState extends State<MusicHomePage>
     });
   }
 
+  String _candidatePlayKey(MusicSearchCandidate candidate) =>
+      '${candidate.source.storageValue}:${candidate.platform}:${candidate.id}';
+
+  Future<void> _playSearchCandidate(MusicSearchCandidate candidate) async {
+    final key = _candidatePlayKey(candidate);
+    if (_preparingCandidateKey == key) return;
+    final request = ++_candidatePlayRequest;
+    setState(() => _preparingCandidateKey = key);
+    try {
+      await controller.playCandidate(candidate);
+    } catch (error) {
+      if (mounted && request == _candidatePlayRequest) {
+        _showPlaybackError(friendlyError(error));
+      }
+    } finally {
+      if (mounted && request == _candidatePlayRequest) {
+        setState(() => _preparingCandidateKey = null);
+      }
+    }
+  }
+
+  void _showPlaybackError(String detail) {
+    final messenger = ScaffoldMessenger.of(context);
+    messenger.hideCurrentSnackBar();
+    messenger.showSnackBar(
+      SnackBar(
+        content: Text(AppStringsScope.of(context).playTrackFailed(detail)),
+        behavior: SnackBarBehavior.floating,
+      ),
+    );
+  }
+
   Future<void> _openSettings() async {
     await Navigator.of(context).push<void>(
       MaterialPageRoute(
@@ -448,8 +497,7 @@ bool _shouldShowFloatingStatus(MusicUiMessage message) {
     MusicUiMessageCode.alreadyInCache ||
     MusicUiMessageCode.downloadedToCache ||
     MusicUiMessageCode.downloadAlreadyRunning ||
-    MusicUiMessageCode.downloadCanceled ||
-    MusicUiMessageCode.playingCachedFile => true,
+    MusicUiMessageCode.downloadCanceled => true,
     _ => false,
   };
 }
@@ -671,7 +719,8 @@ class _OnlineSearchPanel extends StatelessWidget {
     required this.candidates,
     required this.isSearching,
     required this.isCandidateBusy,
-    required this.isCandidateCached,
+    required this.isCandidatePreparing,
+    required this.isCandidateManuallyDownloaded,
     required this.error,
     required this.onRetry,
     required this.onSelect,
@@ -681,7 +730,9 @@ class _OnlineSearchPanel extends StatelessWidget {
   final List<MusicSearchCandidate> candidates;
   final bool isSearching;
   final bool Function(MusicSearchCandidate candidate) isCandidateBusy;
-  final bool Function(MusicSearchCandidate candidate) isCandidateCached;
+  final bool Function(MusicSearchCandidate candidate) isCandidatePreparing;
+  final bool Function(MusicSearchCandidate candidate)
+  isCandidateManuallyDownloaded;
   final String? error;
   final VoidCallback onRetry;
   final ValueChanged<MusicSearchCandidate> onSelect;
@@ -727,7 +778,10 @@ class _OnlineSearchPanel extends StatelessWidget {
                   itemBuilder: (context, index) {
                     final candidate = candidates[index];
                     final isBusy = isCandidateBusy(candidate);
-                    final isCached = isCandidateCached(candidate);
+                    final isPreparing = isCandidatePreparing(candidate);
+                    final isManuallyDownloaded = isCandidateManuallyDownloaded(
+                      candidate,
+                    );
                     return ListTile(
                       leading: CircleAvatar(
                         backgroundColor: colors.secondaryContainer,
@@ -763,16 +817,23 @@ class _OnlineSearchPanel extends StatelessWidget {
                       trailing: Row(
                         mainAxisSize: MainAxisSize.min,
                         children: [
-                          if (isCached)
-                            IconButton(
-                              tooltip: strings.play,
-                              onPressed: isBusy
-                                  ? null
-                                  : () => onPlay(candidate),
-                              icon: const Icon(Icons.play_arrow),
-                            ),
                           IconButton(
-                            tooltip: isCached
+                            tooltip: strings.play,
+                            onPressed: isBusy || isPreparing
+                                ? null
+                                : () => onPlay(candidate),
+                            icon: isPreparing
+                                ? const SizedBox.square(
+                                    key: ValueKey('search-play-spinner'),
+                                    dimension: 18,
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 2,
+                                    ),
+                                  )
+                                : const Icon(Icons.play_arrow),
+                          ),
+                          IconButton(
+                            tooltip: isManuallyDownloaded
                                 ? strings.downloadAgain
                                 : strings.download,
                             onPressed: isBusy
@@ -782,11 +843,9 @@ class _OnlineSearchPanel extends StatelessWidget {
                           ),
                         ],
                       ),
-                      onTap: isBusy
+                      onTap: isBusy || isPreparing
                           ? null
-                          : () => isCached
-                                ? onPlay(candidate)
-                                : onSelect(candidate),
+                          : () => onPlay(candidate),
                     );
                   },
                 ),
@@ -1522,8 +1581,6 @@ class _PlaylistDetailPageState extends State<_PlaylistDetailPage> {
   final _collapsedDates = <String>{};
   bool _isReorderEditing = false;
   bool _reorderDraftDirty = false;
-  bool? _firstPlaylistOpening;
-  bool _claimingPlaylistOpening = false;
 
   MusicController get controller => widget.controller;
 
@@ -1531,10 +1588,8 @@ class _PlaylistDetailPageState extends State<_PlaylistDetailPage> {
   void initState() {
     super.initState();
     _searchFocusNode.addListener(_onSearchFocusChanged);
-    controller.addListener(_maybeStartWifiDownload);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) {
-        _maybeStartWifiDownload();
         if (widget.selection.kind == _LibraryListKind.custom) {
           unawaited(controller.recordPlaylistUsage(widget.selection.id));
         }
@@ -1546,11 +1601,8 @@ class _PlaylistDetailPageState extends State<_PlaylistDetailPage> {
   void didUpdateWidget(covariant _PlaylistDetailPage oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.selection.id != widget.selection.id) {
-      _firstPlaylistOpening = null;
-      _claimingPlaylistOpening = false;
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted) {
-          _maybeStartWifiDownload();
           if (widget.selection.kind == _LibraryListKind.custom) {
             unawaited(controller.recordPlaylistUsage(widget.selection.id));
           }
@@ -1561,7 +1613,6 @@ class _PlaylistDetailPageState extends State<_PlaylistDetailPage> {
 
   @override
   void dispose() {
-    controller.removeListener(_maybeStartWifiDownload);
     _searchFocusNode.dispose();
     _searchController.dispose();
     super.dispose();
@@ -1569,47 +1620,6 @@ class _PlaylistDetailPageState extends State<_PlaylistDetailPage> {
 
   void _onSearchFocusChanged() {
     if (mounted) setState(() {});
-  }
-
-  void _maybeStartWifiDownload() {
-    if (!mounted) return;
-    if (widget.selection.kind != _LibraryListKind.custom) return;
-    final playlist = controller.customPlaylists
-        .where((item) => item.id == widget.selection.id)
-        .firstOrNull;
-    if (playlist == null) return;
-    if (_firstPlaylistOpening == null) {
-      if (!_claimingPlaylistOpening) {
-        _claimingPlaylistOpening = true;
-        unawaited(_claimPlaylistOpening(playlist));
-      }
-      return;
-    }
-    if (playlist.entries.isEmpty || !controller.downloadPlaylistsOnWifi) {
-      _firstPlaylistOpening = false;
-      return;
-    }
-    if (!controller.isConnectivityKnown) return;
-    final showProgress = _firstPlaylistOpening! && controller.isOnWifi;
-    _firstPlaylistOpening = false;
-    final download = controller.startWifiPlaylistDownloadOnce(
-      playlist,
-      showProgress: showProgress,
-    );
-    if (download != null) unawaited(download);
-  }
-
-  Future<void> _claimPlaylistOpening(MusicPlaylist playlist) async {
-    bool first;
-    try {
-      first = await controller.claimFirstPlaylistOpening(playlist);
-    } catch (_) {
-      first = false;
-    }
-    if (!mounted || widget.selection.id != playlist.id) return;
-    _firstPlaylistOpening = first;
-    _claimingPlaylistOpening = false;
-    _maybeStartWifiDownload();
   }
 
   @override
@@ -2899,6 +2909,8 @@ String? _localizedMessage(AppStrings strings, MusicUiMessage? message) {
     MusicUiMessageCode.downloadAlreadyRunning => strings.downloadAlreadyRunning,
     MusicUiMessageCode.downloadCanceled => strings.downloadCanceled,
     MusicUiMessageCode.playingCachedFile => strings.playingCachedFile,
+    MusicUiMessageCode.playingOnlineStream =>
+      strings.isZh ? '正在在线播放并缓存' : 'Streaming and caching',
   };
 }
 

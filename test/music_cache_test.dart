@@ -227,6 +227,45 @@ void main() {
     }
   });
 
+  test(
+    'clearing playback cache preserves a manually promoted download',
+    () async {
+      final root = await Directory.systemTemp.createTemp(
+        'playback_cache_clear_',
+      );
+      final store = CachedTrackStore(
+        rootProvider: () async => root,
+        downloader: _FakeDownloader(),
+      );
+      try {
+        final promotedMusic = _resolvedMusic();
+        final clearableMusic = _resolvedMusic(id: 'song-2');
+        for (final music in [promotedMusic, clearableMusic]) {
+          final file = await store.playbackTargetFor(music);
+          await file.writeAsBytes(_validMp3Bytes());
+          final cached = await store.finishPlaybackCache(music, file);
+          expect(cached.playbackCache, isTrue);
+        }
+        expect(await store.playbackCacheBytes(), _validMp3Bytes().length * 2);
+        final promoted = await store.downloadOrReuse(promotedMusic);
+        expect(promoted.playbackCache, isFalse);
+        expect(promoted.fromCache, isTrue);
+        final part = File('${root.path}/unfinished.mp3.part');
+        await part.writeAsBytes([1, 2, 3]);
+
+        await store.clearPlaybackCache();
+        final remaining = await store.listCached();
+        expect(remaining.map((track) => track.music.id), ['song-1']);
+        expect(remaining.single.playbackCache, isFalse);
+        expect(await File(promoted.filePath).exists(), isTrue);
+        expect(await part.exists(), isFalse);
+        expect(await store.playbackCacheBytes(), 0);
+      } finally {
+        await root.delete(recursive: true);
+      }
+    },
+  );
+
   test('downloadOrReuse removes temp files after failed downloads', () async {
     final root = await Directory.systemTemp.createTemp('ai_music_cache_fail_');
     final store = CachedTrackStore(

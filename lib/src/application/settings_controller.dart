@@ -18,6 +18,7 @@ class SettingsController {
     required int screenshotSearchConcurrency,
     required int playlistDownloadConcurrency,
     required bool downloadPlaylistsOnWifi,
+    required MusicQualityLevel defaultDownloadQuality,
   }) {
     return settingsStore.saveSettings(
       MusicAppSettings(
@@ -28,6 +29,7 @@ class SettingsController {
         screenshotSearchConcurrency: screenshotSearchConcurrency,
         playlistDownloadConcurrency: playlistDownloadConcurrency,
         downloadPlaylistsOnWifi: downloadPlaylistsOnWifi,
+        defaultDownloadQuality: defaultDownloadQuality,
       ),
     );
   }

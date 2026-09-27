@@ -17,6 +17,14 @@ Track trackFromCached(CachedTrack cached) {
   );
 }
 
+int cachedTrackPlaybackPreference(CachedTrack record) {
+  final quality = record.music.quality;
+  final bitrate = int.tryParse(quality.bitrate) ?? 0;
+  final format = quality.format.toLowerCase();
+  final rank = format == 'flac' || format == 'wav' ? 1000 : bitrate;
+  return (record.playbackCache ? 0 : 10000) + rank;
+}
+
 MediaItem mediaItemFromTrack(Track track) {
   return MediaItem(
     id: track.id,

@@ -1,6 +1,7 @@
 import '../data/lyrics_artwork.dart';
 import '../data/music_cache.dart';
 import '../data/music_playlists.dart';
+import '../data/resolver_models.dart';
 import '../data/saved_online_track.dart';
 import '../domain/music_models.dart';
 import 'library_controller.dart';
@@ -65,6 +66,76 @@ class LibraryUseCase {
     return snapshot;
   }
 
+  /// Keep favorites and playlist entries visible when streamed audio is cleared.
+  Future<LibrarySnapshot> preservePlaybackReferences({
+    required LibrarySnapshot current,
+  }) {
+    return _enqueuePlaylistMutation(() async {
+      final base = _currentSnapshot(current);
+      final replacements = <String, SavedOnlineTrack>{};
+      for (final record in base.cachedRecords.where(
+        (item) => item.playbackCache,
+      )) {
+        final music = record.music;
+        if (music.source == MusicDataSource.auto ||
+            music.source == MusicDataSource.lan ||
+            music.id.isEmpty) {
+          continue;
+        }
+        replacements[record.cacheId] = SavedOnlineTrack(
+          candidate: MusicSearchCandidate(
+            query: music.query.isEmpty
+                ? '${music.artist} ${music.name}'
+                : music.query,
+            source: music.source,
+            platform: music.platform,
+            keyword: music.name,
+            page: 1,
+            id: music.id,
+            name: music.name,
+            artist: music.artist,
+            album: music.album,
+            duration: 0,
+            link: '',
+            coverUrl: music.coverUrl,
+            qualities: [music.quality],
+            score: 0,
+            raw: const {},
+          ),
+        );
+      }
+      if (replacements.isEmpty) return base;
+
+      var changed = false;
+      List<PlaylistTrackEntry> convert(List<PlaylistTrackEntry> entries) {
+        final seen = <String>{};
+        final convertedEntries = <PlaylistTrackEntry>[];
+        for (final entry in entries) {
+          final saved = entry.onlineTrack ?? replacements[entry.trackId];
+          final converted = saved == null || entry.onlineTrack != null
+              ? entry
+              : PlaylistTrackEntry(
+                  trackId: saved.trackId,
+                  addedAt: entry.addedAt,
+                  onlineTrack: saved,
+                );
+          if (converted.trackId != entry.trackId) changed = true;
+          if (seen.add(converted.trackId)) convertedEntries.add(converted);
+        }
+        return convertedEntries;
+      }
+
+      final library = base.playlistLibrary.copyWith(
+        favoriteEntries: convert(base.playlistLibrary.favoriteEntries),
+        playlists: [
+          for (final playlist in base.playlistLibrary.playlists)
+            playlist.copyWith(entries: convert(playlist.entries)),
+        ],
+      );
+      return changed ? _savePlaylistLibrary(library, current: base) : base;
+    });
+  }
+
   Future<LibrarySnapshot> deleteCachedTrack(
     Track track, {
     required LibrarySnapshot current,
@@ -91,6 +162,7 @@ class LibraryUseCase {
   Future<LibrarySnapshot> toggleFavorite(
     Track track, {
     required LibrarySnapshot current,
+    SavedOnlineTrack? onlineTrack,
   }) {
     return _enqueuePlaylistMutation(() async {
       final base = _currentSnapshot(current);
@@ -99,7 +171,8 @@ class LibraryUseCase {
       if (existing != -1) {
         entries.removeAt(existing);
       } else {
-        final online = _onlineForTrack(base.playlistLibrary, track.id);
+        final online =
+            onlineTrack ?? _onlineForTrack(base.playlistLibrary, track.id);
         entries.add(
           PlaylistTrackEntry(
             trackId: track.id,
@@ -391,6 +464,7 @@ class LibraryUseCase {
     MusicPlaylist playlist,
     List<Track> tracks, {
     required LibrarySnapshot current,
+    Map<String, SavedOnlineTrack> onlineTracksById = const {},
   }) {
     return _enqueuePlaylistMutation(() async {
       final base = _currentSnapshot(current);
@@ -407,7 +481,9 @@ class LibraryUseCase {
                 PlaylistTrackEntry(
                   trackId: track.id,
                   addedAt: now,
-                  onlineTrack: _onlineForTrack(base.playlistLibrary, track.id),
+                  onlineTrack:
+                      onlineTracksById[track.id] ??
+                      _onlineForTrack(base.playlistLibrary, track.id),
                 ),
               );
             }
@@ -515,11 +591,20 @@ class LibraryUseCase {
     // Index once per snapshot instead of scanning all cached songs per entry.
     final cachedByIdentity = <(Object, String, String), CachedTrack>{};
     for (final record in cachedRecords) {
-      cachedByIdentity.putIfAbsent((
+      final identity = (
         record.music.source,
         record.music.platform,
         record.music.id,
-      ), () => record);
+      );
+      cachedByIdentity.update(
+        identity,
+        (current) =>
+            cachedTrackPlaybackPreference(record) >
+                cachedTrackPlaybackPreference(current)
+            ? record
+            : current,
+        ifAbsent: () => record,
+      );
     }
     final onlineById = <String, Track>{};
     for (final entry in [

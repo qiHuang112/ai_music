@@ -48,6 +48,7 @@ class MusicAppSettings {
     this.screenshotSearchConcurrency = 3,
     this.playlistDownloadConcurrency = 3,
     this.downloadPlaylistsOnWifi = true,
+    this.defaultDownloadQuality = MusicQualityLevel.high,
   });
 
   final MusicDataSource source;
@@ -57,6 +58,7 @@ class MusicAppSettings {
   final int screenshotSearchConcurrency;
   final int playlistDownloadConcurrency;
   final bool downloadPlaylistsOnWifi;
+  final MusicQualityLevel defaultDownloadQuality;
 
   MusicAppSettings copyWith({
     MusicDataSource? source,
@@ -66,6 +68,7 @@ class MusicAppSettings {
     int? screenshotSearchConcurrency,
     int? playlistDownloadConcurrency,
     bool? downloadPlaylistsOnWifi,
+    MusicQualityLevel? defaultDownloadQuality,
   }) {
     return MusicAppSettings(
       source: source ?? this.source,
@@ -78,6 +81,8 @@ class MusicAppSettings {
           playlistDownloadConcurrency ?? this.playlistDownloadConcurrency,
       downloadPlaylistsOnWifi:
           downloadPlaylistsOnWifi ?? this.downloadPlaylistsOnWifi,
+      defaultDownloadQuality:
+          defaultDownloadQuality ?? this.defaultDownloadQuality,
     );
   }
 
@@ -90,6 +95,7 @@ class MusicAppSettings {
       'screenshotSearchConcurrency': screenshotSearchConcurrency,
       'playlistDownloadConcurrency': playlistDownloadConcurrency,
       'downloadPlaylistsOnWifi': downloadPlaylistsOnWifi,
+      'defaultDownloadQuality': defaultDownloadQuality.storageValue,
     };
   }
 }
@@ -131,6 +137,9 @@ class MusicSettingsStore {
           downloadPlaylistsOnWifi: decoded['downloadPlaylistsOnWifi'] is bool
               ? decoded['downloadPlaylistsOnWifi'] as bool
               : true,
+          defaultDownloadQuality: MusicQualityLevel.fromStorage(
+            decoded['defaultDownloadQuality']?.toString(),
+          ),
         );
       }
       return MusicAppSettings(source: MusicDataSource.fromStorage(text));

@@ -21,6 +21,7 @@ import 'resolver_utils.dart';
 class RemoteMusicResolver
     implements
         MusicResolver,
+        QualitySelectableMusicResolver,
         ProgressiveMusicResolver,
         ScreenshotSearchResolver,
         StagedScreenshotSearchResolver {
@@ -198,10 +199,25 @@ class RemoteMusicResolver
   }
 
   @override
-  Future<ResolvedMusic> resolve(MusicSearchCandidate candidate) async {
+  Future<ResolvedMusic> resolve(MusicSearchCandidate candidate) =>
+      _resolveWithPreference(candidate, null);
+
+  @override
+  Future<ResolvedMusic> resolveAtQuality(
+    MusicSearchCandidate candidate,
+    MusicQualityLevel level,
+  ) => _resolveWithPreference(candidate, level.resolverPreference);
+
+  Future<ResolvedMusic> _resolveWithPreference(
+    MusicSearchCandidate candidate,
+    String? qualityPreference,
+  ) async {
     final resolved = await switch (candidate.source) {
-      MusicDataSource.buguyy => _resolveBuguyy(candidate),
-      MusicDataSource.flac => _flac.resolve(candidate),
+      MusicDataSource.buguyy => _resolveBuguyy(candidate, qualityPreference),
+      MusicDataSource.flac => _flac.resolve(
+        candidate,
+        qualityPreference: qualityPreference,
+      ),
       MusicDataSource.auto => throw StateError(
         'Auto candidates must be tagged with their concrete source.',
       ),
@@ -219,9 +235,15 @@ class RemoteMusicResolver
     return resolved;
   }
 
-  Future<ResolvedMusic> _resolveBuguyy(MusicSearchCandidate candidate) async {
+  Future<ResolvedMusic> _resolveBuguyy(
+    MusicSearchCandidate candidate,
+    String? qualityPreference,
+  ) async {
     try {
-      return await _buguyy.resolve(candidate);
+      return await _buguyy.resolve(
+        candidate,
+        qualityPreference: qualityPreference,
+      );
     } on UnsupportedEncryptedAudioException {
       // An encrypted URL cannot be downloaded as ordinary audio. Check both
       // platform first pages before deciding whether the identity is unique.
@@ -268,6 +290,7 @@ class RemoteMusicResolver
           score: match.score,
           raw: match.raw,
         ),
+        qualityPreference: qualityPreference ?? 'mp3:320',
       );
       if (urlExtension(playable.url) == '.mflac') {
         throw const UnsupportedEncryptedAudioException();

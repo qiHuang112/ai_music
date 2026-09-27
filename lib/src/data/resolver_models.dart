@@ -19,6 +19,21 @@ enum MusicDataSource {
   }
 }
 
+enum MusicQualityLevel {
+  high('high', 'flac'),
+  medium('medium', 'mp3:320'),
+  low('low', 'mp3:128');
+
+  const MusicQualityLevel(this.storageValue, this.resolverPreference);
+  final String storageValue;
+  final String resolverPreference;
+
+  static MusicQualityLevel fromStorage(String? value) => values.firstWhere(
+    (level) => level.storageValue == value,
+    orElse: () => MusicQualityLevel.high,
+  );
+}
+
 class MusicQuality {
   const MusicQuality({required this.format, this.bitrate = '', this.size = ''});
 
@@ -206,6 +221,13 @@ abstract class MusicResolver {
   );
 
   Future<ResolvedMusic> resolve(MusicSearchCandidate candidate);
+}
+
+abstract interface class QualitySelectableMusicResolver {
+  Future<ResolvedMusic> resolveAtQuality(
+    MusicSearchCandidate candidate,
+    MusicQualityLevel level,
+  );
 }
 
 abstract interface class ScreenshotSearchResolver {

@@ -336,6 +336,87 @@ void main() {
     expect(resolved.lyrics, isNull);
   });
 
+  test(
+    'Buguyy playback quality request keeps its playable direct URL',
+    () async {
+      final paths = <String>[];
+      final resolver = RemoteMusicResolver(
+        httpClient: _FakeResolverHttp(
+          onGet: (uri, _) async {
+            paths.add(uri.path);
+            expect(uri.path, '/api/geturl');
+            return _json(uri, {
+              'success': true,
+              'url': 'https://cdn.example.test/song.mp3',
+            });
+          },
+        ),
+      );
+      final candidate = _encryptedBuguyyCandidate();
+      final result = await resolver.resolveAtQuality(
+        candidate,
+        MusicQualityLevel.low,
+      );
+      expect(result.panLink, isFalse);
+      expect(result.url, 'https://cdn.example.test/song.mp3');
+      expect(paths, ['/api/geturl']);
+    },
+  );
+
+  test('FLAC source requests the selected bitrate', () async {
+    final requested = <String>[];
+    final resolver = RemoteMusicResolver(
+      initialFlacCookie: 'sl-session=test',
+      httpClient: _FakeResolverHttp(
+        onPostForm: (uri, form, _) async {
+          expect(uri.queryParameters['act'], 'getUrl');
+          requested.add('${form['format']}:${form['bitrate']}');
+          return _json(uri, {
+            'code': 0,
+            'data': {'url': 'https://cdn.example.test/song.mp3'},
+          });
+        },
+      ),
+    );
+    const candidate = MusicSearchCandidate(
+      query: 'song',
+      source: MusicDataSource.flac,
+      platform: 'kuwo',
+      keyword: 'song',
+      page: 1,
+      id: 'song-1',
+      name: 'song',
+      artist: 'artist',
+      album: '',
+      duration: 0,
+      link: '',
+      coverUrl: '',
+      qualities: [
+        MusicQuality(format: 'flac'),
+        MusicQuality(format: 'mp3', bitrate: '320'),
+        MusicQuality(format: 'mp3', bitrate: '128'),
+      ],
+      score: 1,
+      raw: {},
+    );
+    final low = await resolver.resolveAtQuality(
+      candidate,
+      MusicQualityLevel.low,
+    );
+    final medium = await resolver.resolveAtQuality(
+      candidate,
+      MusicQualityLevel.medium,
+    );
+    final high = await resolver.resolveAtQuality(
+      candidate,
+      MusicQualityLevel.high,
+    );
+    expect(requested, ['mp3:128', 'mp3:320', 'flac:']);
+    expect(low.quality.bitrate, '128');
+    expect(medium.quality.bitrate, '320');
+    expect(high.quality.format, 'flac');
+  });
+
   test('buguyy transient network errors retry the same request', () async {
     var attempts = 0;
     final retryHeaders = <Map<String, String>>[];

@@ -391,6 +391,46 @@ void main() {
     );
   });
 
+  testWidgets('search play shows progress and a visible failure', (
+    tester,
+  ) async {
+    final resolver = _DeferredFailingMusicResolver(
+      candidates: [_candidate(name: '哎呀', artist: '王蓉')],
+    );
+    await tester.pumpWidget(_app(resolver: resolver));
+    await tester.pumpAndSettle();
+
+    await tester.enterText(find.byType(TextField), '王蓉');
+    await tester.tap(find.byTooltip('在线搜索'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byTooltip('播放'));
+    await tester.pump();
+    expect(find.byKey(const ValueKey('search-play-spinner')), findsOneWidget);
+
+    resolver.fail(StateError('音源暂不可播放'));
+    await tester.pump();
+    expect(find.textContaining('音源暂不可播放'), findsOneWidget);
+    expect(find.byKey(const ValueKey('search-play-spinner')), findsNothing);
+  });
+
+  testWidgets('late audio failure is visible after play starts', (
+    tester,
+  ) async {
+    final handler = MusicAudioHandler();
+    await tester.pumpWidget(_app(audioHandler: handler));
+    await tester.pumpAndSettle();
+
+    handler.playbackState.add(
+      PlaybackState(
+        processingState: AudioProcessingState.error,
+        errorMessage: '音频连接中断',
+      ),
+    );
+    await tester.pump(const Duration(milliseconds: 100));
+
+    expect(find.textContaining('音频连接中断'), findsOneWidget);
+  });
+
   testWidgets(
     'auto search shows first source while another source is loading',
     (tester) async {
@@ -495,7 +535,7 @@ void main() {
     await tester.tap(find.byTooltip('在线搜索'));
     await tester.pumpAndSettle();
 
-    expect(find.byTooltip('播放'), findsNothing);
+    expect(find.byTooltip('播放'), findsOneWidget);
     expect(find.byIcon(Icons.download_for_offline), findsOneWidget);
 
     await tester.tap(find.byIcon(Icons.download_for_offline));
@@ -503,6 +543,45 @@ void main() {
 
     expect(find.byTooltip('播放'), findsOneWidget);
     expect(find.byTooltip('重新下载'), findsOneWidget);
+  });
+
+  testWidgets('playback cache still offers a first manual download', (
+    tester,
+  ) async {
+    final music = _resolvedMusic();
+    final cache = _FakeCacheStore(
+      cached: [
+        CachedTrack(
+          cacheId: cacheIdForResolved(music),
+          music: music,
+          filePath: '/tmp/song-1.mp3',
+          sizeBytes: 4,
+          fromCache: false,
+          playbackCache: true,
+        ),
+      ],
+    );
+    final resolver = _FakeMusicResolver(
+      candidates: [_candidate(name: '稻香', artist: '周杰伦')],
+    );
+    await tester.pumpWidget(_app(resolver: resolver, cacheStore: cache));
+    await tester.pumpAndSettle();
+
+    await tester.enterText(find.byType(TextField), '周杰伦');
+    await tester.tap(find.byTooltip('在线搜索'));
+    await tester.pumpAndSettle();
+
+    final downloadButton = find.ancestor(
+      of: find.byIcon(Icons.download_for_offline),
+      matching: find.byType(IconButton),
+    );
+    expect(tester.widget<IconButton>(downloadButton).tooltip, '下载');
+    expect(find.byTooltip('重新下载'), findsNothing);
+
+    await tester.tap(find.byIcon(Icons.download_for_offline));
+    await tester.pumpAndSettle();
+
+    expect(tester.widget<IconButton>(downloadButton).tooltip, '重新下载');
   });
 
   testWidgets('download completion exposes play before metadata refresh', (
@@ -522,7 +601,7 @@ void main() {
     await tester.pumpAndSettle();
 
     await tester.tap(find.byIcon(Icons.download_for_offline));
-    for (var i = 0; i < 6 && find.byTooltip('播放').evaluate().isEmpty; i++) {
+    for (var i = 0; i < 6 && find.byTooltip('重新下载').evaluate().isEmpty; i++) {
       await tester.pump();
     }
 
@@ -877,6 +956,44 @@ void main() {
     expect(settings.settings.source, MusicDataSource.flac);
   });
 
+  testWidgets(
+    'settings groups related options and keeps concurrency together',
+    (tester) async {
+      await tester.pumpWidget(_app());
+      await tester.pumpAndSettle();
+      await tester.tap(find.byTooltip('设置'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('通用'), findsOneWidget);
+      expect(find.text('音乐与下载'), findsOneWidget);
+      expect(find.text('存储'), findsOneWidget);
+      expect(
+        find.byKey(const Key('screenshotSearchConcurrencySlider')),
+        findsNothing,
+      );
+      expect(
+        find.byKey(const Key('playlistDownloadConcurrencySlider')),
+        findsNothing,
+      );
+
+      final concurrency = find.byKey(const Key('concurrency-settings'));
+      await tester.scrollUntilVisible(concurrency, 150);
+      await tester.ensureVisible(concurrency);
+      await tester.pumpAndSettle();
+      expect(find.text('高级'), findsOneWidget);
+      await tester.tap(concurrency);
+      await tester.pumpAndSettle();
+      expect(
+        find.byKey(const Key('screenshotSearchConcurrencySlider')),
+        findsOneWidget,
+      );
+      expect(
+        find.byKey(const Key('playlistDownloadConcurrencySlider')),
+        findsOneWidget,
+      );
+    },
+  );
+
   testWidgets('LAN library settings save address and test connection', (
     tester,
   ) async {
@@ -888,6 +1005,8 @@ void main() {
     await tester.tap(find.byTooltip('设置'));
     await tester.pumpAndSettle();
     await tester.scrollUntilVisible(find.text('局域网音乐库'), 200);
+    await tester.ensureVisible(find.text('局域网音乐库'));
+    await tester.pumpAndSettle();
     await tester.tap(find.text('局域网音乐库'));
     await tester.pumpAndSettle();
 
@@ -915,6 +1034,16 @@ void main() {
 
     await tester.tap(find.byTooltip('设置'));
     await tester.pumpAndSettle();
+    final concurrency = find.byKey(const Key('concurrency-settings'));
+    await tester.scrollUntilVisible(concurrency, 150);
+    await tester.ensureVisible(concurrency);
+    await tester.pumpAndSettle();
+    expect(
+      find.byKey(const Key('screenshotSearchConcurrencySlider')),
+      findsNothing,
+    );
+    await tester.tap(concurrency);
+    await tester.pumpAndSettle();
     final slider = find.byKey(const Key('screenshotSearchConcurrencySlider'));
     expect(slider, findsOneWidget);
     expect(find.text('同时搜索 3 首，范围 1～10 首'), findsOneWidget);
@@ -937,6 +1066,12 @@ void main() {
 
     await tester.tap(find.byTooltip('设置'));
     await tester.pumpAndSettle();
+    final concurrency = find.byKey(const Key('concurrency-settings'));
+    await tester.scrollUntilVisible(concurrency, 150);
+    await tester.ensureVisible(concurrency);
+    await tester.pumpAndSettle();
+    await tester.tap(concurrency);
+    await tester.pumpAndSettle();
     final slider = find.byKey(const Key('playlistDownloadConcurrencySlider'));
     await tester.scrollUntilVisible(slider, 150);
     expect(find.text('同时下载 3 首，范围 1～10 首'), findsOneWidget);
@@ -948,102 +1083,38 @@ void main() {
     await tester.drag(slider, const Offset(-1000, 0));
     await tester.pumpAndSettle();
     expect(settings.settings.playlistDownloadConcurrency, 1);
+
+    await tester.binding.handlePopRoute();
+    await tester.pumpAndSettle();
+    expect(find.text('截图搜歌 3 首 · 歌单下载 1 首'), findsOneWidget);
   });
 
-  testWidgets('Wi-Fi playlist download switch defaults on and saves off', (
+  testWidgets('download quality is saved and playlists do not auto-download', (
     tester,
   ) async {
     final settings = _FakeSettingsStore();
+    final controller = _RecordingPlaylistDownloadController(
+      _homeLibraryFixture(),
+      wifi: true,
+    );
     await tester.pumpWidget(_app(settings: settings));
     await tester.pumpAndSettle();
-
     await tester.tap(find.byTooltip('设置'));
     await tester.pumpAndSettle();
-    final toggle = find.byKey(const Key('downloadPlaylistsOnWifiSwitch'));
-    expect(tester.widget<SwitchListTile>(toggle).value, isTrue);
-    await tester.tap(toggle);
+    final quality = find.byKey(const Key('default-download-quality'));
+    await tester.scrollUntilVisible(quality, 150);
+    await tester.tap(quality);
     await tester.pumpAndSettle();
-    expect(settings.settings.downloadPlaylistsOnWifi, isFalse);
-    expect(tester.widget<SwitchListTile>(toggle).value, isFalse);
-  });
-
-  testWidgets('opening a custom playlist starts Wi-Fi auto download once', (
-    tester,
-  ) async {
-    final controller = _RecordingPlaylistDownloadController(
-      _homeLibraryFixture(),
-      wifi: true,
-    )..autoResult = const PlaylistDownloadSummary(failed: 1);
-    await tester.pumpWidget(_app(playbackController: controller));
+    await tester.tap(find.byKey(const ValueKey('download-quality-low')));
     await tester.pumpAndSettle();
-
-    await tester.drag(find.byType(ListView).first, const Offset(0, -300));
-    await tester.pumpAndSettle();
-    await tester.ensureVisible(
-      find.byKey(const ValueKey('home-playlist-road')),
+    expect(settings.settings.defaultDownloadQuality, MusicQualityLevel.low);
+    expect(
+      find.byKey(const Key('downloadPlaylistsOnWifiSwitch')),
+      findsNothing,
     );
-    await tester.pumpAndSettle();
-    await tester.tap(find.byKey(const ValueKey('home-playlist-road')));
-    await tester.pumpAndSettle();
-    expect(controller.requests, [true]);
-    expect(controller.autoProgressChoices, [true]);
-    expect(find.byKey(const ValueKey('download-all-playlist')), findsOneWidget);
-    await tester.pump();
-    expect(controller.requests, [true]);
 
-    await tester.pageBack();
+    await tester.pumpWidget(const SizedBox.shrink());
     await tester.pumpAndSettle();
-    await tester.drag(find.byType(ListView).first, const Offset(0, -300));
-    await tester.pumpAndSettle();
-    await tester.ensureVisible(
-      find.byKey(const ValueKey('home-playlist-road')),
-    );
-    await tester.pumpAndSettle();
-    await tester.tap(find.byKey(const ValueKey('home-playlist-road')));
-    await tester.pumpAndSettle();
-    expect(controller.requests, [true]);
-  });
-
-  testWidgets('later Wi-Fi playlist opening requests silent auto download', (
-    tester,
-  ) async {
-    final controller = _RecordingPlaylistDownloadController(
-      _homeLibraryFixture(),
-      wifi: true,
-    );
-    await tester.pumpWidget(_app(playbackController: controller));
-    await tester.pumpAndSettle();
-    await tester.drag(find.byType(ListView).first, const Offset(0, -300));
-    await tester.pumpAndSettle();
-    await tester.ensureVisible(
-      find.byKey(const ValueKey('home-playlist-road')),
-    );
-    await tester.pumpAndSettle();
-    await tester.tap(find.byKey(const ValueKey('home-playlist-road')));
-    await tester.pumpAndSettle();
-    expect(controller.autoProgressChoices, [true]);
-
-    await tester.pageBack();
-    await tester.pumpAndSettle();
-    controller._autoStartedPlaylists.clear(); // Simulate the 24-hour retry.
-    await tester.drag(find.byType(ListView).first, const Offset(0, -300));
-    await tester.pumpAndSettle();
-    await tester.ensureVisible(
-      find.byKey(const ValueKey('home-playlist-road')),
-    );
-    await tester.pumpAndSettle();
-    await tester.tap(find.byKey(const ValueKey('home-playlist-road')));
-    await tester.pumpAndSettle();
-    expect(controller.autoProgressChoices, [true, false]);
-  });
-
-  testWidgets('offline first opening stays silent when Wi-Fi returns', (
-    tester,
-  ) async {
-    final controller = _RecordingPlaylistDownloadController(
-      _homeLibraryFixture(),
-      wifi: false,
-    );
     await tester.pumpWidget(_app(playbackController: controller));
     await tester.pumpAndSettle();
     await tester.drag(find.byType(ListView).first, const Offset(0, -300));
@@ -1055,35 +1126,10 @@ void main() {
     await tester.tap(find.byKey(const ValueKey('home-playlist-road')));
     await tester.pumpAndSettle();
     expect(controller.requests, isEmpty);
-
-    controller.wifi = true;
     controller.notifyListeners();
     await tester.pumpAndSettle();
-    expect(controller.requests, [true]);
-    expect(controller.autoProgressChoices, [false]);
-  });
-
-  testWidgets('second auto batch on the first page is silent', (tester) async {
-    final controller = _RecordingPlaylistDownloadController(
-      _homeLibraryFixture(),
-      wifi: true,
-    );
-    await tester.pumpWidget(_app(playbackController: controller));
-    await tester.pumpAndSettle();
-    await tester.drag(find.byType(ListView).first, const Offset(0, -300));
-    await tester.pumpAndSettle();
-    await tester.ensureVisible(
-      find.byKey(const ValueKey('home-playlist-road')),
-    );
-    await tester.pumpAndSettle();
-    await tester.tap(find.byKey(const ValueKey('home-playlist-road')));
-    await tester.pumpAndSettle();
-    expect(controller.autoProgressChoices, [true]);
-
-    controller._autoStartedPlaylists.clear(); // Simulate a changed playlist.
-    controller.notifyListeners();
-    await tester.pumpAndSettle();
-    expect(controller.autoProgressChoices, [true, false]);
+    expect(controller.requests, isEmpty);
+    expect(find.byKey(const ValueKey('download-all-playlist')), findsOneWidget);
   });
 
   testWidgets('playlist download action hides while searching', (tester) async {
@@ -2727,6 +2773,8 @@ class _FakeMusicResolver implements MusicResolver {
 }
 
 class _DeferredFailingMusicResolver extends _FakeMusicResolver {
+  _DeferredFailingMusicResolver({super.candidates});
+
   final _resolution = Completer<ResolvedMusic>();
 
   @override
