@@ -1,3 +1,4 @@
+import 'memory_download_history.dart';
 import 'package:ai_music/src/data/playlist_usage_store.dart';
 import 'dart:async';
 import 'dart:io';
@@ -25,10 +26,56 @@ void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
   test(
+    'completion while history loads merges and persists both records',
+    () async {
+      final store = _DelayedDownloadHistory();
+      final handler = _SpyAudioHandler();
+      final controller = MusicController(
+        audioHandler: handler,
+        downloadHistoryStore: store,
+        resolver: _FakeMusicResolver(),
+        cacheStore: _FakeCacheStore(cached: const []),
+        playlistStore: _MemoryPlaylistStore(),
+        settingsStore: _FakeSettingsStore(),
+        metadataRepository: _StaticMetadataRepository(),
+      );
+      addTearDown(() async {
+        controller.dispose();
+        await handler.dispose();
+      });
+      await controller.initialize();
+      controller.downloadQueue.upsert(
+        const DownloadTask(
+          id: 'new',
+          title: 'New',
+          subtitle: '',
+          status: DownloadTaskStatus.downloading,
+        ),
+      );
+      controller.downloadQueue.update(
+        'new',
+        (task) => task.copyWith(status: DownloadTaskStatus.completed),
+      );
+      store.loaded.complete([
+        const DownloadTask(
+          id: 'old',
+          title: 'Old',
+          subtitle: '',
+          status: DownloadTaskStatus.completed,
+        ).toJson(),
+      ]);
+      await store.written.future;
+      expect(store.records.map((r) => r['id']), containsAll(['old', 'new']));
+      expect(controller.recentDownloadTasks, hasLength(2));
+    },
+  );
+
+  test(
     're-importing chart candidates reports only new playlist entries',
     () async {
       final handler = _SpyAudioHandler();
       final controller = MusicController(
+        downloadHistoryStore: MemoryDownloadHistory(),
         audioHandler: handler,
         resolver: _FakeMusicResolver(),
         cacheStore: _FakeCacheStore(cached: const []),
@@ -72,6 +119,7 @@ void main() {
       final playlists = _MemoryPlaylistStore();
       final metadata = _StaticMetadataRepository();
       final controller = MusicController(
+        downloadHistoryStore: MemoryDownloadHistory(),
         audioHandler: handler,
         resolver: _FakeMusicResolver(),
         cacheStore: _FakeCacheStore(cached: [cached]),
@@ -144,6 +192,7 @@ void main() {
       final playlistStore = _MemoryPlaylistStore();
       final handler = _SpyAudioHandler();
       final controller = MusicController(
+        downloadHistoryStore: MemoryDownloadHistory(),
         audioHandler: handler,
         resolver: _FakeMusicResolver(),
         cacheStore: CachedTrackStore(rootProvider: () async => root),
@@ -178,6 +227,7 @@ void main() {
       _cachedTrack(id: 'song-2', name: '第二首'),
     ];
     final controller = MusicController(
+      downloadHistoryStore: MemoryDownloadHistory(),
       audioHandler: handler,
       resolver: _FakeMusicResolver(),
       cacheStore: _FakeCacheStore(cached: tracks),
@@ -211,6 +261,7 @@ void main() {
     () async {
       final handler = _SpyAudioHandler();
       final controller = MusicController(
+        downloadHistoryStore: MemoryDownloadHistory(),
         audioHandler: handler,
         resolver: _FakeMusicResolver(),
         cacheStore: _FakeCacheStore(cached: const []),
@@ -248,6 +299,7 @@ void main() {
     () async {
       final handler = _DelayedPlaybackModeHandler();
       final controller = MusicController(
+        downloadHistoryStore: MemoryDownloadHistory(),
         audioHandler: handler,
         resolver: _FakeMusicResolver(),
         cacheStore: _FakeCacheStore(cached: const []),
@@ -284,6 +336,7 @@ void main() {
     final first = _cachedTrack(id: 'song-1', name: '第一首');
     final second = _cachedTrack(id: 'song-2', name: '第二首');
     final controller = MusicController(
+      downloadHistoryStore: MemoryDownloadHistory(),
       audioHandler: handler,
       resolver: _FakeMusicResolver(),
       cacheStore: _FakeCacheStore(cached: [first, second]),
@@ -312,6 +365,7 @@ void main() {
       final first = trackFromCached(_cachedTrack(id: 'first', name: '第一首'));
       final second = trackFromCached(_cachedTrack(id: 'second', name: '第二首'));
       final controller = MusicController(
+        downloadHistoryStore: MemoryDownloadHistory(),
         audioHandler: handler,
         resolver: _FakeMusicResolver(),
         cacheStore: _FakeCacheStore(cached: const []),
@@ -345,6 +399,7 @@ void main() {
     final handler = _DelayedFirstLoadHandler();
     final track = trackFromCached(_cachedTrack(id: 'first', name: '第一首'));
     final controller = MusicController(
+      downloadHistoryStore: MemoryDownloadHistory(),
       audioHandler: handler,
       resolver: _FakeMusicResolver(),
       cacheStore: _FakeCacheStore(cached: const []),
@@ -371,6 +426,7 @@ void main() {
     final first = trackFromCached(_cachedTrack(id: 'first', name: '第一首'));
     final second = trackFromCached(_cachedTrack(id: 'second', name: '第二首'));
     final controller = MusicController(
+      downloadHistoryStore: MemoryDownloadHistory(),
       audioHandler: handler,
       resolver: _FakeMusicResolver(),
       cacheStore: _FakeCacheStore(cached: const []),
@@ -397,6 +453,7 @@ void main() {
       final handler = _DelayedFirstLoadHandler();
       final track = trackFromCached(_cachedTrack(id: 'first', name: '第一首'));
       final controller = MusicController(
+        downloadHistoryStore: MemoryDownloadHistory(),
         audioHandler: handler,
         resolver: _FakeMusicResolver(),
         cacheStore: _FakeCacheStore(cached: const []),
@@ -424,6 +481,7 @@ void main() {
       ),
     );
     final controller = MusicController(
+      downloadHistoryStore: MemoryDownloadHistory(),
       audioHandler: handler,
       resolver: _FakeMusicResolver(),
       cacheStore: _FakeCacheStore(cached: [cached]),
@@ -459,6 +517,7 @@ void main() {
       ),
     );
     final controller = MusicController(
+      downloadHistoryStore: MemoryDownloadHistory(),
       audioHandler: handler,
       resolver: _FakeMusicResolver(),
       cacheStore: _FakeCacheStore(cached: [cached]),
@@ -490,6 +549,7 @@ void main() {
       final cacheStore = _DownloadCacheStore();
       final metadata = _CompletingMetadataRepository();
       final controller = MusicController(
+        downloadHistoryStore: MemoryDownloadHistory(),
         audioHandler: handler,
         resolver: resolver,
         cacheStore: cacheStore,
@@ -531,6 +591,7 @@ void main() {
       final handler = _SpyAudioHandler();
       final cache = _ProgressCacheStore();
       final controller = MusicController(
+        downloadHistoryStore: MemoryDownloadHistory(),
         audioHandler: handler,
         resolver: _DelayedMusicResolver(),
         cacheStore: cache,
@@ -581,6 +642,7 @@ void main() {
       final cached = _cachedTrack(id: 'song-1', name: '第一首');
       final playlistStore = _MemoryPlaylistStore();
       final controller = MusicController(
+        downloadHistoryStore: MemoryDownloadHistory(),
         audioHandler: handler,
         resolver: _FakeMusicResolver(),
         cacheStore: _FakeCacheStore(cached: [cached]),
@@ -645,6 +707,7 @@ void main() {
     final handler = _SpyAudioHandler();
     final cached = _cachedTrack(id: 'song-1', name: '第一首');
     final controller = MusicController(
+      downloadHistoryStore: MemoryDownloadHistory(),
       audioHandler: handler,
       resolver: _FakeMusicResolver(),
       cacheStore: _FakeCacheStore(cached: [cached]),
@@ -678,6 +741,7 @@ void main() {
       final handler = _SpyAudioHandler();
       final cached = _cachedTrack(id: 'song-1', name: '第一首');
       final controller = MusicController(
+        downloadHistoryStore: MemoryDownloadHistory(),
         audioHandler: handler,
         resolver: _FakeMusicResolver(),
         cacheStore: _FakeCacheStore(cached: [cached]),
@@ -726,6 +790,7 @@ void main() {
         album: '',
       );
       final controller = MusicController(
+        downloadHistoryStore: MemoryDownloadHistory(),
         audioHandler: handler,
         resolver: _FakeMusicResolver(),
         cacheStore: _FakeCacheStore(cached: [cached]),
@@ -767,6 +832,7 @@ void main() {
       final cacheStore = _DownloadCacheStore()..cached.addAll(records);
       final metadata = _StaticMetadataRepository();
       final controller = MusicController(
+        downloadHistoryStore: MemoryDownloadHistory(),
         audioHandler: handler,
         resolver: _FakeMusicResolver(),
         cacheStore: cacheStore,
@@ -803,6 +869,7 @@ void main() {
       final cached = _cachedTrack(id: 'retry-lyrics', name: '待补时间轴');
       final metadata = _RetryingTimedMetadataRepository();
       final controller = MusicController(
+        downloadHistoryStore: MemoryDownloadHistory(),
         audioHandler: handler,
         resolver: _FakeMusicResolver(),
         cacheStore: _DownloadCacheStore()..cached.add(cached),
@@ -845,6 +912,7 @@ void main() {
       final resolver = _BlockingMusicResolver();
       final cacheStore = _DownloadCacheStore()..cached.addAll([first, second]);
       final controller = MusicController(
+        downloadHistoryStore: MemoryDownloadHistory(),
         audioHandler: handler,
         resolver: resolver,
         cacheStore: cacheStore,
@@ -891,6 +959,7 @@ void main() {
       final first = _cachedTrack(id: 'song-1', name: '第一首');
       final second = _cachedTrack(id: 'song-2', name: '第二首');
       final controller = MusicController(
+        downloadHistoryStore: MemoryDownloadHistory(),
         audioHandler: handler,
         resolver: _FakeMusicResolver(),
         cacheStore: _FakeCacheStore(cached: [first, second]),
@@ -934,6 +1003,7 @@ void main() {
     final handler = _SpyAudioHandler();
     final resolver = _CompletingSearchResolver();
     final controller = MusicController(
+      downloadHistoryStore: MemoryDownloadHistory(),
       audioHandler: handler,
       resolver: resolver,
       cacheStore: _FakeCacheStore(cached: const []),
@@ -967,6 +1037,7 @@ void main() {
     final handler = _SpyAudioHandler();
     final resolver = _SequencedSearchResolver();
     final controller = MusicController(
+      downloadHistoryStore: MemoryDownloadHistory(),
       audioHandler: handler,
       resolver: resolver,
       cacheStore: _FakeCacheStore(cached: const []),
@@ -1002,6 +1073,7 @@ void main() {
     final handler = _SpyAudioHandler();
     final cached = _cachedTrack(id: 'song-1', name: '第一首');
     final controller = MusicController(
+      downloadHistoryStore: MemoryDownloadHistory(),
       audioHandler: handler,
       resolver: _FakeMusicResolver(),
       cacheStore: _FakeCacheStore(cached: [cached]),
@@ -1039,6 +1111,7 @@ void main() {
       final first = _cachedTrack(id: 'song-1', name: '第一首');
       final second = _cachedTrack(id: 'song-2', name: '第二首');
       final controller = MusicController(
+        downloadHistoryStore: MemoryDownloadHistory(),
         audioHandler: handler,
         resolver: _FakeMusicResolver(),
         cacheStore: _FakeCacheStore(cached: [first, second]),
@@ -1104,6 +1177,7 @@ void main() {
         );
       final metadata = _StaticMetadataRepository();
       final controller = MusicController(
+        downloadHistoryStore: MemoryDownloadHistory(),
         audioHandler: handler,
         resolver: _FakeMusicResolver(),
         cacheStore: cacheStore,
@@ -1140,6 +1214,7 @@ void main() {
       final first = _cachedTrack(id: 'song-1', name: '第一首');
       final second = _cachedTrack(id: 'song-2', name: '第二首');
       final controller = MusicController(
+        downloadHistoryStore: MemoryDownloadHistory(),
         audioHandler: handler,
         resolver: _FakeMusicResolver(),
         cacheStore: _FakeCacheStore(cached: [first, second]),
@@ -1188,6 +1263,7 @@ void main() {
         source: 'https://example.test/song.mp3',
       );
       final controller = MusicController(
+        downloadHistoryStore: MemoryDownloadHistory(),
         audioHandler: handler,
         resolver: _FakeMusicResolver(),
         cacheStore: _FakeCacheStore(cached: [cached]),
@@ -1249,6 +1325,7 @@ void main() {
           ],
         );
       final controller = MusicController(
+        downloadHistoryStore: MemoryDownloadHistory(),
         audioHandler: handler,
         resolver: _FakeMusicResolver(),
         cacheStore: _FakeCacheStore(cached: [first, second]),
@@ -1297,6 +1374,7 @@ void main() {
     final cached = _cachedTrack(id: 'song-1', name: '第一首');
     final metadata = _CompletingMetadataRepository();
     final controller = MusicController(
+      downloadHistoryStore: MemoryDownloadHistory(),
       audioHandler: handler,
       resolver: _FakeMusicResolver(),
       cacheStore: _FakeCacheStore(cached: [cached]),
@@ -1332,6 +1410,7 @@ void main() {
   test('playlist mutations are serialized', () async {
     final handler = _SpyAudioHandler();
     final controller = MusicController(
+      downloadHistoryStore: MemoryDownloadHistory(),
       audioHandler: handler,
       resolver: _FakeMusicResolver(),
       cacheStore: _FakeCacheStore(cached: const []),
@@ -1365,6 +1444,7 @@ void main() {
       final cacheStore = _DownloadCacheStore();
       final metadata = _StaticMetadataRepository();
       final controller = MusicController(
+        downloadHistoryStore: MemoryDownloadHistory(),
         audioHandler: handler,
         resolver: resolver,
         cacheStore: cacheStore,
@@ -1415,6 +1495,7 @@ void main() {
     final resolver = _DelayedMusicResolver();
     final cacheStore = _DownloadCacheStore();
     final controller = MusicController(
+      downloadHistoryStore: MemoryDownloadHistory(),
       audioHandler: handler,
       resolver: resolver,
       cacheStore: cacheStore,
@@ -1449,6 +1530,7 @@ void main() {
       final resolver = _DelayedMusicResolver();
       final cacheStore = _DownloadCacheStore();
       final controller = MusicController(
+        downloadHistoryStore: MemoryDownloadHistory(),
         audioHandler: handler,
         resolver: resolver,
         cacheStore: cacheStore,
@@ -1489,6 +1571,7 @@ void main() {
     final handler = _SpyAudioHandler();
     final resolver = _DelayedMusicResolver();
     final controller = MusicController(
+      downloadHistoryStore: MemoryDownloadHistory(),
       audioHandler: handler,
       resolver: resolver,
       cacheStore: _DownloadCacheStore(),
@@ -1518,6 +1601,7 @@ void main() {
       final handler = _SpyAudioHandler();
       final cacheStore = _DownloadCacheStore();
       final controller = MusicController(
+        downloadHistoryStore: MemoryDownloadHistory(),
         audioHandler: handler,
         resolver: _WrongIdentityResolver(),
         cacheStore: cacheStore,
@@ -1547,6 +1631,7 @@ void main() {
       final handler = _SpyAudioHandler();
       final cacheStore = _DownloadCacheStore();
       final controller = MusicController(
+        downloadHistoryStore: MemoryDownloadHistory(),
         audioHandler: handler,
         resolver: _WrongIdentityResolver(),
         cacheStore: cacheStore,
@@ -1577,6 +1662,7 @@ void main() {
       final handler = _SpyAudioHandler();
       final cacheStore = _DownloadCacheStore();
       final controller = MusicController(
+        downloadHistoryStore: MemoryDownloadHistory(),
         audioHandler: handler,
         resolver: _WrongIdentityResolver(),
         cacheStore: cacheStore,
@@ -1610,6 +1696,7 @@ void main() {
         ..cached.add(_cachedTrack(id: 'cached', name: '已缓存'));
       final resolver = _SelectivePlaylistResolver();
       final controller = MusicController(
+        downloadHistoryStore: MemoryDownloadHistory(),
         audioHandler: handler,
         resolver: resolver,
         cacheStore: cacheStore,
@@ -1665,6 +1752,7 @@ void main() {
       final cacheStore = _DownloadCacheStore();
       final resolver = _GatedPlaylistResolver();
       final controller = MusicController(
+        downloadHistoryStore: MemoryDownloadHistory(),
         audioHandler: handler,
         resolver: resolver,
         cacheStore: cacheStore,
@@ -1713,6 +1801,7 @@ void main() {
       final cacheStore = _DownloadCacheStore();
       final resolver = _GatedPlaylistResolver();
       final controller = MusicController(
+        downloadHistoryStore: MemoryDownloadHistory(),
         audioHandler: handler,
         resolver: resolver,
         cacheStore: cacheStore,
@@ -1777,6 +1866,7 @@ void main() {
         PlaylistAutoDownloadStore attempts,
       ) async {
         final controller = MusicController(
+          downloadHistoryStore: MemoryDownloadHistory(),
           audioHandler: _SpyAudioHandler(),
           resolver: resolver,
           cacheStore: cache,
@@ -1866,6 +1956,7 @@ void main() {
         rootProvider: () async => root,
       );
       final first = MusicController(
+        downloadHistoryStore: MemoryDownloadHistory(),
         audioHandler: firstHandler,
         resolver: firstResolver,
         cacheStore: cache,
@@ -1895,6 +1986,7 @@ void main() {
         );
         restartedHandler = _SpyAudioHandler();
         restarted = MusicController(
+          downloadHistoryStore: MemoryDownloadHistory(),
           audioHandler: restartedHandler,
           resolver: resolver,
           cacheStore: cache,
@@ -1931,6 +2023,7 @@ void main() {
       final resolver = _SelectivePlaylistResolver();
       final handler = _SpyAudioHandler();
       final controller = MusicController(
+        downloadHistoryStore: MemoryDownloadHistory(),
         audioHandler: handler,
         resolver: resolver,
         cacheStore: _DownloadCacheStore(),
@@ -1974,6 +2067,7 @@ void main() {
     final handler = _SpyAudioHandler();
     final resolver = _SelectivePlaylistResolver();
     final controller = MusicController(
+      downloadHistoryStore: MemoryDownloadHistory(),
       audioHandler: handler,
       resolver: resolver,
       cacheStore: _DownloadCacheStore(),
@@ -2013,6 +2107,7 @@ void main() {
       rootProvider: () async => root,
     );
     final first = MusicController(
+      downloadHistoryStore: MemoryDownloadHistory(),
       audioHandler: firstHandler,
       resolver: firstResolver,
       cacheStore: cache,
@@ -2047,6 +2142,7 @@ void main() {
       final nextResolver = _GatedPlaylistResolver();
       secondHandler = _SpyAudioHandler();
       second = MusicController(
+        downloadHistoryStore: MemoryDownloadHistory(),
         audioHandler: secondHandler,
         resolver: nextResolver,
         cacheStore: cache,
@@ -2090,6 +2186,7 @@ void main() {
       final cacheStore = _DownloadCacheStore();
       final resolver = _ConcurrentPlaylistResolver();
       final controller = MusicController(
+        downloadHistoryStore: MemoryDownloadHistory(),
         audioHandler: handler,
         resolver: resolver,
         cacheStore: cacheStore,
@@ -2147,6 +2244,7 @@ void main() {
       final cacheStore = _DownloadCacheStore();
       final resolver = _GatedPlaylistResolver();
       final controller = MusicController(
+        downloadHistoryStore: MemoryDownloadHistory(),
         audioHandler: handler,
         resolver: resolver,
         cacheStore: cacheStore,
@@ -2210,6 +2308,7 @@ void main() {
     final cacheStore = _DownloadCacheStore();
     final resolver = _DelayedMusicResolver();
     final controller = MusicController(
+      downloadHistoryStore: MemoryDownloadHistory(),
       audioHandler: handler,
       resolver: resolver,
       cacheStore: cacheStore,
@@ -2239,6 +2338,7 @@ void main() {
   test('failed downloads remain visible as recent tasks', () async {
     final handler = _SpyAudioHandler();
     final controller = MusicController(
+      downloadHistoryStore: MemoryDownloadHistory(),
       audioHandler: handler,
       resolver: _FailingMusicResolver(),
       cacheStore: _DownloadCacheStore(),
@@ -2274,6 +2374,7 @@ void main() {
     final resolver = _DelayedMusicResolver();
     final cacheStore = _DownloadCacheStore();
     final controller = MusicController(
+      downloadHistoryStore: MemoryDownloadHistory(),
       audioHandler: handler,
       resolver: resolver,
       cacheStore: cacheStore,
@@ -2311,6 +2412,7 @@ void main() {
   test('next resumes playback when player is paused', () async {
     final handler = _SpyAudioHandler();
     final controller = MusicController(
+      downloadHistoryStore: MemoryDownloadHistory(),
       audioHandler: handler,
       resolver: _FakeMusicResolver(),
       cacheStore: _FakeCacheStore(cached: const []),
@@ -2344,6 +2446,7 @@ void main() {
       cacheStore.cached.add(cached);
       final metadata = _StaticMetadataRepository();
       final controller = MusicController(
+        downloadHistoryStore: MemoryDownloadHistory(),
         audioHandler: handler,
         resolver: resolver,
         cacheStore: cacheStore,
@@ -2391,6 +2494,7 @@ void main() {
       cacheStore.cached.add(cached);
       final metadata = _StaticMetadataRepository();
       final controller = MusicController(
+        downloadHistoryStore: MemoryDownloadHistory(),
         audioHandler: handler,
         resolver: resolver,
         cacheStore: cacheStore,
@@ -3212,5 +3316,17 @@ class _UsageSpy extends PlaylistUsageStore {
   @override
   Future<void> record(String id, {required bool played}) async {
     events.add((id, played));
+  }
+}
+
+class _DelayedDownloadHistory extends MemoryDownloadHistory {
+  final loaded = Completer<List<Map<String, dynamic>>>();
+  final written = Completer<void>();
+  @override
+  Future<List<Map<String, dynamic>>> read() => loaded.future;
+  @override
+  Future<void> write(List<Map<String, Object?>> tasks) async {
+    await super.write(tasks);
+    if (!written.isCompleted) written.complete();
   }
 }

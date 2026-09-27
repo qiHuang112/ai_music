@@ -14,6 +14,9 @@ class DownloadTask {
     this.totalBytes,
     this.error = '',
     this.cachedTrackId = '',
+    this.createdAt,
+    this.finishedAt,
+    this.reusedCache = false,
   });
 
   final String id;
@@ -25,6 +28,9 @@ class DownloadTask {
   final int? totalBytes;
   final String error;
   final String cachedTrackId;
+  final DateTime? createdAt;
+  final DateTime? finishedAt;
+  final bool reusedCache;
 
   bool get canCancel {
     return status == DownloadTaskStatus.resolving ||
@@ -41,6 +47,8 @@ class DownloadTask {
     int? totalBytes,
     String? error,
     String? cachedTrackId,
+    DateTime? finishedAt,
+    bool? reusedCache,
   }) {
     return DownloadTask(
       id: id,
@@ -52,11 +60,74 @@ class DownloadTask {
       totalBytes: totalBytes ?? this.totalBytes,
       error: error ?? this.error,
       cachedTrackId: cachedTrackId ?? this.cachedTrackId,
+      createdAt: createdAt,
+      finishedAt: finishedAt ?? this.finishedAt,
+      reusedCache: reusedCache ?? this.reusedCache,
+    );
+  }
+
+  Map<String, Object?> toJson() => {
+    'id': id,
+    'title': title,
+    'subtitle': subtitle,
+    'status': status.name,
+    'bytes': bytes,
+    'totalBytes': totalBytes,
+    'error': error,
+    'cachedTrackId': cachedTrackId,
+    'createdAt': createdAt?.toIso8601String(),
+    'finishedAt': finishedAt?.toIso8601String(),
+    'reusedCache': reusedCache,
+  };
+  static DownloadTask? fromJson(Map<String, dynamic> value) {
+    final status = DownloadTaskStatus.values
+        .where((s) => s.name == value['status'])
+        .firstOrNull;
+    if (status == null ||
+        status == DownloadTaskStatus.resolving ||
+        status == DownloadTaskStatus.downloading ||
+        value['id'] is! String ||
+        value['id'] == '') {
+      return null;
+    }
+    return DownloadTask(
+      id: value['id'] as String,
+      title: value['title']?.toString() ?? '',
+      subtitle: value['subtitle']?.toString() ?? '',
+      status: status,
+      bytes: value['bytes'] is num ? (value['bytes'] as num).toInt() : 0,
+      totalBytes: value['totalBytes'] is num
+          ? (value['totalBytes'] as num).toInt()
+          : null,
+      error: value['error']?.toString() ?? '',
+      cachedTrackId: value['cachedTrackId']?.toString() ?? '',
+      createdAt: DateTime.tryParse(value['createdAt']?.toString() ?? ''),
+      finishedAt: DateTime.tryParse(value['finishedAt']?.toString() ?? ''),
+      reusedCache: value['reusedCache'] == true,
     );
   }
 }
 
 class DownloadQueueController {
+  DownloadQueueController({DateTime Function()? now})
+    : _now = now ?? DateTime.now;
+  final DateTime Function() _now;
+  void Function()? onHistoryChanged;
+  final _clearedHistoryIds = <String>{};
+  bool _clearedAllHistory = false;
+  void restoreHistory(List<DownloadTask> history) {
+    if (_clearedAllHistory) return;
+    final liveIds = tasks.map((t) => t.id).toSet();
+    tasks = [
+      for (final task in history)
+        if (!task.canCancel &&
+            !liveIds.contains(task.id) &&
+            !_clearedHistoryIds.contains(task.id))
+          task,
+      ...tasks,
+    ];
+  }
+
   final Map<String, DownloadCancelToken> _cancelTokens = {};
 
   List<DownloadTask> tasks = const [];
@@ -96,6 +167,7 @@ class DownloadQueueController {
         title: candidate.name.isEmpty ? candidate.keyword : candidate.name,
         subtitle: candidate.artist,
         status: DownloadTaskStatus.resolving,
+        createdAt: _now(),
       ),
     );
     return token;
@@ -134,30 +206,42 @@ class DownloadQueueController {
   }
 
   bool update(String taskId, DownloadTask Function(DownloadTask task) update) {
-    var changed = false;
+    final previous = taskById(taskId);
+    if (previous == null) return false;
+    var next = update(previous);
+    if (previous.canCancel && !next.canCancel) {
+      next = next.copyWith(finishedAt: _now());
+    }
     tasks = [
       for (final task in tasks)
-        if (task.id == taskId) ...[update(task)] else task,
+        if (task.id == taskId) next else task,
     ];
-    changed = tasks.any((task) => task.id == taskId);
-    return changed;
+    if (!next.canCancel &&
+        (previous.canCancel || next.status != previous.status)) {
+      onHistoryChanged?.call();
+    }
+    return true;
   }
 
   void clearTask(String taskId) {
     if (_cancelTokens.containsKey(taskId)) {
       return;
     }
+    _clearedHistoryIds.add(taskId);
     tasks = [
       for (final task in tasks)
         if (task.id != taskId) task,
     ];
+    onHistoryChanged?.call();
   }
 
   void clearTerminalTasks() {
+    _clearedAllHistory = true;
     tasks = [
       for (final task in tasks)
         if (task.canCancel) task,
     ];
+    onHistoryChanged?.call();
   }
 }
 

@@ -1,3 +1,4 @@
+import 'memory_download_history.dart';
 import 'dart:async';
 import 'dart:io';
 
@@ -35,6 +36,7 @@ void main() {
     final cached = _cachedTrack();
     final handler = _SpyAudioHandler();
     final controller = MusicController(
+      downloadHistoryStore: MemoryDownloadHistory(),
       audioHandler: handler,
       resolver: _FakeMusicResolver(),
       cacheStore: _FakeCacheStore(cached: [cached]),
@@ -109,6 +111,7 @@ void main() {
     final cached = _cachedTrack();
     final handler = _SpyAudioHandler();
     final controller = MusicController(
+      downloadHistoryStore: MemoryDownloadHistory(),
       audioHandler: handler,
       resolver: _FakeMusicResolver(),
       cacheStore: _FakeCacheStore(cached: [cached]),
@@ -165,6 +168,7 @@ void main() {
     final handler = _SpyAudioHandler();
     final metadata = _UpgradingMetadataRepository();
     final controller = MusicController(
+      downloadHistoryStore: MemoryDownloadHistory(),
       audioHandler: handler,
       resolver: _FakeMusicResolver(),
       cacheStore: _FakeCacheStore(cached: [cached]),
@@ -214,6 +218,7 @@ void main() {
     final handler = _SpyAudioHandler();
     final metadata = _RetryMetadataRepository();
     final controller = MusicController(
+      downloadHistoryStore: MemoryDownloadHistory(),
       audioHandler: handler,
       resolver: _LyricsResolver(),
       cacheStore: _FakeCacheStore(cached: [cached]),

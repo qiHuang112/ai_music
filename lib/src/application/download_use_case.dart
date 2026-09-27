@@ -122,6 +122,7 @@ class DownloadUseCase {
           bytes: cached.sizeBytes,
           totalBytes: cached.sizeBytes,
           cachedTrackId: cached.cacheId,
+          reusedCache: cached.fromCache,
         ),
         onChanged,
       );
@@ -129,19 +130,22 @@ class DownloadUseCase {
         cached: cached,
         statusMessage: statusMessage,
       );
-    } on DownloadCancelledException {
-      _updateTask(
-        taskId,
-        (task) => task.copyWith(
-          status: DownloadTaskStatus.canceled,
-          clearProgress: true,
-        ),
-        onChanged,
-      );
-      return const DownloadUseCaseResult(
-        statusMessage: MusicUiMessage(MusicUiMessageCode.downloadCanceled),
-      );
     } catch (exception) {
+      // Cancellation may settle before an in-flight resolver reports a network
+      // error. Keep the user's terminal state and its original completion day.
+      if (token.isCanceled || exception is DownloadCancelledException) {
+        _updateTask(
+          taskId,
+          (task) => task.copyWith(
+            status: DownloadTaskStatus.canceled,
+            clearProgress: true,
+          ),
+          onChanged,
+        );
+        return const DownloadUseCaseResult(
+          statusMessage: MusicUiMessage(MusicUiMessageCode.downloadCanceled),
+        );
+      }
       final errorDetail = friendlyError(exception);
       _updateTask(
         taskId,

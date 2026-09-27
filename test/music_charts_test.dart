@@ -1,3 +1,4 @@
+import 'memory_download_history.dart';
 import 'dart:async';
 import 'dart:convert';
 
@@ -257,6 +258,7 @@ void main() {
   ) async {
     final handler = MusicAudioHandler();
     final controller = MusicController(
+      downloadHistoryStore: MemoryDownloadHistory(),
       audioHandler: handler,
       connectivityChanges: const Stream.empty(),
       checkConnectivity: () async => [],
@@ -297,6 +299,7 @@ void main() {
   ) async {
     final handler = MusicAudioHandler();
     final controller = MusicController(
+      downloadHistoryStore: MemoryDownloadHistory(),
       audioHandler: handler,
       connectivityChanges: const Stream.empty(),
       checkConnectivity: () async => [],

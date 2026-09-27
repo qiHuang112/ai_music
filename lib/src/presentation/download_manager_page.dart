@@ -1,3 +1,4 @@
+import 'date_groups.dart';
 import 'package:flutter/material.dart';
 
 import '../application/download_queue_controller.dart';
@@ -28,6 +29,12 @@ class _DownloadManagerPageState extends State<DownloadManagerPage> {
   _DownloadSortMode _sortMode = _DownloadSortMode.downloadedAt;
   final _searchController = TextEditingController();
   String _query = '';
+  String? _dateFilter;
+  final _collapsedTasks = <String>{};
+  final _collapsedCache = <String>{};
+  void _toggle(Set<String> dates, String key) => setState(() {
+    if (!dates.remove(key)) dates.add(key);
+  });
 
   @override
   void dispose() {
@@ -43,15 +50,39 @@ class _DownloadManagerPageState extends State<DownloadManagerPage> {
       builder: (context, _) {
         final controller = widget.controller;
         final activeTasks = controller.activeDownloadTasks;
-        final recentTasks = controller.recentDownloadTasks;
+        final recentTasks = controller.recentDownloadTasks
+            .where(
+              (t) =>
+                  matchesDateFilter(t.finishedAt ?? t.createdAt, _dateFilter),
+            )
+            .toList();
         final cachedTracks = filterTracksByQuery(
-          _sortedCachedTracks(controller.cachedTracks),
+          _sortedCachedTracks(
+            controller.cachedTracks
+                .where((t) => matchesDateFilter(t.cachedAt, _dateFilter))
+                .toList(),
+          ),
           _query,
         );
         return Scaffold(
           appBar: AppBar(
             title: Text(strings.downloadManager),
             actions: [
+              DateFilterButton(
+                dates: [
+                  ...controller.recentDownloadTasks.map(
+                    (t) => t.finishedAt ?? t.createdAt,
+                  ),
+                  ...controller.cachedTracks.map((t) => t.cachedAt),
+                ],
+                value: _dateFilter,
+                zh: strings.isZh,
+                onChanged: (value) => setState(() {
+                  _dateFilter = value;
+                  _collapsedTasks.clear();
+                  _collapsedCache.clear();
+                }),
+              ),
               IconButton(
                 tooltip: strings.refresh,
                 onPressed: controller.isLoadingCache
@@ -67,100 +98,220 @@ class _DownloadManagerPageState extends State<DownloadManagerPage> {
             ],
           ),
           body: SafeArea(
-            child: ListView(
-              padding: const EdgeInsets.fromLTRB(12, 8, 12, 96),
-              children: [
-                if (controller.customPlaylists.isNotEmpty) ...[
-                  _SectionHeader(title: strings.playlistDownloads),
-                  for (final playlist in controller.customPlaylists)
-                    Card(
-                      key: ValueKey('manager-playlist-${playlist.id}'),
-                      child: ListTile(
-                        onTap: () => widget.onOpenPlaylist(playlist),
-                        title: Text(playlist.name),
-                        subtitle: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              strings.playlistDownloadCounts(
-                                playlist.entries.length,
-                                controller.cachedCountForPlaylist(playlist),
+            child: CustomScrollView(
+              key: ValueKey(_dateFilter),
+              slivers: [
+                SliverPadding(
+                  padding: const EdgeInsets.fromLTRB(12, 8, 12, 0),
+                  sliver: SliverList.list(
+                    children: [
+                      if (controller.customPlaylists.isNotEmpty) ...[
+                        _SectionHeader(title: strings.playlistDownloads),
+                        for (final playlist in controller.customPlaylists)
+                          Card(
+                            key: ValueKey('manager-playlist-${playlist.id}'),
+                            child: ListTile(
+                              onTap: () => widget.onOpenPlaylist(playlist),
+                              title: Text(playlist.name),
+                              subtitle: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    strings.playlistDownloadCounts(
+                                      playlist.entries.length,
+                                      controller.cachedCountForPlaylist(
+                                        playlist,
+                                      ),
+                                    ),
+                                  ),
+                                  if (controller.playlistDownloadProgress(
+                                        playlist,
+                                      ) !=
+                                      null) ...[
+                                    const SizedBox(height: 8),
+                                    PlaylistDownloadProgressView(
+                                      controller: controller,
+                                      playlist: playlist,
+                                    ),
+                                  ],
+                                ],
+                              ),
+                              trailing: IconButton(
+                                key: ValueKey(
+                                  'manager-download-${playlist.id}',
+                                ),
+                                tooltip: strings.downloadAllPlaylist,
+                                onPressed:
+                                    controller.isPlaylistDownloading(playlist)
+                                    ? null
+                                    : () => _downloadPlaylist(playlist),
+                                icon: controller.isPlaylistDownloading(playlist)
+                                    ? const SizedBox.square(
+                                        dimension: 20,
+                                        child: CircularProgressIndicator(
+                                          strokeWidth: 2,
+                                        ),
+                                      )
+                                    : const Icon(
+                                        Icons.download_for_offline_outlined,
+                                      ),
                               ),
                             ),
-                            if (controller.playlistDownloadProgress(playlist) !=
-                                null) ...[
-                              const SizedBox(height: 8),
-                              PlaylistDownloadProgressView(
-                                controller: controller,
-                                playlist: playlist,
-                              ),
-                            ],
-                          ],
+                          ),
+                      ],
+                      _SectionHeader(title: strings.activeDownloads),
+                      if (activeTasks.isEmpty)
+                        _EmptyLine(text: strings.noDownloads)
+                      else
+                        for (final task in activeTasks)
+                          _DownloadTaskTile(controller: controller, task: task),
+                      _SectionHeader(title: strings.recentDownloads),
+                      if (recentTasks.isEmpty)
+                        _EmptyLine(
+                          text: _dateFilter == null
+                              ? strings.noRecentDownloads
+                              : (strings.isZh
+                                    ? '这一天没有任务'
+                                    : 'No tasks on this date'),
                         ),
-                        trailing: IconButton(
-                          key: ValueKey('manager-download-${playlist.id}'),
-                          tooltip: strings.downloadAllPlaylist,
-                          onPressed: controller.isPlaylistDownloading(playlist)
-                              ? null
-                              : () => _downloadPlaylist(playlist),
-                          icon: controller.isPlaylistDownloading(playlist)
-                              ? const SizedBox.square(
-                                  dimension: 20,
-                                  child: CircularProgressIndicator(
-                                    strokeWidth: 2,
-                                  ),
-                                )
-                              : const Icon(Icons.download_for_offline_outlined),
+                    ],
+                  ),
+                ),
+                if (recentTasks.isNotEmpty)
+                  for (final group in groupByDateHierarchy(
+                    [...recentTasks]..sort(
+                      (a, b) => (b.finishedAt ?? b.createdAt ?? DateTime(1970))
+                          .compareTo(
+                            a.finishedAt ?? a.createdAt ?? DateTime(1970),
+                          ),
+                    ),
+                    (task) => task.finishedAt ?? task.createdAt,
+                  ))
+                    DateHierarchySliver<DownloadTask>(
+                      key: ValueKey('tasks-${group.key}'),
+                      bucket: group,
+                      summary: (items) => _taskCounts(items, strings.isZh),
+                      zh: strings.isZh,
+                      toggled: _collapsedTasks,
+                      onToggle: (key) => _toggle(_collapsedTasks, key),
+                      expandInitially: _dateFilter != null,
+                      itemBuilder: (context, task) => Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 12),
+                        child: _DownloadTaskTile(
+                          controller: controller,
+                          task: task,
                         ),
                       ),
                     ),
-                ],
-                _SectionHeader(title: strings.activeDownloads),
-                if (activeTasks.isEmpty)
-                  _EmptyLine(text: strings.noDownloads)
-                else
-                  for (final task in activeTasks)
-                    _DownloadTaskTile(controller: controller, task: task),
-                _SectionHeader(title: strings.recentDownloads),
-                if (recentTasks.isEmpty)
-                  _EmptyLine(text: strings.noRecentDownloads)
-                else
-                  for (final task in recentTasks.reversed)
-                    _DownloadTaskTile(controller: controller, task: task),
-                const SizedBox(height: 18),
-                ListSearchField(
-                  controller: _searchController,
-                  onChanged: (value) => setState(() => _query = value),
-                ),
-                _SectionHeader(
-                  title: strings.cachedMusic,
-                  trailing: _CachedSortButton(
-                    value: _sortMode,
-                    onChanged: (value) => setState(() => _sortMode = value),
+                SliverPadding(
+                  padding: const EdgeInsets.symmetric(horizontal: 12),
+                  sliver: SliverList.list(
+                    children: [
+                      const SizedBox(height: 18),
+                      ListSearchField(
+                        controller: _searchController,
+                        onChanged: (value) => setState(() {
+                          _query = value;
+                          _collapsedCache.clear();
+                        }),
+                      ),
+                      _SectionHeader(
+                        title: strings.cachedMusic,
+                        trailing: _CachedSortButton(
+                          value: _sortMode,
+                          onChanged: (value) =>
+                              setState(() => _sortMode = value),
+                        ),
+                      ),
+                      if (cachedTracks.isEmpty)
+                        _EmptyLine(
+                          text: _query.trim().isEmpty && _dateFilter == null
+                              ? strings.noCachedMusic
+                              : strings.noMatchingTracks,
+                        ),
+                    ],
                   ),
                 ),
-                if (cachedTracks.isEmpty)
-                  _EmptyLine(
-                    text: _query.trim().isEmpty
-                        ? strings.noCachedMusic
-                        : strings.noMatchingTracks,
-                  )
-                else
-                  for (var index = 0; index < cachedTracks.length; index += 1)
-                    _CachedTrackTile(
-                      controller: controller,
-                      track: cachedTracks[index],
-                      queueTracks: cachedTracks,
-                      index: index,
+                if (cachedTracks.isNotEmpty &&
+                    _sortMode == _DownloadSortMode.downloadedAt)
+                  for (final group in groupByDateHierarchy(
+                    cachedTracks.indexed,
+                    (item) => item.$2.cachedAt,
+                  ))
+                    DateHierarchySliver<(int, Track)>(
+                      key: ValueKey('cached-${group.key}'),
+                      bucket: group,
+                      summary: (items) =>
+                          '${items.length} ${strings.isZh ? '首' : 'songs'}',
+                      zh: strings.isZh,
+                      toggled: _collapsedCache,
+                      onToggle: (key) => _toggle(_collapsedCache, key),
+                      expandInitially:
+                          _dateFilter != null || _query.trim().isNotEmpty,
+                      itemBuilder: (context, item) => Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 12),
+                        child: _CachedTrackTile(
+                          controller: controller,
+                          track: item.$2,
+                          queueTracks: cachedTracks,
+                          index: item.$1,
+                        ),
+                      ),
                     ),
-                const SizedBox(height: 18),
-                _LanSyncCard(controller: controller),
+                if (_sortMode != _DownloadSortMode.downloadedAt)
+                  SliverPadding(
+                    padding: const EdgeInsets.symmetric(horizontal: 12),
+                    sliver: SliverList.list(
+                      children: [
+                        for (
+                          var index = 0;
+                          index < cachedTracks.length;
+                          index += 1
+                        )
+                          _CachedTrackTile(
+                            controller: controller,
+                            track: cachedTracks[index],
+                            queueTracks: cachedTracks,
+                            index: index,
+                          ),
+                      ],
+                    ),
+                  ),
+                SliverPadding(
+                  padding: const EdgeInsets.fromLTRB(12, 18, 12, 96),
+                  sliver: SliverToBoxAdapter(
+                    child: _LanSyncCard(controller: controller),
+                  ),
+                ),
               ],
             ),
           ),
         );
       },
     );
+  }
+
+  String _taskCounts(List<DownloadTask> tasks, bool zh) {
+    final downloaded = tasks
+        .where(
+          (t) => t.status == DownloadTaskStatus.completed && !t.reusedCache,
+        )
+        .length;
+    final reused = tasks
+        .where((t) => t.status == DownloadTaskStatus.completed && t.reusedCache)
+        .length;
+    final failed = tasks
+        .where((t) => t.status == DownloadTaskStatus.failed)
+        .length;
+    final canceled = tasks
+        .where((t) => t.status == DownloadTaskStatus.canceled)
+        .length;
+    return [
+      zh ? '下载 $downloaded 首' : '$downloaded downloaded',
+      if (reused > 0) zh ? '复用缓存 $reused 首' : '$reused reused',
+      if (failed > 0) zh ? '失败 $failed' : '$failed failed',
+      if (canceled > 0) zh ? '取消 $canceled' : '$canceled canceled',
+    ].join(' · ');
   }
 
   List<Track> _sortedCachedTracks(List<Track> tracks) {

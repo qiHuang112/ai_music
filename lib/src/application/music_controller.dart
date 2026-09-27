@@ -1,3 +1,4 @@
+import '../data/download_history_store.dart';
 import '../data/playlist_usage_store.dart';
 import 'online_playlist_tasks.dart';
 import 'dart:async';
@@ -76,6 +77,7 @@ class MusicController extends ChangeNotifier {
     MusicSettingsStore? settingsStore,
     PlaylistAutoDownloadStore? playlistAutoDownloadStore,
     PlaylistUsageStore? playlistUsageStore,
+    DownloadHistoryStore? downloadHistoryStore,
     TrackMetadataRepository? metadataRepository,
     LegacyCacheRepairer? legacyRepairer,
     LanLibraryGateway? lanLibraryGateway,
@@ -85,12 +87,14 @@ class MusicController extends ChangeNotifier {
   }) : _resolver = resolver ?? RemoteMusicResolver(),
        _cacheStore = cacheStore ?? CachedTrackStore(),
        _playlistStore = playlistStore ?? PlaylistStore(),
+       _downloadHistoryStore = downloadHistoryStore ?? DownloadHistoryStore(),
        _playlistUsageStore = playlistUsageStore ?? PlaylistUsageStore(),
        _settingsStore = settingsStore ?? MusicSettingsStore(),
        _playlistAutoDownloadStore =
            playlistAutoDownloadStore ?? PlaylistAutoDownloadStore(),
        _metadataRepository = metadataRepository ?? TrackMetadataRepository(),
        _legacyRepairerOverride = legacyRepairer {
+    downloadQueue.onHistoryChanged = () => unawaited(_saveDownloadHistory());
     _lanLibraryGateway = lanLibraryGateway ?? LanLibraryClient();
     _ownsLanLibraryGateway = lanLibraryGateway == null;
     settingsController = SettingsController(settingsStore: _settingsStore);
@@ -302,6 +306,30 @@ class MusicController extends ChangeNotifier {
     ].where((track) => track.id == item.id).firstOrNull;
   }
 
+  final DownloadHistoryStore _downloadHistoryStore;
+  Future<void>? _historyLoaded;
+  Future<void> _loadDownloadHistory() =>
+      _historyLoaded ??= _restoreDownloadHistory();
+  Future<void> _restoreDownloadHistory() async {
+    try {
+      final saved = await _downloadHistoryStore.read();
+      if (_isDisposed || saved.isEmpty) return;
+      downloadQueue.restoreHistory([
+        for (final item in saved) ?DownloadTask.fromJson(item),
+      ]);
+      notifyListeners();
+    } catch (_) {}
+  }
+
+  Future<void> _saveDownloadHistory() async {
+    try {
+      await _loadDownloadHistory();
+      await _downloadHistoryStore.write([
+        for (final task in downloadQueue.recentTasks) task.toJson(),
+      ]);
+    } catch (_) {}
+  }
+
   final PlaylistUsageStore _playlistUsageStore;
   List<MusicPlaylist> get frequentlyUsedPlaylists =>
       _playlistUsageStore.rank(customPlaylists);
@@ -325,6 +353,7 @@ class MusicController extends ChangeNotifier {
 
   Future<void> initialize() async {
     unawaited(_loadPlaylistUsage());
+    unawaited(_loadDownloadHistory());
     final settings = await settingsController.load();
     source = settings.source;
     language = settings.language;

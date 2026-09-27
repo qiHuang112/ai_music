@@ -1,3 +1,4 @@
+import 'memory_download_history.dart';
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
@@ -46,7 +47,10 @@ void main() {
       ),
     );
     final handler = MusicAudioHandler();
-    final controller = MusicController(audioHandler: handler);
+    final controller = MusicController(
+      audioHandler: handler,
+      downloadHistoryStore: MemoryDownloadHistory(),
+    );
     final resolver = _Resolver();
     try {
       await tester.pumpWidget(
@@ -119,7 +123,10 @@ void main() {
         ),
       );
       final handler = MusicAudioHandler();
-      final controller = MusicController(audioHandler: handler);
+      final controller = MusicController(
+        audioHandler: handler,
+        downloadHistoryStore: MemoryDownloadHistory(),
+      );
       final resolver = _Resolver(choiceCount: 3);
       try {
         await tester.pumpWidget(
@@ -178,7 +185,10 @@ void main() {
       ),
     );
     final handler = MusicAudioHandler();
-    final controller = MusicController(audioHandler: handler);
+    final controller = MusicController(
+      audioHandler: handler,
+      downloadHistoryStore: MemoryDownloadHistory(),
+    );
     final gate = Completer<void>();
     final resolver = _Resolver(searchGate: gate);
     try {
@@ -230,7 +240,10 @@ void main() {
       ),
     );
     final handler = MusicAudioHandler();
-    final controller = MusicController(audioHandler: handler);
+    final controller = MusicController(
+      audioHandler: handler,
+      downloadHistoryStore: MemoryDownloadHistory(),
+    );
     final gate = Completer<void>();
     final resolver = _Resolver(searchGate: gate, gatedQuery: '晴天');
     try {
@@ -283,7 +296,10 @@ void main() {
       ),
     );
     final handler = MusicAudioHandler();
-    final controller = MusicController(audioHandler: handler);
+    final controller = MusicController(
+      audioHandler: handler,
+      downloadHistoryStore: MemoryDownloadHistory(),
+    );
     final resolver = _Resolver(choiceCount: 0);
     try {
       await tester.pumpWidget(
@@ -334,7 +350,10 @@ void main() {
     });
     final ocr = _GatedOcr();
     final handler = MusicAudioHandler();
-    final controller = MusicController(audioHandler: handler);
+    final controller = MusicController(
+      audioHandler: handler,
+      downloadHistoryStore: MemoryDownloadHistory(),
+    );
     try {
       await tester.pumpWidget(
         MaterialApp(
@@ -392,8 +411,10 @@ void main() {
       ),
     );
     final handler = MusicAudioHandler();
-    final controller = MusicController(audioHandler: handler)
-      ..screenshotSearchConcurrency = 5;
+    final controller = MusicController(
+      audioHandler: handler,
+      downloadHistoryStore: MemoryDownloadHistory(),
+    )..screenshotSearchConcurrency = 5;
     final gate = Completer<void>();
     final resolver = _Resolver(searchGate: gate);
     try {
@@ -446,8 +467,10 @@ void main() {
       final handler = MusicAudioHandler();
       final outOfOrder = scenario.startsWith('out-of-order');
       final healthy = scenario == 'healthy fallback';
-      final controller = MusicController(audioHandler: handler)
-        ..screenshotSearchConcurrency = outOfOrder ? 2 : 1;
+      final controller = MusicController(
+        audioHandler: handler,
+        downloadHistoryStore: MemoryDownloadHistory(),
+      )..screenshotSearchConcurrency = outOfOrder ? 2 : 1;
       final firstGate = outOfOrder ? Completer<void>() : null;
       final fourthGate = outOfOrder ? Completer<void>() : null;
       final resolver = _PrimaryFailureResolver(
@@ -541,7 +564,10 @@ void main() {
       ),
     );
     final handler = MusicAudioHandler();
-    final controller = MusicController(audioHandler: handler);
+    final controller = MusicController(
+      audioHandler: handler,
+      downloadHistoryStore: MemoryDownloadHistory(),
+    );
     final firstGate = Completer<void>();
     final fifthGate = Completer<void>();
     final resolver = _OutOfOrderFailureResolver(firstGate, fifthGate);

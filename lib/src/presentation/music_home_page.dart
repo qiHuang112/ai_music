@@ -1,3 +1,4 @@
+import 'date_groups.dart';
 import 'dart:async';
 
 import 'package:audio_service/audio_service.dart';
@@ -1126,6 +1127,8 @@ class _PlaylistDetailPageState extends State<_PlaylistDetailPage> {
   final List<String> _selectedTrackIds = <String>[];
   final List<String> _reorderDraftTrackIds = <String>[];
   String _query = '';
+  String? _dateFilter;
+  final _collapsedDates = <String>{};
   bool _isReorderEditing = false;
   bool _reorderDraftDirty = false;
   bool? _firstPlaylistOpening;
@@ -1225,7 +1228,7 @@ class _PlaylistDetailPageState extends State<_PlaylistDetailPage> {
       builder: (context, _) {
         final strings = AppStringsScope.of(context);
         final controller = widget.controller;
-        final hasActiveFilter = _query.trim().isNotEmpty;
+        final hasActiveFilter = _query.trim().isNotEmpty || _dateFilter != null;
         final rawList = _resolveLibraryList(
           controller,
           widget.selection,
@@ -1243,7 +1246,13 @@ class _PlaylistDetailPageState extends State<_PlaylistDetailPage> {
             ? _tracksForDraftOrder(sortedTracks)
             : sortedTracks;
         final list = rawList.copyWith(
-          tracks: filterTracksByQuery(visibleTracks, _query),
+          tracks: filterTracksByQuery(visibleTracks, _query)
+              .where(
+                (track) =>
+                    !rawList.isLocal ||
+                    matchesDateFilter(track.cachedAt, _dateFilter),
+              )
+              .toList(),
         );
         final selectedTracks = _selectedTracks(sortedTracks);
         final selecting = _selectedTrackIds.isNotEmpty;
@@ -1267,6 +1276,17 @@ class _PlaylistDetailPageState extends State<_PlaylistDetailPage> {
                 : AppBar(
                     title: Text(list.title),
                     actions: [
+                      if (list.isLocal)
+                        DateFilterButton(
+                          dates: rawList.tracks.map((t) => t.cachedAt),
+                          value: _dateFilter,
+                          zh: strings.isZh,
+                          onChanged: (value) => setState(() {
+                            _dateFilter = value;
+                            _collapsedDates.clear();
+                            _selectedTrackIds.clear();
+                          }),
+                        ),
                       if (canAdjustOrder)
                         IconButton(
                           key: const ValueKey('adjust-order-action'),
@@ -1306,7 +1326,10 @@ class _PlaylistDetailPageState extends State<_PlaylistDetailPage> {
                     ListSearchField(
                       controller: _searchController,
                       focusNode: _searchFocusNode,
-                      onChanged: (value) => setState(() => _query = value),
+                      onChanged: (value) => setState(() {
+                        _query = value;
+                        _collapsedDates.clear();
+                      }),
                       emptySuffix:
                           list.canManage &&
                               list.playlist != null &&
@@ -1360,9 +1383,21 @@ class _PlaylistDetailPageState extends State<_PlaylistDetailPage> {
                     child: controller.isLoadingCache
                         ? const Center(child: CircularProgressIndicator())
                         : _TrackList(
+                            key: ValueKey(_dateFilter),
                             controller: controller,
                             list: list,
                             hasActiveFilter: hasActiveFilter,
+                            expandDatesInitially:
+                                _dateFilter != null || _query.trim().isNotEmpty,
+                            collapsedDates: _collapsedDates,
+                            onToggleDate: (day) => setState(() {
+                              if (!_collapsedDates.remove(day)) {
+                                _collapsedDates.add(day);
+                              }
+                            }),
+                            groupByDate:
+                                list.isLocal &&
+                                effectiveSortMode == _LibrarySortMode.time,
                             isSelecting: selecting,
                             isReorderEditing: _isReorderEditing,
                             selectedTrackIds: _selectedTrackIds.toSet(),
@@ -1875,9 +1910,14 @@ String _trackSortKey(Track track) {
 
 class _TrackList extends StatelessWidget {
   const _TrackList({
+    super.key,
     required this.controller,
     required this.list,
     required this.hasActiveFilter,
+    this.groupByDate = false,
+    this.collapsedDates = const {},
+    this.expandDatesInitially = false,
+    this.onToggleDate,
     required this.isSelecting,
     required this.isReorderEditing,
     required this.selectedTrackIds,
@@ -1892,6 +1932,10 @@ class _TrackList extends StatelessWidget {
   final MusicController controller;
   final _ResolvedLibraryList list;
   final bool hasActiveFilter;
+  final bool groupByDate;
+  final Set<String> collapsedDates;
+  final bool expandDatesInitially;
+  final ValueChanged<String>? onToggleDate;
   final bool isSelecting;
   final bool isReorderEditing;
   final Set<String> selectedTrackIds;
@@ -1903,7 +1947,13 @@ class _TrackList extends StatelessWidget {
   final void Function(int oldIndex, int newIndex) onReorder;
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context) => StreamBuilder<MediaItem?>(
+    stream: controller.mediaItemStream,
+    initialData: controller.audioHandler.mediaItem.valueOrNull,
+    builder: (context, snapshot) => _buildList(context, snapshot.data?.id),
+  );
+
+  Widget _buildList(BuildContext context, String? activeId) {
     final tracks = list.tracks;
     final strings = AppStringsScope.of(context);
     if (tracks.isEmpty) {
@@ -1934,6 +1984,7 @@ class _TrackList extends StatelessWidget {
           final track = tracks[index];
           return _TrackTile(
             key: ValueKey('track-${track.id}'),
+            active: track.id == activeId,
             controller: controller,
             list: list,
             track: track,
@@ -1960,27 +2011,58 @@ class _TrackList extends StatelessWidget {
         },
       );
     }
+    Widget tile(BuildContext context, int index) {
+      final track = tracks[index];
+      return _TrackTile(
+        active: track.id == activeId,
+        controller: controller,
+        list: list,
+        track: track,
+        tracks: tracks,
+        index: index,
+        isSelecting: isSelecting,
+        isReorderEditing: isReorderEditing,
+        selected: selectedTrackIds.contains(track.id),
+        isPreparing: preparingTrackId == track.id,
+        onPlayTrack: onPlayTrack,
+        onStartSelection: onStartSelection,
+        onToggleSelection: onToggleSelection,
+      );
+    }
+
+    if (groupByDate) {
+      return CustomScrollView(
+        slivers: [
+          const SliverToBoxAdapter(child: SizedBox(height: 8)),
+          for (final group in groupByDateHierarchy(
+            tracks.asMap().keys,
+            (i) => tracks[i].cachedAt,
+          ))
+            DateHierarchySliver<int>(
+              key: ValueKey(group.key),
+              bucket: group,
+              summary: (items) =>
+                  '${items.length} ${strings.isZh ? '首' : 'songs'}',
+              zh: strings.isZh,
+              toggled: collapsedDates,
+              onToggle: (key) => onToggleDate?.call(key),
+              expandInitially: expandDatesInitially,
+              itemBuilder: (context, index) => Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 12),
+                child: Column(
+                  children: [tile(context, index), const Divider(height: 1)],
+                ),
+              ),
+            ),
+          const SliverToBoxAdapter(child: SizedBox(height: 96)),
+        ],
+      );
+    }
     return ListView.separated(
       padding: const EdgeInsets.fromLTRB(12, 8, 12, 96),
       itemCount: tracks.length,
       separatorBuilder: (_, _) => const Divider(height: 1),
-      itemBuilder: (context, index) {
-        final track = tracks[index];
-        return _TrackTile(
-          controller: controller,
-          list: list,
-          track: track,
-          tracks: tracks,
-          index: index,
-          isSelecting: isSelecting,
-          isReorderEditing: isReorderEditing,
-          selected: selectedTrackIds.contains(track.id),
-          isPreparing: preparingTrackId == track.id,
-          onPlayTrack: onPlayTrack,
-          onStartSelection: onStartSelection,
-          onToggleSelection: onToggleSelection,
-        );
-      },
+      itemBuilder: tile,
     );
   }
 }
@@ -1989,6 +2071,7 @@ class _TrackTile extends StatelessWidget {
   const _TrackTile({
     super.key,
     required this.controller,
+    this.active = false,
     required this.list,
     required this.track,
     required this.tracks,
@@ -2003,6 +2086,7 @@ class _TrackTile extends StatelessWidget {
     this.dragHandle,
   });
 
+  final bool active;
   final MusicController controller;
   final _ResolvedLibraryList list;
   final Track track;
@@ -2020,69 +2104,60 @@ class _TrackTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final strings = AppStringsScope.of(context);
-    return StreamBuilder<MediaItem?>(
-      stream: controller.mediaItemStream,
-      builder: (context, snapshot) {
-        final active = snapshot.data?.id == track.id;
-        return ListTile(
-          selected: selected,
-          contentPadding: const EdgeInsets.symmetric(
-            horizontal: 8,
-            vertical: 6,
-          ),
-          leading: isReorderEditing
-              ? const Icon(Icons.music_note_outlined)
-              : isSelecting
-              ? Checkbox(
-                  value: selected,
-                  onChanged: (_) => onToggleSelection(track),
-                )
-              : IconButton.filledTonal(
-                  tooltip: isPreparing
-                      ? strings.preparingPlayback
-                      : active
-                      ? strings.playing
-                      : strings.play,
-                  onPressed: isPreparing
-                      ? null
-                      : () => onPlayTrack(track, index, tracks),
-                  icon: isPreparing
-                      ? const SizedBox(
-                          width: 20,
-                          height: 20,
-                          child: CircularProgressIndicator(strokeWidth: 2),
-                        )
-                      : Icon(active ? Icons.equalizer : Icons.play_arrow),
-                ),
-          title: Text(
-            track.title,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: TextStyle(
-              fontWeight: active ? FontWeight.w700 : FontWeight.w500,
-              color: active ? Theme.of(context).colorScheme.primary : null,
+    return ListTile(
+      selected: selected,
+      contentPadding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+      leading: isReorderEditing
+          ? const Icon(Icons.music_note_outlined)
+          : isSelecting
+          ? Checkbox(
+              value: selected,
+              onChanged: (_) => onToggleSelection(track),
+            )
+          : IconButton.filledTonal(
+              tooltip: isPreparing
+                  ? strings.preparingPlayback
+                  : active
+                  ? strings.playing
+                  : strings.play,
+              onPressed: isPreparing
+                  ? null
+                  : () => onPlayTrack(track, index, tracks),
+              icon: isPreparing
+                  ? const SizedBox(
+                      width: 20,
+                      height: 20,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : Icon(active ? Icons.equalizer : Icons.play_arrow),
             ),
-          ),
-          subtitle: Text(
-            _trackSubtitle(track),
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-          ),
-          trailing: isReorderEditing
-              ? dragHandle
-              : isSelecting
-              ? null
-              : _TrackActions(controller: controller, list: list, track: track),
-          onTap: isReorderEditing
-              ? null
-              : isSelecting
-              ? () => onToggleSelection(track)
-              : isPreparing
-              ? null
-              : () => onPlayTrack(track, index, tracks),
-          onLongPress: isReorderEditing ? null : () => onStartSelection(track),
-        );
-      },
+      title: Text(
+        track.title,
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+        style: TextStyle(
+          fontWeight: active ? FontWeight.w700 : FontWeight.w500,
+          color: active ? Theme.of(context).colorScheme.primary : null,
+        ),
+      ),
+      subtitle: Text(
+        _trackSubtitle(track),
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+      ),
+      trailing: isReorderEditing
+          ? dragHandle
+          : isSelecting
+          ? null
+          : _TrackActions(controller: controller, list: list, track: track),
+      onTap: isReorderEditing
+          ? null
+          : isSelecting
+          ? () => onToggleSelection(track)
+          : isPreparing
+          ? null
+          : () => onPlayTrack(track, index, tracks),
+      onLongPress: isReorderEditing ? null : () => onStartSelection(track),
     );
   }
 }

@@ -1,3 +1,6 @@
+import 'package:ai_music/src/application/download_queue_controller.dart';
+import 'package:ai_music/src/presentation/date_groups.dart';
+import 'memory_download_history.dart';
 import 'dart:async';
 import 'dart:io';
 
@@ -479,6 +482,42 @@ void main() {
     expect(find.textContaining('已完成'), findsOneWidget);
   });
 
+  testWidgets(
+    'scrolling local songs does not create playback subscriptions per row',
+    (tester) async {
+      final cache = _FakeCacheStore(
+        cached: [
+          for (var i = 0; i < 80; i++)
+            CachedTrack(
+              cacheId: cacheIdForResolved(
+                _resolvedMusic(id: '$i', name: 'Song $i'),
+              ),
+              music: _resolvedMusic(id: '$i', name: 'Song $i'),
+              filePath: '/tmp/$i.mp3',
+              sizeBytes: 4,
+              fromCache: true,
+              cachedAt: DateTime.now(),
+            ),
+        ],
+      );
+      final controller = _CountingPlaybackController(cache);
+      await tester.pumpWidget(_app(playbackController: controller));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byTooltip('播放列表'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.textContaining('本地'));
+      await tester.pumpAndSettle();
+      final before = controller.subscriptions;
+      await tester.drag(
+        find.byType(CustomScrollView).last,
+        const Offset(0, -1300),
+      );
+      await tester.pumpAndSettle();
+      expect(controller.subscriptions, before);
+      expect(tester.takeException(), isNull);
+    },
+  );
+
   testWidgets('download manager can sort cached tracks', (tester) async {
     final older = CachedTrack(
       cacheId: cacheIdForResolved(_resolvedMusic(id: 'alpha', name: 'Alpha')),
@@ -486,7 +525,7 @@ void main() {
       filePath: '/tmp/alpha.mp3',
       sizeBytes: 4,
       fromCache: true,
-      cachedAt: DateTime(2026, 1, 1),
+      cachedAt: DateTime.now().subtract(const Duration(days: 1)),
     );
     final newer = CachedTrack(
       cacheId: cacheIdForResolved(_resolvedMusic(id: 'beta', name: 'Beta')),
@@ -494,7 +533,7 @@ void main() {
       filePath: '/tmp/beta.mp3',
       sizeBytes: 4,
       fromCache: true,
-      cachedAt: DateTime(2026, 1, 2),
+      cachedAt: DateTime.now(),
     );
     await tester.pumpWidget(
       _app(cacheStore: _FakeCacheStore(cached: [older, newer])),
@@ -518,6 +557,149 @@ void main() {
       tester.getTopLeft(find.text('Alpha')).dy,
       lessThan(tester.getTopLeft(find.text('Beta')).dy),
     );
+  });
+
+  testWidgets(
+    'recent tasks collapse and filter by date while active downloads stay visible',
+    (tester) async {
+      final now = DateTime.now();
+      final controller = MusicController(
+        audioHandler: MusicAudioHandler(),
+        downloadHistoryStore: MemoryDownloadHistory(),
+        resolver: _FakeMusicResolver(),
+        cacheStore: _FakeCacheStore(),
+        playlistStore: _FakePlaylistStore(),
+        settingsStore: _FakeSettingsStore(),
+        metadataRepository: _FakeMetadataRepository(),
+      );
+      controller.downloadQueue.tasks = [
+        DownloadTask(
+          id: 'today',
+          title: 'Today task',
+          subtitle: '',
+          status: DownloadTaskStatus.completed,
+          finishedAt: now,
+        ),
+        DownloadTask(
+          id: 'yesterday',
+          title: 'Yesterday task',
+          subtitle: '',
+          status: DownloadTaskStatus.failed,
+          finishedAt: DateTime(now.year, now.month, now.day - 1),
+        ),
+        const DownloadTask(
+          id: 'active',
+          title: 'Active task',
+          subtitle: '',
+          status: DownloadTaskStatus.resolving,
+        ),
+      ];
+      await tester.pumpWidget(_app(playbackController: controller));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 500));
+      await tester.tap(find.byTooltip('下载'));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 500));
+      expect(find.text('今天 · 下载 1 首'), findsOneWidget);
+      await tester.tap(find.text('今天 · 下载 1 首'));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 500));
+      expect(find.text('Today task'), findsNothing);
+      expect(find.text('Yesterday task'), findsOneWidget);
+      await tester.tap(find.byTooltip('按日期筛选'));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 500));
+      await tester.tap(find.text('选择一天'));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 500));
+      tester
+          .widget<CalendarDatePicker>(find.byType(CalendarDatePicker))
+          .onDateChanged(DateTime(now.year, now.month, now.day - 1));
+      await tester.pump();
+      await tester.tap(find.text('确定'));
+
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 500));
+      expect(find.text('今天 · 下载 1 首'), findsNothing);
+      expect(find.text('Yesterday task'), findsOneWidget);
+      expect(find.text('Active task'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    },
+  );
+
+  testWidgets('local dates group songs and search counts only visible songs', (
+    tester,
+  ) async {
+    final now = DateTime.now();
+    final cached = [
+      for (final entry in [
+        ('Alpha', now),
+        ('Beta', now),
+        ('Gamma', DateTime(now.year, now.month, now.day - 1)),
+      ])
+        CachedTrack(
+          cacheId: cacheIdForResolved(
+            _resolvedMusic(id: entry.$1, name: entry.$1),
+          ),
+          music: _resolvedMusic(id: entry.$1, name: entry.$1),
+          filePath: '/tmp/${entry.$1}.mp3',
+          sizeBytes: 4,
+          fromCache: true,
+          cachedAt: entry.$2,
+        ),
+    ];
+    await tester.pumpWidget(_app(cacheStore: _FakeCacheStore(cached: cached)));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byTooltip('播放列表'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.textContaining('本地'));
+    await tester.pumpAndSettle();
+    expect(find.text('今天 · 2 首'), findsOneWidget);
+    expect(find.text('昨天 · 1 首'), findsOneWidget);
+    await tester.tap(find.text('今天 · 2 首'));
+    await tester.pumpAndSettle();
+    expect(find.text('Alpha'), findsNothing);
+    expect(find.text('Beta'), findsNothing);
+    expect(find.text('Gamma'), findsOneWidget);
+    await tester.tap(find.text('今天 · 2 首'));
+    await tester.pumpAndSettle();
+    expect(find.text('Alpha'), findsOneWidget);
+    await tester.tap(find.byTooltip('按日期筛选'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('选择一天'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 500));
+    tester
+        .widget<CalendarDatePicker>(find.byType(CalendarDatePicker))
+        .onDateChanged(DateTime(now.year, now.month, now.day - 1));
+    await tester.pump();
+    await tester.tap(find.text('确定'));
+
+    await tester.pumpAndSettle();
+    expect(find.text('Alpha'), findsNothing);
+    expect(find.text('Gamma'), findsOneWidget);
+    await tester.tap(find.byTooltip('按日期筛选'));
+    await tester.pumpAndSettle();
+    await tester.tap(
+      find.ancestor(
+        of: find.text('全部日期').last,
+        matching: find.byType(PopupMenuItem<String>),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.enterText(find.byType(TextField).last, 'Alpha');
+    await tester.pumpAndSettle();
+    expect(find.text('今天 · 1 首'), findsOneWidget);
+    expect(find.text('昨天 · 1 首'), findsNothing);
+    expect(find.text('Beta'), findsNothing);
+    await tester.enterText(find.byType(TextField).last, '');
+    await tester.pumpAndSettle();
+    await tester.tap(find.byTooltip('排序'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('首字母').last);
+    await tester.pumpAndSettle();
+    expect(find.byType(DateGroupHeader), findsNothing);
   });
 
   testWidgets('download manager filters cached tracks by search text', (
@@ -2107,6 +2289,7 @@ Widget _app({
   final controller =
       playbackController ??
       MusicController(
+        downloadHistoryStore: MemoryDownloadHistory(),
         audioHandler: audioHandler ?? MusicAudioHandler(),
         resolver: resolver ?? _FakeMusicResolver(),
         cacheStore: cacheStore ?? _FakeCacheStore(),
@@ -2138,6 +2321,7 @@ Widget _app({
 class _ControlledPlaybackController extends MusicController {
   _ControlledPlaybackController(_FakePlaylistStore playlists)
     : super(
+        downloadHistoryStore: MemoryDownloadHistory(),
         audioHandler: MusicAudioHandler(),
         resolver: _FakeMusicResolver(),
         cacheStore: _FakeCacheStore(),
@@ -2164,6 +2348,7 @@ class _ControlledPlaybackController extends MusicController {
 class _SwipePlaybackController extends MusicController {
   _SwipePlaybackController(_WidgetAudioHandler handler)
     : super(
+        downloadHistoryStore: MemoryDownloadHistory(),
         audioHandler: handler,
         resolver: _FakeMusicResolver(),
         cacheStore: _FakeCacheStore(),
@@ -2197,6 +2382,7 @@ class _RecordingPlaylistDownloadController extends MusicController {
     _HomeLibraryFixture fixture, {
     required this.wifi,
   }) : super(
+         downloadHistoryStore: MemoryDownloadHistory(),
          audioHandler: MusicAudioHandler(),
          resolver: _FakeMusicResolver(),
          cacheStore: fixture.cacheStore,
@@ -2618,4 +2804,25 @@ ResolvedMusic _resolvedMusic({
     url: 'https://cdn.example.test/$id.mp3',
     quality: const MusicQuality(format: 'mp3'),
   );
+}
+
+class _CountingPlaybackController extends MusicController {
+  _CountingPlaybackController(_FakeCacheStore cache)
+    : super(
+        audioHandler: MusicAudioHandler(),
+        downloadHistoryStore: MemoryDownloadHistory(),
+        resolver: _FakeMusicResolver(),
+        cacheStore: cache,
+        playlistStore: _FakePlaylistStore(),
+        settingsStore: _FakeSettingsStore(),
+        metadataRepository: _FakeMetadataRepository(),
+      );
+  int subscriptions = 0;
+  late final _countedStream = Stream<MediaItem?>.multi((sink) {
+    subscriptions++;
+    final sub = super.mediaItemStream.listen(sink.add);
+    sink.onCancel = sub.cancel;
+  }, isBroadcast: true);
+  @override
+  Stream<MediaItem?> get mediaItemStream => _countedStream;
 }
