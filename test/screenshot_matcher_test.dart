@@ -51,7 +51,7 @@ void main() {
     expect(resolver.resolveCount, 0);
   });
 
-  test('when artist cannot match, select first source result', () async {
+  test('artist conflicts are selected with a warning', () async {
     final resolver = _StagedResolver(
       primary: (_) async => [candidate('稻香', '甲'), candidate('稻香', '乙')],
       fallback: (_, _) async => fail('nonempty primary must stop fallback'),
@@ -61,11 +61,12 @@ void main() {
       wait: (_) async {},
     ).match(draft);
 
-    expect(match.recommended, same(match.candidates.first));
+    expect(match.recommended, isNotNull);
+    expect(match.needsReview, isTrue);
     expect(resolver.resolveCount, 0);
   });
 
-  test('unknown artist still searches the title and selects first', () async {
+  test('unknown artist is selected with a warning', () async {
     final resolver = _StagedResolver(
       primary: (_) async => [candidate('稻香', '周杰伦')],
       fallback: (_, _) async => fail('nonempty primary must stop fallback'),
@@ -75,7 +76,8 @@ void main() {
       wait: (_) async {},
     ).match(draft.copyWith(artist: ''));
 
-    expect(match.recommended, same(match.candidates.first));
+    expect(match.recommended, isNotNull);
+    expect(match.needsReview, isTrue);
     expect(resolver.primaryCalls, 1);
     expect(resolver.resolveCount, 0);
   });
@@ -122,6 +124,255 @@ void main() {
     expect((await matcher.match(draft)).candidates, hasLength(12));
   });
 
+  test(
+    'real OCR typo recalls title fragments and ranks the actual song first',
+    () async {
+      final queries = <String>[];
+      final resolver = _StagedResolver(
+        primary: (query) async {
+          queries.add(query);
+          return query == '风吹'
+              ? [
+                  candidate('贝加尔湖畔', '李健'),
+                  candidate('风吹麦浪 (Live)', '李健'),
+                  candidate('风吹麦浪', '李健'),
+                ]
+              : [];
+        },
+        fallback: (_, _) async => [],
+      );
+      final match = await ScreenshotMatcher(
+        resolver: resolver,
+        wait: (_) async {},
+      ).match(draft.copyWith(title: '风吹表浪', artist: '季健'));
+      expect(queries, ['风吹表浪', '风吹', '表浪']);
+      expect(match.candidates.first.name, '风吹麦浪');
+      expect(match.candidates.first.artist, '李健');
+      expect(match.recommended, same(match.candidates.first));
+      expect(resolver.resolveCount, 0);
+    },
+  );
+
+  test(
+    'same artist wrong song and wrong version are selected with a warning',
+    () async {
+      for (final wrong in [
+        candidate('晴天', '周杰伦'),
+        candidate('稻香 (Live)', '周杰伦'),
+      ]) {
+        final resolver = _StagedResolver(
+          primary: (_) async => [wrong],
+          fallback: (_, _) async => [],
+        );
+        final result = await ScreenshotMatcher(
+          resolver: resolver,
+          wait: (_) async {},
+        ).match(draft);
+        expect(result.candidates, contains(wrong));
+        expect(result.recommended, isNotNull);
+        expect(result.needsReview, isTrue);
+      }
+    },
+  );
+
+  test('a correct title beats an unrelated exact artist result', () async {
+    final right = candidate('风吹麦浪', '李健');
+    final resolver = _StagedResolver(
+      primary: (_) async => [candidate('传奇', '季健'), right],
+      fallback: (_, _) async => [],
+    );
+    final result = await ScreenshotMatcher(
+      resolver: resolver,
+      wait: (_) async {},
+    ).match(draft.copyWith(title: '风吹表浪', artist: '季健'));
+    expect(result.candidates.first, same(right));
+    expect(result.recommended, same(right));
+  });
+
+  test(
+    'clear single-field OCR corrections are automatically selected',
+    () async {
+      for (final input in [
+        draft.copyWith(title: '青花磁'),
+        draft.copyWith(title: '青花瓷', artist: '周杰仑'),
+      ]) {
+        final right = candidate('青花瓷', '周杰伦');
+        final resolver = _StagedResolver(
+          primary: (_) async => [candidate('七里香', '周杰伦'), right],
+          fallback: (_, _) async => [],
+        );
+        final match = await ScreenshotMatcher(
+          resolver: resolver,
+          wait: (_) async {},
+        ).match(input);
+        expect(match.recommended, same(right));
+      }
+    },
+  );
+
+  test(
+    'close alternative song or artist still requires confirmation',
+    () async {
+      for (final alternatives in [
+        [candidate('风吹麦浪', '李健'), candidate('风吹海浪', '李健')],
+        [candidate('风吹麦浪', '李健'), candidate('风吹麦浪', '张健')],
+      ]) {
+        final resolver = _StagedResolver(
+          primary: (_) async => alternatives,
+          fallback: (_, _) async => [],
+        );
+        final match = await ScreenshotMatcher(
+          resolver: resolver,
+          wait: (_) async {},
+        ).match(draft.copyWith(title: '风吹表浪', artist: '季健'));
+        expect(match.recommended, isNotNull);
+        expect(match.needsReview, isTrue);
+      }
+    },
+  );
+
+  test(
+    'short title correction is not enough evidence for automatic selection',
+    () async {
+      final resolver = _StagedResolver(
+        primary: (_) async => [candidate('稻香', '周杰伦')],
+        fallback: (_, _) async => [],
+      );
+      final match = await ScreenshotMatcher(
+        resolver: resolver,
+        wait: (_) async {},
+      ).match(draft.copyWith(title: '稻向'));
+      expect(match.recommended, isNotNull);
+      expect(match.needsReview, isTrue);
+    },
+  );
+
+  test(
+    'multiple sources of one corrected identity do not require confirmation',
+    () async {
+      final song = candidate('风吹麦浪', '李健');
+      final match = await ScreenshotMatcher(
+        resolver: _ManyResolver(song),
+        wait: (_) async {},
+      ).match(draft.copyWith(title: '风吹表浪', artist: '季健'));
+      expect(match.recommended, same(song));
+    },
+  );
+
+  test(
+    'real soundtrack annotations match the title and genuine artist',
+    () async {
+      for (final sample in [
+        ('龙猫(《龙猫》)', '贵族乐团', '龙猫-选自《龙猫》'),
+        ('萱草花(电影《你好,李焕英》主题曲)', '张小斐', '萱草花-《你好，李焕英》电影主题曲'),
+        ('萱草花 (哼唱版) (电影《你好,李煥英..', '张小斐', '萱草花(哼唱版)'),
+      ]) {
+        final right = candidate(sample.$3, sample.$2);
+        final resolver = _StagedResolver(
+          primary: (_) async => [candidate('萱草花-电影《你好，李焕英》主题曲', '窦颖'), right],
+          fallback: (_, _) async => [],
+        );
+        final result = await ScreenshotMatcher(
+          resolver: resolver,
+          wait: (_) async {},
+        ).match(draft.copyWith(title: sample.$1, artist: sample.$2));
+        expect(result.recommended, same(right));
+      }
+    },
+  );
+
+  test(
+    'humming version does not automatically become vocal or a title credit',
+    () async {
+      final resolver = _StagedResolver(
+        primary: (_) async => [
+          candidate('萱草花', '张小斐'),
+          candidate('萱草花(哼唱版)《你好，李焕英》电影主题曲 - 张小斐', '千与'),
+        ],
+        fallback: (_, _) async => [],
+      );
+      final result = await ScreenshotMatcher(
+        resolver: resolver,
+        wait: (_) async {},
+      ).match(draft.copyWith(title: '萱草花 (哼唱版) (电影《你好,李煥英..', artist: '张小斐'));
+      expect(result.recommended, isNotNull);
+      expect(result.needsReview, isTrue);
+    },
+  );
+
+  test(
+    'soundtrack annotation is removed from the actual search query',
+    () async {
+      final queries = <String>[];
+      final resolver = _StagedResolver(
+        primary: (query) async {
+          queries.add(query);
+          return [candidate('龙猫', '贵族乐团')];
+        },
+        fallback: (_, _) async => [],
+      );
+      await ScreenshotMatcher(
+        resolver: resolver,
+        wait: (_) async {},
+      ).match(draft.copyWith(title: '龙猫(《龙猫》)', artist: '贵族乐团'));
+      expect(queries, ['龙猫']);
+    },
+  );
+
+  test(
+    'user examples prefer matching artists even when lullaby version is unavailable',
+    () async {
+      for (final sample in [
+        ('幸攝拍手歌(哄睡版)', '贝乐虎し歌', '幸福拍手歌', '贝乐虎儿歌'),
+        ('春天在哪里(吹睡版)', 'し歌多多', '春天在哪里', '儿歌多多'),
+        ('大风车(哄睡版)', '贝乐虎し歌', '大风车', '贝乐虎儿歌'),
+      ]) {
+        final right = candidate(sample.$3, sample.$4);
+        final resolver = _StagedResolver(
+          primary: (_) async => [
+            candidate('${sample.$3}(英文版)', '经典双语儿歌'),
+            candidate('${sample.$3}（哄睡版）', '红苹果姐姐'),
+            right,
+          ],
+          fallback: (_, _) async => [],
+        );
+        final result = await ScreenshotMatcher(
+          resolver: resolver,
+          wait: (_) async {},
+        ).match(draft.copyWith(title: sample.$1, artist: sample.$2));
+        expect(result.recommended, same(right));
+        expect(result.needsReview, isTrue);
+      }
+    },
+  );
+
+  test('exact song and version is selected without a warning', () async {
+    final resolver = _StagedResolver(
+      primary: (_) async => [candidate('稻香', '周杰伦')],
+      fallback: (_, _) async => [],
+    );
+    final match = await ScreenshotMatcher(
+      resolver: resolver,
+      wait: (_) async {},
+    ).match(draft);
+    expect(match.recommended, isNotNull);
+    expect(match.needsReview, isFalse);
+  });
+
+  test('fallback cache separates same title with different artists', () async {
+    final resolver = _StagedResolver(
+      primary: (_) async => [],
+      fallback: (title, artist) async => [candidate(title, artist)],
+    );
+    final matcher = ScreenshotMatcher(resolver: resolver, wait: (_) async {});
+    expect((await matcher.match(draft)).recommended?.artist, '周杰伦');
+    expect(
+      (await matcher.match(draft.copyWith(artist: '另一人'))).recommended?.artist,
+      '另一人',
+    );
+    expect(resolver.fallbackCalls, 2);
+  });
+
   test('429 opens a source circuit for later screenshot rows', () async {
     final resolver = _StagedResolver(
       primary: (_) async => throw Exception('buguyy HTTP 429'),
@@ -131,8 +382,8 @@ void main() {
 
     expect((await matcher.match(draft)).recommended, isNotNull);
     expect(
-      (await matcher.match(draft.copyWith(title: '晴天'))).recommended,
-      isNotNull,
+      (await matcher.match(draft.copyWith(title: '晴天'))).needsReview,
+      isTrue,
     );
     expect(resolver.primaryCalls, 1);
     expect(resolver.fallbackCalls, 2);

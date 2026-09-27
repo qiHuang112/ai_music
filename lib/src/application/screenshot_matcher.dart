@@ -13,17 +13,33 @@ class ScreenshotMatchPolicy {
   }
 
   static String _base(String value) => _normal(
-    value.replaceAll(
+    _withoutContext(value).replaceAll(
       RegExp(
-        r'[（(]?\s*(?:live|现场(?:版)?|remix|混音(?:版)?|伴奏|翻唱|cover|纯音乐|instrumental|demo|acoustic)\s*[）)]?',
+        r'[（(]?\s*(?:live|现场(?:版)?|remix|混音(?:版)?|伴奏|翻唱|cover|纯音乐|instrumental|demo|acoustic|哼唱(?:版)?|钢琴版|[哄吹]睡版|英文版|中文版)\s*[）)]?',
         caseSensitive: false,
       ),
       '',
     ),
   );
 
+  static String _withoutContext(String value) {
+    // Strip only a trailing soundtrack/work annotation, not arbitrary subtitles.
+    // The OCR may truncate it before the closing bracket.
+    final annotation = RegExp(
+      r'\s*(?:[（(]\s*(?:电影|电视剧|动画|选自《|《)|[-—]\s*(?:电影|电视剧|动画|选自《|《)|《)',
+    ).firstMatch(value);
+    return annotation != null && annotation.start > 0
+        ? value.substring(0, annotation.start).trim()
+        : value;
+  }
+
   static String _version(String title, String explicit) {
     final value = '$title $explicit'.toLowerCase();
+    if (RegExp(r'[哄吹]睡版').hasMatch(value)) return 'lullaby';
+    if (RegExp(r'英文版').hasMatch(value)) return 'english';
+    if (RegExp(r'中文版').hasMatch(value)) return 'chinese';
+    if (RegExp(r'哼唱|humming').hasMatch(value)) return 'humming';
+    if (RegExp(r'钢琴版').hasMatch(value)) return 'piano';
     if (RegExp(r'live|现场').hasMatch(value)) return 'live';
     if (RegExp(r'remix|混音').hasMatch(value)) return 'remix';
     if (RegExp(r'伴奏|instrumental').hasMatch(value)) return 'instrumental';
@@ -41,10 +57,15 @@ class ScreenshotMatchPolicy {
 }
 
 class ScreenshotMatchResult {
-  const ScreenshotMatchResult(this.candidates, this.recommended);
+  const ScreenshotMatchResult(
+    this.candidates,
+    this.recommended, {
+    this.needsReview = false,
+  });
 
   final List<MusicSearchCandidate> candidates;
   final MusicSearchCandidate? recommended;
+  final bool needsReview;
 }
 
 class ScreenshotMatcher {
@@ -79,11 +100,12 @@ class ScreenshotMatcher {
     }
     if (resolver is! StagedScreenshotSearchResolver) {
       final candidates = await search(draft);
-      return ScreenshotMatchResult(candidates, _recommend(draft, candidates));
+      return _rank(draft, candidates);
     }
     final staged = resolver as StagedScreenshotSearchResolver;
 
-    final key = draft.title.trim().toLowerCase();
+    final query = ScreenshotMatchPolicy._withoutContext(draft.title).trim();
+    final key = query.toLowerCase();
     Object? primaryFailure;
     List<MusicSearchCandidate> primary;
     try {
@@ -92,27 +114,25 @@ class ScreenshotMatcher {
         cache: _primaryCache,
         inFlight: _primaryInFlight,
         source: MusicDataSource.buguyy.storageValue,
-        action: () => staged.searchScreenshotPrimary(draft.title),
+        action: () => staged.searchScreenshotPrimary(query),
       );
     } catch (error) {
       primaryFailure = error;
       primary = const [];
     }
-    if (primary.isNotEmpty) {
-      return ScreenshotMatchResult(primary, _recommend(draft, primary));
-    }
+    if (_hasTitleMatch(draft, primary)) return _rank(draft, primary);
 
     List<MusicSearchCandidate> fallback;
     try {
       fallback = await _stageSearch(
-        key: key,
+        key: '$key\u001f${draft.artist.trim().toLowerCase()}',
         cache: _fallbackCache,
         inFlight: _fallbackInFlight,
         source: MusicDataSource.flac.storageValue,
-        action: () =>
-            staged.searchScreenshotFallback(draft.title, draft.artist),
+        action: () => staged.searchScreenshotFallback(query, draft.artist),
       );
     } catch (_) {
+      if (primary.isNotEmpty) return _rank(draft, primary);
       if (primaryFailure != null) throw primaryFailure;
       rethrow;
     }
@@ -121,7 +141,40 @@ class ScreenshotMatcher {
         failOnSourceErrorWhenEmpty) {
       throw primaryFailure;
     }
-    return ScreenshotMatchResult(fallback, _recommend(draft, fallback));
+    final combined = [...primary, ...fallback];
+    // Bounded fragment recall: never invent a corrected name or search an
+    // artist's entire catalogue. Reuse source pacing, caches and protection.
+    final title = ScreenshotMatchPolicy._base(draft.title);
+    if (!_hasTitleMatch(draft, combined) &&
+        RegExp(r'^[\u4e00-\u9fff]{4,12}$').hasMatch(title)) {
+      final size = (title.length / 2).ceil();
+      for (final fragment in {
+        title.substring(0, size),
+        title.substring(title.length - size),
+      }) {
+        try {
+          combined.addAll(
+            await _stageSearch(
+              key: fragment,
+              cache: _primaryCache,
+              inFlight: _primaryInFlight,
+              source: MusicDataSource.buguyy.storageValue,
+              action: () => staged.searchScreenshotPrimary(fragment),
+            ),
+          );
+        } catch (_) {
+          // Existing candidates remain available when supplemental recall fails.
+        }
+      }
+    }
+    final seen = <String>{};
+    return _rank(draft, [
+      for (final candidate in combined)
+        if (seen.add(
+          '${candidate.source.storageValue}|${candidate.platform}|${candidate.id}',
+        ))
+          candidate,
+    ]);
   }
 
   Future<List<MusicSearchCandidate>> _stageSearch({
@@ -159,33 +212,125 @@ class ScreenshotMatcher {
     caseSensitive: false,
   ).hasMatch(error.toString());
 
-  MusicSearchCandidate? _recommend(
+  static double _similarity(String a, String b) {
+    if (a.isEmpty || b.isEmpty) return 0;
+    var previous = List<int>.generate(b.length + 1, (i) => i);
+    for (var i = 1; i <= a.length; i++) {
+      final current = <int>[i];
+      for (var j = 1; j <= b.length; j++) {
+        final substitution = previous[j - 1] + (a[i - 1] == b[j - 1] ? 0 : 1);
+        final deletion = previous[j] + 1;
+        final insertion = current[j - 1] + 1;
+        current.add(
+          [substitution, deletion, insertion].reduce((x, y) => x < y ? x : y),
+        );
+      }
+      previous = current;
+    }
+    return 1 - previous.last / (a.length > b.length ? a.length : b.length);
+  }
+
+  static double _titleSimilarity(
+    ScreenshotSongDraft draft,
+    MusicSearchCandidate candidate,
+  ) => _similarity(
+    ScreenshotMatchPolicy._base(draft.title),
+    ScreenshotMatchPolicy._base(candidate.name),
+  );
+
+  static bool _hasTitleMatch(
+    ScreenshotSongDraft draft,
+    List<MusicSearchCandidate> candidates,
+  ) => candidates.any((candidate) => _titleSimilarity(draft, candidate) >= 0.7);
+
+  ScreenshotMatchResult _rank(
     ScreenshotSongDraft draft,
     List<MusicSearchCandidate> candidates,
   ) {
-    if (candidates.isEmpty) return null;
     final artist = ScreenshotMatchPolicy._normal(draft.artist);
-    if (artist.isNotEmpty) {
-      for (final candidate in candidates) {
-        if (ScreenshotMatchPolicy._normal(candidate.artist) == artist) {
-          return candidate;
-        }
-      }
-      if (artist.length >= 2) {
-        for (final candidate in candidates) {
-          if (ScreenshotMatchPolicy._normal(
-            candidate.artist,
-          ).contains(artist)) {
-            return candidate;
-          }
-        }
-      }
+    final version = ScreenshotMatchPolicy._version(draft.title, draft.version);
+    bool sameVersion(MusicSearchCandidate candidate) =>
+        version == ScreenshotMatchPolicy._version(candidate.name, '');
+    bool exact(MusicSearchCandidate candidate) =>
+        _titleSimilarity(draft, candidate) == 1 &&
+        artist.isNotEmpty &&
+        artist == ScreenshotMatchPolicy._normal(candidate.artist) &&
+        sameVersion(candidate);
+    double score(MusicSearchCandidate candidate) {
+      final title = _titleSimilarity(draft, candidate);
+      // Title is the identity gate. Artist similarity cannot promote a different song.
+      return (exact(candidate) ? 1000 : 0) +
+          title * 100 +
+          (title >= 2 / 3
+              ? _similarity(
+                      artist,
+                      ScreenshotMatchPolicy._normal(candidate.artist),
+                    ) *
+                    50
+              : 0) +
+          (sameVersion(candidate) ? 5 : -20);
     }
-    return candidates.first;
+
+    final indexed = candidates.indexed.toList()
+      ..sort((a, b) {
+        final order = score(b.$2).compareTo(score(a.$2));
+        return order == 0 ? a.$1.compareTo(b.$1) : order;
+      });
+    final ranked = [for (final entry in indexed) entry.$2];
+
+    bool oneWrongCharacter(String a, String b, {required int minimumLength}) {
+      if (a.length < minimumLength || a.length != b.length) return false;
+      var differences = 0;
+      for (var i = 0; i < a.length; i++) {
+        if (a[i] != b[i]) differences++;
+      }
+      return differences == 1;
+    }
+
+    String identity(MusicSearchCandidate candidate) =>
+        '${ScreenshotMatchPolicy._base(candidate.name)}|${ScreenshotMatchPolicy._normal(candidate.artist)}|${ScreenshotMatchPolicy._version(candidate.name, '')}';
+
+    bool confidentCorrection(MusicSearchCandidate candidate) {
+      if (!sameVersion(candidate) || artist.isEmpty) return false;
+      final title = ScreenshotMatchPolicy._base(draft.title);
+      final foundTitle = ScreenshotMatchPolicy._base(candidate.name);
+      final foundArtist = ScreenshotMatchPolicy._normal(candidate.artist);
+      final titleExact = title == foundTitle;
+      final artistExact = artist == foundArtist;
+      final titleClose = oneWrongCharacter(
+        title,
+        foundTitle,
+        minimumLength: artistExact ? 3 : 4,
+      );
+      final artistClose = oneWrongCharacter(
+        artist,
+        foundArtist,
+        minimumLength: 2,
+      );
+      if (!(titleExact || titleClose) || !(artistExact || artistClose)) {
+        return false;
+      }
+      // Duplicate sources for the same song are not competing identities.
+      // A close alternative song/artist must still be confirmed by the user.
+      return !ranked.any(
+        (other) =>
+            sameVersion(other) &&
+            identity(other) != identity(candidate) &&
+            score(candidate) - score(other) < 12,
+      );
+    }
+
+    return ScreenshotMatchResult(
+      ranked,
+      ranked.isEmpty ? null : ranked.first,
+      needsReview:
+          ranked.isNotEmpty &&
+          !(exact(ranked.first) || confidentCorrection(ranked.first)),
+    );
   }
 
   Future<List<MusicSearchCandidate>> search(ScreenshotSongDraft draft) async {
-    final query = draft.title.trim();
+    final query = ScreenshotMatchPolicy._withoutContext(draft.title).trim();
     if (query.isEmpty) return const [];
     final key = '$query\u001f${draft.artist.trim()}';
     return _stageSearch(

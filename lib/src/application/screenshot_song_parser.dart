@@ -65,6 +65,15 @@ class ScreenshotSongParser {
         }
         continue;
       }
+      final unnumberedPlaylist = _unnumberedPlaylistRows(imageId, ordered);
+      if (unnumberedPlaylist != null) {
+        for (final draft in unnumberedPlaylist) {
+          final key =
+              '${_normal(draft.title)}|${_normal(draft.artist)}|${_normal(draft.version)}';
+          if (draft.artist.isEmpty || seen.add(key)) songs.add(draft);
+        }
+        continue;
+      }
       final heights = [
         for (final line in ordered)
           if (line.bounds.height > 0) line.bounds.height,
@@ -108,6 +117,94 @@ class ScreenshotSongParser {
       }
     }
     return songs;
+  }
+
+  List<ScreenshotSongDraft>? _unnumberedPlaylistRows(
+    String imageId,
+    List<ScreenshotTextLine> lines,
+  ) {
+    final headers = [
+      for (final line in lines)
+        if (RegExp(r'^[|｜丨\s]*\d{1,4}\s*首').hasMatch(line.text.trim())) line,
+    ];
+    if (headers.isEmpty) return null;
+    final header = headers.first;
+    final imageWidth = lines
+        .map((line) => line.bounds.right)
+        .reduce((a, b) => a > b ? a : b);
+    final footer = [
+      for (final line in lines)
+        if (line.bounds.top > header.bounds.bottom &&
+            RegExp(r'登录获取|去登录').hasMatch(line.text))
+          line.bounds.top,
+    ];
+    final end = footer.isEmpty
+        ? double.infinity
+        : footer.reduce((a, b) => a < b ? a : b);
+    final rows = <ScreenshotSongDraft>[];
+    final usedTitles = <ScreenshotTextLine>{};
+    for (final subtitle in lines) {
+      if (subtitle.bounds.top <= header.bounds.bottom ||
+          subtitle.bounds.top >= end ||
+          subtitle.bounds.left < imageWidth * 0.12 ||
+          subtitle.bounds.left > imageWidth * 0.4 ||
+          subtitle.text.trim().endsWith('添加') ||
+          !RegExp(r'[-—]').hasMatch(subtitle.text)) {
+        continue;
+      }
+      final possibleTitles = [
+        for (final title in lines)
+          if (!usedTitles.contains(title) &&
+              title.bounds.top > header.bounds.bottom &&
+              title.bounds.bottom <= subtitle.bounds.top + 5 &&
+              subtitle.bounds.top - title.bounds.bottom <= 90 &&
+              title.bounds.height >= subtitle.bounds.height * 0.8 &&
+              ((title.bounds.left - subtitle.bounds.left).abs() <= 65 ||
+                  (title.bounds.left < subtitle.bounds.left &&
+                      title.bounds.right >= subtitle.bounds.left)) &&
+              !_isChrome(_clean(title.text)) &&
+              !title.text.trim().endsWith('添加') &&
+              !RegExp(r'^\d+$').hasMatch(title.text.trim()))
+            title,
+      ]..sort((a, b) => b.bounds.bottom.compareTo(a.bounds.bottom));
+      if (possibleTitles.isEmpty) continue;
+      final titleLine = possibleTitles.first;
+      final artist = _artistFromPlaylistSubtitle(subtitle.text);
+      if (artist.isEmpty) continue;
+      var title = _clean(titleLine.text);
+      // OCR can merge tiny cover-art letters into a title at the song column.
+      if (titleLine.bounds.left < imageWidth * 0.12 &&
+          subtitle.bounds.left > imageWidth * 0.15) {
+        title = title.replaceFirst(
+          RegExp(r'^[a-z]{1,2}(?=[\u4e00-\u9fff])'),
+          '',
+        );
+      }
+      if (title.isEmpty) continue;
+      usedTitles.add(titleLine);
+      rows.add(
+        ScreenshotSongDraft(
+          imageId: imageId,
+          row: rows.length,
+          title: title,
+          artist: artist,
+          version: _version(title),
+          rawText: '${titleLine.text}\n${subtitle.text}',
+        ),
+      );
+    }
+    // A recognised playlist layout must never fall back to guessing every
+    // UI/attribution line as a song, even if no complete rows are visible.
+    return rows;
+  }
+
+  static String _artistFromPlaylistSubtitle(String text) {
+    final withoutBadge = text.trim().replaceFirst(
+      RegExp(r'^.{0,10}?母[带帶制]?[\s)）\]】]*'),
+      '',
+    );
+    final artist = withoutBadge.split(RegExp(r'\s*[-—]\s*')).first.trim();
+    return artist.isEmpty || _isChrome(artist) ? '' : artist;
   }
 
   List<ScreenshotSongDraft>? _numberedRows(
@@ -196,8 +293,11 @@ class ScreenshotSongParser {
     return cleaned.split(RegExp(r'[·・•]')).first.trim();
   }
 
-  static String _clean(String value) =>
-      value.trim().replaceFirst(RegExp(r'^\s*\d{1,3}[.、\s]+'), '').trim();
+  static String _clean(String value) => value
+      .trim()
+      .replaceFirst(RegExp(r'^[|｜丨]+(?=[\u4e00-\u9fff])'), '')
+      .replaceFirst(RegExp(r'^\s*\d{1,3}[.、\s]+'), '')
+      .trim();
 
   static bool _isChrome(String value) {
     if (value.isEmpty || RegExp(r'^\d{1,2}:\d{2}$').hasMatch(value)) {

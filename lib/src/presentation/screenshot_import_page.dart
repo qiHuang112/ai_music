@@ -54,6 +54,7 @@ class _ImportRow {
   List<MusicSearchCandidate> candidates = const [];
   MusicSearchCandidate? selected;
   MusicSearchCandidate? recommended;
+  bool needsReview = false;
   bool searching = false;
   bool expanded = false;
   bool searched = false;
@@ -270,14 +271,23 @@ class _ScreenshotImportPageState extends State<ScreenshotImportPage> {
         ? (zh
               ? '未勾选 · 候选 ${row.candidates.length} 首'
               : 'Not selected · ${row.candidates.length} choices')
+        : row.candidates.isNotEmpty
+        ? (zh ? '待确认 · 点击展开候选' : 'Confirm a match · tap to expand')
         : row.searching
         ? (zh ? '正在搜索' : 'Searching')
+        : row.error != null
+        ? (zh ? '搜索失败' : 'Search failed')
         : row.searched
         ? (zh ? '未搜到' : 'No results')
         : (zh ? '未搜索' : 'Not searched');
     return Column(
       children: [
         ListTile(
+          tileColor: row.selected != null && row.needsReview
+              ? Theme.of(
+                  context,
+                ).colorScheme.tertiaryContainer.withValues(alpha: 0.4)
+              : null,
           leading: Semantics(
             label: zh ? '选择 ${draft.title}' : 'Select ${draft.title}',
             child: Checkbox(
@@ -294,7 +304,9 @@ class _ScreenshotImportPageState extends State<ScreenshotImportPage> {
             '${draft.artist.isEmpty ? (zh ? '未识别歌手' : 'Artist unknown') : draft.artist}'
             '${draft.version.isEmpty ? '' : ' · ${draft.version}'}'
             ' · ${zh ? '图' : 'Image '}${imageIndex + 1}'
-            '${status.isEmpty ? '' : '\n$status'}',
+            '${status.isEmpty ? '' : '\n$status'}'
+            '${row.selected != null && row.needsReview ? (zh ? '\n⚠ 需核对 · 匹配把握较低或版本不同' : '\n⚠ Check match · uncertain identity or version') : ''}'
+            '${row.selected == null ? '' : '\n${zh ? '已选资源' : 'Selected resource'}：${row.selected!.name} / ${row.selected!.artist}'}',
           ),
           onTap: row.candidates.isNotEmpty
               ? () => setState(() => row.expanded = !row.expanded)
@@ -435,9 +447,13 @@ class _ScreenshotImportPageState extends State<ScreenshotImportPage> {
       row.candidates = const [];
       row.selected = null;
       row.recommended = null;
+      row.needsReview = false;
     });
     try {
-      final match = await _matcher.match(row.draft);
+      final match = await _matcher.match(
+        row.draft,
+        failOnSourceErrorWhenEmpty: true,
+      );
       if (!mounted || !_rows.contains(row) || row.request != request) {
         return false;
       }
@@ -445,6 +461,7 @@ class _ScreenshotImportPageState extends State<ScreenshotImportPage> {
         row.candidates = match.candidates;
         row.recommended = match.recommended;
         row.selected = match.recommended;
+        row.needsReview = match.needsReview;
       });
       return true;
     } catch (error) {
@@ -472,6 +489,7 @@ class _ScreenshotImportPageState extends State<ScreenshotImportPage> {
       row.error = null;
       row.recommended = candidate;
       row.selected = candidate;
+      row.needsReview = false;
     });
   }
 

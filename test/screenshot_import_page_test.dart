@@ -29,80 +29,78 @@ void main() {
     ]);
   });
 
-  testWidgets(
-    'OCR verification selects valid matches and edit refreshes one song',
-    (tester) async {
-      final root = await tester.runAsync(
-        () => Directory.systemTemp.createTemp('screenshot_import_'),
-      );
-      if (root == null) fail('could not create test image directory');
-      final image = File('${root.path}/shot.png');
-      await tester.runAsync(
-        () => image.writeAsBytes(
-          base64Decode(
-            'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQIHWP4'
-            'z8DwHwAFgAI/ScL/nwAAAABJRU5ErkJggg==',
+  testWidgets('OCR typo needs confirmation and editing refreshes one song', (
+    tester,
+  ) async {
+    final root = await tester.runAsync(
+      () => Directory.systemTemp.createTemp('screenshot_import_'),
+    );
+    if (root == null) fail('could not create test image directory');
+    final image = File('${root.path}/shot.png');
+    await tester.runAsync(
+      () => image.writeAsBytes(
+        base64Decode(
+          'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQIHWP4'
+          'z8DwHwAFgAI/ScL/nwAAAABJRU5ErkJggg==',
+        ),
+      ),
+    );
+    final handler = MusicAudioHandler();
+    final controller = MusicController(audioHandler: handler);
+    final resolver = _Resolver();
+    try {
+      await tester.pumpWidget(
+        MaterialApp(
+          home: ScreenshotImportPage(
+            controller: controller,
+            ocr: _Ocr(),
+            openPickerOnStart: true,
+            pickImages: () async => [XFile(image.path)],
+            matcher: ScreenshotMatcher(resolver: resolver, wait: (_) async {}),
           ),
         ),
       );
-      final handler = MusicAudioHandler();
-      final controller = MusicController(audioHandler: handler);
-      final resolver = _Resolver();
-      try {
-        await tester.pumpWidget(
-          MaterialApp(
-            home: ScreenshotImportPage(
-              controller: controller,
-              ocr: _Ocr(),
-              openPickerOnStart: true,
-              pickImages: () async => [XFile(image.path)],
-              matcher: ScreenshotMatcher(
-                resolver: resolver,
-                wait: (_) async {},
-              ),
-            ),
-          ),
-        );
-        await tester.pumpAndSettle();
+      await tester.pumpAndSettle();
 
-        expect(find.text('稻向'), findsOneWidget);
-        expect(find.text('已选 1 首'), findsOneWidget);
-        expect(find.textContaining('周杰伦 · 图1'), findsOneWidget);
-        expect(resolver.queries, ['稻向']);
-        expect(find.text('一键匹配推荐项'), findsNothing);
+      expect(find.text('稻向'), findsOneWidget);
+      expect(find.text('已选 1 首'), findsOneWidget);
+      expect(find.textContaining('需核对'), findsOneWidget);
+      expect(find.textContaining('周杰伦 · 图1'), findsOneWidget);
+      expect(resolver.queries, ['稻向']);
+      expect(find.text('一键匹配推荐项'), findsNothing);
 
-        await tester.tap(find.byTooltip('修改识别结果'));
-        await tester.pumpAndSettle();
-        await tester.enterText(find.byType(TextField).first, '稻香');
-        await tester.tap(find.text('保存并重新搜索'));
-        await tester.pumpAndSettle();
+      await tester.tap(find.byTooltip('修改识别结果'));
+      await tester.pumpAndSettle();
+      await tester.enterText(find.byType(TextField).first, '稻香');
+      await tester.tap(find.text('保存并重新搜索'));
+      await tester.pumpAndSettle();
 
-        expect(resolver.queries, ['稻向', '稻香']);
-        expect(find.text('已选 1 首'), findsOneWidget);
-        expect(resolver.resolveCount, 0);
+      expect(find.textContaining('需核对'), findsNothing);
+      expect(resolver.queries, ['稻向', '稻香']);
+      expect(find.text('已选 1 首'), findsOneWidget);
+      expect(resolver.resolveCount, 0);
 
-        await tester.tap(find.byType(Checkbox));
-        await tester.pumpAndSettle();
-        expect(find.text('已选 0 首'), findsOneWidget);
-        await tester.tap(find.byType(Checkbox));
-        await tester.pumpAndSettle();
-        expect(find.text('已选 1 首'), findsOneWidget);
-        expect(resolver.resolveCount, 0);
+      await tester.tap(find.byType(Checkbox));
+      await tester.pumpAndSettle();
+      expect(find.text('已选 0 首'), findsOneWidget);
+      await tester.tap(find.byType(Checkbox));
+      await tester.pumpAndSettle();
+      expect(find.text('已选 1 首'), findsOneWidget);
+      expect(resolver.resolveCount, 0);
 
-        await tester.tap(find.text('稻香'));
-        await tester.pumpAndSettle();
-        expect(resolver.queries, ['稻向', '稻香']);
-        expect(find.text('稻香', skipOffstage: false), findsWidgets);
-        expect(find.text('加入歌单'), findsOneWidget);
-        expect(find.text('下载已选'), findsNothing);
-      } finally {
-        await tester.pumpWidget(const SizedBox.shrink());
-        controller.dispose();
-        unawaited(handler.dispose());
-        root.deleteSync(recursive: true);
-      }
-    },
-  );
+      await tester.tap(find.text('稻香'));
+      await tester.pumpAndSettle();
+      expect(resolver.queries, ['稻向', '稻香']);
+      expect(find.text('稻香', skipOffstage: false), findsWidgets);
+      expect(find.text('加入歌单'), findsOneWidget);
+      expect(find.text('下载已选'), findsNothing);
+    } finally {
+      await tester.pumpWidget(const SizedBox.shrink());
+      controller.dispose();
+      unawaited(handler.dispose());
+      root.deleteSync(recursive: true);
+    }
+  });
 
   testWidgets(
     'expanding a song shows actual returned choices without searching',
@@ -426,6 +424,106 @@ void main() {
     }
   });
 
+  for (final scenario in [
+    'empty fallback',
+    'healthy fallback',
+    'out-of-order empty fallback',
+  ]) {
+    testWidgets('staged primary failure: $scenario', (tester) async {
+      final root = await tester.runAsync(
+        () => Directory.systemTemp.createTemp('screenshot_staged_error_'),
+      );
+      if (root == null) fail('could not create test image directory');
+      final image = File('${root.path}/shot.png');
+      await tester.runAsync(
+        () => image.writeAsBytes(
+          base64Decode(
+            'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQIHWP4'
+            'z8DwHwAFgAI/ScL/nwAAAABJRU5ErkJggg==',
+          ),
+        ),
+      );
+      final handler = MusicAudioHandler();
+      final outOfOrder = scenario.startsWith('out-of-order');
+      final healthy = scenario == 'healthy fallback';
+      final controller = MusicController(audioHandler: handler)
+        ..screenshotSearchConcurrency = outOfOrder ? 2 : 1;
+      final firstGate = outOfOrder ? Completer<void>() : null;
+      final fourthGate = outOfOrder ? Completer<void>() : null;
+      final resolver = _PrimaryFailureResolver(
+        healthy: healthy,
+        firstGate: firstGate,
+        fourthGate: fourthGate,
+      );
+      try {
+        await tester.pumpWidget(
+          MaterialApp(
+            home: ScreenshotImportPage(
+              controller: controller,
+              ocr: const _SevenSongsOcr(),
+              openPickerOnStart: true,
+              pickImages: () async => [XFile(image.path)],
+              matcher: ScreenshotMatcher(
+                resolver: resolver,
+                requestStartSpacing: Duration.zero,
+              ),
+            ),
+          ),
+        );
+        if (outOfOrder) {
+          for (var i = 0; i < 20; i++) {
+            await tester.pump();
+          }
+          expect(resolver.fallbackCalls, ['稻香', '晴天', '青花瓷', '七里香']);
+          expect(find.textContaining('已暂停后续查找'), findsNothing);
+          firstGate!.complete();
+          for (var i = 0; i < 12; i++) {
+            await tester.pump();
+          }
+          expect(find.textContaining('已暂停后续查找'), findsOneWidget);
+          fourthGate!.complete();
+        }
+        await tester.pumpAndSettle();
+        if (healthy) {
+          expect(resolver.fallbackCalls, hasLength(7));
+          expect(find.text('已选 7 首'), findsWidgets);
+          expect(find.textContaining('搜索失败'), findsNothing);
+          expect(find.textContaining('已暂停后续查找'), findsNothing);
+        } else {
+          expect(
+            resolver.fallbackCalls,
+            outOfOrder ? ['稻香', '晴天', '青花瓷', '七里香'] : ['稻香', '晴天', '青花瓷'],
+          );
+          expect(find.textContaining('搜索失败'), findsWidgets);
+          expect(find.textContaining('未搜到'), findsNothing);
+          expect(find.textContaining('已暂停后续查找'), findsOneWidget);
+        }
+        if (outOfOrder) {
+          // Already-started requests may overlap the first 429. Later rows
+          // must use the circuit without starting further primary requests.
+          expect(resolver.primaryCalls.length, inInclusiveRange(1, 2));
+          expect(
+            resolver.primaryCalls.every(
+              (title) => ['稻香', '晴天'].contains(title),
+            ),
+            isTrue,
+          );
+        } else {
+          expect(resolver.primaryCalls, ['稻香']);
+        }
+      } finally {
+        if (firstGate != null && !firstGate.isCompleted) firstGate.complete();
+        if (fourthGate != null && !fourthGate.isCompleted) {
+          fourthGate.complete();
+        }
+        await tester.pumpWidget(const SizedBox.shrink());
+        controller.dispose();
+        unawaited(handler.dispose());
+        root.deleteSync(recursive: true);
+      }
+    });
+  }
+
   testWidgets('out-of-order failures do not pause a later healthy row', (
     tester,
   ) async {
@@ -640,5 +738,37 @@ class _OutOfOrderFailureResolver extends _Resolver {
       throw StateError('offline');
     }
     return super.search(query, source);
+  }
+}
+
+class _PrimaryFailureResolver extends _Resolver
+    implements StagedScreenshotSearchResolver {
+  _PrimaryFailureResolver({
+    required this.healthy,
+    this.firstGate,
+    this.fourthGate,
+  });
+  final bool healthy;
+  final Completer<void>? firstGate;
+  final Completer<void>? fourthGate;
+  final primaryCalls = <String>[];
+  final fallbackCalls = <String>[];
+  @override
+  Future<List<MusicSearchCandidate>> searchScreenshotPrimary(
+    String title,
+  ) async {
+    primaryCalls.add(title);
+    throw StateError('HTTP 429');
+  }
+
+  @override
+  Future<List<MusicSearchCandidate>> searchScreenshotFallback(
+    String title,
+    String artist,
+  ) async {
+    fallbackCalls.add(title);
+    if (title == '稻香' && firstGate != null) await firstGate!.future;
+    if (title == '七里香' && fourthGate != null) await fourthGate!.future;
+    return healthy ? super.search(title, MusicDataSource.flac) : [];
   }
 }
