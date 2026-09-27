@@ -382,6 +382,17 @@ class _DownloadTaskTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    if (!task.canCancel) return _buildTask(context, task);
+    return AnimatedBuilder(
+      animation: controller.downloadProgressChanges,
+      builder: (context, _) => _buildTask(
+        context,
+        controller.downloadQueue.taskById(task.id) ?? task,
+      ),
+    );
+  }
+
+  Widget _buildTask(BuildContext context, DownloadTask task) {
     final strings = AppStringsScope.of(context);
     final subtitle = [
       if (task.subtitle.isNotEmpty) task.subtitle,

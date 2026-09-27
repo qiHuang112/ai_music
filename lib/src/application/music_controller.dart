@@ -1,3 +1,5 @@
+import '../data/playlist_usage_store.dart';
+import 'online_playlist_tasks.dart';
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
@@ -73,6 +75,7 @@ class MusicController extends ChangeNotifier {
     PlaylistStore? playlistStore,
     MusicSettingsStore? settingsStore,
     PlaylistAutoDownloadStore? playlistAutoDownloadStore,
+    PlaylistUsageStore? playlistUsageStore,
     TrackMetadataRepository? metadataRepository,
     LegacyCacheRepairer? legacyRepairer,
     LanLibraryGateway? lanLibraryGateway,
@@ -82,6 +85,7 @@ class MusicController extends ChangeNotifier {
   }) : _resolver = resolver ?? RemoteMusicResolver(),
        _cacheStore = cacheStore ?? CachedTrackStore(),
        _playlistStore = playlistStore ?? PlaylistStore(),
+       _playlistUsageStore = playlistUsageStore ?? PlaylistUsageStore(),
        _settingsStore = settingsStore ?? MusicSettingsStore(),
        _playlistAutoDownloadStore =
            playlistAutoDownloadStore ?? PlaylistAutoDownloadStore(),
@@ -179,6 +183,8 @@ class MusicController extends ChangeNotifier {
   late final bool _ownsLanLibraryGateway;
   final LibraryController libraryController = const LibraryController();
   final DownloadQueueController downloadQueue = DownloadQueueController();
+  // Byte progress does not change library contents or playlist layout.
+  final ChangeNotifier downloadProgressChanges = ChangeNotifier();
   late final SettingsController settingsController;
   late final LibraryUseCase libraryUseCase;
   late final DownloadUseCase downloadUseCase;
@@ -296,7 +302,29 @@ class MusicController extends ChangeNotifier {
     ].where((track) => track.id == item.id).firstOrNull;
   }
 
+  final PlaylistUsageStore _playlistUsageStore;
+  List<MusicPlaylist> get frequentlyUsedPlaylists =>
+      _playlistUsageStore.rank(customPlaylists);
+
+  Future<void> recordPlaylistUsage(String id, {bool played = false}) async {
+    if (!customPlaylists.any((p) => p.id == id)) return;
+    try {
+      await _playlistUsageStore.record(id, played: played);
+      if (!_isDisposed) notifyListeners();
+    } catch (_) {
+      // Usage statistics must never block opening a playlist or playback.
+    }
+  }
+
+  Future<void> _loadPlaylistUsage() async {
+    try {
+      await _playlistUsageStore.load();
+      if (!_isDisposed) notifyListeners();
+    } catch (_) {}
+  }
+
   Future<void> initialize() async {
+    unawaited(_loadPlaylistUsage());
     final settings = await settingsController.load();
     source = settings.source;
     language = settings.language;
@@ -626,6 +654,12 @@ class MusicController extends ChangeNotifier {
         .where((item) => item.id == playlist.id)
         .firstOrNull;
     if (current == null || current.entries.isEmpty) return null;
+    if (_wifiPlaylistRunsPending.contains(playlist.id) ||
+        isPlaylistDownloading(playlist) ||
+        !downloadPlaylistsOnWifi ||
+        !isOnWifi) {
+      return null;
+    }
     final revision = _playlistDownloadRevision(current);
     if (_wifiPlaylistRunFailures[playlist.id] == revision) return null;
     final previous = _wifiPlaylistAttempts[playlist.id];
@@ -634,12 +668,6 @@ class MusicController extends ChangeNotifier {
         DateTime.now().isBefore(
           previous!.startedAt.add(const Duration(hours: 24)),
         )) {
-      return null;
-    }
-    if (_wifiPlaylistRunsPending.contains(playlist.id) ||
-        isPlaylistDownloading(playlist) ||
-        !downloadPlaylistsOnWifi ||
-        !isOnWifi) {
       return null;
     }
     _wifiPlaylistRunsPending.add(playlist.id);
@@ -898,11 +926,13 @@ class MusicController extends ChangeNotifier {
       onStatus: (message) {
         if (!background) {
           statusMessage = message;
-          if (!_isDisposed) notifyListeners();
         }
       },
       onChanged: () {
         if (!_isDisposed) notifyListeners();
+      },
+      onProgressChanged: () {
+        if (!_isDisposed) downloadProgressChanges.notifyListeners();
       },
     );
     if (result.failure != null) _downloadFailures[taskId] = result.failure!;
@@ -913,7 +943,7 @@ class MusicController extends ChangeNotifier {
         errorDetail = result.errorDetail;
       }
       if (!_isDisposed) notifyListeners();
-      unawaited(_primeMetadataAndReloadCache(result.cached!));
+      unawaited(_primeMetadataForCached(result.cached!));
       return;
     }
     if (!background) {
@@ -965,17 +995,23 @@ class MusicController extends ChangeNotifier {
     notifyListeners();
   }
 
-  Future<void> playTrack(Track track, {int? index, List<Track>? queueTracks}) =>
-      _playTrack(
-        track,
-        request: ++_playRequest,
-        index: index,
-        queueTracks: queueTracks,
-      );
+  Future<void> playTrack(
+    Track track, {
+    int? index,
+    List<Track>? queueTracks,
+    String? playlistId,
+  }) => _playTrack(
+    track,
+    request: ++_playRequest,
+    playlistId: playlistId,
+    index: index,
+    queueTracks: queueTracks,
+  );
 
   Future<void> _playTrack(
     Track track, {
     required int request,
+    String? playlistId,
     int? index,
     List<Track>? queueTracks,
   }) async {
@@ -1022,6 +1058,9 @@ class MusicController extends ChangeNotifier {
         shouldPlay: () => request == _playRequest && !_isDisposed,
       );
       if (loaded && request == _playRequest) {
+        if (playlistId != null) {
+          unawaited(recordPlaylistUsage(playlistId, played: true));
+        }
         await setPlaybackMode(playbackMode);
       }
     } finally {
@@ -1313,6 +1352,63 @@ class MusicController extends ChangeNotifier {
 
   ScreenshotMatcher createScreenshotMatcher() =>
       ScreenshotMatcher(resolver: _resolver);
+
+  OnlinePlaylistTasks? _onlinePlaylistTasks;
+  OnlinePlaylistTasks get onlinePlaylistTasks =>
+      _onlinePlaylistTasks ??= OnlinePlaylistTasks(
+        matcher: createOnlinePlaylistMatcher(),
+        concurrency: () => screenshotSearchConcurrency,
+      );
+
+  ScreenshotMatcher createOnlinePlaylistMatcher() =>
+      ScreenshotMatcher(resolver: _resolver, allowTitleFragments: false);
+
+  Future<MusicPlaylist?> importPlaylistCandidates(
+    String name,
+    List<MusicSearchCandidate> candidates, {
+    MusicPlaylist? target,
+  }) async => (await importPlaylistSelection(
+    name,
+    candidates,
+    target: target,
+  )).playlist;
+
+  Future<MusicPlaylistResult> importPlaylistSelection(
+    String name,
+    List<MusicSearchCandidate> candidates, {
+    MusicPlaylist? target,
+  }) async {
+    final result = await libraryUseCase.importOnlinePlaylist(
+      name,
+      [
+        for (final candidate in candidates)
+          SavedOnlineTrack(candidate: candidate),
+      ],
+      target: target,
+      current: _librarySnapshot,
+    );
+    _applyLibrarySnapshot(result.snapshot);
+    notifyListeners();
+    return result;
+  }
+
+  Future<MusicPlaylistResult> replaceImportedCandidate(
+    MusicPlaylist target,
+    String previousId,
+    MusicSearchCandidate replacement, {
+    required bool removePrevious,
+  }) async {
+    final result = await libraryUseCase.replaceImportedCandidate(
+      target,
+      previousId,
+      SavedOnlineTrack(candidate: replacement),
+      removePrevious: removePrevious,
+      current: _librarySnapshot,
+    );
+    _applyLibrarySnapshot(result.snapshot);
+    notifyListeners();
+    return result;
+  }
 
   Future<int> addCandidatesToPlaylist(
     MusicPlaylist playlist,
@@ -1732,14 +1828,6 @@ class MusicController extends ChangeNotifier {
     return online == null ? null : _cachedRecordForCandidate(online.candidate);
   }
 
-  Future<void> _primeMetadataAndReloadCache(CachedTrack cached) async {
-    await _primeMetadataForCached(cached);
-    if (_isDisposed) {
-      return;
-    }
-    await loadCache(repairLegacy: false, showLoading: false);
-  }
-
   Future<void> autoRecoverMetadataForCurrentTrack() async {
     final track = currentTrack;
     if (track == null || currentLyrics.isNotEmpty || isLoadingMetadata) {
@@ -1936,6 +2024,8 @@ class MusicController extends ChangeNotifier {
   void dispose() {
     _playRequest += 1;
     _isDisposed = true;
+    downloadProgressChanges.dispose();
+    _onlinePlaylistTasks?.dispose();
     audioHandler.onOhosLoopModeRequested = null;
     audioHandler.onOhosToggleFavoriteRequested = null;
     audioHandler.onToggleFavoriteRequested = null;

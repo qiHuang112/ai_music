@@ -1,3 +1,4 @@
+import 'package:ai_music/src/data/playlist_usage_store.dart';
 import 'dart:async';
 import 'dart:io';
 
@@ -30,7 +31,7 @@ void main() {
       final controller = MusicController(
         audioHandler: handler,
         resolver: _FakeMusicResolver(),
-      cacheStore: _FakeCacheStore(cached: const []),
+        cacheStore: _FakeCacheStore(cached: const []),
         playlistStore: _MemoryPlaylistStore(),
         settingsStore: _FakeSettingsStore(),
         metadataRepository: _StaticMetadataRepository(),
@@ -66,6 +67,7 @@ void main() {
     'online playlist entry survives reload and uses cached metadata',
     () async {
       final handler = _SpyAudioHandler();
+      final usage = _UsageSpy();
       final cached = _cachedTrack(id: 'song-1', name: '第一首');
       final playlists = _MemoryPlaylistStore();
       final metadata = _StaticMetadataRepository();
@@ -74,6 +76,7 @@ void main() {
         resolver: _FakeMusicResolver(),
         cacheStore: _FakeCacheStore(cached: [cached]),
         playlistStore: playlists,
+        playlistUsageStore: usage,
         settingsStore: _FakeSettingsStore(),
         metadataRepository: metadata,
       );
@@ -91,9 +94,15 @@ void main() {
         expect(tracks, hasLength(1));
         expect(tracks.single.id, startsWith('online-'));
         expect(tracks.single.filePath, cached.filePath);
-        await controller.playTrack(tracks.single, queueTracks: tracks);
+        await controller.recordPlaylistUsage(playlist.id);
+        await controller.playTrack(
+          tracks.single,
+          queueTracks: tracks,
+          playlistId: playlist.id,
+        );
         await Future<void>.delayed(const Duration(milliseconds: 10));
         expect(handler.loadedIds, [tracks.single.id]);
+        expect(usage.events, [(playlist.id, false), (playlist.id, true)]);
         expect(metadata.loadIds, contains(cached.cacheId));
       } finally {
         controller.dispose();
@@ -299,24 +308,32 @@ void main() {
     'latest rapid track selection wins after an earlier queue load',
     () async {
       final handler = _DelayedFirstLoadHandler();
+      final usage = _UsageSpy();
       final first = trackFromCached(_cachedTrack(id: 'first', name: '第一首'));
       final second = trackFromCached(_cachedTrack(id: 'second', name: '第二首'));
       final controller = MusicController(
         audioHandler: handler,
         resolver: _FakeMusicResolver(),
         cacheStore: _FakeCacheStore(cached: const []),
-        playlistStore: _FakePlaylistStore(),
+        playlistStore: _MemoryPlaylistStore(),
+        playlistUsageStore: usage,
         settingsStore: _FakeSettingsStore(),
         metadataRepository: _StaticMetadataRepository(),
       );
       try {
         await controller.initialize();
-        final firstPlay = controller.playTrack(first);
+        final playlist = (await controller.createPlaylist('usage'))!;
+        final firstPlay = controller.playTrack(first, playlistId: playlist.id);
         await handler.firstLoadStarted.future;
-        final secondPlay = controller.playTrack(second);
+        final secondPlay = controller.playTrack(
+          second,
+          playlistId: playlist.id,
+        );
         handler.releaseFirstLoad.complete();
         await Future.wait([firstPlay, secondPlay]);
+        await Future<void>.delayed(Duration.zero);
         expect(handler.mediaItem.value?.id, second.id);
+        expect(usage.events, [(playlist.id, true)]);
       } finally {
         controller.dispose();
         await handler.dispose();
@@ -496,11 +513,60 @@ void main() {
         expect(controller.cachedTracks.single.title, '第一首');
 
         metadata.complete(const TrackMetadata());
-        for (var i = 0; i < 10 && cacheStore.listCachedCalls < 2; i += 1) {
-          await Future<void>.delayed(const Duration(milliseconds: 10));
-        }
-        expect(cacheStore.listCachedCalls, 2);
+        await Future<void>.delayed(const Duration(milliseconds: 20));
+        // Metadata lives in its own store; completing it must not reload and
+        // rewrite the entire music/playlist library for every downloaded song.
+        expect(cacheStore.listCachedCalls, 1);
         expect(loadingStates, isNot(contains(true)));
+      } finally {
+        controller.dispose();
+        await handler.dispose();
+      }
+    },
+  );
+
+  test(
+    'byte progress updates download listeners without rebuilding the library',
+    () async {
+      final handler = _SpyAudioHandler();
+      final cache = _ProgressCacheStore();
+      final controller = MusicController(
+        audioHandler: handler,
+        resolver: _DelayedMusicResolver(),
+        cacheStore: cache,
+        playlistStore: _FakePlaylistStore(),
+        settingsStore: _FakeSettingsStore(),
+        metadataRepository: _StaticMetadataRepository(),
+      );
+      try {
+        await controller.initialize();
+        var libraryNotifications = 0;
+        var progressNotifications = 0;
+        controller.addListener(() => libraryNotifications++);
+        controller.downloadProgressChanges.addListener(
+          () => progressNotifications++,
+        );
+        final candidate = _candidate(id: 'progress', name: 'Progress');
+        final download = controller.downloadCandidate(
+          candidate,
+          background: false,
+        );
+        await cache.started.future;
+        final before = libraryNotifications;
+        for (var i = 1; i <= 100; i++) {
+          cache.report!(CachedDownloadProgress(bytes: i, totalBytes: 200));
+        }
+        expect(libraryNotifications, before);
+        expect(progressNotifications, 100);
+        expect(controller.activeDownloadTasks.single.progress, .5);
+        cache.finish.complete();
+        await download;
+        expect(libraryNotifications, greaterThan(before));
+        expect(
+          controller.recentDownloadTasks.single.status,
+          DownloadTaskStatus.completed,
+        );
+        expect(controller.isCandidateCached(candidate), true);
       } finally {
         controller.dispose();
         await handler.dispose();
@@ -3116,4 +3182,35 @@ CachedTrack _cachedTrack({
 
 Future<Directory> _unusedRootProvider() async {
   return Directory.systemTemp.createTemp('ai_music_unused_');
+}
+
+class _ProgressCacheStore extends _DownloadCacheStore {
+  final started = Completer<void>();
+  final finish = Completer<void>();
+  void Function(CachedDownloadProgress)? report;
+  @override
+  Future<CachedTrack> downloadOrReuse(
+    ResolvedMusic result, {
+    void Function(CachedDownloadProgress)? onProgress,
+    DownloadCancelToken? cancelToken,
+  }) async {
+    report = onProgress;
+    started.complete();
+    await finish.future;
+    return super.downloadOrReuse(
+      result,
+      onProgress: onProgress,
+      cancelToken: cancelToken,
+    );
+  }
+}
+
+class _UsageSpy extends PlaylistUsageStore {
+  final events = <(String, bool)>[];
+  @override
+  Future<void> load() async {}
+  @override
+  Future<void> record(String id, {required bool played}) async {
+    events.add((id, played));
+  }
 }

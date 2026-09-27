@@ -5,6 +5,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../application/download_use_case.dart';
+import '../application/online_playlist_search.dart';
+import '../data/online_playlists.dart';
+import 'online_playlist_page.dart';
 import '../application/music_controller.dart';
 import '../application/music_ui_message.dart';
 import '../data/music_playlists.dart';
@@ -23,7 +26,13 @@ import 'screenshot_import_page.dart';
 import 'swipe_to_skip.dart';
 
 class MusicHomePage extends StatefulWidget {
-  const MusicHomePage({super.key, required this.controller});
+  const MusicHomePage({
+    super.key,
+    required this.controller,
+    this.playlistRepository,
+  });
+
+  final OnlinePlaylistRepository? playlistRepository;
 
   final MusicController controller;
 
@@ -35,6 +44,9 @@ class _MusicHomePageState extends State<MusicHomePage> {
   static const _exitBackWindow = Duration(seconds: 2);
 
   final _searchController = TextEditingController();
+  late final OnlinePlaylistSearch _playlistSearch;
+  bool _playlistMode = false;
+  bool _showPlaylistResults = false;
   DateTime? _lastEmptyBackAt;
   MusicUiMessage? _lastStatusSnackMessage;
 
@@ -43,11 +55,26 @@ class _MusicHomePageState extends State<MusicHomePage> {
   @override
   void initState() {
     super.initState();
+    _playlistSearch = OnlinePlaylistSearch(
+      widget.playlistRepository ?? OnlinePlaylistRepository(),
+    );
     unawaited(controller.initialize());
+  }
+
+  void _openMatchedPlaylist(MusicPlaylist playlist) {
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => _PlaylistDetailPage(
+          controller: controller,
+          selection: _LibraryListSpec.custom(playlist),
+        ),
+      ),
+    );
   }
 
   @override
   void dispose() {
+    _playlistSearch.dispose();
     _searchController.dispose();
     super.dispose();
   }
@@ -55,7 +82,7 @@ class _MusicHomePageState extends State<MusicHomePage> {
   @override
   Widget build(BuildContext context) {
     return AnimatedBuilder(
-      animation: controller,
+      animation: Listenable.merge([controller, _playlistSearch]),
       builder: (context, _) {
         final strings = AppStringsScope.of(context);
         _maybeShowStatusSnack(strings);
@@ -98,13 +125,30 @@ class _MusicHomePageState extends State<MusicHomePage> {
                 children: [
                   _SearchHeader(
                     controller: _searchController,
-                    isSearching: controller.isSearching,
+                    playlistMode: _playlistMode,
+                    onToggleMode: () =>
+                        setState(() => _playlistMode = !_playlistMode),
+                    isSearching: _playlistMode
+                        ? _playlistSearch.isLoading
+                        : controller.isSearching,
                     onChanged: _handleSearchChanged,
-                    onSearch: () => controller.search(_searchController.text),
-                    onSubmitted: controller.search,
+                    onSearch: () => _submitSearch(_searchController.text),
+                    onSubmitted: _submitSearch,
                     onImportScreenshots: _openScreenshotImport,
                   ),
-                  if (_shouldShowSearchPanel)
+                  OnlinePlaylistTaskEntry(
+                    controller: controller,
+                    onOpenPlaylist: _openMatchedPlaylist,
+                  ),
+                  if (_showPlaylistResults)
+                    Expanded(
+                      child: OnlinePlaylistSearchPanel(
+                        search: _playlistSearch,
+                        controller: controller,
+                        onOpenPlaylist: _openMatchedPlaylist,
+                      ),
+                    )
+                  else if (_shouldShowSearchPanel)
                     Expanded(
                       child: _OnlineSearchPanel(
                         candidates: controller.candidates,
@@ -152,7 +196,20 @@ class _MusicHomePageState extends State<MusicHomePage> {
             controller.errorDetail != null);
   }
 
+  void _submitSearch(String query) {
+    setState(
+      () => _showPlaylistResults = _playlistMode && query.trim().isNotEmpty,
+    );
+    if (_playlistMode) {
+      _playlistSearch.search(query);
+    } else {
+      controller.search(query);
+    }
+  }
+
   void _handleSearchChanged(String value) {
+    _showPlaylistResults = false;
+    _playlistSearch.clear();
     _lastEmptyBackAt = null;
     if (controller.hasSearchState) {
       // 输入变化立即清空旧结果，避免旧搜索晚返回后把新关键词页面污染。
@@ -198,7 +255,9 @@ class _MusicHomePageState extends State<MusicHomePage> {
 
   void _clearSearchInputAndState() {
     _lastEmptyBackAt = null;
+    _showPlaylistResults = false;
     _searchController.clear();
+    _playlistSearch.clear();
     controller.clearSearch();
     setState(() {});
   }
@@ -320,6 +379,8 @@ class _SearchHeader extends StatelessWidget {
     required this.onSearch,
     required this.onSubmitted,
     required this.onImportScreenshots,
+    required this.onToggleMode,
+    this.playlistMode = false,
   });
 
   final TextEditingController controller;
@@ -328,6 +389,8 @@ class _SearchHeader extends StatelessWidget {
   final VoidCallback onSearch;
   final ValueChanged<String> onSubmitted;
   final VoidCallback onImportScreenshots;
+  final bool playlistMode;
+  final VoidCallback onToggleMode;
 
   @override
   Widget build(BuildContext context) {
@@ -346,13 +409,32 @@ class _SearchHeader extends StatelessWidget {
                 onChanged: onChanged,
                 onSubmitted: onSubmitted,
                 decoration: InputDecoration(
-                  hintText: strings.searchHint,
-                  prefixIcon: const Icon(Icons.search),
-                  suffixIcon: IconButton(
-                    tooltip: strings.importScreenshots,
-                    onPressed: onImportScreenshots,
-                    icon: const Icon(Icons.add_photo_alternate_outlined),
+                  hintText: playlistMode
+                      ? (strings.isZh
+                            ? '歌单名称或关键词'
+                            : 'Playlist name or keywords')
+                      : strings.searchHint,
+                  prefixIcon: IconButton(
+                    key: const ValueKey('search-mode-toggle'),
+                    tooltip: playlistMode
+                        ? (strings.isZh
+                              ? '当前搜歌单，点击切换歌曲'
+                              : 'Playlists: switch to songs')
+                        : (strings.isZh
+                              ? '当前搜歌曲，点击切换歌单'
+                              : 'Songs: switch to playlists'),
+                    onPressed: onToggleMode,
+                    icon: Icon(
+                      playlistMode ? Icons.queue_music : Icons.music_note,
+                    ),
                   ),
+                  suffixIcon: playlistMode
+                      ? null
+                      : IconButton(
+                          tooltip: strings.importScreenshots,
+                          onPressed: onImportScreenshots,
+                          icon: const Icon(Icons.add_photo_alternate_outlined),
+                        ),
                   border: const OutlineInputBorder(),
                   isDense: true,
                 ),
@@ -360,7 +442,9 @@ class _SearchHeader extends StatelessWidget {
             ),
             const SizedBox(width: 10),
             IconButton.filled(
-              tooltip: strings.searchOnline,
+              tooltip: playlistMode
+                  ? (strings.isZh ? '搜歌单' : 'Search playlists')
+                  : strings.searchOnline,
               onPressed: isSearching ? null : onSearch,
               icon: isSearching
                   ? const SizedBox.square(
@@ -590,7 +674,7 @@ class _HomeLibrarySection extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final strings = AppStringsScope.of(context);
-    final playlists = controller.customPlaylists;
+    final playlists = controller.frequentlyUsedPlaylists;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
@@ -762,7 +846,7 @@ class _LibraryLanding extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final playlists = controller.customPlaylists;
+    final playlists = controller.frequentlyUsedPlaylists;
     final strings = AppStringsScope.of(context);
     return ListView(
       padding: const EdgeInsets.fromLTRB(16, 12, 16, 96),
@@ -806,6 +890,17 @@ class _LibraryLanding extends StatelessWidget {
             ),
             const Divider(height: 1),
           ],
+        const SizedBox(height: 24),
+        Text(
+          strings.isZh ? '匹配歌单' : 'Matching playlists',
+          style: Theme.of(context).textTheme.titleMedium,
+        ),
+        const SizedBox(height: 8),
+        OnlinePlaylistTaskList(
+          controller: controller,
+          onOpenPlaylist: (playlist) =>
+              _openList(context, _LibraryListSpec.custom(playlist)),
+        ),
       ],
     );
   }
@@ -1044,7 +1139,12 @@ class _PlaylistDetailPageState extends State<_PlaylistDetailPage> {
     _searchFocusNode.addListener(_onSearchFocusChanged);
     controller.addListener(_maybeStartWifiDownload);
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) _maybeStartWifiDownload();
+      if (mounted) {
+        _maybeStartWifiDownload();
+        if (widget.selection.kind == _LibraryListKind.custom) {
+          unawaited(controller.recordPlaylistUsage(widget.selection.id));
+        }
+      }
     });
   }
 
@@ -1055,7 +1155,12 @@ class _PlaylistDetailPageState extends State<_PlaylistDetailPage> {
       _firstPlaylistOpening = null;
       _claimingPlaylistOpening = false;
       WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted) _maybeStartWifiDownload();
+        if (mounted) {
+          _maybeStartWifiDownload();
+          if (widget.selection.kind == _LibraryListKind.custom) {
+            unawaited(controller.recordPlaylistUsage(widget.selection.id));
+          }
+        }
       });
     }
   }
@@ -1288,7 +1393,14 @@ class _PlaylistDetailPageState extends State<_PlaylistDetailPage> {
     final requestId = ++_playRequestId;
     setState(() => _preparingTrackId = track.id);
     try {
-      await controller.playTrack(track, index: index, queueTracks: tracks);
+      await controller.playTrack(
+        track,
+        index: index,
+        queueTracks: tracks,
+        playlistId: widget.selection.kind == _LibraryListKind.custom
+            ? widget.selection.id
+            : null,
+      );
     } catch (error) {
       if (!mounted || requestId != _playRequestId) return;
       final messenger = ScaffoldMessenger.of(context);

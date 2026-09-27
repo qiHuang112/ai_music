@@ -173,6 +173,10 @@ void main() {
     await tester.pumpAndSettle();
     await tester.drag(find.byType(ListView).first, const Offset(0, -300));
     await tester.pumpAndSettle();
+    await tester.ensureVisible(
+      find.byKey(const ValueKey('home-playlist-road')),
+    );
+    await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey('home-playlist-road')));
     await tester.pumpAndSettle();
 
@@ -695,6 +699,10 @@ void main() {
 
     await tester.drag(find.byType(ListView).first, const Offset(0, -300));
     await tester.pumpAndSettle();
+    await tester.ensureVisible(
+      find.byKey(const ValueKey('home-playlist-road')),
+    );
+    await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey('home-playlist-road')));
     await tester.pumpAndSettle();
     expect(controller.requests, [true]);
@@ -706,6 +714,10 @@ void main() {
     await tester.pageBack();
     await tester.pumpAndSettle();
     await tester.drag(find.byType(ListView).first, const Offset(0, -300));
+    await tester.pumpAndSettle();
+    await tester.ensureVisible(
+      find.byKey(const ValueKey('home-playlist-road')),
+    );
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey('home-playlist-road')));
     await tester.pumpAndSettle();
@@ -723,6 +735,10 @@ void main() {
     await tester.pumpAndSettle();
     await tester.drag(find.byType(ListView).first, const Offset(0, -300));
     await tester.pumpAndSettle();
+    await tester.ensureVisible(
+      find.byKey(const ValueKey('home-playlist-road')),
+    );
+    await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey('home-playlist-road')));
     await tester.pumpAndSettle();
     expect(controller.autoProgressChoices, [true]);
@@ -731,6 +747,10 @@ void main() {
     await tester.pumpAndSettle();
     controller._autoStartedPlaylists.clear(); // Simulate the 24-hour retry.
     await tester.drag(find.byType(ListView).first, const Offset(0, -300));
+    await tester.pumpAndSettle();
+    await tester.ensureVisible(
+      find.byKey(const ValueKey('home-playlist-road')),
+    );
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey('home-playlist-road')));
     await tester.pumpAndSettle();
@@ -747,6 +767,10 @@ void main() {
     await tester.pumpWidget(_app(playbackController: controller));
     await tester.pumpAndSettle();
     await tester.drag(find.byType(ListView).first, const Offset(0, -300));
+    await tester.pumpAndSettle();
+    await tester.ensureVisible(
+      find.byKey(const ValueKey('home-playlist-road')),
+    );
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey('home-playlist-road')));
     await tester.pumpAndSettle();
@@ -768,6 +792,10 @@ void main() {
     await tester.pumpAndSettle();
     await tester.drag(find.byType(ListView).first, const Offset(0, -300));
     await tester.pumpAndSettle();
+    await tester.ensureVisible(
+      find.byKey(const ValueKey('home-playlist-road')),
+    );
+    await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey('home-playlist-road')));
     await tester.pumpAndSettle();
     expect(controller.autoProgressChoices, [true]);
@@ -786,6 +814,10 @@ void main() {
     await tester.pumpWidget(_app(playbackController: controller));
     await tester.pumpAndSettle();
     await tester.drag(find.byType(ListView).first, const Offset(0, -300));
+    await tester.pumpAndSettle();
+    await tester.ensureVisible(
+      find.byKey(const ValueKey('home-playlist-road')),
+    );
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey('home-playlist-road')));
     await tester.pumpAndSettle();
@@ -823,6 +855,10 @@ void main() {
 
     await tester.drag(find.byType(ListView).first, const Offset(0, -300));
     await tester.pumpAndSettle();
+    await tester.ensureVisible(
+      find.byKey(const ValueKey('home-playlist-road')),
+    );
+    await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey('home-playlist-road')));
     await tester.pumpAndSettle();
     expect(controller.requests, isEmpty);
@@ -850,6 +886,10 @@ void main() {
 
       expect(find.text('(1/1)'), findsNothing);
       await tester.drag(find.byType(ListView).first, const Offset(0, -300));
+      await tester.pumpAndSettle();
+      await tester.ensureVisible(
+        find.byKey(const ValueKey('home-playlist-road')),
+      );
       await tester.pumpAndSettle();
       await tester.tap(find.byKey(const ValueKey('home-playlist-road')));
       await tester.pumpAndSettle();
@@ -2109,7 +2149,12 @@ class _ControlledPlaybackController extends MusicController {
   final pending = <Completer<void>>[];
 
   @override
-  Future<void> playTrack(Track track, {int? index, List<Track>? queueTracks}) {
+  Future<void> playTrack(
+    Track track, {
+    int? index,
+    List<Track>? queueTracks,
+    String? playlistId,
+  }) {
     final completion = Completer<void>();
     pending.add(completion);
     return completion.future;

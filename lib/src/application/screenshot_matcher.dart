@@ -74,6 +74,7 @@ class ScreenshotMatcher {
     DateTime Function()? now,
     Future<void> Function(Duration)? wait,
     this.requestStartSpacing = const Duration(milliseconds: 350),
+    this.allowTitleFragments = true,
   }) : _now = now ?? DateTime.now,
        _wait = wait ?? Future<void>.delayed;
 
@@ -81,6 +82,7 @@ class ScreenshotMatcher {
   final DateTime Function() _now;
   final Future<void> Function(Duration) _wait;
   final Duration requestStartSpacing;
+  final bool allowTitleFragments;
   final Map<String, List<MusicSearchCandidate>> _searchCache = {};
   final Map<String, Future<List<MusicSearchCandidate>>> _searchInFlight = {};
   final Map<String, List<MusicSearchCandidate>> _primaryCache = {};
@@ -145,7 +147,8 @@ class ScreenshotMatcher {
     // Bounded fragment recall: never invent a corrected name or search an
     // artist's entire catalogue. Reuse source pacing, caches and protection.
     final title = ScreenshotMatchPolicy._base(draft.title);
-    if (!_hasTitleMatch(draft, combined) &&
+    if (allowTitleFragments &&
+        !_hasTitleMatch(draft, combined) &&
         RegExp(r'^[\u4e00-\u9fff]{4,12}$').hasMatch(title)) {
       final size = (title.length / 2).ceil();
       for (final fragment in {

@@ -125,6 +125,28 @@ void main() {
   });
 
   test(
+    'online metadata skips OCR fragments while screenshot matching retains them',
+    () async {
+      final queries = <String>[];
+      final resolver = _StagedResolver(
+        primary: (query) async {
+          queries.add(query);
+          return [];
+        },
+        fallback: (_, _) async => [],
+      );
+      final matcher = ScreenshotMatcher(
+        resolver: resolver,
+        allowTitleFragments: false,
+        wait: (_) async {},
+      );
+      await matcher.match(draft.copyWith(title: '风吹麦浪', artist: '李健'));
+      expect(queries, ['风吹麦浪']);
+      expect(resolver.fallbackCalls, 1);
+    },
+  );
+
+  test(
     'real OCR typo recalls title fragments and ranks the actual song first',
     () async {
       final queries = <String>[];

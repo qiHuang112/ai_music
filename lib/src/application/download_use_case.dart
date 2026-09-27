@@ -35,6 +35,7 @@ class DownloadUseCase {
     bool requireExactIdentity = false,
     required void Function(MusicUiMessage message) onStatus,
     required void Function() onChanged,
+    void Function()? onProgressChanged,
   }) async {
     final taskId = queue.taskIdForCandidate(candidate);
     if (queue.hasActiveToken(taskId)) {
@@ -104,7 +105,7 @@ class DownloadUseCase {
               totalBytes: progress.totalBytes,
             ),
           );
-          onChanged();
+          (onProgressChanged ?? onChanged)();
         },
         cancelToken: token,
       );

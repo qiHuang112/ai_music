@@ -143,6 +143,131 @@ class LibraryUseCase {
     });
   }
 
+  /// Import in one serialized write; no empty playlist or second read/write.
+  Future<MusicPlaylistResult> importOnlinePlaylist(
+    String name,
+    List<SavedOnlineTrack> tracks, {
+    MusicPlaylist? target,
+    required LibrarySnapshot current,
+  }) {
+    return _enqueuePlaylistMutation(() async {
+      final base = _currentSnapshot(current);
+      if (name.trim().isEmpty || tracks.isEmpty) {
+        return MusicPlaylistResult(snapshot: base);
+      }
+      final existing = target == null
+          ? null
+          : base.customPlaylists
+                .where((item) => item.id == target.id)
+                .firstOrNull;
+      if (target != null && existing == null) {
+        throw StateError('The destination playlist was deleted');
+      }
+      final now = DateTime.now();
+      final ids = existing?.trackIds.toSet() ?? <String>{};
+      final entries = [
+        ...?existing?.entries,
+        for (final track in tracks)
+          if (ids.add(track.trackId))
+            PlaylistTrackEntry(
+              trackId: track.trackId,
+              addedAt: now,
+              onlineTrack: track,
+            ),
+      ];
+      final playlist =
+          existing?.copyWith(entries: entries, updatedAt: now) ??
+          MusicPlaylist(
+            id: 'playlist-${now.microsecondsSinceEpoch}',
+            name: name.trim(),
+            entries: entries,
+            createdAt: now,
+            updatedAt: now,
+          );
+      final library = base.playlistLibrary.copyWith(
+        playlists: [
+          for (final item in base.customPlaylists)
+            item.id == playlist.id ? playlist : item,
+          if (existing == null) playlist,
+        ],
+      );
+      await playlistStore.write(
+        library,
+        validTrackIds: libraryController.validTrackIds(base.cachedTracks),
+      );
+      final snapshot = _snapshot(
+        base.cachedRecords,
+        base.cachedTracks,
+        library,
+      );
+      _latestSnapshot = snapshot;
+      return MusicPlaylistResult(
+        snapshot: snapshot,
+        playlist: playlist,
+        addedTrackIds: playlist.trackIds.toSet().difference(
+          existing?.trackIds.toSet() ?? <String>{},
+        ),
+      );
+    });
+  }
+
+  Future<MusicPlaylistResult> replaceImportedCandidate(
+    MusicPlaylist target,
+    String previousId,
+    SavedOnlineTrack replacement, {
+    required bool removePrevious,
+    required LibrarySnapshot current,
+  }) => _enqueuePlaylistMutation(() async {
+    final base = _currentSnapshot(current);
+    final existing = base.customPlaylists
+        .where((p) => p.id == target.id)
+        .firstOrNull;
+    if (existing == null || !existing.trackIds.contains(previousId)) {
+      throw StateError('The playlist or original song was removed');
+    }
+    final nextId = replacement.trackId;
+    if (nextId == previousId) {
+      return MusicPlaylistResult(snapshot: base, playlist: existing);
+    }
+    final alreadyPresent = existing.trackIds.contains(nextId);
+    final now = DateTime.now();
+    final entries = <PlaylistTrackEntry>[];
+    for (final entry in existing.entries) {
+      if (entry.trackId != previousId) {
+        entries.add(entry);
+        continue;
+      }
+      if (!removePrevious) entries.add(entry);
+      if (!alreadyPresent) {
+        entries.add(
+          PlaylistTrackEntry(
+            trackId: nextId,
+            addedAt: entry.addedAt,
+            onlineTrack: replacement,
+          ),
+        );
+      }
+    }
+    final playlist = existing.copyWith(entries: entries, updatedAt: now);
+    final library = base.playlistLibrary.copyWith(
+      playlists: [
+        for (final item in base.customPlaylists)
+          item.id == target.id ? playlist : item,
+      ],
+    );
+    await playlistStore.write(
+      library,
+      validTrackIds: libraryController.validTrackIds(base.cachedTracks),
+    );
+    final snapshot = _snapshot(base.cachedRecords, base.cachedTracks, library);
+    _latestSnapshot = snapshot;
+    return MusicPlaylistResult(
+      snapshot: snapshot,
+      playlist: playlist,
+      addedTrackIds: alreadyPresent ? const {} : {nextId},
+    );
+  });
+
   Future<({LibrarySnapshot snapshot, bool first})> claimFirstPlaylistOpening(
     MusicPlaylist playlist, {
     required LibrarySnapshot current,
@@ -373,6 +498,15 @@ class LibraryUseCase {
     List<Track> cachedTracks,
     PlaylistLibrary playlistLibrary,
   ) {
+    // Index once per snapshot instead of scanning all cached songs per entry.
+    final cachedByIdentity = <(Object, String, String), CachedTrack>{};
+    for (final record in cachedRecords) {
+      cachedByIdentity.putIfAbsent((
+        record.music.source,
+        record.music.platform,
+        record.music.id,
+      ), () => record);
+    }
     final onlineById = <String, Track>{};
     for (final entry in [
       ...playlistLibrary.favoriteEntries,
@@ -381,11 +515,12 @@ class LibraryUseCase {
       final saved = entry.onlineTrack;
       if (saved == null) continue;
       final candidate = saved.candidate;
-      final cached = cachedRecords.where((record) {
-        return record.music.source == candidate.source &&
-            record.music.platform == candidate.platform &&
-            record.music.id == candidate.id;
-      }).firstOrNull;
+      final cached =
+          cachedByIdentity[(
+            candidate.source,
+            candidate.platform,
+            candidate.id,
+          )];
       onlineById[entry.trackId] = Track(
         id: entry.trackId,
         title: candidate.name,
@@ -496,7 +631,13 @@ List<PlaylistTrackEntry> _reorderedEntries(
 }
 
 class MusicPlaylistResult {
-  const MusicPlaylistResult({required this.snapshot, this.playlist});
+  const MusicPlaylistResult({
+    required this.snapshot,
+    this.playlist,
+    this.addedTrackIds = const {},
+  });
+
+  final Set<String> addedTrackIds;
 
   final LibrarySnapshot snapshot;
   final MusicPlaylist? playlist;
