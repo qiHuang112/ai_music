@@ -14,7 +14,7 @@ from pathlib import Path
 from android_release_archive import retain_manifest
 
 
-def publish(apk: Path, root: Path, aapt: str, apksigner: str, notes: str = "", *, release_cert: str):
+def publish(apk: Path, root: Path, aapt: str, apksigner: str, notes: str = "", *, release_cert: str, source_commit: str = ""):
     if not re.fullmatch(r"[a-fA-F0-9]{64}", release_cert):
         raise ValueError("Expected the trusted release certificate SHA-256")
     signed = subprocess.check_output(
@@ -64,6 +64,8 @@ def publish(apk: Path, root: Path, aapt: str, apksigner: str, notes: str = "", *
         "publishedAt": datetime.now(timezone.utc).isoformat(), "url": f"/releases/{name}",
         "sizeBytes": apk.stat().st_size, "sha256": hash_hex, "notes": notes,
     }
+    if source_commit:
+        manifest['sourceCommit'] = source_commit
     retain_manifest(root, manifest)
     fd, temporary = tempfile.mkstemp(prefix=".manifest-", dir=root)
     try:
