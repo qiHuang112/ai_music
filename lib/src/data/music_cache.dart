@@ -424,6 +424,53 @@ class CachedTrackStore {
     return total;
   }
 
+  Future<void> savePartialProgress(File part, String key, int? total) async {
+    await const JsonFileStore().write(File('${part.path}.progress.json'), {
+      'key': key,
+      'total': total,
+    });
+  }
+
+  Future<void> removePartialProgress(File part) =>
+      _deleteIfExists(File('${part.path}.progress.json'));
+
+  Future<Map<String, ({int bytes, int? total})>> partialProgress() async {
+    final root = await _rootProvider();
+    final result = <String, ({int bytes, int? total})>{};
+    if (!await root.exists()) return result;
+    await for (final entity in root.list()) {
+      if (entity is! File || !entity.path.endsWith('.part.progress.json')) {
+        continue;
+      }
+      try {
+        final part = File(
+          entity.path.substring(
+            0,
+            entity.path.length - '.progress.json'.length,
+          ),
+        );
+        if (!await part.exists()) {
+          await entity.delete();
+          continue;
+        }
+        final info = jsonDecode(await entity.readAsString());
+        if (info is! Map || info['key'] is! String) continue;
+        final bytes = await part.length();
+        final total = info['total'] is int && info['total'] > 0
+            ? info['total'] as int
+            : null;
+        final key = info['key'] as String;
+        final prior = result[key];
+        if (prior == null || bytes > prior.bytes) {
+          result[key] = (bytes: bytes, total: total);
+        }
+      } catch (_) {
+        /* Incomplete metadata is optional; audio remains usable. */
+      }
+    }
+    return result;
+  }
+
   Future<void> trimPlaybackParts({
     Set<String> protectedPaths = const {},
   }) async {
@@ -448,6 +495,7 @@ class CachedTrackStore {
       try {
         final size = stats[part]!.size;
         await part.delete();
+        await removePartialProgress(part);
         bytes -= size;
       } catch (_) {}
     }
@@ -463,6 +511,7 @@ class CachedTrackStore {
     await for (final entity in root.list()) {
       if (entity is File && entity.path.endsWith('.part')) {
         await _deleteIfExists(entity);
+        await removePartialProgress(entity);
       }
     }
   }

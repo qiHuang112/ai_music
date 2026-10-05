@@ -93,6 +93,11 @@ class ScreenshotMatcher {
   final Map<String, DateTime> _lastNetworkStarts = {};
   final Map<String, DateTime> _blockedUntil = {};
 
+  ScreenshotMatchResult rankCached(
+    ScreenshotSongDraft draft,
+    List<MusicSearchCandidate> candidates,
+  ) => _rank(draft, candidates);
+
   Future<ScreenshotMatchResult> match(
     ScreenshotSongDraft draft, {
     bool failOnSourceErrorWhenEmpty = false,

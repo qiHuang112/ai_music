@@ -5,6 +5,7 @@ import 'dart:io';
 import 'dart:math';
 
 import 'package:just_audio/just_audio.dart';
+import '../data/music_cache.dart';
 
 /// Serves remote bytes immediately while keeping one contiguous prefix on disk.
 /// A later source with a refreshed URL can continue from the prefix via Range.
@@ -20,6 +21,8 @@ class ResumableAudioSource extends StreamAudioSource {
     required this.onComplete,
     required this.onStopped,
     required this.onStarted,
+    this.onLength,
+    this.onProgress,
     required super.tag,
   });
 
@@ -29,7 +32,19 @@ class ResumableAudioSource extends StreamAudioSource {
   final Future<void> Function(File file) onComplete;
   final void Function() onStopped;
   final void Function() onStarted;
+  final Future<void> Function(int? total)? onLength;
+  final void Function(CachedDownloadProgress progress)? onProgress;
   bool _writing = false;
+  final _clients = <HttpClient>{};
+  Future<void>? _finishing;
+
+  void cancelRequests() {
+    for (final client in _clients.toList()) {
+      client.close(force: true);
+    }
+  }
+
+  Future<void> waitForCache() async => await _finishing;
 
   @override
   Future<StreamAudioResponse> request([int? start, int? end]) async {
@@ -49,6 +64,7 @@ class ResumableAudioSource extends StreamAudioSource {
     final client = HttpClient()
       ..autoUncompress = false
       ..connectionTimeout = const Duration(seconds: 15);
+    _clients.add(client);
     HttpClientResponse response;
     try {
       final request = await client.getUrl(url);
@@ -70,6 +86,7 @@ class ResumableAudioSource extends StreamAudioSource {
       }
     } catch (_) {
       client.close(force: true);
+      _clients.remove(client);
       onStopped();
       rethrow;
     }
@@ -81,6 +98,7 @@ class ResumableAudioSource extends StreamAudioSource {
         : RegExp(r'^bytes (\d+)-(\d+)/(\d+|\*)$').firstMatch(range);
     if (ranged && parsed == null) {
       client.close(force: true);
+      _clients.remove(client);
       onStopped();
       throw HttpException('Audio returned an invalid byte range', uri: url);
     }
@@ -89,6 +107,7 @@ class ResumableAudioSource extends StreamAudioSource {
         : 0;
     if (ranged && actualOffset != requestedOffset) {
       client.close(force: true);
+      _clients.remove(client);
       onStopped();
       throw HttpException('Audio returned an unexpected byte range', uri: url);
     }
@@ -119,6 +138,17 @@ class ResumableAudioSource extends StreamAudioSource {
           await partFile.parent.create(recursive: true);
           if (!ranged) await partFile.writeAsBytes(const []);
           writer = await partFile.open(mode: FileMode.append);
+          try {
+            await onLength?.call(total);
+          } catch (_) {
+            /* Progress persistence must not stop audio. */
+          }
+          onProgress?.call(
+            CachedDownloadProgress(
+              bytes: ranged ? prefix : 0,
+              totalBytes: total,
+            ),
+          );
         }
         if (cachedEnd > effectiveFrom) {
           yield* partFile.openRead(effectiveFrom, cachedEnd);
@@ -136,6 +166,14 @@ class ResumableAudioSource extends StreamAudioSource {
               : chunk.sublist(0, usable);
           if (writer != null) await writer.writeFrom(bytes);
           received += usable;
+          if (writer != null) {
+            onProgress?.call(
+              CachedDownloadProgress(
+                bytes: actualOffset + received,
+                totalBytes: total,
+              ),
+            );
+          }
           yield bytes;
           if (usable < chunk.length) break;
         }
@@ -150,11 +188,13 @@ class ResumableAudioSource extends StreamAudioSource {
       } finally {
         await writer?.close();
         client.close(force: true);
+        _clients.remove(client);
         if (write) _writing = false;
         if (finished) {
           try {
             await partFile.rename(completeFile.path);
-            unawaited(onComplete(completeFile));
+            _finishing = onComplete(completeFile);
+            unawaited(_finishing!.catchError((Object _) {}));
           } catch (_) {
             onStopped();
           }

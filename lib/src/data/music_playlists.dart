@@ -4,6 +4,7 @@ import 'dart:io';
 
 import 'json_file_store.dart';
 import 'saved_online_track.dart';
+import 'playlist_song.dart';
 import '../platform/app_storage.dart';
 
 const favoritePlaylistId = 'favorite';
@@ -13,17 +14,23 @@ class PlaylistTrackEntry {
     required this.trackId,
     required this.addedAt,
     this.onlineTrack,
+    this.song,
+    this.manualSource = false,
   });
 
   final String trackId;
   final DateTime addedAt;
   final SavedOnlineTrack? onlineTrack;
+  final PlaylistSong? song;
+  final bool manualSource;
 
   Map<String, Object?> toJson() {
     return {
       'trackId': trackId,
       'addedAt': addedAt.toIso8601String(),
       if (onlineTrack != null) 'onlineTrack': onlineTrack!.toJson(),
+      if (song != null) 'song': song!.toJson(),
+      if (manualSource) 'manualSource': true,
     };
   }
 
@@ -44,13 +51,17 @@ class PlaylistTrackEntry {
       return null;
     }
     final onlineTrack = SavedOnlineTrack.fromJson(json['onlineTrack']);
+    final song = PlaylistSong.fromJson(json['song']);
+    if (json.containsKey('song') && song == null) return null;
     if (json.containsKey('onlineTrack') &&
-        (onlineTrack == null || onlineTrack.trackId != id)) {
+        (onlineTrack == null || (song == null && onlineTrack.trackId != id))) {
       return null;
     }
     return PlaylistTrackEntry(
       trackId: id,
       onlineTrack: onlineTrack,
+      song: song,
+      manualSource: json['manualSource'] == true,
       addedAt:
           DateTime.tryParse(json['addedAt']?.toString() ?? '') ??
           fallbackAddedAt,
@@ -289,7 +300,8 @@ class PlaylistStore {
         .where(
           (entry) =>
               validTrackIds.contains(entry.trackId) ||
-              entry.onlineTrack != null,
+              entry.onlineTrack != null ||
+              entry.song != null,
         )
         .toList(growable: false);
   }
@@ -350,6 +362,8 @@ List<PlaylistTrackEntry> _uniqueEntries(List<PlaylistTrackEntry> entries) {
           trackId: id,
           addedAt: entry.addedAt,
           onlineTrack: entry.onlineTrack,
+          song: entry.song,
+          manualSource: entry.manualSource,
         ),
       );
     }

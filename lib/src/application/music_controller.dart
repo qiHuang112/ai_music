@@ -4,6 +4,7 @@ import '../data/download_history_store.dart';
 import '../data/playlist_usage_store.dart';
 import 'online_playlist_tasks.dart';
 import 'dart:async';
+import 'song_cache_progress.dart';
 import 'dart:convert';
 import 'dart:io';
 
@@ -21,8 +22,11 @@ import '../data/music_cache.dart';
 import '../data/music_playlists.dart';
 import '../data/music_resolver.dart';
 import '../data/music_settings.dart';
+import '../data/song_search_cache.dart';
 import '../data/playlist_auto_download_store.dart';
 import '../data/saved_online_track.dart';
+import '../data/playlist_song.dart';
+import '../data/online_playlists.dart';
 import '../domain/music_models.dart';
 import '../playback/music_audio_handler.dart';
 import '../playback/on_demand_audio_source.dart';
@@ -37,9 +41,11 @@ import 'metadata_use_case.dart';
 import 'music_mappers.dart';
 import 'music_ui_message.dart';
 import 'playback_use_case.dart';
-import 'prefetch_retry.dart';
+import 'playback_cache_prefetch.dart';
 import 'settings_controller.dart';
 import 'screenshot_matcher.dart';
+import 'screenshot_song_parser.dart';
+import 'app_update_controller.dart';
 
 class PlaylistDownloadSummary {
   const PlaylistDownloadSummary({
@@ -89,6 +95,8 @@ class MusicController extends ChangeNotifier {
     LanSyncUseCase? lanSyncUseCase,
     Stream<List<ConnectivityResult>>? connectivityChanges,
     Future<List<ConnectivityResult>> Function()? checkConnectivity,
+    AppUpdateController? appUpdates,
+    SongSearchCache? songSearchCache,
   }) : _resolver = resolver ?? RemoteMusicResolver(),
        _cacheStore = cacheStore ?? CachedTrackStore(),
        _playlistStore = playlistStore ?? PlaylistStore(),
@@ -99,6 +107,8 @@ class MusicController extends ChangeNotifier {
            playlistAutoDownloadStore ?? PlaylistAutoDownloadStore(),
        _metadataRepository = metadataRepository ?? TrackMetadataRepository(),
        _legacyRepairerOverride = legacyRepairer {
+    this.appUpdates = appUpdates ?? AppUpdateController();
+    _songSearchCache = songSearchCache ?? SongSearchCache();
     downloadQueue.onHistoryChanged = () => unawaited(_saveDownloadHistory());
     _lanLibraryGateway = lanLibraryGateway ?? LanLibraryClient();
     _ownsLanLibraryGateway = lanLibraryGateway == null;
@@ -126,23 +136,7 @@ class MusicController extends ChangeNotifier {
       prepareOnlineTrack: _prepareOnlineTrack,
       prepareOnlineStream: _prepareOnlineStream,
     );
-    _nextPrefetch = NextTrackPrefetch(
-      prepare: (trackId) async {
-        final request = _prefetchRequest;
-        final track = _activeQueueTracks
-            .where((item) => item.id == trackId)
-            .firstOrNull;
-        if (track == null) return;
-        await _prepareOnlineTrack(track, prefetchRequest: request);
-      },
-      classify: classifyAudioPrefetchFailure,
-      nextAfterDefinitive: _nextAfterDefinitivePrefetchFailure,
-      onCancel: (_) {
-        _prefetchRequest += 1;
-        final taskId = _prefetchTaskId;
-        if (taskId != null) downloadQueue.cancel(taskId);
-      },
-    );
+    _playbackPrefetch = PlaybackCachePrefetch(prepare: _prefetchPlaybackAudio);
     try {
       final connectivity = Connectivity();
       _connectivitySubscription =
@@ -174,15 +168,26 @@ class MusicController extends ChangeNotifier {
       _handleMediaItemChanged,
     );
     _playbackSubscription = audioHandler.playbackState.listen((state) {
+      if (state.processingState == AudioProcessingState.error) {
+        // A resolved URL alone is not proof that its audio can be played.
+        _pendingSongSources.remove(audioHandler.mediaItem.value?.id);
+      }
       if (state.playing) {
+        if (state.processingState == AudioProcessingState.ready) {
+          unawaited(_rememberPlayingSource());
+        }
         _maybePrefetchNext();
         _maybePrefetchUpcomingLyrics();
+      } else {
+        unawaited(_playbackPrefetch.cancel());
       }
     });
   }
 
   final MusicAudioHandler audioHandler;
+  late final AppUpdateController appUpdates;
   final MusicResolver _resolver;
+  late final SongSearchCache _songSearchCache;
   final CachedTrackStore _cacheStore;
   final PlaylistStore _playlistStore;
   final MusicSettingsStore _settingsStore;
@@ -195,6 +200,36 @@ class MusicController extends ChangeNotifier {
   final DownloadQueueController downloadQueue = DownloadQueueController();
   // Byte progress does not change library contents or playlist layout.
   final ChangeNotifier downloadProgressChanges = ChangeNotifier();
+  final SongCacheProgressController songCacheProgress =
+      SongCacheProgressController();
+  final Map<String, String> _cacheProgressTrackKeys = {};
+  final playlistSourceProgress =
+      ValueNotifier<
+        Map<String, ({bool matching, int completed, int total, int failed})>
+      >({});
+  final Map<String, Future<void>> _playlistSourceMatching = {};
+  ScreenshotMatcher? _playlistSongMatcher;
+  ValueListenable<SongCacheProgress> cacheProgressFor(Track track) =>
+      cacheProgressForId(track.id);
+
+  ValueListenable<SongCacheProgress> cacheProgressForId(String trackId) {
+    final pending =
+        _pendingSongSources[trackId]?.candidate ??
+        _adHocPlayCandidates[trackId];
+    final key = pending == null
+        ? _cacheProgressTrackKeys[trackId] ?? 'unresolved|$trackId'
+        : downloadQueue.taskIdForCandidate(pending);
+    return songCacheProgress.listenable(key);
+  }
+
+  Future<void> _refreshPartialProgress() async {
+    final generation = _playbackCacheGeneration;
+    final parts = await _cacheStore.partialProgress();
+    if (!_isDisposed && generation == _playbackCacheGeneration) {
+      songCacheProgress.replaceInactiveParts(parts);
+    }
+  }
+
   late final SettingsController settingsController;
   late final LibraryUseCase libraryUseCase;
   late final DownloadUseCase downloadUseCase;
@@ -204,9 +239,8 @@ class MusicController extends ChangeNotifier {
   late final StreamSubscription<MediaItem?> _mediaItemSubscription;
   late final StreamSubscription<PlaybackState> _playbackSubscription;
   StreamSubscription<List<ConnectivityResult>>? _connectivitySubscription;
-  late final NextTrackPrefetch _nextPrefetch;
-  int _prefetchRequest = 0;
-  String? _prefetchTaskId;
+  late final PlaybackCachePrefetch _playbackPrefetch;
+  bool _prefetchOnline = true;
   final Map<String, Future<void>> _downloadsInFlight = {};
   final Map<String, Object> _downloadFailures = {};
   final Map<String, Future<PlaylistDownloadSummary>>
@@ -225,6 +259,14 @@ class MusicController extends ChangeNotifier {
   String? _activePlaylistId;
   final Set<String> _retiredQueueTrackIds = {};
   final Map<String, MusicSearchCandidate> _adHocPlayCandidates = {};
+  final Map<
+    String,
+    ({MusicSearchCandidate candidate, SavedOnlineTrack? previous, int revision})
+  >
+  _pendingSongSources = {};
+  final Map<String, Future<MusicSearchCandidate>> _songSearches = {};
+  final Map<String, int> _songSourceRevisions = {};
+  final Set<String> _rememberingSongSources = {};
   final Map<String, CachedTrack> _streamingMetadataTracks = {};
   final Set<String> _activeStreamPartPaths = {};
   final Map<String, int> _activeStreamPartCounts = {};
@@ -232,11 +274,10 @@ class MusicController extends ChangeNotifier {
   bool _retiredQueueCleanupRunning = false;
   int _playRequest = 0;
   Future<void> _playLoadTail = Future<void>.value();
-  final Set<String> _prefetchRejectedForCurrent = {};
   String? _lyricsPrefetchQueueKey;
   int _lyricsPrefetchRequest = 0;
   @visibleForTesting
-  String? get pendingPrefetchTrackId => _nextPrefetch.trackId;
+  String? get pendingPrefetchTrackId => _playbackPrefetch.activeTrackId;
   List<CachedTrack> _cachedRecords = const [];
   PlaylistLibrary _playlistLibrary = const PlaylistLibrary.empty();
   int _metadataRequest = 0;
@@ -369,6 +410,7 @@ class MusicController extends ChangeNotifier {
   }
 
   Future<void> initialize() async {
+    unawaited(appUpdates.check());
     unawaited(_loadPlaylistUsage());
     unawaited(_loadDownloadHistory());
     final settings = await settingsController.load();
@@ -398,6 +440,7 @@ class MusicController extends ChangeNotifier {
     }
     try {
       _applyLibrarySnapshot(await libraryUseCase.loadCache());
+      await _refreshPartialProgress();
       if (_isDisposed) {
         return;
       }
@@ -469,9 +512,10 @@ class MusicController extends ChangeNotifier {
     if (_isDisposed) return;
     final wasKnown = _connectivityKnown;
     _connectivityKnown = true;
-    _nextPrefetch.setOnline(
-      results.any((result) => result != ConnectivityResult.none),
+    _prefetchOnline = results.any(
+      (result) => result != ConnectivityResult.none,
     );
+    _maybePrefetchNext();
     final onWifi = results.contains(ConnectivityResult.wifi);
     if (_isOnWifi == onWifi && wasKnown) return;
     _isOnWifi = onWifi;
@@ -547,7 +591,7 @@ class MusicController extends ChangeNotifier {
     }
   }
 
-  Future<void> search(String query) async {
+  Future<void> search(String query, {bool refresh = false}) async {
     final trimmed = query.trim();
     if (trimmed.isEmpty) {
       clearSearch();
@@ -561,49 +605,49 @@ class MusicController extends ChangeNotifier {
     candidates = const [];
     notifyListeners();
     try {
-      final progressiveResolver = _resolver is ProgressiveMusicResolver
-          ? _resolver as ProgressiveMusicResolver
-          : null;
-      if (progressiveResolver != null) {
-        await for (final progress in progressiveResolver.searchProgressively(
-          trimmed,
-          source,
-        )) {
-          if (request != _searchRequest) {
-            return;
+      final searchSource = source;
+      final result = await _songSearchCache.search(
+        SongSearchCache.searchKey(trimmed, searchSource),
+        () async {
+          final progressive = _resolver is ProgressiveMusicResolver
+              ? _resolver as ProgressiveMusicResolver
+              : null;
+          if (progressive == null) {
+            return _resolver.search(trimmed, searchSource);
           }
-          candidates = progress.candidates;
-          if (progress.isComplete) {
-            if (progress.error != null) {
-              errorDetail = friendlyError(progress.error!);
-            } else if (progress.candidates.isEmpty) {
-              errorMessage = const MusicUiMessage(
-                MusicUiMessageCode.noOnlineMatchesFound,
-              );
+          var latest = <MusicSearchCandidate>[];
+          await for (final progress in progressive.searchProgressively(
+            trimmed,
+            searchSource,
+          )) {
+            latest = progress.candidates;
+            if (request == _searchRequest && !_isDisposed) {
+              candidates = latest;
+              notifyListeners();
+            }
+            if (progress.isComplete && progress.error != null) {
+              throw progress.error!;
             }
           }
-          notifyListeners();
-        }
-      } else {
-        final result = await _resolver.search(trimmed, source);
-        if (request != _searchRequest) {
-          return;
-        }
-        candidates = result;
-        if (result.isEmpty) {
-          errorMessage = const MusicUiMessage(
-            MusicUiMessageCode.noOnlineMatchesFound,
-          );
-        }
+          return latest;
+        },
+        refresh: refresh,
+      );
+      if (request != _searchRequest || _isDisposed) return;
+      candidates = result;
+      if (result.isEmpty) {
+        errorMessage = const MusicUiMessage(
+          MusicUiMessageCode.noOnlineMatchesFound,
+        );
       }
     } catch (exception) {
-      if (request != _searchRequest) {
+      if (request != _searchRequest || _isDisposed) {
         return;
       }
       errorDetail = friendlyError(exception);
       errorMessage = null;
     } finally {
-      if (request == _searchRequest) {
+      if (request == _searchRequest && !_isDisposed) {
         isSearching = false;
         notifyListeners();
       }
@@ -625,6 +669,7 @@ class MusicController extends ChangeNotifier {
     bool? requireExactIdentity,
     bool background = false,
   }) async {
+    if (!background) await _playbackPrefetch.cancel();
     final key = downloadQueue.taskIdForCandidate(candidate);
     final inFlight = _downloadsInFlight[key];
     if (inFlight != null) {
@@ -647,6 +692,7 @@ class MusicController extends ChangeNotifier {
       await work;
     } finally {
       _downloadsInFlight.remove(key);
+      if (!_isDisposed) _maybePrefetchNext();
     }
   }
 
@@ -895,8 +941,26 @@ class MusicController extends ChangeNotifier {
           return;
         }
         final entry = entries[nextEntry++];
-        final candidate = entry.onlineTrack?.candidate;
+        MusicSearchCandidate? candidate = entry.onlineTrack?.candidate;
+        if (candidate == null && entry.song != null) {
+          try {
+            candidate = await _ensureSongCandidate(
+              Track(
+                id: entry.trackId,
+                title: entry.song!.title,
+                artist: entry.song!.artist,
+                album: '',
+              ),
+            );
+          } catch (_) {
+            failed++;
+            processed++;
+            reportProgress();
+            continue;
+          }
+        }
         if (candidate == null || isCandidateManuallyDownloaded(candidate)) {
+          if (candidate != null) await _rememberSongSource(entry.trackId);
           skipped += 1;
           processed += 1;
           reportProgress();
@@ -916,6 +980,7 @@ class MusicController extends ChangeNotifier {
               isCandidateCached(candidate)) {
             downloaded += 1;
             finished = true;
+            await _rememberSongSource(entry.trackId);
           } else if (!autoPaused()) {
             failed += 1;
             finished = true;
@@ -986,10 +1051,16 @@ class MusicController extends ChangeNotifier {
         }
       },
       onChanged: () {
-        if (!_isDisposed) notifyListeners();
+        if (!_isDisposed) {
+          _updateSongDownloadProgress(taskId);
+          notifyListeners();
+        }
       },
       onProgressChanged: () {
-        if (!_isDisposed) downloadProgressChanges.notifyListeners();
+        if (!_isDisposed) {
+          _updateSongDownloadProgress(taskId);
+          downloadProgressChanges.notifyListeners();
+        }
       },
     );
     if (result.failure != null) _downloadFailures[taskId] = result.failure!;
@@ -1012,7 +1083,18 @@ class MusicController extends ChangeNotifier {
 
   void cancelDownload(String taskId) {
     downloadUseCase.cancelDownload(taskId);
+    _updateSongDownloadProgress(taskId);
     notifyListeners();
+  }
+
+  void _updateSongDownloadProgress(String key) {
+    final task = downloadQueue.taskById(key);
+    songCacheProgress.download(
+      key,
+      active: task?.canCancel == true,
+      bytes: task?.bytes ?? 0,
+      total: task?.totalBytes,
+    );
   }
 
   void clearDownloadTask(String taskId) {
@@ -1085,7 +1167,10 @@ class MusicController extends ChangeNotifier {
     String? playlistId,
     int? index,
     List<Track>? queueTracks,
+    bool forceReload = false,
   }) async {
+    await _playbackPrefetch.cancel();
+    if (request != _playRequest || _isDisposed) return;
     _activePlaylistId = null;
     _retiredQueueTrackIds.clear();
     _streamingMetadataTracks.removeWhere((id, _) => id != track.id);
@@ -1127,8 +1212,7 @@ class MusicController extends ChangeNotifier {
             (entry) => _activeQueueTracks[entry.key].id == entry.value.id,
           );
       if (!sameQueue) {
-        _nextPrefetch.cancel();
-        _prefetchRejectedForCurrent.clear();
+        unawaited(_playbackPrefetch.cancel());
         _lyricsPrefetchQueueKey = null;
         _lyricsPrefetchRequest += 1;
       }
@@ -1140,6 +1224,7 @@ class MusicController extends ChangeNotifier {
         queueTracks: queue,
         selectedSource: preparedSource,
         shouldPlay: () => request == _playRequest && !_isDisposed,
+        forceReload: forceReload,
       );
       if (request == _playRequest) {
         _activePlaylistId = playlistId;
@@ -1151,6 +1236,7 @@ class MusicController extends ChangeNotifier {
         }
         await setPlaybackMode(playbackMode);
       }
+      _maybePrefetchNext();
     } finally {
       done.complete();
     }
@@ -1177,69 +1263,297 @@ class MusicController extends ChangeNotifier {
     _streamingMetadataTracks.clear();
     _activePlaylistId = null;
     _retiredQueueTrackIds.clear();
-    _nextPrefetch.cancel();
+    await _playbackPrefetch.cancel();
     _activeQueueTracks = const [];
-    _prefetchRejectedForCurrent.clear();
     _lyricsPrefetchQueueKey = null;
     _lyricsPrefetchRequest += 1;
     await _playLoadTail;
     await playbackUseCase.stop();
   }
 
-  Future<File> _prepareOnlineTrack(Track track, {int? prefetchRequest}) async {
-    void checkPrefetch() {
-      if (prefetchRequest != null && prefetchRequest != _prefetchRequest) {
-        throw const DownloadCancelledException();
-      }
-    }
-
-    checkPrefetch();
-    final saved = _onlineTrackForId(track.id);
-    if (saved == null) {
-      throw StateError('No validated online source for ${track.title}');
-    }
-    var cached = _cachedRecordForCandidate(saved.candidate);
-    if (cached != null && await File(cached.filePath).exists()) {
-      checkPrefetch();
-      return File(cached.filePath);
-    }
-    checkPrefetch();
-    final taskId = downloadQueue.taskIdForCandidate(saved.candidate);
-    final inFlight = _downloadsInFlight[taskId];
-    if (inFlight != null) {
-      if (prefetchRequest == null) _wifiDownloadTaskIds.remove(taskId);
-      if (prefetchRequest == null && _prefetchTaskId == taskId) {
-        _prefetchTaskId = null;
-      }
-      await inFlight;
-    } else {
-      if (prefetchRequest != null) _prefetchTaskId = taskId;
-      try {
-        await downloadCandidate(
-          saved.candidate,
-          background: prefetchRequest != null,
-        );
-      } finally {
-        if (_prefetchTaskId == taskId) _prefetchTaskId = null;
-      }
-    }
-    checkPrefetch();
-    cached = _cachedRecordForCandidate(saved.candidate);
+  Future<File> _prepareOnlineTrack(Track track) async {
+    final source = await _prepareOnlineStream(track);
+    final response = await source.request();
+    await response.stream.drain<void>();
+    if (source is ResumableAudioSource) await source.waitForCache();
+    final candidate = _candidateForOnlineTrack(track.id);
+    final cached = candidate == null
+        ? null
+        : _cachedRecordForCandidate(candidate);
     if (cached == null || !await File(cached.filePath).exists()) {
-      throw _downloadFailures[taskId] ??
-          StateError('Audio is unavailable for ${track.title}');
+      throw StateError('Audio is unavailable for ${track.title}');
     }
     return File(cached.filePath);
   }
 
   MusicSearchCandidate? _candidateForOnlineTrack(String id) =>
-      _onlineTrackForId(id)?.candidate ?? _adHocPlayCandidates[id];
+      _pendingSongSources[id]?.candidate ??
+      _onlineTrackForId(id)?.candidate ??
+      _adHocPlayCandidates[id];
 
-  Future<StreamAudioSource> _prepareOnlineStream(Track track) async {
+  PlaylistTrackEntry? _songEntry(String id) => [
+    for (final playlist in _playlistLibrary.playlists) ...playlist.entries,
+    ..._playlistLibrary.favoriteEntries,
+  ].where((entry) => entry.trackId == id).firstOrNull;
+
+  bool canSwitchSongSource(Track track) => _songEntry(track.id) != null;
+
+  MusicSearchCandidate? selectedSongSource(Track track) {
+    final selected = _candidateForOnlineTrack(track.id);
+    if (selected != null) return selected;
+    final record = _cachedRecords
+        .where((r) => r.cacheId == track.id)
+        .firstOrNull;
+    return record != null &&
+            (record.music.source == MusicDataSource.buguyy ||
+                record.music.source == MusicDataSource.flac)
+        ? _candidateFromCached(record)
+        : null;
+  }
+
+  String songSourceLabel(Track track, {bool isZh = true}) {
     final candidate = _candidateForOnlineTrack(track.id);
-    if (candidate == null) {
+    final cached = _cachedRecordForTrack(track);
+    final resolved = _streamingMetadataTracks[track.id]?.music;
+    final actual =
+        resolved?.source ?? candidate?.source ?? cached?.music.source;
+    final label = switch (actual) {
+      MusicDataSource.buguyy => isZh ? '布谷YY' : 'BuguYY',
+      MusicDataSource.flac => 'FLAC',
+      MusicDataSource.lan => isZh ? '局域网' : 'LAN',
+      _ =>
+        track.playbackSource.isNotEmpty
+            ? (isZh ? '本地' : 'Local')
+            : (isZh ? '待匹配' : 'Pending'),
+    };
+    final platform =
+        resolved?.platform ??
+        candidate?.platform ??
+        cached?.music.platform ??
+        '';
+    return actual == MusicDataSource.flac && platform.isNotEmpty
+        ? '$label · $platform'
+        : label;
+  }
+
+  Future<List<MusicSearchCandidate>> searchSongSources(
+    Track track, {
+    String? query,
+    MusicDataSource? searchSource,
+    bool refresh = false,
+  }) {
+    final text =
+        (query ??
+                _songEntry(track.id)?.song?.query ??
+                '${track.title} ${track.artist}')
+            .trim();
+    final selected = searchSource ?? MusicDataSource.auto;
+    return _songSearchCache.search(
+      SongSearchCache.searchKey(text, selected),
+      () => _resolver.search(text, selected),
+      refresh: refresh,
+    );
+  }
+
+  Future<MusicSearchCandidate> _ensureSongCandidate(
+    Track track, {
+    bool refresh = false,
+  }) async {
+    final existing = _candidateForOnlineTrack(track.id);
+    if (!refresh && existing != null) return existing;
+    if (_songEntry(track.id)?.song == null) {
       throw StateError('No online source for ${track.title}');
     }
+    final inFlight = _songSearches[track.id];
+    if (inFlight != null) return inFlight;
+    final revision = _songSourceRevisions[track.id] ?? 0;
+    final previous = _onlineTrackForId(track.id);
+    final rejectedId = existing == null
+        ? null
+        : SavedOnlineTrack(candidate: existing).trackId;
+    final future = () async {
+      final draft = ScreenshotSongDraft(
+        imageId: 'playlist-song',
+        row: 1,
+        title: _songEntry(track.id)?.song?.title ?? track.title,
+        artist: _songEntry(track.id)?.song?.artist ?? track.artist,
+        version: '',
+        rawText: '${track.title} ${track.artist}',
+      );
+      if (refresh) _playlistSongMatcher = createOnlinePlaylistMatcher();
+      final matcher = _playlistSongMatcher ??= createOnlinePlaylistMatcher();
+      final matched = await _songSearchCache.search(
+        'match|${jsonEncode([draft.title, draft.artist, draft.version])}',
+        () async => (await matcher.match(
+          draft,
+          failOnSourceErrorWhenEmpty: true,
+        )).candidates,
+        refresh: refresh,
+      );
+      final match = matcher.rankCached(draft, matched);
+      final results = match.candidates;
+      if (results.isEmpty) {
+        throw StateError('没有找到「${track.title}」的可播放来源，请切换来源重试');
+      }
+      if (_isDisposed ||
+          _songEntry(track.id)?.song == null ||
+          (_songSourceRevisions[track.id] ?? 0) != revision) {
+        throw const DownloadCancelledException();
+      }
+      final candidate = refresh
+          ? results
+                    .where(
+                      (c) =>
+                          SavedOnlineTrack(candidate: c).trackId != rejectedId,
+                    )
+                    .firstOrNull ??
+                results.first
+          : match.recommended ?? results.first;
+      _pendingSongSources[track.id] = (
+        candidate: candidate,
+        previous: previous,
+        revision: revision,
+      );
+      if (!_isDisposed) notifyListeners();
+      return candidate;
+    }();
+    _songSearches[track.id] = future;
+    try {
+      return await future;
+    } finally {
+      if (identical(_songSearches[track.id], future)) {
+        _songSearches.remove(track.id);
+      }
+    }
+  }
+
+  Future<void> _rememberPlayingSource() async {
+    final id = audioHandler.mediaItem.value?.id;
+    if (id != null) await _rememberSongSource(id);
+  }
+
+  Future<void> _rememberSongSource(String id) async {
+    final pending = _pendingSongSources[id];
+    final entry = _songEntry(id);
+    if (pending == null ||
+        entry == null ||
+        (_songSourceRevisions[id] ?? 0) != pending.revision ||
+        !_rememberingSongSources.add(id)) {
+      return;
+    }
+    final song = entry.song;
+    final track = Track(
+      id: id,
+      title: song?.title ?? pending.candidate.name,
+      artist: song?.artist ?? pending.candidate.artist,
+      album: '',
+    );
+    try {
+      final result = await libraryUseCase.saveSongSource(
+        track,
+        SavedOnlineTrack(candidate: pending.candidate),
+        current: _librarySnapshot,
+        manual: false,
+        expectedSource: pending.previous,
+      );
+      if (!_isDisposed) {
+        if (_pendingSongSources[id] == pending) _pendingSongSources.remove(id);
+        _applyLibrarySnapshot(result);
+        notifyListeners();
+      }
+    } catch (_) {
+      // Keep the pending source for the next successful-playback notification.
+    } finally {
+      _rememberingSongSources.remove(id);
+    }
+  }
+
+  Future<void> chooseSongSource(
+    Track track,
+    MusicSearchCandidate candidate,
+  ) async {
+    await _playbackPrefetch.cancel();
+    _streamingMetadataTracks.remove(track.id);
+    final revision = (_songSourceRevisions[track.id] ?? 0) + 1;
+    _songSourceRevisions[track.id] = revision;
+    _pendingSongSources.remove(track.id);
+    _songSearches.remove(track.id);
+    final snapshot = await libraryUseCase.saveSongSource(
+      track,
+      SavedOnlineTrack(candidate: candidate),
+      current: _librarySnapshot,
+      manual: true,
+    );
+    _applyLibrarySnapshot(snapshot);
+    _metadataTrackId = null;
+    _autoMetadataRecoveryAttempted.remove(track.id);
+    _timedLyricsUpgradeAttempted.remove(track.id);
+    notifyListeners();
+    final updated = onlineTracks.where((t) => t.id == track.id).firstOrNull;
+
+    if (updated == null) {
+      _maybePrefetchNext();
+      return;
+    }
+    // Deferred items consult the current source on preparation. Replace already
+    // prepared queue items as well so changing a pending song takes effect.
+    final index = _activeQueueTracks.indexWhere((t) => t.id == track.id);
+    if (index < 0) {
+      _maybePrefetchNext();
+      return;
+    }
+    final playlistId = _activePlaylistId;
+    if (audioHandler.mediaItem.value?.id == track.id) {
+      await _playTrack(
+        updated,
+        request: ++_playRequest,
+        playlistId: playlistId,
+        index: index,
+        queueTracks: [
+          for (final t in _activeQueueTracks) t.id == track.id ? updated : t,
+        ],
+        forceReload: true,
+      );
+      await loadMetadataForCurrentTrack();
+    } else {
+      final prior = _playLoadTail;
+      final done = Completer<void>();
+      _playLoadTail = done.future;
+      await prior;
+      try {
+        if ((_songSourceRevisions[track.id] ?? 0) != revision ||
+            _activePlaylistId != playlistId) {
+          return;
+        }
+        final currentIndex = _activeQueueTracks.indexWhere(
+          (t) => t.id == track.id,
+        );
+        if (currentIndex >= 0 && audioHandler.mediaItem.value?.id != track.id) {
+          await playbackUseCase.replaceTrackAt(
+            _activeQueueTracks,
+            currentIndex,
+            updated,
+          );
+          _activeQueueTracks = [..._activeQueueTracks]
+            ..[currentIndex] = updated;
+        }
+      } finally {
+        done.complete();
+      }
+    }
+    _maybePrefetchNext();
+  }
+
+  Future<StreamAudioSource> _prepareOnlineStream(
+    Track track, {
+    CachePrefetchToken? prefetchToken,
+  }) async {
+    if (prefetchToken == null) await _playbackPrefetch.cancel();
+    prefetchToken?.check();
+    Future<T> prepareWait<T>(Future<T> work) =>
+        prefetchToken == null ? work : prefetchToken.wait(work);
+    var candidate = await prepareWait(_ensureSongCandidate(track));
+    prefetchToken?.check();
     final cached = _cachedRecordForCandidate(candidate);
     if (cached != null && await File(cached.filePath).exists()) {
       return OnDemandAudioSource(
@@ -1247,16 +1561,32 @@ class MusicController extends ChangeNotifier {
         prepare: () async => File(cached.filePath),
       );
     }
-    final resolved = _resolver is QualitySelectableMusicResolver
+    Future<ResolvedMusic> resolve(MusicSearchCandidate choice) async =>
+        _resolver is QualitySelectableMusicResolver
         ? await (_resolver as QualitySelectableMusicResolver).resolveAtQuality(
-            candidate,
+            choice,
             MusicQualityLevel.low,
           )
-        : await _resolver.resolve(candidate);
+        : await _resolver.resolve(choice);
+    ResolvedMusic resolved;
+    try {
+      resolved = await prepareWait(resolve(candidate));
+    } catch (_) {
+      prefetchToken?.check();
+      if (_songEntry(track.id)?.song == null ||
+          _songEntry(track.id)?.manualSource == true) {
+        rethrow;
+      }
+      candidate = await prepareWait(_ensureSongCandidate(track, refresh: true));
+      resolved = await prepareWait(resolve(candidate));
+    }
+    prefetchToken?.check();
+    if (_isDisposed) throw const CachePrefetchCancelled();
     if (resolved.panLink) {
       throw StateError('This source cannot stream audio');
     }
     final target = await _cacheStore.playbackTargetFor(resolved);
+    prefetchToken?.check();
     _streamingMetadataTracks[track.id] = CachedTrack(
       cacheId: cacheIdForResolved(resolved),
       music: resolved,
@@ -1266,6 +1596,7 @@ class MusicController extends ChangeNotifier {
       playbackCache: true,
     );
     if (await target.exists()) {
+      prefetchToken?.check();
       final recovered = await _cacheStore.finishPlaybackCache(resolved, target);
       _upsertCachedRecord(recovered);
       _streamingMetadataTracks.remove(track.id);
@@ -1276,14 +1607,31 @@ class MusicController extends ChangeNotifier {
     }
     final part = File('${target.path}.part');
     final generation = _playbackCacheGeneration;
+    final progressKey = downloadQueue.taskIdForCandidate(candidate);
     return ResumableAudioSource(
       tag: mediaItemFromTrack(track),
       url: Uri.parse(resolved.url),
       partFile: part,
       completeFile: target,
       onStarted: () => _retainStreamPart(part.path),
+      onLength: (total) async {
+        if (generation == _playbackCacheGeneration && !_isDisposed) {
+          await _cacheStore.savePartialProgress(part, progressKey, total);
+        }
+      },
+      onProgress: (progress) {
+        if (generation == _playbackCacheGeneration && !_isDisposed) {
+          songCacheProgress.streaming(
+            progressKey,
+            bytes: progress.bytes,
+            total: progress.totalBytes,
+            active: true,
+          );
+        }
+      },
       onComplete: (file) async {
         _releaseStreamPart(part.path);
+        await _cacheStore.removePartialProgress(part);
         if (generation != _playbackCacheGeneration) {
           if (await file.exists()) await file.delete();
           return;
@@ -1291,12 +1639,14 @@ class MusicController extends ChangeNotifier {
         try {
           final record = await _cacheStore.finishPlaybackCache(resolved, file);
           if (!_isDisposed) {
+            songCacheProgress.removePartial(progressKey);
             _upsertCachedRecord(record);
             _streamingMetadataTracks.remove(track.id);
             notifyListeners();
           }
         } catch (_) {
           if (await file.exists()) await file.delete();
+          if (!_isDisposed) songCacheProgress.removePartial(progressKey);
         }
         await _cacheStore.trimPlaybackParts(
           protectedPaths: _activeStreamPartPaths,
@@ -1304,11 +1654,19 @@ class MusicController extends ChangeNotifier {
       },
       onStopped: () {
         _releaseStreamPart(part.path);
-        unawaited(
-          _cacheStore.trimPlaybackParts(protectedPaths: _activeStreamPartPaths),
-        );
+        if (!_isDisposed &&
+            generation == _playbackCacheGeneration &&
+            !_activeStreamPartPaths.contains(part.path)) {
+          songCacheProgress.stopStreaming(progressKey);
+        }
+        unawaited(_trimPartsAndRefreshProgress());
       },
     );
+  }
+
+  Future<void> _trimPartsAndRefreshProgress() async {
+    await _cacheStore.trimPlaybackParts(protectedPaths: _activeStreamPartPaths);
+    await _refreshPartialProgress();
   }
 
   Future<int> playbackCacheBytes() => _cacheStore.playbackCacheBytes();
@@ -1334,6 +1692,7 @@ class MusicController extends ChangeNotifier {
       ),
     );
     await _cacheStore.clearPlaybackCache();
+    songCacheProgress.clearParts();
     await loadCache(repairLegacy: false, showLoading: false);
   }
 
@@ -1350,8 +1709,101 @@ class MusicController extends ChangeNotifier {
   }
 
   void _maybePrefetchNext() {
-    // Merely opening or playing a playlist must not download the next song.
-    // The next item starts streaming only when it actually becomes current.
+    final state = audioHandler.playbackState.value;
+    if (_isDisposed ||
+        !_prefetchOnline ||
+        !state.playing ||
+        state.processingState != AudioProcessingState.ready ||
+        playbackMode == PlaybackMode.repeatOne ||
+        _activeQueueTracks.length < 2) {
+      unawaited(_playbackPrefetch.cancel());
+      return;
+    }
+    final currentId = audioHandler.mediaItem.value?.id;
+    if (currentId == null) return;
+    final playlist = customPlaylists
+        .where((p) => p.id == _activePlaylistId)
+        .firstOrNull;
+    if (_activePlaylistId != null && playlist == null) {
+      unawaited(_playbackPrefetch.cancel());
+      return;
+    }
+    final members = playlist?.trackIds.toSet();
+    final seen = {currentId};
+    final upcoming = <String>[];
+    var cursor = currentId;
+    for (var i = 0; i < 5; i++) {
+      final index = audioHandler.followingQueueIndex(cursor);
+      if (index == null || index < 0 || index >= _activeQueueTracks.length) {
+        break;
+      }
+      final track = _activeQueueTracks[index];
+      if (!seen.add(track.id)) break;
+      if (members == null || members.contains(track.id)) upcoming.add(track.id);
+      cursor = track.id;
+    }
+    _playbackPrefetch.activate(upcoming);
+  }
+
+  Future<void> _prefetchPlaybackAudio(
+    String id,
+    CachePrefetchToken token,
+  ) async {
+    final track = _activeQueueTracks.where((t) => t.id == id).firstOrNull;
+    if (track == null ||
+        track.playbackSource.isNotEmpty ||
+        audioHandler.mediaItem.value?.id == id) {
+      return;
+    }
+    final streamRecord = _streamingMetadataTracks[track.id];
+    if (streamRecord != null &&
+        _activeStreamPartPaths.contains('${streamRecord.filePath}.part')) {
+      return;
+    }
+    final candidate = _candidateForOnlineTrack(track.id);
+    if (candidate != null &&
+        _downloadsInFlight.containsKey(
+          downloadQueue.taskIdForCandidate(candidate),
+        )) {
+      return;
+    }
+    final source = await _prepareOnlineStream(track, prefetchToken: token);
+    token.check();
+    if (source is! ResumableAudioSource) return;
+    final done = Completer<void>();
+    StreamSubscription<List<int>>? subscription;
+    Future<void>? cancelling;
+    token.onCancel(() {
+      source.cancelRequests();
+      cancelling = subscription?.cancel();
+      if (!done.isCompleted) done.completeError(const CachePrefetchCancelled());
+    });
+    // Attach the error handler before an asynchronous HTTP header request.
+    final completion = done.future;
+    unawaited(completion.catchError((Object _) {}));
+    try {
+      final response = await source.request();
+      subscription = response.stream.listen(
+        (_) {},
+        onError: (Object error, StackTrace stack) {
+          if (!done.isCompleted) done.completeError(error, stack);
+        },
+        onDone: () {
+          if (!done.isCompleted) done.complete();
+        },
+        cancelOnError: true,
+      );
+      if (token.isCancelled) {
+        source.cancelRequests();
+        cancelling = subscription.cancel();
+      }
+      await completion;
+    } finally {
+      await cancelling;
+      await subscription?.cancel();
+      source.cancelRequests();
+      await source.waitForCache();
+    }
   }
 
   void _maybePrefetchUpcomingLyrics() {
@@ -1427,27 +1879,8 @@ class MusicController extends ChangeNotifier {
     );
   }
 
-  String? _nextAfterDefinitivePrefetchFailure(String failedId) {
-    _prefetchRejectedForCurrent.add(failedId);
-    var cursor = failedId;
-    for (var visited = 0; visited < _activeQueueTracks.length; visited += 1) {
-      final index = audioHandler.followingQueueIndex(cursor);
-      if (index == null || index < 0 || index >= _activeQueueTracks.length) {
-        return null;
-      }
-      final track = _activeQueueTracks[index];
-      if (track.id == audioHandler.mediaItem.value?.id) return null;
-      cursor = track.id;
-      if (_prefetchRejectedForCurrent.contains(track.id) ||
-          track.playbackSource.isNotEmpty) {
-        continue;
-      }
-      return track.id;
-    }
-    return null;
-  }
-
   Future<void> deleteCachedTrack(Track track) async {
+    await _playbackPrefetch.cancel();
     await _handleDeletedTracksPlaybackImpact({track.id});
     _applyLibrarySnapshot(
       await libraryUseCase.deleteCachedTrack(track, current: _librarySnapshot),
@@ -1456,6 +1889,7 @@ class MusicController extends ChangeNotifier {
   }
 
   Future<void> deleteCachedTracks(List<Track> tracks) async {
+    await _playbackPrefetch.cancel();
     final ids = {for (final track in tracks) track.id};
     if (ids.isEmpty) {
       return;
@@ -1501,8 +1935,7 @@ class MusicController extends ChangeNotifier {
     final operation = _playbackModeChange.then((_) async {
       await playbackUseCase.applyPlaybackMode(mode);
       if (changed) {
-        _nextPrefetch.cancel();
-        _prefetchRejectedForCurrent.clear();
+        unawaited(_playbackPrefetch.cancel());
         _lyricsPrefetchQueueKey = null;
         _lyricsPrefetchRequest += 1;
         if (audioHandler.playbackState.value.playing) {
@@ -1570,6 +2003,130 @@ class MusicController extends ChangeNotifier {
     candidates,
     target: target,
   )).playlist;
+
+  Future<MusicPlaylist?> addPlaylistDirectly(
+    OnlinePlaylist origin,
+    List<OnlinePlaylistSong> songs, {
+    MusicPlaylist? target,
+  }) async {
+    final result = await libraryUseCase.importPlaylistSongs(
+      origin.name,
+      [
+        for (final s in songs)
+          PlaylistSong(
+            key: '${origin.source.name}:${s.id}',
+            title: s.title,
+            artist: s.artist,
+            coverUrl: origin.coverUrl,
+          ),
+      ],
+      current: _librarySnapshot,
+      target: target,
+    );
+    _applyLibrarySnapshot(result.snapshot);
+    notifyListeners();
+    if (result.playlist != null) {
+      await _appendSyncedPlaylistTracksToQueue(result.playlist!);
+      unawaited(matchPlaylistSources(result.playlist!.id));
+    }
+    return result.playlist;
+  }
+
+  /// Saving metadata comes first; matching continues after the page is closed.
+  /// Recommendations stay pending until audio actually plays successfully.
+  Future<void> matchPlaylistSources(String playlistId) {
+    final existing = _playlistSourceMatching[playlistId];
+    if (existing != null) return existing;
+    if ((playlistSourceProgress.value[playlistId]?.failed ?? 0) > 0) {
+      // Empty results may have been cached while a source was unavailable.
+      _playlistSongMatcher = null;
+    }
+    final future = _runPlaylistSourceMatching(playlistId);
+    _playlistSourceMatching[playlistId] = future;
+    return future.whenComplete(() {
+      if (identical(_playlistSourceMatching[playlistId], future)) {
+        _playlistSourceMatching.remove(playlistId);
+      }
+    });
+  }
+
+  Future<void> _runPlaylistSourceMatching(String playlistId) async {
+    final playlist = customPlaylists
+        .where((p) => p.id == playlistId)
+        .firstOrNull;
+    if (playlist == null || _isDisposed) return;
+    final indexed = {
+      for (final track in _librarySnapshot.allTracks) track.id: track,
+    };
+    final tracks = playlist.trackIds
+        .map((id) => indexed[id])
+        .whereType<Track>()
+        .where((t) => _songEntry(t.id)?.song != null)
+        .toList();
+    var next = 0;
+    var completed = 0;
+    var failed = 0;
+    var nextOutcome = 0;
+    var consecutiveErrors = 0;
+    var paused = false;
+    final outcomes = List<bool?>.filled(tracks.length, null);
+    void publish(bool matching) {
+      if (!_isDisposed) {
+        playlistSourceProgress.value = {
+          ...playlistSourceProgress.value,
+          playlistId: (
+            matching: matching,
+            completed: completed,
+            total: tracks.length,
+            failed: failed,
+          ),
+        };
+      }
+    }
+
+    publish(true);
+    Future<void> worker() async {
+      while (!_isDisposed && !paused && next < tracks.length) {
+        final index = next++;
+        final track = tracks[index];
+        final current = customPlaylists
+            .where((p) => p.id == playlistId)
+            .firstOrNull;
+        if (current == null) return;
+        if (!current.trackIds.contains(track.id)) {
+          outcomes[index] = true;
+          completed++;
+          continue;
+        }
+        try {
+          await _ensureSongCandidate(track);
+          outcomes[index] = true;
+        } catch (_) {
+          final chosen = _candidateForOnlineTrack(track.id) != null;
+          outcomes[index] = chosen;
+          if (!chosen) failed++;
+        }
+        while (nextOutcome < outcomes.length && outcomes[nextOutcome] != null) {
+          consecutiveErrors = outcomes[nextOutcome++]!
+              ? 0
+              : consecutiveErrors + 1;
+          if (consecutiveErrors >= 3) paused = true;
+        }
+        completed++;
+        publish(true);
+      }
+    }
+
+    await Future.wait([
+      for (
+        var i = 0;
+        i < tracks.length && i < screenshotSearchConcurrency.clamp(1, 10);
+        i++
+      )
+        worker(),
+    ]);
+    publish(false);
+  }
 
   Future<MusicPlaylistResult> importPlaylistSelection(
     String name,
@@ -1711,7 +2268,7 @@ class MusicController extends ChangeNotifier {
             await playbackUseCase.removeTrackAt(_activeQueueTracks, oldIndex);
             _activeQueueTracks = [..._activeQueueTracks]..removeAt(oldIndex);
           }
-          _nextPrefetch.cancel();
+          unawaited(_playbackPrefetch.cancel());
           _lyricsPrefetchQueueKey = null;
         }
       }
@@ -1812,6 +2369,8 @@ class MusicController extends ChangeNotifier {
   }
 
   Future<void> deletePlaylist(MusicPlaylist playlist) async {
+    await _playbackPrefetch.cancel();
+    if (_activePlaylistId == playlist.id) _activePlaylistId = null;
     _applyLibrarySnapshot(
       await libraryUseCase.deletePlaylist(playlist, current: _librarySnapshot),
     );
@@ -1844,6 +2403,7 @@ class MusicController extends ChangeNotifier {
     MusicPlaylist playlist,
     Track track,
   ) async {
+    await _playbackPrefetch.cancel();
     _applyLibrarySnapshot(
       await libraryUseCase.removeTrackFromPlaylist(
         playlist,
@@ -1858,6 +2418,7 @@ class MusicController extends ChangeNotifier {
     MusicPlaylist playlist,
     List<Track> tracks,
   ) async {
+    await _playbackPrefetch.cancel();
     _applyLibrarySnapshot(
       await libraryUseCase.removeTracksFromPlaylist(
         playlist,
@@ -1933,6 +2494,26 @@ class MusicController extends ChangeNotifier {
     onlineTracks = snapshot.onlineTracks;
     favoriteTracks = snapshot.favoriteTracks;
     customPlaylists = snapshot.customPlaylists;
+    _cacheProgressTrackKeys.clear();
+    final completed = <String>{};
+    for (final record in _cachedRecords) {
+      final key = downloadQueue.taskIdForCandidate(
+        _candidateFromCached(record),
+      );
+      _cacheProgressTrackKeys[record.cacheId] = key;
+      completed.add(key);
+    }
+    for (final entry in [
+      ..._playlistLibrary.favoriteEntries,
+      for (final playlist in _playlistLibrary.playlists) ...playlist.entries,
+    ]) {
+      final candidate = entry.onlineTrack?.candidate;
+      if (candidate != null) {
+        _cacheProgressTrackKeys[entry.trackId] = downloadQueue
+            .taskIdForCandidate(candidate);
+      }
+    }
+    songCacheProgress.completeKeys(completed);
   }
 
   void _upsertCachedRecord(CachedTrack record) {
@@ -2197,12 +2778,16 @@ class MusicController extends ChangeNotifier {
   }
 
   CachedTrack? _cachedRecordForTrack(Track track) {
-    final direct = _cachedRecords
-        .where((record) => record.cacheId == track.id)
-        .firstOrNull;
-    if (direct != null) return direct;
     final candidate = _candidateForOnlineTrack(track.id);
-    return (candidate == null ? null : _cachedRecordForCandidate(candidate)) ??
+    if (candidate != null) {
+      // A legacy cache ID can remain the logical playlist ID after a source
+      // switch. Do not let that old file supply lyrics/artwork for the new audio.
+      return _cachedRecordForCandidate(candidate) ??
+          _streamingMetadataTracks[track.id];
+    }
+    return _cachedRecords
+            .where((record) => record.cacheId == track.id)
+            .firstOrNull ??
         _streamingMetadataTracks[track.id];
   }
 
@@ -2400,9 +2985,13 @@ class MusicController extends ChangeNotifier {
 
   @override
   void dispose() {
+    appUpdates.dispose();
+    _searchRequest += 1;
     _playRequest += 1;
     _isDisposed = true;
     downloadProgressChanges.dispose();
+    songCacheProgress.dispose();
+    playlistSourceProgress.dispose();
     _onlinePlaylistTasks?.dispose();
     audioHandler.onOhosLoopModeRequested = null;
     audioHandler.onOhosToggleFavoriteRequested = null;
@@ -2411,7 +3000,7 @@ class MusicController extends ChangeNotifier {
     unawaited(_mediaItemSubscription.cancel());
     unawaited(_playbackSubscription.cancel());
     unawaited(_connectivitySubscription?.cancel());
-    _nextPrefetch.cancel();
+    unawaited(_playbackPrefetch.cancel());
     if (_ownsLanLibraryGateway && _lanLibraryGateway is LanLibraryClient) {
       _lanLibraryGateway.close();
     }

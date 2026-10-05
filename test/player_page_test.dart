@@ -1,6 +1,8 @@
+import 'package:ai_music/src/data/song_search_cache.dart';
 import 'memory_download_history.dart';
 import 'dart:async';
 import 'dart:io';
+import 'dart:ui' show PictureRecorder, Canvas, ImageByteFormat;
 
 import 'package:ai_music/src/application/music_controller.dart';
 import 'package:ai_music/src/application/music_mappers.dart';
@@ -13,11 +15,233 @@ import 'package:ai_music/src/domain/music_models.dart';
 import 'package:ai_music/src/playback/music_audio_handler.dart';
 import 'package:ai_music/src/presentation/app_localizations.dart';
 import 'package:ai_music/src/presentation/player_page.dart';
+import 'package:ai_music/src/presentation/song_cache_progress.dart';
 import 'package:audio_service/audio_service.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
+  testWidgets(
+    'song background repaints progress without rebuilding row contents',
+    (tester) async {
+      final cached = _cachedTrack();
+      final handler = _SpyAudioHandler();
+      final controller = MusicController(
+        songSearchCache: SongSearchCache.memory(),
+        downloadHistoryStore: MemoryDownloadHistory(),
+        connectivityChanges: const Stream.empty(),
+        audioHandler: handler,
+        resolver: _FakeMusicResolver(),
+        cacheStore: _FakeCacheStore(cached: [cached]),
+        playlistStore: _FakePlaylistStore(),
+        settingsStore: _FakeSettingsStore(),
+        metadataRepository: _StaticMetadataRepository(
+          metadata: const TrackMetadata(),
+        ),
+      );
+      try {
+        await controller.initialize();
+        final track = trackFromCached(cached);
+        var rowBuilds = 0;
+        await tester.pumpWidget(
+          AppStringsScope(
+            language: AppLanguage.zh,
+            child: MaterialApp(
+              home: Scaffold(
+                body: SongCacheProgressRow(
+                  controller: controller,
+                  track: track,
+                  rowBuilder: (context, cached) {
+                    rowBuilds++;
+                    return Text(cached ? '已缓存' : '未缓存');
+                  },
+                ),
+              ),
+            ),
+          ),
+        );
+        expect(find.text('已缓存'), findsOneWidget);
+        expect(find.byType(LinearProgressIndicator), findsNothing);
+        expect(find.textContaining('%'), findsNothing);
+        final key = controller.downloadQueue.taskIdForCandidate(
+          MusicSearchCandidate(
+            query: cached.music.query,
+            source: cached.music.source,
+            platform: cached.music.platform,
+            id: cached.music.id,
+            name: cached.music.name,
+            artist: cached.music.artist,
+            album: cached.music.album,
+            coverUrl: '',
+            duration: 0,
+            keyword: '',
+            link: '',
+            page: 1,
+            qualities: const [],
+            raw: const {},
+            score: 1,
+          ),
+        );
+        controller.songCacheProgress.completeKeys({});
+        controller.songCacheProgress.streaming(
+          key,
+          bytes: 10,
+          total: 100,
+          active: true,
+        );
+        await tester.pump();
+        expect(find.text('未缓存'), findsOneWidget);
+        final before = rowBuilds;
+        for (var bytes = 11; bytes <= 50; bytes++) {
+          controller.songCacheProgress.streaming(
+            key,
+            bytes: bytes,
+            total: 100,
+            active: true,
+          );
+          await tester.pump();
+        }
+        expect(rowBuilds, before);
+        final painter = tester
+            .widget<CustomPaint>(
+              find.byKey(ValueKey('song-cache-background-${track.id}')),
+            )
+            .painter!;
+        // Paint the actual background: half-width tint, no tint after its edge.
+        await tester.runAsync(() async {
+          final recorder = PictureRecorder();
+          painter.paint(Canvas(recorder), const Size(200, 20));
+          final picture = recorder.endRecording();
+          final image = await picture.toImage(200, 20);
+          final data = (await image.toByteData(
+            format: ImageByteFormat.rawRgba,
+          ))!;
+          expect(data.getUint8((10 * 200 + 20) * 4 + 3), greaterThan(0));
+          expect(data.getUint8((10 * 200 + 150) * 4 + 3), 0);
+          image.dispose();
+          picture.dispose();
+        });
+        controller.songCacheProgress.removePartial(key);
+        controller.songCacheProgress.completeKeys({key});
+        await tester.pump();
+        expect(find.text('已缓存'), findsOneWidget);
+        expect(rowBuilds, before + 1);
+        await tester.pumpWidget(const SizedBox());
+      } finally {
+        controller.dispose();
+        await tester.runAsync(handler.dispose);
+      }
+    },
+  );
+
+  testWidgets(
+    'player secondary progress is independent of position, seek and media changes',
+    (tester) async {
+      await tester.binding.setSurfaceSize(const Size(700, 1100));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+      final cached = _cachedTrack();
+      final handler = _SpyAudioHandler();
+      final controller = MusicController(
+        songSearchCache: SongSearchCache.memory(),
+        downloadHistoryStore: MemoryDownloadHistory(),
+        connectivityChanges: const Stream.empty(),
+        audioHandler: handler,
+        resolver: _FakeMusicResolver(),
+        cacheStore: _FakeCacheStore(cached: [cached]),
+        playlistStore: _FakePlaylistStore(),
+        settingsStore: _FakeSettingsStore(),
+        metadataRepository: _StaticMetadataRepository(
+          metadata: const TrackMetadata(),
+        ),
+      );
+      try {
+        await controller.initialize();
+        const duration = Duration(seconds: 100);
+        handler.emit(
+          const MediaItem(
+            id: 'streaming',
+            title: 'Streaming',
+            duration: duration,
+          ),
+        );
+        handler.playbackState.add(
+          PlaybackState(bufferedPosition: const Duration(seconds: 60)),
+        );
+        await tester.pumpWidget(
+          AppStringsScope(
+            language: AppLanguage.zh,
+            child: MaterialApp(home: PlayerPage(controller: controller)),
+          ),
+        );
+        await tester.pump();
+        Slider slider() => tester.widget<Slider>(find.byType(Slider));
+        handler.emit(
+          const MediaItem(
+            id: 'streaming',
+            title: 'Streaming',
+            duration: duration,
+          ),
+        );
+        handler.playbackState.add(
+          PlaybackState(bufferedPosition: const Duration(seconds: 60)),
+        );
+        await tester.pump();
+        expect(slider().secondaryTrackValue, 60000);
+        handler.positions.add(const Duration(seconds: 10));
+        await tester.pump();
+        expect(slider().value, 10000);
+        expect(slider().secondaryTrackValue, 60000);
+        slider().onChangeStart!(70000);
+        slider().onChanged!(70000);
+        await tester.pump();
+        expect(slider().value, 70000);
+        expect(slider().secondaryTrackValue, 60000);
+        slider().onChangeEnd!(70000);
+        await tester.pump();
+        expect(handler.seekedPositions, [const Duration(seconds: 70)]);
+        // A new song must discard an in-progress drag and clamp its buffer.
+        slider().onChangeStart!(90000);
+        slider().onChanged!(90000);
+        handler.emit(
+          const MediaItem(
+            id: 'next',
+            title: 'Next',
+            duration: Duration(seconds: 20),
+          ),
+        );
+        handler.playbackState.add(
+          PlaybackState(bufferedPosition: const Duration(seconds: 80)),
+        );
+        await tester.pump();
+        await tester.pump();
+        expect(slider().value, 0);
+        expect(slider().secondaryTrackValue, 20000);
+        handler.emit(const MediaItem(id: 'unknown', title: 'Unknown'));
+        await tester.pump();
+        await tester.pump();
+        expect(slider().secondaryTrackValue, 0);
+        expect(slider().onChanged, null);
+        // Whole local files remain fully buffered regardless of decoder read-ahead.
+        handler.emit(
+          mediaItemFromTrack(
+            trackFromCached(cached),
+          ).copyWith(duration: duration),
+        );
+        handler.playbackState.add(
+          PlaybackState(bufferedPosition: const Duration(seconds: 5)),
+        );
+        await tester.pump();
+        await tester.pump();
+        expect(slider().secondaryTrackValue, 100000);
+        expect(tester.takeException(), null);
+        await tester.pumpWidget(const SizedBox());
+      } finally {
+        controller.dispose();
+        await tester.runAsync(handler.dispose);
+      }
+    },
+  );
+
   test('lyric follow state only follows when index or target changes', () {
     final state = LyricFollowState();
 
@@ -36,7 +260,9 @@ void main() {
     final cached = _cachedTrack();
     final handler = _SpyAudioHandler();
     final controller = MusicController(
+      songSearchCache: SongSearchCache.memory(),
       downloadHistoryStore: MemoryDownloadHistory(),
+      connectivityChanges: const Stream.empty(),
       audioHandler: handler,
       resolver: _FakeMusicResolver(),
       cacheStore: _FakeCacheStore(cached: [cached]),
@@ -111,7 +337,9 @@ void main() {
     final cached = _cachedTrack();
     final handler = _SpyAudioHandler();
     final controller = MusicController(
+      songSearchCache: SongSearchCache.memory(),
       downloadHistoryStore: MemoryDownloadHistory(),
+      connectivityChanges: const Stream.empty(),
       audioHandler: handler,
       resolver: _FakeMusicResolver(),
       cacheStore: _FakeCacheStore(cached: [cached]),
@@ -168,7 +396,9 @@ void main() {
     final handler = _SpyAudioHandler();
     final metadata = _UpgradingMetadataRepository();
     final controller = MusicController(
+      songSearchCache: SongSearchCache.memory(),
       downloadHistoryStore: MemoryDownloadHistory(),
+      connectivityChanges: const Stream.empty(),
       audioHandler: handler,
       resolver: _FakeMusicResolver(),
       cacheStore: _FakeCacheStore(cached: [cached]),
@@ -218,7 +448,9 @@ void main() {
     final handler = _SpyAudioHandler();
     final metadata = _RetryMetadataRepository();
     final controller = MusicController(
+      songSearchCache: SongSearchCache.memory(),
       downloadHistoryStore: MemoryDownloadHistory(),
+      connectivityChanges: const Stream.empty(),
       audioHandler: handler,
       resolver: _LyricsResolver(),
       cacheStore: _FakeCacheStore(cached: [cached]),
@@ -272,6 +504,22 @@ void main() {
 
 class _SpyAudioHandler extends MusicAudioHandler {
   final seekedPositions = <Duration>[];
+  final positions = StreamController<Duration>.broadcast();
+
+  @override
+  Stream<Duration> get positionStream => positions.stream;
+
+  @override
+  Duration get currentPosition => Duration.zero;
+
+  @override
+  Duration get currentBufferedPosition => playbackState.value.bufferedPosition;
+
+  @override
+  Future<void> dispose() async {
+    await positions.close();
+    unawaited(super.dispose());
+  }
 
   @override
   Future<void> loadQueue(
@@ -378,6 +626,9 @@ class _FakeCacheStore extends CachedTrackStore {
   _FakeCacheStore({required this.cached});
 
   final List<CachedTrack> cached;
+
+  @override
+  Future<Map<String, ({int bytes, int? total})>> partialProgress() async => {};
 
   @override
   Future<List<CachedTrack>> listCached() async {

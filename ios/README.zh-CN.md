@@ -34,7 +34,7 @@
 始终使用项目旁边的 Flutter SDK：
 
 ```bash
-cd /Users/huangqi/AIHome/ai_music
+cd /Users/huangqi/AIHome/projects/ai_music
 /Users/huangqi/AIHome/tools/flutter/bin/flutter pub get
 ```
 

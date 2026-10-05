@@ -27,6 +27,10 @@ import 'playlist_download_progress.dart';
 import 'settings_page.dart';
 import 'screenshot_import_page.dart';
 import 'swipe_to_skip.dart';
+import 'song_source_page.dart';
+import 'app_update_page.dart';
+import 'song_cache_progress.dart';
+import 'playlist_source_progress.dart';
 
 class MusicHomePage extends StatefulWidget {
   const MusicHomePage({
@@ -166,7 +170,10 @@ class _MusicHomePageState extends State<MusicHomePage>
                 IconButton(
                   tooltip: strings.settings,
                   onPressed: _openSettings,
-                  icon: const Icon(Icons.settings),
+                  icon: UpdateBadge(
+                    updates: controller.appUpdates,
+                    child: const Icon(Icons.settings),
+                  ),
                 ),
               ],
             ),
@@ -1771,6 +1778,11 @@ class _PlaylistDetailPageState extends State<_PlaylistDetailPage> {
                           : null,
                     ),
                   if (list.canManage && list.playlist != null)
+                    PlaylistSourceProgress(
+                      controller: controller,
+                      playlistId: list.playlist!.id,
+                    ),
+                  if (list.canManage && list.playlist != null)
                     _OnlinePlaylistSyncProgress(
                       controller: controller,
                       playlistId: list.playlist!.id,
@@ -2524,60 +2536,95 @@ class _TrackTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final strings = AppStringsScope.of(context);
-    return ListTile(
-      selected: selected,
-      contentPadding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
-      leading: isReorderEditing
-          ? const Icon(Icons.music_note_outlined)
-          : isSelecting
-          ? Checkbox(
-              value: selected,
-              onChanged: (_) => onToggleSelection(track),
-            )
-          : IconButton.filledTonal(
-              tooltip: isPreparing
-                  ? strings.preparingPlayback
-                  : active
-                  ? strings.playing
-                  : strings.play,
-              onPressed: isPreparing
-                  ? null
-                  : () => onPlayTrack(track, index, tracks),
-              icon: isPreparing
-                  ? const SizedBox(
-                      width: 20,
-                      height: 20,
-                      child: CircularProgressIndicator(strokeWidth: 2),
-                    )
-                  : Icon(active ? Icons.equalizer : Icons.play_arrow),
+    return SongCacheProgressRow(
+      controller: controller,
+      track: track,
+      rowBuilder: (context, cached) {
+        final colors = Theme.of(context).colorScheme;
+        final faded = colors.onSurface.withValues(alpha: .46);
+        return IconButtonTheme(
+          data: IconButtonThemeData(
+            style: IconButton.styleFrom(foregroundColor: cached ? null : faded),
+          ),
+          child: ListTile(
+            selected: selected,
+            contentPadding: const EdgeInsets.symmetric(
+              horizontal: 8,
+              vertical: 6,
             ),
-      title: Text(
-        track.title,
-        maxLines: 1,
-        overflow: TextOverflow.ellipsis,
-        style: TextStyle(
-          fontWeight: active ? FontWeight.w700 : FontWeight.w500,
-          color: active ? Theme.of(context).colorScheme.primary : null,
-        ),
-      ),
-      subtitle: Text(
-        _trackSubtitle(track),
-        maxLines: 1,
-        overflow: TextOverflow.ellipsis,
-      ),
-      trailing: isReorderEditing
-          ? dragHandle
-          : isSelecting
-          ? null
-          : _TrackActions(controller: controller, list: list, track: track),
-      onTap: isReorderEditing
-          ? null
-          : isSelecting
-          ? () => onToggleSelection(track)
-          : isPreparing
-          ? null
-          : () => onPlayTrack(track, index, tracks),
-      onLongPress: isReorderEditing ? null : () => onStartSelection(track),
+            leading: isReorderEditing
+                ? const Icon(Icons.music_note_outlined)
+                : isSelecting
+                ? Checkbox(
+                    value: selected,
+                    onChanged: (_) => onToggleSelection(track),
+                  )
+                : IconButton.filledTonal(
+                    style: cached
+                        ? null
+                        : IconButton.styleFrom(
+                            foregroundColor: faded,
+                            backgroundColor: colors.onSurface.withValues(
+                              alpha: .07,
+                            ),
+                          ),
+                    tooltip: isPreparing
+                        ? strings.preparingPlayback
+                        : active
+                        ? strings.playing
+                        : strings.play,
+                    onPressed: isPreparing
+                        ? null
+                        : () => onPlayTrack(track, index, tracks),
+                    icon: isPreparing
+                        ? const SizedBox(
+                            width: 20,
+                            height: 20,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : Icon(active ? Icons.equalizer : Icons.play_arrow),
+                  ),
+            title: Text(
+              track.title,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                fontWeight: active ? FontWeight.w700 : FontWeight.w500,
+                color: active
+                    ? colors.primary
+                    : cached
+                    ? null
+                    : faded,
+              ),
+            ),
+            subtitle: Text(
+              _trackSubtitle(track),
+              style: cached ? null : TextStyle(color: faded),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+            trailing: isReorderEditing
+                ? dragHandle
+                : isSelecting
+                ? null
+                : _TrackActions(
+                    controller: controller,
+                    list: list,
+                    track: track,
+                  ),
+            onTap: isReorderEditing
+                ? null
+                : isSelecting
+                ? () => onToggleSelection(track)
+                : isPreparing
+                ? null
+                : () => onPlayTrack(track, index, tracks),
+            onLongPress: isReorderEditing
+                ? null
+                : () => onStartSelection(track),
+          ),
+        );
+      },
     );
   }
 }
@@ -2617,6 +2664,13 @@ class _TrackActions extends StatelessWidget {
           onSelected: (action) => _handle(context, action),
           itemBuilder: (context) {
             return [
+              PopupMenuItem(
+                enabled: controller.canSwitchSongSource(track),
+                value: _TrackAction.switchSource,
+                child: Text(
+                  '${strings.isZh ? '歌曲来源' : 'Song source'}（${controller.songSourceLabel(track, isZh: strings.isZh)}）',
+                ),
+              ),
               if (list.isLocal)
                 PopupMenuItem(
                   value: _TrackAction.deleteLocal,
@@ -2640,6 +2694,8 @@ class _TrackActions extends StatelessWidget {
 
   Future<void> _handle(BuildContext context, _TrackAction action) async {
     switch (action) {
+      case _TrackAction.switchSource:
+        await showSongSourcePicker(context, controller, track);
       case _TrackAction.deleteLocal:
         final confirmed = await _confirmDeleteLocalTracks(context, [track]);
         if (confirmed == true) {
@@ -2658,7 +2714,7 @@ class _TrackActions extends StatelessWidget {
   }
 }
 
-enum _TrackAction { deleteLocal, removeFromCurrent }
+enum _TrackAction { deleteLocal, removeFromCurrent, switchSource }
 
 enum _ReorderExitAction { keepEditing, discard, save }
 

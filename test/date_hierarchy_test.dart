@@ -143,9 +143,9 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.byType(DateRangePickerDialog), findsOneWidget);
       // Choosing a new start clears the previous range before choosing the end.
-      await tester.tap(find.text('12').last);
+      await tester.tap(find.text('12').hitTestable().first);
       await tester.pumpAndSettle();
-      await tester.tap(find.text('15').last);
+      await tester.tap(find.text('15').hitTestable().first);
       await tester.pumpAndSettle();
       await tester.tap(find.text('确定'));
       await tester.pumpAndSettle();

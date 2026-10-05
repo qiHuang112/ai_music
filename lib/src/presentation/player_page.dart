@@ -8,6 +8,7 @@ import '../domain/music_models.dart';
 import 'app_localizations.dart';
 import 'playlist_actions.dart';
 import 'swipe_to_skip.dart';
+import 'song_source_page.dart';
 
 class PlayerPage extends StatefulWidget {
   const PlayerPage({super.key, required this.controller});
@@ -59,6 +60,14 @@ class _PlayerPageState extends State<PlayerPage> {
             title: Text(strings.nowPlaying),
             actions: [
               if (currentTrack != null) ...[
+                if (controller.canSwitchSongSource(currentTrack))
+                  IconButton(
+                    key: const Key('player-switch-source'),
+                    tooltip: strings.isZh ? '切换来源' : 'Choose source',
+                    onPressed: () =>
+                        showSongSourcePicker(context, controller, currentTrack),
+                    icon: const Icon(Icons.swap_horiz),
+                  ),
                 IconButton(
                   tooltip: controller.isFavorite(currentTrack)
                       ? strings.removeFromFavorites
@@ -82,6 +91,7 @@ class _PlayerPageState extends State<PlayerPage> {
           body: SafeArea(
             child: StreamBuilder<MediaItem?>(
               stream: controller.mediaItemStream,
+              initialData: controller.audioHandler.mediaItem.value,
               builder: (context, mediaSnapshot) {
                 final item = mediaSnapshot.data;
                 if (item == null) {
@@ -89,6 +99,7 @@ class _PlayerPageState extends State<PlayerPage> {
                 }
                 return StreamBuilder<PlaybackState>(
                   stream: controller.playbackStateStream,
+                  initialData: controller.audioHandler.playbackState.value,
                   builder: (context, stateSnapshot) {
                     final state = stateSnapshot.data ?? PlaybackState();
                     final duration = item.duration ?? Duration.zero;
@@ -122,8 +133,11 @@ class _PlayerPageState extends State<PlayerPage> {
                           _LyricsPreview(controller: controller),
                           const SizedBox(height: 18),
                           _PositionSlider(
+                            key: ValueKey('player-position-${item.id}'),
+                            trackId: item.id,
                             controller: controller,
                             duration: duration,
+                            bufferedPosition: state.bufferedPosition,
                           ),
                           const SizedBox(height: 16),
                           _PlaybackControls(
@@ -230,6 +244,7 @@ class _LyricsDetailPage extends StatelessWidget {
           body: SafeArea(
             child: StreamBuilder<MediaItem?>(
               stream: controller.mediaItemStream,
+              initialData: controller.audioHandler.mediaItem.value,
               builder: (context, mediaSnapshot) {
                 final item = mediaSnapshot.data;
                 if (item == null) {
@@ -237,6 +252,7 @@ class _LyricsDetailPage extends StatelessWidget {
                 }
                 return StreamBuilder<PlaybackState>(
                   stream: controller.playbackStateStream,
+                  initialData: controller.audioHandler.playbackState.value,
                   builder: (context, stateSnapshot) {
                     final state = stateSnapshot.data ?? PlaybackState();
                     final duration = item.duration ?? Duration.zero;
@@ -277,8 +293,11 @@ class _LyricsDetailPage extends StatelessWidget {
                           Padding(
                             padding: const EdgeInsets.fromLTRB(24, 8, 24, 0),
                             child: _PositionSlider(
+                              key: ValueKey('lyrics-position-${item.id}'),
+                              trackId: item.id,
                               controller: controller,
                               duration: duration,
+                              bufferedPosition: state.bufferedPosition,
                             ),
                           ),
                           _PlaybackControls(
@@ -301,10 +320,18 @@ class _LyricsDetailPage extends StatelessWidget {
 }
 
 class _PositionSlider extends StatefulWidget {
-  const _PositionSlider({required this.controller, required this.duration});
+  const _PositionSlider({
+    super.key,
+    required this.controller,
+    required this.trackId,
+    required this.duration,
+    required this.bufferedPosition,
+  });
 
   final MusicController controller;
+  final String trackId;
   final Duration duration;
+  final Duration bufferedPosition;
 
   @override
   State<_PositionSlider> createState() => _PositionSliderState();
@@ -318,6 +345,7 @@ class _PositionSliderState extends State<_PositionSlider> {
   Widget build(BuildContext context) {
     return StreamBuilder<Duration>(
       stream: widget.controller.positionStream,
+      initialData: widget.controller.audioHandler.currentPosition,
       builder: (context, positionSnapshot) {
         final position = positionSnapshot.data ?? Duration.zero;
         final max = widget.duration.inMilliseconds.toDouble();
@@ -326,40 +354,60 @@ class _PositionSliderState extends State<_PositionSlider> {
             : position.inMilliseconds
                   .clamp(0, widget.duration.inMilliseconds)
                   .toDouble();
-        final value = (_dragging ? _dragValue : null) ?? liveValue;
+        final value = ((_dragging ? _dragValue : null) ?? liveValue)
+            .clamp(0.0, max <= 0 ? 1.0 : max)
+            .toDouble();
         final displayPosition = Duration(milliseconds: value.round());
         return Column(
           children: [
-            Slider(
-              value: value,
-              max: max <= 0 ? 1 : max,
-              onChanged: max <= 0
-                  ? null
-                  : (value) {
-                      setState(() {
-                        _dragging = true;
-                        _dragValue = value;
-                      });
-                    },
-              onChangeStart: max <= 0
-                  ? null
-                  : (value) {
-                      setState(() {
-                        _dragging = true;
-                        _dragValue = value;
-                      });
-                    },
-              onChangeEnd: max <= 0
-                  ? null
-                  : (value) {
-                      setState(() {
-                        _dragging = false;
-                        _dragValue = null;
-                      });
-                      widget.controller.seek(
-                        Duration(milliseconds: value.round()),
-                      );
-                    },
+            ValueListenableBuilder(
+              valueListenable: widget.controller.cacheProgressForId(
+                widget.trackId,
+              ),
+              builder: (context, progress, _) => Slider(
+                value: value,
+                max: max <= 0 ? 1 : max,
+                secondaryTrackValue: max <= 0
+                    ? 0
+                    : progress.offline
+                    ? max
+                    : widget.bufferedPosition.inMilliseconds
+                          .clamp(0, max)
+                          .toDouble(),
+                secondaryActiveColor: Theme.of(
+                  context,
+                ).colorScheme.onSurface.withValues(alpha: .28),
+                inactiveColor: Theme.of(
+                  context,
+                ).colorScheme.onSurface.withValues(alpha: .08),
+                onChanged: max <= 0
+                    ? null
+                    : (value) {
+                        setState(() {
+                          _dragging = true;
+                          _dragValue = value;
+                        });
+                      },
+                onChangeStart: max <= 0
+                    ? null
+                    : (value) {
+                        setState(() {
+                          _dragging = true;
+                          _dragValue = value;
+                        });
+                      },
+                onChangeEnd: max <= 0
+                    ? null
+                    : (value) {
+                        setState(() {
+                          _dragging = false;
+                          _dragValue = null;
+                        });
+                        widget.controller.seek(
+                          Duration(milliseconds: value.round()),
+                        );
+                      },
+              ),
             ),
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,

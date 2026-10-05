@@ -1,3 +1,4 @@
+import 'package:ai_music/src/data/song_search_cache.dart';
 import 'memory_download_history.dart';
 import 'dart:async';
 import 'dart:convert';
@@ -48,6 +49,7 @@ void main() {
     );
     final handler = MusicAudioHandler();
     final controller = MusicController(
+      songSearchCache: SongSearchCache.memory(),
       audioHandler: handler,
       downloadHistoryStore: MemoryDownloadHistory(),
     );
@@ -124,6 +126,7 @@ void main() {
       );
       final handler = MusicAudioHandler();
       final controller = MusicController(
+        songSearchCache: SongSearchCache.memory(),
         audioHandler: handler,
         downloadHistoryStore: MemoryDownloadHistory(),
       );
@@ -186,6 +189,7 @@ void main() {
     );
     final handler = MusicAudioHandler();
     final controller = MusicController(
+      songSearchCache: SongSearchCache.memory(),
       audioHandler: handler,
       downloadHistoryStore: MemoryDownloadHistory(),
     );
@@ -241,6 +245,7 @@ void main() {
     );
     final handler = MusicAudioHandler();
     final controller = MusicController(
+      songSearchCache: SongSearchCache.memory(),
       audioHandler: handler,
       downloadHistoryStore: MemoryDownloadHistory(),
     );
@@ -297,6 +302,7 @@ void main() {
     );
     final handler = MusicAudioHandler();
     final controller = MusicController(
+      songSearchCache: SongSearchCache.memory(),
       audioHandler: handler,
       downloadHistoryStore: MemoryDownloadHistory(),
     );
@@ -351,6 +357,7 @@ void main() {
     final ocr = _GatedOcr();
     final handler = MusicAudioHandler();
     final controller = MusicController(
+      songSearchCache: SongSearchCache.memory(),
       audioHandler: handler,
       downloadHistoryStore: MemoryDownloadHistory(),
     );
@@ -412,6 +419,7 @@ void main() {
     );
     final handler = MusicAudioHandler();
     final controller = MusicController(
+      songSearchCache: SongSearchCache.memory(),
       audioHandler: handler,
       downloadHistoryStore: MemoryDownloadHistory(),
     )..screenshotSearchConcurrency = 5;
@@ -468,6 +476,7 @@ void main() {
       final outOfOrder = scenario.startsWith('out-of-order');
       final healthy = scenario == 'healthy fallback';
       final controller = MusicController(
+        songSearchCache: SongSearchCache.memory(),
         audioHandler: handler,
         downloadHistoryStore: MemoryDownloadHistory(),
       )..screenshotSearchConcurrency = outOfOrder ? 2 : 1;
@@ -565,6 +574,7 @@ void main() {
     );
     final handler = MusicAudioHandler();
     final controller = MusicController(
+      songSearchCache: SongSearchCache.memory(),
       audioHandler: handler,
       downloadHistoryStore: MemoryDownloadHistory(),
     );

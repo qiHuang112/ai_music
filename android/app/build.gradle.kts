@@ -38,6 +38,7 @@ val releaseSigningConfigured = listOf(
 ).all { !it.isNullOrEmpty() }
 
 android {
+    buildFeatures { buildConfig = true }
     namespace = "com.qi.ai.music"
     compileSdk = 36
     buildToolsVersion = "35.0.0"
@@ -54,6 +55,7 @@ android {
         targetSdk = 35
         versionCode = flutter.versionCode
         versionName = flutter.versionName
+        buildConfigField("long", "BUILD_TIMESTAMP", "${System.currentTimeMillis()}L")
     }
 
     signingConfigs {

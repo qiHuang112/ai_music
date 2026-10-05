@@ -8,6 +8,32 @@ import 'package:flutter_test/flutter_test.dart';
 
 void main() {
   test(
+    'partial progress uses disk bytes across restart and removes stale data',
+    () async {
+      final root = await Directory.systemTemp.createTemp('partial_progress_');
+      addTearDown(() => root.delete(recursive: true));
+      final store = CachedTrackStore(rootProvider: () async => root);
+      final part = File('${root.path}/song.mp3.part');
+      await part.writeAsBytes(List.filled(25, 0));
+      await store.savePartialProgress(part, 'flac|song', 100);
+      final restarted = CachedTrackStore(rootProvider: () async => root);
+      expect(await restarted.partialProgress(), {
+        'flac|song': (bytes: 25, total: 100),
+      });
+      await part.writeAsBytes(List.filled(50, 0));
+      expect((await restarted.partialProgress())['flac|song']?.bytes, 50);
+      await part.delete();
+      expect(await restarted.partialProgress(), isEmpty);
+      expect(await File('${part.path}.progress.json').exists(), false);
+      await part.writeAsBytes(List.filled(20, 0));
+      await store.savePartialProgress(part, 'flac|song', 100);
+      await store.clearPlaybackCache();
+      expect(await part.exists(), false);
+      expect(await File('${part.path}.progress.json').exists(), false);
+    },
+  );
+
+  test(
     'cache promotion boundary rejects early cancel and ignores late cancel',
     () {
       final early = DownloadCancelToken();

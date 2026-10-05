@@ -1,3 +1,4 @@
+import 'package:ai_music/src/data/song_search_cache.dart';
 import 'package:ai_music/src/application/download_queue_controller.dart';
 import 'package:ai_music/src/presentation/date_groups.dart';
 import 'memory_download_history.dart';
@@ -741,6 +742,7 @@ void main() {
     (tester) async {
       final now = DateTime.now();
       final controller = MusicController(
+        songSearchCache: SongSearchCache.memory(),
         audioHandler: MusicAudioHandler(),
         downloadHistoryStore: MemoryDownloadHistory(),
         resolver: _FakeMusicResolver(),
@@ -1764,6 +1766,60 @@ void main() {
     expect(playlistStore.library.favoriteTrackIds, isEmpty);
   });
 
+  testWidgets('add sheet scrolls many playlists and selects the last one', (
+    tester,
+  ) async {
+    await tester.binding.setSurfaceSize(const Size(400, 600));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    final fixture = _homeLibraryFixture();
+    fixture.playlistStore.library = PlaylistLibrary(
+      favoriteEntries: const [],
+      playlists: [
+        for (var i = 0; i < 30; i++)
+          MusicPlaylist(
+            id: 'target-$i',
+            name: 'Target $i',
+            entries: const [],
+            createdAt: DateTime(2026),
+            updatedAt: DateTime(2026),
+          ),
+      ],
+    );
+    await tester.pumpWidget(
+      _app(
+        cacheStore: fixture.cacheStore,
+        playlistStore: fixture.playlistStore,
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.byTooltip('播放列表'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.textContaining('本地'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byTooltip('添加到歌单').first);
+    await tester.pumpAndSettle();
+    expect(tester.takeException(), isNull);
+    final sheet = find.byType(BottomSheet);
+    expect(
+      find.descendant(of: sheet, matching: find.text('新建歌单')),
+      findsOneWidget,
+    );
+    await tester.scrollUntilVisible(
+      find.descendant(of: sheet, matching: find.text('Target 29')),
+      200,
+      scrollable: find.descendant(of: sheet, matching: find.byType(Scrollable)),
+    );
+    await tester.tap(
+      find.descendant(of: sheet, matching: find.text('Target 29')),
+    );
+    await tester.pumpAndSettle();
+    expect(find.byType(BottomSheet), findsNothing);
+    expect(fixture.playlistStore.library.playlists.last.trackIds, [
+      fixture.cacheStore.cached.first.cacheId,
+    ]);
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('new playlist from add sheet uses live parent context', (
     tester,
   ) async {
@@ -2434,6 +2490,7 @@ Widget _app({
   final controller =
       playbackController ??
       MusicController(
+        songSearchCache: SongSearchCache.memory(),
         downloadHistoryStore: MemoryDownloadHistory(),
         audioHandler: audioHandler ?? MusicAudioHandler(),
         resolver: resolver ?? _FakeMusicResolver(),
@@ -2895,6 +2952,9 @@ class _WidgetLanSyncUseCase extends LanSyncUseCase {
 }
 
 class _FakeCacheStore extends CachedTrackStore {
+  @override
+  Future<Map<String, ({int bytes, int? total})>> partialProgress() async => {};
+
   _FakeCacheStore({List<CachedTrack> cached = const []}) : cached = [...cached];
 
   final List<CachedTrack> cached;

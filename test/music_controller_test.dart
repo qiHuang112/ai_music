@@ -1,3 +1,4 @@
+import 'package:ai_music/src/data/song_search_cache.dart';
 import 'memory_download_history.dart';
 import 'package:ai_music/src/data/playlist_usage_store.dart';
 import 'dart:async';
@@ -16,6 +17,7 @@ import 'package:ai_music/src/data/music_resolver.dart';
 import 'package:ai_music/src/data/music_settings.dart';
 import 'package:ai_music/src/data/playlist_auto_download_store.dart';
 import 'package:ai_music/src/data/saved_online_track.dart';
+import 'package:ai_music/src/data/online_playlists.dart';
 import 'package:ai_music/src/domain/music_models.dart';
 import 'package:ai_music/src/playback/music_audio_handler.dart';
 import 'package:ai_music/src/playback/resumable_audio_source.dart';
@@ -27,12 +29,840 @@ import 'package:flutter_test/flutter_test.dart';
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
+  const origin = OnlinePlaylist(
+    source: OnlinePlaylistSource.qq,
+    id: 'new',
+    name: '直接加入',
+    creator: '',
+    trackCount: 3,
+  );
+  const originSongs = [
+    OnlinePlaylistSong(id: '1', title: '第一首', artist: '歌手'),
+    OnlinePlaylistSong(id: '2', title: '第二首', artist: '歌手'),
+    OnlinePlaylistSong(id: '3', title: '第三首', artist: '歌手'),
+  ];
+  test(
+    'home and source picker share cached queries, with source-specific refresh',
+    () async {
+      final handler = _SpyAudioHandler();
+      final resolver = _SearchCacheProbeResolver();
+      final controller = MusicController(
+        audioHandler: handler,
+        resolver: resolver,
+        songSearchCache: SongSearchCache.memory(),
+        cacheStore: _FakeCacheStore(cached: []),
+        playlistStore: _FakePlaylistStore(),
+        settingsStore: _FakeSettingsStore(),
+        metadataRepository: _StaticMetadataRepository(),
+        downloadHistoryStore: MemoryDownloadHistory(),
+        connectivityChanges: const Stream.empty(),
+      );
+      try {
+        controller.source = MusicDataSource.auto;
+        const track = Track(id: 'query', title: '歌曲', artist: '歌手', album: '');
+        await controller.search('歌曲 歌手');
+        final first = controller.candidates.single;
+        expect((await controller.searchSongSources(track)).single, same(first));
+        await controller.search('歌曲 歌手');
+        expect(resolver.calls, 1);
+        await controller.searchSongSources(
+          track,
+          searchSource: MusicDataSource.flac,
+        );
+        expect(resolver.calls, 2);
+        await controller.searchSongSources(track, refresh: true);
+        expect(resolver.calls, 3);
+        expect(controller.songSourceLabel(track), '待匹配');
+      } finally {
+        controller.dispose();
+        await handler.dispose();
+      }
+    },
+  );
+
+  test(
+    'playlist audio prefetch caches five at low quality, rolls forward, and keeps manual count',
+    () async {
+      final previous = HttpOverrides.current;
+      HttpOverrides.global = null;
+      final root = await Directory.systemTemp.createTemp(
+        'rolling_audio_cache_',
+      );
+      final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+      final payload = List<int>.filled(20000, 0)..setRange(0, 3, [73, 68, 51]);
+      final requests = <String>[];
+      server.listen((request) async {
+        requests.add(request.uri.path);
+        request.response.headers.contentType = ContentType('audio', 'mpeg');
+        request.response.contentLength = payload.length;
+        request.response.add(payload);
+        await request.response.close();
+      });
+      final handler = _SpyAudioHandler();
+      final resolver = _PrefetchProbeResolver(server.port);
+      final cache = CachedTrackStore(rootProvider: () async => root);
+      final controller = MusicController(
+        audioHandler: handler,
+        resolver: resolver,
+        cacheStore: cache,
+        playlistStore: _MemoryPlaylistStore(),
+        songSearchCache: SongSearchCache.memory(),
+        settingsStore: _FakeSettingsStore(),
+        metadataRepository: _StaticMetadataRepository(),
+        downloadHistoryStore: MemoryDownloadHistory(),
+        connectivityChanges: const Stream.empty(),
+        checkConnectivity: () async => [ConnectivityResult.mobile],
+      );
+      Future<void> waitFor(bool Function() condition) async {
+        for (var i = 0; i < 500 && !condition(); i++) {
+          await Future<void>.delayed(const Duration(milliseconds: 10));
+        }
+        expect(condition(), isTrue);
+      }
+
+      try {
+        await controller.initialize();
+        final p = (await controller.createPlaylist('预缓存'))!;
+        await controller.addCandidatesToPlaylist(p, [
+          for (var i = 0; i < 7; i++) _candidate(id: '$i', name: '歌曲$i'),
+        ]);
+        final playlist = controller.customPlaylists.single;
+        final tracks = controller.tracksForPlaylist(playlist);
+        expect(requests, isEmpty); // Adding/opening does not download audio.
+        await controller.playTrack(
+          tracks.first,
+          playlistId: playlist.id,
+          queueTracks: tracks,
+        );
+        handler.playbackState.add(
+          PlaybackState(
+            playing: true,
+            processingState: AudioProcessingState.ready,
+          ),
+        );
+        await waitFor(() => controller.cachedTracks.length == 5);
+        expect(requests, ['/1', '/2', '/3', '/4', '/5']);
+        expect(
+          resolver.levels.every((l) => l == MusicQualityLevel.low),
+          isTrue,
+        );
+        expect(controller.downloadTasks, isEmpty);
+        expect(controller.manuallyDownloadedSongCount, 0);
+        expect(controller.cacheProgressFor(tracks[1]).value.offline, isTrue);
+        expect(controller.songSourceLabel(tracks[1]), '布谷YY');
+        final cachedIds = resolver.ids.length;
+        await controller.playTrack(
+          tracks[1],
+          playlistId: playlist.id,
+          index: 1,
+          queueTracks: tracks,
+        );
+        handler.playbackState.add(
+          PlaybackState(
+            playing: true,
+            processingState: AudioProcessingState.ready,
+          ),
+        );
+        await waitFor(() => controller.cachedTracks.length == 6);
+        expect(requests, ['/1', '/2', '/3', '/4', '/5', '/6']);
+        expect(
+          resolver.ids.length,
+          cachedIds + 1,
+        ); // Current song uses cached file.
+        await controller.setPlaybackMode(PlaybackMode.repeatOne);
+        await controller.clearPlaybackCache();
+        expect(await cache.playbackCacheBytes(), 0);
+        expect(controller.customPlaylists.single.entries, hasLength(7));
+      } finally {
+        await controller.stop();
+        controller.dispose();
+        await handler.dispose();
+        await server.close(force: true);
+        await root.delete(recursive: true);
+        HttpOverrides.global = previous;
+      }
+    },
+  );
+
+  for (final action in ['play-next', 'clear']) {
+    test(
+      'precache cancellation $action stops writes and preserves correct resume/clear',
+      () async {
+        final previous = HttpOverrides.current;
+        HttpOverrides.global = null;
+        final root = await Directory.systemTemp.createTemp('precache_cancel_');
+        final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+        final payload = List<int>.filled(20000, 0)
+          ..setRange(0, 3, [73, 68, 51]);
+        final release = Completer<void>();
+        final ranges = <String>[];
+        server.listen((request) async {
+          final range = request.headers.value(HttpHeaders.rangeHeader)!;
+          ranges.add(range);
+          final offset = int.parse(
+            RegExp(r'bytes=(\d+)-').firstMatch(range)!.group(1)!,
+          );
+          final response = request.response;
+          response.bufferOutput = false;
+          response.statusCode = HttpStatus.partialContent;
+          response.contentLength = payload.length - offset;
+          response.headers.set(
+            HttpHeaders.contentRangeHeader,
+            'bytes $offset-${payload.length - 1}/${payload.length}',
+          );
+          response.headers.contentType = ContentType('audio', 'mpeg');
+          try {
+            if (ranges.length == 1) {
+              response.add(payload.sublist(0, 4096));
+              await response.flush();
+              await release.future;
+              response.add(payload.sublist(4096));
+            } else {
+              response.add(payload.sublist(offset));
+            }
+            await response.close();
+          } catch (_) {}
+        });
+        final handler = _SpyAudioHandler();
+        final cache = CachedTrackStore(rootProvider: () async => root);
+        final controller = MusicController(
+          audioHandler: handler,
+          resolver: _PrefetchProbeResolver(server.port),
+          cacheStore: cache,
+          playlistStore: _MemoryPlaylistStore(),
+          songSearchCache: SongSearchCache.memory(),
+          settingsStore: _FakeSettingsStore(),
+          metadataRepository: _StaticMetadataRepository(),
+          downloadHistoryStore: MemoryDownloadHistory(),
+          connectivityChanges: const Stream.empty(),
+          checkConnectivity: () async => [ConnectivityResult.wifi],
+        );
+        Future<void> waitFor(bool Function() condition) async {
+          for (var i = 0; i < 400 && !condition(); i++) {
+            await Future<void>.delayed(const Duration(milliseconds: 10));
+          }
+          expect(condition(), isTrue);
+        }
+
+        try {
+          await controller.initialize();
+          final p = (await controller.createPlaylist('交接'))!;
+          await controller.addCandidatesToPlaylist(p, [
+            _candidate(id: '0', name: '当前'),
+            _candidate(id: '1', name: '后面'),
+          ]);
+          final playlist = controller.customPlaylists.single;
+          final tracks = controller.tracksForPlaylist(playlist);
+          await controller.playTrack(
+            tracks[0],
+            playlistId: playlist.id,
+            queueTracks: tracks,
+          );
+          handler.playbackState.add(
+            PlaybackState(
+              playing: true,
+              processingState: AudioProcessingState.ready,
+            ),
+          );
+          await waitFor(
+            () =>
+                (controller.cacheProgressFor(tracks[1]).value.fraction ?? 0) >
+                0,
+          );
+          expect(controller.cacheProgressFor(tracks[1]).value.offline, isFalse);
+          if (action == 'clear') {
+            await controller.clearPlaybackCache().timeout(
+              const Duration(seconds: 2),
+            );
+            release.complete();
+            await Future<void>.delayed(const Duration(milliseconds: 100));
+            expect(await cache.playbackCacheBytes(), 0);
+            expect(await cache.listCached(), isEmpty);
+            expect(await cache.partialProgress(), isEmpty);
+          } else {
+            // Playing the prefetched song stops its writer first, then reuses prefix.
+            await controller
+                .playTrack(
+                  tracks[1],
+                  playlistId: playlist.id,
+                  index: 1,
+                  queueTracks: tracks,
+                )
+                .timeout(const Duration(seconds: 2));
+            final source =
+                handler.loadedItems[1].source as ResumableAudioSource;
+            final response = await source.request();
+            final bytes = await response.stream
+                .expand((chunk) => chunk)
+                .toList();
+            await source.waitForCache();
+            expect(bytes, payload);
+            expect(ranges, ['bytes=0-', 'bytes=4096-']);
+            expect(
+              controller.cacheProgressFor(tracks[1]).value.offline,
+              isTrue,
+            );
+            expect(controller.manuallyDownloadedSongCount, 0);
+          }
+        } finally {
+          if (!release.isCompleted) release.complete();
+          await controller.stop();
+          controller.dispose();
+          await handler.dispose();
+          await server.close(force: true);
+          await root.delete(recursive: true);
+          HttpOverrides.global = previous;
+        }
+      },
+    );
+  }
+
+  test(
+    'switching a legacy cached playlist song uses new-source metadata',
+    () async {
+      final root = await Directory.systemTemp.createTemp(
+        'legacy_source_metadata_',
+      );
+      final cache = CachedTrackStore(rootProvider: () async => root);
+      final old = _cachedTrack(id: 'legacy', name: '原资源');
+      final file = await cache.playbackTargetFor(old.music);
+      await file.writeAsBytes(
+        List<int>.filled(20000, 0)..setRange(0, 3, [73, 68, 51]),
+      );
+      final record = await cache.finishPlaybackCache(old.music, file);
+      final handler = _SpyAudioHandler();
+      final metadata = _StaticMetadataRepository();
+      final controller = MusicController(
+        audioHandler: handler,
+        resolver: _PrefetchProbeResolver(9999),
+        cacheStore: cache,
+        playlistStore: _MemoryPlaylistStore(),
+        songSearchCache: SongSearchCache.memory(),
+        settingsStore: _FakeSettingsStore(),
+        metadataRepository: metadata,
+        downloadHistoryStore: MemoryDownloadHistory(),
+        connectivityChanges: const Stream.empty(),
+      );
+      try {
+        await controller.initialize();
+        final track = trackFromCached(record);
+        await controller.toggleFavorite(track);
+        await controller.playTrack(track, queueTracks: [track]);
+        await Future<void>.delayed(Duration.zero);
+        metadata.loadIds.clear();
+        await controller.chooseSongSource(
+          track,
+          _candidate(id: 'replacement', name: '新资源'),
+        );
+        expect(controller.selectedSongSource(track)?.id, 'replacement');
+        expect(metadata.loadIds, isNotEmpty);
+        expect(metadata.loadIds.last, isNot(record.cacheId));
+        expect(controller.favoriteTracks.single.id, track.id);
+        expect(controller.favoriteTracks.single.title, '新资源');
+      } finally {
+        await controller.stop();
+        controller.dispose();
+        await handler.dispose();
+        await root.delete(recursive: true);
+      }
+    },
+  );
+
+  test(
+    'post-create matching ranks the best source and playback joins its query',
+    () async {
+      final handler = _SpyAudioHandler();
+      final resolver = _LazySongResolver()..gate = Completer();
+      final store = _MemoryPlaylistStore();
+      final root = await Directory.systemTemp.createTemp('ranked_playlist_');
+      final controller = MusicController(
+        songSearchCache: SongSearchCache.memory(),
+        audioHandler: handler,
+        resolver: resolver,
+        playlistStore: store,
+        cacheStore: CachedTrackStore(rootProvider: () async => root),
+        settingsStore: _FakeSettingsStore(),
+        metadataRepository: _StaticMetadataRepository(),
+        downloadHistoryStore: MemoryDownloadHistory(),
+      );
+      try {
+        await controller.initialize();
+        final playlist = (await controller.addPlaylistDirectly(
+          origin,
+          originSongs.take(1).toList(),
+        ))!;
+        final track = controller.tracksForPlaylist(playlist).single;
+        expect(
+          store.library.playlists.single.entries.single.song!.title,
+          '第一首',
+        );
+        expect(
+          controller.playlistSourceProgress.value[playlist.id]?.matching,
+          true,
+        );
+        final playing = controller.playTrack(track);
+        await Future<void>.delayed(Duration.zero);
+        expect(resolver.searchCalls, 1);
+        resolver.gate!.complete([
+          _candidate(id: 'wrong', name: '另一首歌'),
+          _candidate(id: 'right', name: '第一首'),
+        ]);
+        await playing;
+        await controller.matchPlaylistSources(playlist.id);
+        expect(resolver.searchCalls, 1);
+        expect(resolver.resolveIds, ['right']);
+        expect(controller.selectedSongSource(track)?.id, 'right');
+        expect(
+          controller.playlistSourceProgress.value[playlist.id]?.completed,
+          1,
+        );
+        expect(controller.playlistSourceProgress.value[playlist.id]?.failed, 0);
+        expect(store.library.playlists.single.entries.single.onlineTrack, null);
+        expect(controller.cachedTracks, isEmpty);
+      } finally {
+        controller.dispose();
+        await handler.dispose();
+        await root.delete(recursive: true);
+      }
+    },
+  );
+
+  test(
+    'empty background results can retry and a deleted song ignores late matches',
+    () async {
+      final handler = _SpyAudioHandler();
+      final resolver = _LazySongResolver()..gate = Completer();
+      final controller = MusicController(
+        songSearchCache: SongSearchCache.memory(),
+        audioHandler: handler,
+        resolver: resolver,
+        playlistStore: _MemoryPlaylistStore(),
+        cacheStore: _FakeCacheStore(cached: []),
+        settingsStore: _FakeSettingsStore(),
+        metadataRepository: _StaticMetadataRepository(),
+        downloadHistoryStore: MemoryDownloadHistory(),
+      );
+      try {
+        await controller.initialize();
+        final playlist = (await controller.addPlaylistDirectly(
+          origin,
+          originSongs.take(1).toList(),
+        ))!;
+        final track = controller.tracksForPlaylist(playlist).single;
+        resolver.gate!.complete([]);
+        await controller.matchPlaylistSources(playlist.id);
+        expect(controller.playlistSourceProgress.value[playlist.id]?.failed, 1);
+        expect(controller.selectedSongSource(track), null);
+        resolver.gate = Completer();
+        final retry = controller.matchPlaylistSources(playlist.id);
+        await Future<void>.delayed(Duration.zero);
+        expect(resolver.searchCalls, 2);
+        await controller.deletePlaylist(playlist);
+        resolver.gate!.complete([_candidate(id: 'late', name: '第一首')]);
+        await retry;
+        expect(controller.customPlaylists, isEmpty);
+        expect(controller.selectedSongSource(track), null);
+      } finally {
+        controller.dispose();
+        await handler.dispose();
+      }
+    },
+  );
+
+  test(
+    'automatic source resolution falls back while a manual choice stays fixed on failure',
+    () async {
+      final handler = _SpyAudioHandler();
+      final resolver = _LazySongResolver()..failFirst = true;
+      final root = await Directory.systemTemp.createTemp('source_fallback_');
+      final controller = MusicController(
+        songSearchCache: SongSearchCache.memory(),
+        audioHandler: handler,
+        resolver: resolver,
+        playlistStore: _MemoryPlaylistStore(),
+        cacheStore: CachedTrackStore(rootProvider: () async => root),
+        settingsStore: _FakeSettingsStore(),
+        metadataRepository: _StaticMetadataRepository(),
+        downloadHistoryStore: MemoryDownloadHistory(),
+      );
+      try {
+        await controller.initialize();
+        final playlist = (await controller.addPlaylistDirectly(
+          origin,
+          originSongs,
+        ))!;
+        final track = controller.tracksForPlaylist(playlist).first;
+        await controller.playTrack(track);
+        expect(resolver.resolveIds, ['first', 'second']);
+        handler.playbackState.add(
+          PlaybackState(
+            playing: true,
+            processingState: AudioProcessingState.ready,
+          ),
+        );
+        await Future<void>.delayed(const Duration(milliseconds: 30));
+        expect(
+          controller
+              .customPlaylists
+              .single
+              .entries
+              .first
+              .onlineTrack!
+              .candidate
+              .id,
+          'second',
+        );
+        await controller.stop();
+        await controller.chooseSongSource(
+          track,
+          _candidate(id: 'first', name: '固定来源'),
+        );
+        final searches = resolver.searchCalls;
+        await expectLater(
+          controller.playTrack(
+            controller
+                .tracksForPlaylist(controller.customPlaylists.single)
+                .first,
+          ),
+          throwsStateError,
+        );
+        expect(resolver.searchCalls, searches);
+        expect(
+          controller
+              .customPlaylists
+              .single
+              .entries
+              .first
+              .onlineTrack!
+              .candidate
+              .id,
+          'first',
+        );
+      } finally {
+        controller.dispose();
+        await handler.dispose();
+        await root.delete(recursive: true);
+      }
+    },
+  );
+  test(
+    'manual download-all resolves unplayed songs and records successful sources',
+    () async {
+      final handler = _SpyAudioHandler();
+      final resolver = _LazySongResolver();
+      final cache = _DownloadCacheStore();
+      final controller = MusicController(
+        songSearchCache: SongSearchCache.memory(),
+        audioHandler: handler,
+        resolver: resolver,
+        playlistStore: _MemoryPlaylistStore(),
+        cacheStore: cache,
+        settingsStore: _FakeSettingsStore(),
+        metadataRepository: _StaticMetadataRepository(),
+        downloadHistoryStore: MemoryDownloadHistory(),
+      );
+      try {
+        await controller.initialize();
+        final playlist = (await controller.addPlaylistDirectly(
+          origin,
+          originSongs.take(1).toList(),
+        ))!;
+        expect(cache.downloadIds, isEmpty);
+        final result = await controller.downloadPlaylist(playlist);
+        expect(result.downloaded, 1);
+        expect(result.failed, 0);
+        expect(cache.downloadIds, ['first']);
+        expect(
+          controller
+              .customPlaylists
+              .single
+              .entries
+              .single
+              .onlineTrack!
+              .candidate
+              .id,
+          'first',
+        );
+        expect(
+          controller.customPlaylists.single.entries.single.song!.title,
+          '第一首',
+        );
+      } finally {
+        controller.dispose();
+        await handler.dispose();
+      }
+    },
+  );
+  test(
+    'direct add saves original songs before background lookup without downloading',
+    () async {
+      final handler = _SpyAudioHandler();
+      final resolver = _LazySongResolver();
+      final root = await Directory.systemTemp.createTemp('direct_playlist_');
+      final store = PlaylistStore(rootProvider: () async => root);
+      final controller = MusicController(
+        songSearchCache: SongSearchCache.memory(),
+        audioHandler: handler,
+        resolver: resolver,
+        playlistStore: store,
+        cacheStore: _FakeCacheStore(cached: []),
+        settingsStore: _FakeSettingsStore(),
+        metadataRepository: _StaticMetadataRepository(),
+        downloadHistoryStore: MemoryDownloadHistory(),
+      );
+      try {
+        await controller.initialize();
+        final playlist = (await controller.addPlaylistDirectly(
+          origin,
+          originSongs,
+        ))!;
+        expect(controller.tracksForPlaylist(playlist).map((t) => t.title), [
+          '第一首',
+          '第二首',
+          '第三首',
+        ]);
+        await controller.matchPlaylistSources(playlist.id);
+        expect(resolver.searchCalls, 3);
+        expect(resolver.resolveIds, isEmpty);
+        final duplicate = await controller.addPlaylistDirectly(
+          origin,
+          originSongs,
+          target: playlist,
+        );
+        expect(duplicate!.entries.length, 3);
+        await controller.toggleFavorite(
+          controller.tracksForPlaylist(playlist).first,
+        );
+        await controller.loadCache(repairLegacy: false);
+        expect(
+          controller
+              .tracksForPlaylist(controller.customPlaylists.single)
+              .length,
+          3,
+        );
+        expect(controller.favoriteTracks.single.title, '第一首');
+        expect(
+          (await store.load(
+            validTrackIds: {},
+          )).playlists.single.entries.every((e) => e.song != null),
+          isTrue,
+        );
+      } finally {
+        controller.dispose();
+        await handler.dispose();
+        await root.delete(recursive: true);
+      }
+    },
+  );
+
+  test(
+    'background matching does not persist unplayed songs and manual choice stays fixed',
+    () async {
+      final handler = _SpyAudioHandler();
+      final resolver = _LazySongResolver();
+      final store = _MemoryPlaylistStore();
+      final root = await Directory.systemTemp.createTemp('song_source_');
+      final controller = MusicController(
+        songSearchCache: SongSearchCache.memory(),
+        audioHandler: handler,
+        resolver: resolver,
+        playlistStore: store,
+        cacheStore: CachedTrackStore(rootProvider: () async => root),
+        settingsStore: _FakeSettingsStore(),
+        metadataRepository: _StaticMetadataRepository(),
+        downloadHistoryStore: MemoryDownloadHistory(),
+      );
+      try {
+        await controller.initialize();
+        final playlist = (await controller.addPlaylistDirectly(
+          origin,
+          originSongs,
+        ))!;
+        final tracks = controller.tracksForPlaylist(playlist);
+        await controller.matchPlaylistSources(playlist.id);
+        await controller.playTrack(
+          tracks.first,
+          queueTracks: tracks,
+          playlistId: playlist.id,
+        );
+        expect(resolver.searchCalls, 3);
+        expect(
+          store.library.playlists.single.entries.first.onlineTrack,
+          isNull,
+        ); // Ready/playing has not happened.
+        expect(handler.loadedIds, tracks.map((t) => t.id));
+        handler.playbackState.add(
+          PlaybackState(
+            playing: true,
+            processingState: AudioProcessingState.ready,
+          ),
+        );
+        await Future<void>.delayed(const Duration(milliseconds: 30));
+        expect(
+          store
+              .library
+              .playlists
+              .single
+              .entries
+              .first
+              .onlineTrack!
+              .candidate
+              .id,
+          'first',
+        );
+        expect(store.library.playlists.single.entries[1].onlineTrack, isNull);
+        await controller.stop();
+        await controller.playTrack(
+          controller.tracksForPlaylist(controller.customPlaylists.single).first,
+        );
+        expect(resolver.searchCalls, 3);
+        await controller.chooseSongSource(
+          tracks.first,
+          _candidate(id: 'manual', name: '手选版本'),
+        );
+        expect(
+          store.library.playlists.single.entries.first.trackId,
+          tracks.first.id,
+        );
+        expect(
+          store.library.playlists.single.entries.first.manualSource,
+          isTrue,
+        );
+        expect(
+          store
+              .library
+              .playlists
+              .single
+              .entries
+              .first
+              .onlineTrack!
+              .candidate
+              .id,
+          'manual',
+        );
+        expect(handler.loadedInitialPosition, Duration.zero);
+        expect(resolver.resolveIds.last, 'manual');
+        await controller.loadCache(repairLegacy: false);
+        expect(
+          controller
+              .customPlaylists
+              .single
+              .entries
+              .first
+              .onlineTrack!
+              .candidate
+              .id,
+          'manual',
+        );
+      } finally {
+        controller.dispose();
+        await handler.dispose();
+        await root.delete(recursive: true);
+      }
+    },
+  );
+
+  test(
+    'manual source chosen while initial search is pending wins over late search',
+    () async {
+      final handler = _SpyAudioHandler();
+      final resolver = _LazySongResolver()
+        ..gate = Completer<List<MusicSearchCandidate>>();
+      final store = _MemoryPlaylistStore();
+      final root = await Directory.systemTemp.createTemp('song_race_');
+      final controller = MusicController(
+        songSearchCache: SongSearchCache.memory(),
+        audioHandler: handler,
+        resolver: resolver,
+        playlistStore: store,
+        cacheStore: CachedTrackStore(rootProvider: () async => root),
+        settingsStore: _FakeSettingsStore(),
+        metadataRepository: _StaticMetadataRepository(),
+        downloadHistoryStore: MemoryDownloadHistory(),
+      );
+      try {
+        await controller.initialize();
+        final playlist = (await controller.addPlaylistDirectly(
+          origin,
+          originSongs,
+        ))!;
+        final track = controller.tracksForPlaylist(playlist).first;
+        final playing = controller.playTrack(track);
+        final failed = expectLater(
+          playing,
+          throwsA(isA<DownloadCancelledException>()),
+        );
+        await Future<void>.delayed(Duration.zero);
+        await controller.chooseSongSource(
+          track,
+          _candidate(id: 'manual', name: '手选版本'),
+        );
+        resolver.gate!.complete([_candidate(id: 'late', name: '晚到结果')]);
+        await failed;
+        expect(
+          store
+              .library
+              .playlists
+              .single
+              .entries
+              .first
+              .onlineTrack!
+              .candidate
+              .id,
+          'manual',
+        );
+        expect(resolver.resolveIds, isEmpty);
+      } finally {
+        controller.dispose();
+        await handler.dispose();
+        await root.delete(recursive: true);
+      }
+    },
+  );
+
+  test(
+    'no source search results never persists a choice and playback reports failure',
+    () async {
+      final handler = _SpyAudioHandler();
+      final controller = MusicController(
+        songSearchCache: SongSearchCache.memory(),
+        audioHandler: handler,
+        resolver: _FakeMusicResolver(),
+        playlistStore: _MemoryPlaylistStore(),
+        cacheStore: _FakeCacheStore(cached: []),
+        settingsStore: _FakeSettingsStore(),
+        metadataRepository: _StaticMetadataRepository(),
+        downloadHistoryStore: MemoryDownloadHistory(),
+      );
+      try {
+        await controller.initialize();
+        final playlist = (await controller.addPlaylistDirectly(
+          origin,
+          originSongs,
+        ))!;
+        await expectLater(
+          controller.playTrack(controller.tracksForPlaylist(playlist).first),
+          throwsA(isA<StateError>()),
+        );
+        expect(
+          controller.customPlaylists.single.entries.first.onlineTrack,
+          isNull,
+        );
+        expect(handler.playCalls, 0);
+      } finally {
+        controller.dispose();
+        await handler.dispose();
+      }
+    },
+  );
+
   test(
     'completion while history loads merges and persists both records',
     () async {
       final store = _DelayedDownloadHistory();
       final handler = _SpyAudioHandler();
       final controller = MusicController(
+        songSearchCache: SongSearchCache.memory(),
         audioHandler: handler,
         downloadHistoryStore: store,
         resolver: _FakeMusicResolver(),
@@ -77,6 +907,7 @@ void main() {
     () async {
       final handler = _SpyAudioHandler();
       final controller = MusicController(
+        songSearchCache: SongSearchCache.memory(),
         downloadHistoryStore: MemoryDownloadHistory(),
         audioHandler: handler,
         resolver: _FakeMusicResolver(),
@@ -121,6 +952,7 @@ void main() {
       final playlists = _MemoryPlaylistStore();
       final metadata = _StaticMetadataRepository();
       final controller = MusicController(
+        songSearchCache: SongSearchCache.memory(),
         downloadHistoryStore: MemoryDownloadHistory(),
         audioHandler: handler,
         resolver: _FakeMusicResolver(),
@@ -194,6 +1026,7 @@ void main() {
       final playlistStore = _MemoryPlaylistStore();
       final handler = _SpyAudioHandler();
       final controller = MusicController(
+        songSearchCache: SongSearchCache.memory(),
         downloadHistoryStore: MemoryDownloadHistory(),
         audioHandler: handler,
         resolver: _FakeMusicResolver(),
@@ -229,6 +1062,7 @@ void main() {
       _cachedTrack(id: 'song-2', name: '第二首'),
     ];
     final controller = MusicController(
+      songSearchCache: SongSearchCache.memory(),
       downloadHistoryStore: MemoryDownloadHistory(),
       audioHandler: handler,
       resolver: _FakeMusicResolver(),
@@ -263,6 +1097,7 @@ void main() {
     () async {
       final handler = _SpyAudioHandler();
       final controller = MusicController(
+        songSearchCache: SongSearchCache.memory(),
         downloadHistoryStore: MemoryDownloadHistory(),
         audioHandler: handler,
         resolver: _FakeMusicResolver(),
@@ -301,6 +1136,7 @@ void main() {
     () async {
       final handler = _DelayedPlaybackModeHandler();
       final controller = MusicController(
+        songSearchCache: SongSearchCache.memory(),
         downloadHistoryStore: MemoryDownloadHistory(),
         audioHandler: handler,
         resolver: _FakeMusicResolver(),
@@ -338,6 +1174,7 @@ void main() {
     final first = _cachedTrack(id: 'song-1', name: '第一首');
     final second = _cachedTrack(id: 'song-2', name: '第二首');
     final controller = MusicController(
+      songSearchCache: SongSearchCache.memory(),
       downloadHistoryStore: MemoryDownloadHistory(),
       audioHandler: handler,
       resolver: _FakeMusicResolver(),
@@ -367,6 +1204,7 @@ void main() {
       final first = trackFromCached(_cachedTrack(id: 'first', name: '第一首'));
       final second = trackFromCached(_cachedTrack(id: 'second', name: '第二首'));
       final controller = MusicController(
+        songSearchCache: SongSearchCache.memory(),
         downloadHistoryStore: MemoryDownloadHistory(),
         audioHandler: handler,
         resolver: _FakeMusicResolver(),
@@ -402,6 +1240,7 @@ void main() {
     () async {
       final handler = _SpyAudioHandler();
       final controller = MusicController(
+        songSearchCache: SongSearchCache.memory(),
         downloadHistoryStore: MemoryDownloadHistory(),
         audioHandler: handler,
         resolver: _FakeMusicResolver(),
@@ -458,6 +1297,7 @@ void main() {
     () async {
       final handler = _DelayedSecondLoadHandler();
       final controller = MusicController(
+        songSearchCache: SongSearchCache.memory(),
         downloadHistoryStore: MemoryDownloadHistory(),
         audioHandler: handler,
         resolver: _FakeMusicResolver(),
@@ -504,6 +1344,7 @@ void main() {
   test('reviewing a saved match replaces the upcoming queue item', () async {
     final handler = _SpyAudioHandler();
     final controller = MusicController(
+      songSearchCache: SongSearchCache.memory(),
       downloadHistoryStore: MemoryDownloadHistory(),
       audioHandler: handler,
       resolver: _FakeMusicResolver(),
@@ -549,6 +1390,7 @@ void main() {
   test('reviewing the playing match keeps it until the next song', () async {
     final handler = _SpyAudioHandler();
     final controller = MusicController(
+      songSearchCache: SongSearchCache.memory(),
       downloadHistoryStore: MemoryDownloadHistory(),
       audioHandler: handler,
       resolver: _FakeMusicResolver(),
@@ -597,6 +1439,7 @@ void main() {
     final handler = _DelayedFirstLoadHandler();
     final track = trackFromCached(_cachedTrack(id: 'first', name: '第一首'));
     final controller = MusicController(
+      songSearchCache: SongSearchCache.memory(),
       downloadHistoryStore: MemoryDownloadHistory(),
       audioHandler: handler,
       resolver: _FakeMusicResolver(),
@@ -624,6 +1467,7 @@ void main() {
     final first = trackFromCached(_cachedTrack(id: 'first', name: '第一首'));
     final second = trackFromCached(_cachedTrack(id: 'second', name: '第二首'));
     final controller = MusicController(
+      songSearchCache: SongSearchCache.memory(),
       downloadHistoryStore: MemoryDownloadHistory(),
       audioHandler: handler,
       resolver: _FakeMusicResolver(),
@@ -651,6 +1495,7 @@ void main() {
       final handler = _DelayedFirstLoadHandler();
       final track = trackFromCached(_cachedTrack(id: 'first', name: '第一首'));
       final controller = MusicController(
+        songSearchCache: SongSearchCache.memory(),
         downloadHistoryStore: MemoryDownloadHistory(),
         audioHandler: handler,
         resolver: _FakeMusicResolver(),
@@ -679,6 +1524,7 @@ void main() {
       ),
     );
     final controller = MusicController(
+      songSearchCache: SongSearchCache.memory(),
       downloadHistoryStore: MemoryDownloadHistory(),
       audioHandler: handler,
       resolver: _FakeMusicResolver(),
@@ -715,6 +1561,7 @@ void main() {
       ),
     );
     final controller = MusicController(
+      songSearchCache: SongSearchCache.memory(),
       downloadHistoryStore: MemoryDownloadHistory(),
       audioHandler: handler,
       resolver: _FakeMusicResolver(),
@@ -747,6 +1594,7 @@ void main() {
       final cacheStore = _DownloadCacheStore();
       final metadata = _CompletingMetadataRepository();
       final controller = MusicController(
+        songSearchCache: SongSearchCache.memory(),
         downloadHistoryStore: MemoryDownloadHistory(),
         audioHandler: handler,
         resolver: resolver,
@@ -789,6 +1637,7 @@ void main() {
       final handler = _SpyAudioHandler();
       final cache = _ProgressCacheStore();
       final controller = MusicController(
+        songSearchCache: SongSearchCache.memory(),
         downloadHistoryStore: MemoryDownloadHistory(),
         audioHandler: handler,
         resolver: _DelayedMusicResolver(),
@@ -806,6 +1655,12 @@ void main() {
           () => progressNotifications++,
         );
         final candidate = _candidate(id: 'progress', name: 'Progress');
+        final row = controller.songCacheProgress.listenable(
+          controller.downloadQueue.taskIdForCandidate(candidate),
+        );
+        final other = controller.cacheProgressForId('unrelated');
+        var otherNotifications = 0;
+        other.addListener(() => otherNotifications++);
         final download = controller.downloadCandidate(
           candidate,
           background: false,
@@ -818,6 +1673,9 @@ void main() {
         expect(libraryNotifications, before);
         expect(progressNotifications, 100);
         expect(controller.activeDownloadTasks.single.progress, .5);
+        expect(row.value.fraction, .5);
+        expect(row.value.offline, false);
+        expect(otherNotifications, 0);
         cache.finish.complete();
         await download;
         expect(libraryNotifications, greaterThan(before));
@@ -826,6 +1684,8 @@ void main() {
           DownloadTaskStatus.completed,
         );
         expect(controller.isCandidateCached(candidate), true);
+        expect(row.value.fraction, 1);
+        expect(row.value.offline, true);
       } finally {
         controller.dispose();
         await handler.dispose();
@@ -840,6 +1700,7 @@ void main() {
       final cached = _cachedTrack(id: 'song-1', name: '第一首');
       final playlistStore = _MemoryPlaylistStore();
       final controller = MusicController(
+        songSearchCache: SongSearchCache.memory(),
         downloadHistoryStore: MemoryDownloadHistory(),
         audioHandler: handler,
         resolver: _FakeMusicResolver(),
@@ -905,6 +1766,7 @@ void main() {
     final handler = _SpyAudioHandler();
     final cached = _cachedTrack(id: 'song-1', name: '第一首');
     final controller = MusicController(
+      songSearchCache: SongSearchCache.memory(),
       downloadHistoryStore: MemoryDownloadHistory(),
       audioHandler: handler,
       resolver: _FakeMusicResolver(),
@@ -939,6 +1801,7 @@ void main() {
       final handler = _SpyAudioHandler();
       final cached = _cachedTrack(id: 'song-1', name: '第一首');
       final controller = MusicController(
+        songSearchCache: SongSearchCache.memory(),
         downloadHistoryStore: MemoryDownloadHistory(),
         audioHandler: handler,
         resolver: _FakeMusicResolver(),
@@ -986,6 +1849,7 @@ void main() {
       album: '',
     );
     final controller = MusicController(
+      songSearchCache: SongSearchCache.memory(),
       downloadHistoryStore: MemoryDownloadHistory(),
       audioHandler: handler,
       resolver: _FakeMusicResolver(),
@@ -1027,6 +1891,7 @@ void main() {
       final cacheStore = _DownloadCacheStore()..cached.addAll(records);
       final metadata = _StaticMetadataRepository();
       final controller = MusicController(
+        songSearchCache: SongSearchCache.memory(),
         downloadHistoryStore: MemoryDownloadHistory(),
         audioHandler: handler,
         resolver: _FakeMusicResolver(),
@@ -1064,6 +1929,7 @@ void main() {
       final cached = _cachedTrack(id: 'retry-lyrics', name: '待补时间轴');
       final metadata = _RetryingTimedMetadataRepository();
       final controller = MusicController(
+        songSearchCache: SongSearchCache.memory(),
         downloadHistoryStore: MemoryDownloadHistory(),
         audioHandler: handler,
         resolver: _FakeMusicResolver(),
@@ -1106,6 +1972,7 @@ void main() {
       final resolver = _DelayedMusicResolver();
       final cacheStore = _DownloadCacheStore()..cached.add(first);
       final controller = MusicController(
+        songSearchCache: SongSearchCache.memory(),
         downloadHistoryStore: MemoryDownloadHistory(),
         audioHandler: handler,
         resolver: resolver,
@@ -1145,6 +2012,7 @@ void main() {
       final first = _cachedTrack(id: 'song-1', name: '第一首');
       final second = _cachedTrack(id: 'song-2', name: '第二首');
       final controller = MusicController(
+        songSearchCache: SongSearchCache.memory(),
         downloadHistoryStore: MemoryDownloadHistory(),
         audioHandler: handler,
         resolver: _FakeMusicResolver(),
@@ -1189,6 +2057,7 @@ void main() {
     final handler = _SpyAudioHandler();
     final resolver = _CompletingSearchResolver();
     final controller = MusicController(
+      songSearchCache: SongSearchCache.memory(),
       downloadHistoryStore: MemoryDownloadHistory(),
       audioHandler: handler,
       resolver: resolver,
@@ -1223,6 +2092,7 @@ void main() {
     final handler = _SpyAudioHandler();
     final resolver = _SequencedSearchResolver();
     final controller = MusicController(
+      songSearchCache: SongSearchCache.memory(),
       downloadHistoryStore: MemoryDownloadHistory(),
       audioHandler: handler,
       resolver: resolver,
@@ -1259,6 +2129,7 @@ void main() {
     final handler = _SpyAudioHandler();
     final cached = _cachedTrack(id: 'song-1', name: '第一首');
     final controller = MusicController(
+      songSearchCache: SongSearchCache.memory(),
       downloadHistoryStore: MemoryDownloadHistory(),
       audioHandler: handler,
       resolver: _FakeMusicResolver(),
@@ -1297,6 +2168,7 @@ void main() {
       final first = _cachedTrack(id: 'song-1', name: '第一首');
       final second = _cachedTrack(id: 'song-2', name: '第二首');
       final controller = MusicController(
+        songSearchCache: SongSearchCache.memory(),
         downloadHistoryStore: MemoryDownloadHistory(),
         audioHandler: handler,
         resolver: _FakeMusicResolver(),
@@ -1363,6 +2235,7 @@ void main() {
         );
       final metadata = _StaticMetadataRepository();
       final controller = MusicController(
+        songSearchCache: SongSearchCache.memory(),
         downloadHistoryStore: MemoryDownloadHistory(),
         audioHandler: handler,
         resolver: _FakeMusicResolver(),
@@ -1400,6 +2273,7 @@ void main() {
       final first = _cachedTrack(id: 'song-1', name: '第一首');
       final second = _cachedTrack(id: 'song-2', name: '第二首');
       final controller = MusicController(
+        songSearchCache: SongSearchCache.memory(),
         downloadHistoryStore: MemoryDownloadHistory(),
         audioHandler: handler,
         resolver: _FakeMusicResolver(),
@@ -1449,6 +2323,7 @@ void main() {
         source: 'https://example.test/song.mp3',
       );
       final controller = MusicController(
+        songSearchCache: SongSearchCache.memory(),
         downloadHistoryStore: MemoryDownloadHistory(),
         audioHandler: handler,
         resolver: _FakeMusicResolver(),
@@ -1511,6 +2386,7 @@ void main() {
           ],
         );
       final controller = MusicController(
+        songSearchCache: SongSearchCache.memory(),
         downloadHistoryStore: MemoryDownloadHistory(),
         audioHandler: handler,
         resolver: _FakeMusicResolver(),
@@ -1560,6 +2436,7 @@ void main() {
     final cached = _cachedTrack(id: 'song-1', name: '第一首');
     final metadata = _CompletingMetadataRepository();
     final controller = MusicController(
+      songSearchCache: SongSearchCache.memory(),
       downloadHistoryStore: MemoryDownloadHistory(),
       audioHandler: handler,
       resolver: _FakeMusicResolver(),
@@ -1596,6 +2473,7 @@ void main() {
   test('playlist mutations are serialized', () async {
     final handler = _SpyAudioHandler();
     final controller = MusicController(
+      songSearchCache: SongSearchCache.memory(),
       downloadHistoryStore: MemoryDownloadHistory(),
       audioHandler: handler,
       resolver: _FakeMusicResolver(),
@@ -1630,6 +2508,7 @@ void main() {
       final cacheStore = _DownloadCacheStore();
       final metadata = _StaticMetadataRepository();
       final controller = MusicController(
+        songSearchCache: SongSearchCache.memory(),
         downloadHistoryStore: MemoryDownloadHistory(),
         audioHandler: handler,
         resolver: resolver,
@@ -1681,6 +2560,7 @@ void main() {
     final resolver = _DelayedMusicResolver();
     final cacheStore = _DownloadCacheStore();
     final controller = MusicController(
+      songSearchCache: SongSearchCache.memory(),
       downloadHistoryStore: MemoryDownloadHistory(),
       audioHandler: handler,
       resolver: resolver,
@@ -1716,6 +2596,7 @@ void main() {
       final resolver = _DelayedMusicResolver();
       final cacheStore = _DownloadCacheStore();
       final controller = MusicController(
+        songSearchCache: SongSearchCache.memory(),
         downloadHistoryStore: MemoryDownloadHistory(),
         audioHandler: handler,
         resolver: resolver,
@@ -1757,6 +2638,7 @@ void main() {
     final handler = _SpyAudioHandler();
     final resolver = _DelayedMusicResolver();
     final controller = MusicController(
+      songSearchCache: SongSearchCache.memory(),
       downloadHistoryStore: MemoryDownloadHistory(),
       audioHandler: handler,
       resolver: resolver,
@@ -1787,6 +2669,7 @@ void main() {
       final handler = _SpyAudioHandler();
       final cacheStore = _DownloadCacheStore();
       final controller = MusicController(
+        songSearchCache: SongSearchCache.memory(),
         downloadHistoryStore: MemoryDownloadHistory(),
         audioHandler: handler,
         resolver: _WrongIdentityResolver(),
@@ -1817,6 +2700,7 @@ void main() {
       final handler = _SpyAudioHandler();
       final cacheStore = _DownloadCacheStore();
       final controller = MusicController(
+        songSearchCache: SongSearchCache.memory(),
         downloadHistoryStore: MemoryDownloadHistory(),
         audioHandler: handler,
         resolver: _WrongIdentityResolver(),
@@ -1848,6 +2732,7 @@ void main() {
       final handler = _SpyAudioHandler();
       final cacheStore = _DownloadCacheStore();
       final controller = MusicController(
+        songSearchCache: SongSearchCache.memory(),
         downloadHistoryStore: MemoryDownloadHistory(),
         audioHandler: handler,
         resolver: _WrongIdentityResolver(),
@@ -1882,6 +2767,7 @@ void main() {
         ..cached.add(_cachedTrack(id: 'cached', name: '已缓存'));
       final resolver = _SelectivePlaylistResolver();
       final controller = MusicController(
+        songSearchCache: SongSearchCache.memory(),
         downloadHistoryStore: MemoryDownloadHistory(),
         audioHandler: handler,
         resolver: resolver,
@@ -1938,6 +2824,7 @@ void main() {
       final cacheStore = _DownloadCacheStore();
       final resolver = _GatedPlaylistResolver();
       final controller = MusicController(
+        songSearchCache: SongSearchCache.memory(),
         downloadHistoryStore: MemoryDownloadHistory(),
         audioHandler: handler,
         resolver: resolver,
@@ -1987,6 +2874,7 @@ void main() {
       final cacheStore = _DownloadCacheStore();
       final resolver = _GatedPlaylistResolver();
       final controller = MusicController(
+        songSearchCache: SongSearchCache.memory(),
         downloadHistoryStore: MemoryDownloadHistory(),
         audioHandler: handler,
         resolver: resolver,
@@ -2052,6 +2940,7 @@ void main() {
         PlaylistAutoDownloadStore attempts,
       ) async {
         final controller = MusicController(
+          songSearchCache: SongSearchCache.memory(),
           downloadHistoryStore: MemoryDownloadHistory(),
           audioHandler: _SpyAudioHandler(),
           resolver: resolver,
@@ -2142,6 +3031,7 @@ void main() {
         rootProvider: () async => root,
       );
       final first = MusicController(
+        songSearchCache: SongSearchCache.memory(),
         downloadHistoryStore: MemoryDownloadHistory(),
         audioHandler: firstHandler,
         resolver: firstResolver,
@@ -2172,6 +3062,7 @@ void main() {
         );
         restartedHandler = _SpyAudioHandler();
         restarted = MusicController(
+          songSearchCache: SongSearchCache.memory(),
           downloadHistoryStore: MemoryDownloadHistory(),
           audioHandler: restartedHandler,
           resolver: resolver,
@@ -2209,6 +3100,7 @@ void main() {
       final resolver = _SelectivePlaylistResolver();
       final handler = _SpyAudioHandler();
       final controller = MusicController(
+        songSearchCache: SongSearchCache.memory(),
         downloadHistoryStore: MemoryDownloadHistory(),
         audioHandler: handler,
         resolver: resolver,
@@ -2253,6 +3145,7 @@ void main() {
     final handler = _SpyAudioHandler();
     final resolver = _SelectivePlaylistResolver();
     final controller = MusicController(
+      songSearchCache: SongSearchCache.memory(),
       downloadHistoryStore: MemoryDownloadHistory(),
       audioHandler: handler,
       resolver: resolver,
@@ -2293,6 +3186,7 @@ void main() {
       rootProvider: () async => root,
     );
     final first = MusicController(
+      songSearchCache: SongSearchCache.memory(),
       downloadHistoryStore: MemoryDownloadHistory(),
       audioHandler: firstHandler,
       resolver: firstResolver,
@@ -2328,6 +3222,7 @@ void main() {
       final nextResolver = _GatedPlaylistResolver();
       secondHandler = _SpyAudioHandler();
       second = MusicController(
+        songSearchCache: SongSearchCache.memory(),
         downloadHistoryStore: MemoryDownloadHistory(),
         audioHandler: secondHandler,
         resolver: nextResolver,
@@ -2372,6 +3267,7 @@ void main() {
       final cacheStore = _DownloadCacheStore();
       final resolver = _ConcurrentPlaylistResolver();
       final controller = MusicController(
+        songSearchCache: SongSearchCache.memory(),
         downloadHistoryStore: MemoryDownloadHistory(),
         audioHandler: handler,
         resolver: resolver,
@@ -2430,6 +3326,7 @@ void main() {
       final cacheStore = _DownloadCacheStore();
       final resolver = _GatedPlaylistResolver();
       final controller = MusicController(
+        songSearchCache: SongSearchCache.memory(),
         downloadHistoryStore: MemoryDownloadHistory(),
         audioHandler: handler,
         resolver: resolver,
@@ -2494,6 +3391,7 @@ void main() {
     final cacheStore = _DownloadCacheStore();
     final resolver = _DelayedMusicResolver();
     final controller = MusicController(
+      songSearchCache: SongSearchCache.memory(),
       downloadHistoryStore: MemoryDownloadHistory(),
       audioHandler: handler,
       resolver: resolver,
@@ -2524,6 +3422,7 @@ void main() {
   test('failed downloads remain visible as recent tasks', () async {
     final handler = _SpyAudioHandler();
     final controller = MusicController(
+      songSearchCache: SongSearchCache.memory(),
       downloadHistoryStore: MemoryDownloadHistory(),
       audioHandler: handler,
       resolver: _FailingMusicResolver(),
@@ -2565,6 +3464,7 @@ void main() {
       ),
     );
     final controller = MusicController(
+      songSearchCache: SongSearchCache.memory(),
       downloadHistoryStore: MemoryDownloadHistory(),
       audioHandler: handler,
       resolver: resolver,
@@ -2606,6 +3506,7 @@ void main() {
   test('next resumes playback when player is paused', () async {
     final handler = _SpyAudioHandler();
     final controller = MusicController(
+      songSearchCache: SongSearchCache.memory(),
       downloadHistoryStore: MemoryDownloadHistory(),
       audioHandler: handler,
       resolver: _FakeMusicResolver(),
@@ -2640,6 +3541,7 @@ void main() {
       cacheStore.cached.add(cached);
       final metadata = _StaticMetadataRepository();
       final controller = MusicController(
+        songSearchCache: SongSearchCache.memory(),
         downloadHistoryStore: MemoryDownloadHistory(),
         audioHandler: handler,
         resolver: resolver,
@@ -2688,6 +3590,7 @@ void main() {
       cacheStore.cached.add(cached);
       final metadata = _StaticMetadataRepository();
       final controller = MusicController(
+        songSearchCache: SongSearchCache.memory(),
         downloadHistoryStore: MemoryDownloadHistory(),
         audioHandler: handler,
         resolver: resolver,
@@ -2760,6 +3663,7 @@ void main() {
     final store = _TrimmingProbeCacheStore(root);
     final handler = _SpyAudioHandler();
     final controller = MusicController(
+      songSearchCache: SongSearchCache.memory(),
       downloadHistoryStore: MemoryDownloadHistory(),
       audioHandler: handler,
       resolver: _LocalStreamResolver(server.port),
@@ -3086,6 +3990,9 @@ class _CompletingMetadataRepository extends TrackMetadataRepository {
 }
 
 class _FakeCacheStore extends CachedTrackStore {
+  @override
+  Future<Map<String, ({int bytes, int? total})>> partialProgress() async => {};
+
   _FakeCacheStore({required this.cached});
 
   final List<CachedTrack> cached;
@@ -3148,7 +4055,8 @@ class _MemoryPlaylistStore extends PlaylistStore {
         if (seen.add(entry.trackId) &&
             (validIds == null ||
                 validIds.contains(entry.trackId) ||
-                entry.onlineTrack != null)) {
+                entry.onlineTrack != null ||
+                entry.song != null)) {
           unique.add(entry);
         }
       }
@@ -3313,6 +4221,33 @@ class _DelayedMusicResolver implements MusicResolver {
       url: 'https://cdn.example.test/${candidate.id}.mp3',
       quality: const MusicQuality(format: 'mp3'),
     );
+  }
+}
+
+class _LazySongResolver extends _DelayedMusicResolver {
+  int searchCalls = 0;
+  bool failFirst = false;
+  Completer<List<MusicSearchCandidate>>? gate;
+  @override
+  Future<List<MusicSearchCandidate>> search(
+    String query,
+    MusicDataSource source,
+  ) {
+    searchCalls++;
+    return gate?.future ??
+        Future.value([
+          _candidate(id: 'first', name: '默认第一首'),
+          _candidate(id: 'second', name: '候选第二首'),
+        ]);
+  }
+
+  @override
+  Future<ResolvedMusic> resolve(MusicSearchCandidate candidate) {
+    if (failFirst && candidate.id == 'first') {
+      resolveIds.add(candidate.id);
+      throw StateError('Source unavailable');
+    }
+    return super.resolve(candidate);
   }
 }
 
@@ -3671,5 +4606,43 @@ class _DelayedDownloadHistory extends MemoryDownloadHistory {
   Future<void> write(List<Map<String, Object?>> tasks) async {
     await super.write(tasks);
     if (!written.isCompleted) written.complete();
+  }
+}
+
+class _SearchCacheProbeResolver extends _FakeMusicResolver {
+  int calls = 0;
+  @override
+  Future<List<MusicSearchCandidate>> search(
+    String query,
+    MusicDataSource source,
+  ) async {
+    calls++;
+    return [_candidate(id: '$calls', name: '歌曲')];
+  }
+}
+
+class _PrefetchProbeResolver extends _LocalStreamResolver
+    implements QualitySelectableMusicResolver {
+  _PrefetchProbeResolver(super.port);
+  final ids = <String>[];
+  final levels = <MusicQualityLevel>[];
+  @override
+  Future<ResolvedMusic> resolveAtQuality(
+    MusicSearchCandidate candidate,
+    MusicQualityLevel level,
+  ) async {
+    ids.add(candidate.id);
+    levels.add(level);
+    return ResolvedMusic(
+      query: candidate.query,
+      source: candidate.source,
+      platform: candidate.platform,
+      id: candidate.id,
+      name: candidate.name,
+      artist: candidate.artist,
+      album: candidate.album,
+      url: 'http://127.0.0.1:$port/${candidate.id}',
+      quality: const MusicQuality(format: 'mp3', bitrate: '128'),
+    );
   }
 }

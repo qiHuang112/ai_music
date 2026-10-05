@@ -2,7 +2,7 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-FLUTTER_BIN="${FLUTTER_BIN:-$ROOT_DIR/../tools/flutter/bin/flutter}"
+FLUTTER_BIN="${FLUTTER_BIN:-$ROOT_DIR/../../tools/flutter/bin/flutter}"
 
 # iOS signing is selected at export time so the Flutter/Dart app code can stay
 # shared across Android and iOS. This project defaults to development because
@@ -97,11 +97,10 @@ write_export_options() {
 cd "$ROOT_DIR"
 
 export FLUTTER_STORAGE_BASE_URL="${FLUTTER_STORAGE_BASE_URL:-https://storage.flutter-io.cn}"
-export PUB_HOSTED_URL="${PUB_HOSTED_URL:-https://pub.flutter-io.cn}"
 
-"$FLUTTER_BIN" pub get
+"$FLUTTER_BIN" pub get --enforce-lockfile
 
-build_args=(--release)
+build_args=(--release --no-pub)
 if [[ -n "$EXPORT_OPTIONS_PLIST" ]]; then
   build_args+=(--export-options-plist="$EXPORT_OPTIONS_PLIST")
 else

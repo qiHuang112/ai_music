@@ -32,6 +32,7 @@ class PlaybackUseCase {
     List<Track>? queueTracks,
     AudioSource? selectedSource,
     bool Function()? shouldPlay,
+    bool forceReload = false,
   }) async {
     final queue = (queueTracks ?? fallbackQueue).isEmpty
         ? <Track>[track]
@@ -43,7 +44,7 @@ class PlaybackUseCase {
         (currentTrackId == null && _lastRequestedTrackId == track.id);
     // 去重必须同时看歌曲和队列；同一首在收藏/缓存/歌单里点击，下一首应按当前列表走。
     final sameQueue = _lastQueueSignature == queueSignature;
-    if (sameTrack && sameQueue) {
+    if (sameTrack && sameQueue && !forceReload) {
       if (!audioHandler.playbackState.value.playing &&
           (shouldPlay?.call() ?? true)) {
         _startPlayback();
@@ -52,7 +53,7 @@ class PlaybackUseCase {
     }
     final queueIndex = index ?? queue.indexWhere((item) => item.id == track.id);
     final safeIndex = queueIndex == -1 ? 0 : queueIndex;
-    final initialPosition = sameTrack
+    final initialPosition = sameTrack && !forceReload
         ? audioHandler.currentPosition
         : Duration.zero;
     await audioHandler.loadQueue(

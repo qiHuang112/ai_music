@@ -1,3 +1,4 @@
+import 'package:ai_music/src/data/song_search_cache.dart';
 import 'dart:async';
 import 'dart:collection';
 import 'package:ai_music/src/data/music_cache.dart';
@@ -13,12 +14,126 @@ import 'package:ai_music/src/data/music_resolver.dart';
 import 'package:ai_music/src/data/online_playlists.dart';
 import 'package:ai_music/src/presentation/music_home_page.dart';
 import 'package:ai_music/src/presentation/online_playlist_page.dart';
+import 'package:ai_music/src/presentation/direct_playlist_page.dart';
+import 'package:ai_music/src/presentation/song_source_page.dart';
+import 'package:ai_music/src/domain/music_models.dart';
 import 'package:ai_music/src/playback/music_audio_handler.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
+
+  testWidgets(
+    'source picker re-searches and lets user select at narrow width',
+    (tester) async {
+      tester.view.physicalSize = const Size(320, 700);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      final controller = _SourceController(_Store());
+      const track = Track(id: 'song', title: '稻香', artist: '周杰伦', album: '');
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Builder(
+            builder: (context) => Scaffold(
+              body: TextButton(
+                onPressed: () =>
+                    showSongSourcePicker(context, controller, track),
+                child: const Text('open'),
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.tap(find.text('open'));
+      await tester.pumpAndSettle();
+      expect(controller.searches, [MusicDataSource.auto]);
+      expect(find.text('稻香'), findsOneWidget);
+      expect(find.textContaining('kuwo'), findsOneWidget);
+      await tester.tap(find.text('FLAC'));
+      await tester.pumpAndSettle();
+      expect(controller.searches.last, MusicDataSource.flac);
+      await tester.tap(find.byKey(const ValueKey('song-source-0')));
+      await tester.pumpAndSettle();
+      expect(controller.chosen?.source, MusicDataSource.flac);
+      expect(find.text('open'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+      await _unmount(tester, controller);
+    },
+  );
+
+  testWidgets(
+    'playlist more menu shows actual audio source and opens its picker',
+    (tester) async {
+      final store = _Store();
+      final controller = _SourceController(store);
+      final playlist = (await controller.importPlaylistCandidates('来源入口', [
+        _candidate('First'),
+      ]))!;
+      await tester.pumpWidget(
+        MaterialApp(home: MusicHomePage(controller: controller)),
+      );
+      await tester.pumpAndSettle();
+      await tester.ensureVisible(
+        find.byKey(ValueKey('home-playlist-${playlist.id}')),
+      );
+      await tester.tap(find.byKey(ValueKey('home-playlist-${playlist.id}')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byTooltip('更多').last);
+      await tester.pumpAndSettle();
+      expect(find.text('歌曲来源（布谷YY）'), findsOneWidget);
+      await tester.tap(find.text('歌曲来源（布谷YY）'));
+      await tester.pumpAndSettle();
+      expect(find.byType(SongSourcePage), findsOneWidget);
+      expect(controller.searches, [MusicDataSource.auto]);
+      await tester.tap(find.byTooltip('刷新来源'));
+      await tester.pumpAndSettle();
+      expect(controller.refreshes, [false, true]);
+      await _unmount(tester, controller);
+    },
+  );
+
+  testWidgets(
+    'direct playlist page saves metadata before starting background matching',
+    (tester) async {
+      final store = _Store();
+      var matchCalls = 0;
+      final controller = _Controller(
+        store,
+        matcher: _Matcher((draft) async {
+          expect(store.library.playlists.single.entries.length, 2);
+          matchCalls++;
+          return _match(draft.title);
+        }),
+      );
+      await tester.pumpWidget(
+        MaterialApp(
+          home: DirectPlaylistPage(
+            playlist: _playlist,
+            repository: _Repository(),
+            controller: controller,
+            onOpenPlaylist: (_) {},
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(find.text('First'), findsOneWidget);
+      expect(matchCalls, 0);
+      await tester.tap(find.byKey(const Key('direct-new-playlist')));
+      await tester.pumpAndSettle();
+      expect(store.library.playlists.single.entries.length, 2);
+      expect(
+        store.library.playlists.single.entries.every(
+          (e) => e.song != null && e.onlineTrack == null,
+        ),
+        isTrue,
+      );
+      expect(matchCalls, 2);
+      expect(find.byKey(const Key('direct-open-playlist')), findsOneWidget);
+      await _unmount(tester, controller);
+    },
+  );
 
   test(
     'import uses default low confidence recommendation, not strict title equality',
@@ -848,26 +963,20 @@ void main() {
             (gates[draft.title] = Completer<ScreenshotMatchResult>()).future,
       ),
     );
+    // Legacy matching tasks remain reachable from the local playlist list.
+    final task = controller.onlinePlaylistTasks.obtain(
+      _playlist,
+      _CompleteRepository(),
+    );
+    await task.load();
+    await task.startAutoSync();
     await tester.pumpWidget(
-      MaterialApp(
-        home: MusicHomePage(
-          controller: controller,
-          playlistRepository: _CompleteRepository(),
-        ),
-      ),
+      MaterialApp(home: MusicHomePage(controller: controller)),
     );
     await tester.pumpAndSettle();
-    await tester.tap(find.byKey(const ValueKey('search-mode-toggle')));
-    await tester.enterText(find.byType(TextField).first, '睡前');
-    await tester.tap(find.byTooltip('搜歌单'));
-    await tester.pumpAndSettle();
-    await tester.tap(find.byKey(const ValueKey('netease:1')));
-    await tester.pump();
-    await tester.pump();
-    await tester.tap(find.text('新建歌单'));
-    await tester.pump();
-    await tester.pump();
-    await tester.tap(find.text('打开歌单'));
+    await tester.tap(
+      find.byKey(ValueKey('home-playlist-${task.destination!.id}')),
+    );
     await tester.pumpAndSettle();
 
     expect(
@@ -909,26 +1018,20 @@ void main() {
       store,
       matcher: _Matcher((_) => gate.future),
     );
+    // Legacy matching tasks remain reachable from the local playlist list.
+    final task = controller.onlinePlaylistTasks.obtain(
+      _playlist,
+      _CompleteRepository(),
+    );
+    await task.load();
+    await task.startAutoSync();
     await tester.pumpWidget(
-      MaterialApp(
-        home: MusicHomePage(
-          controller: controller,
-          playlistRepository: _CompleteRepository(),
-        ),
-      ),
+      MaterialApp(home: MusicHomePage(controller: controller)),
     );
     await tester.pumpAndSettle();
-    await tester.tap(find.byKey(const ValueKey('search-mode-toggle')));
-    await tester.enterText(find.byType(TextField).first, '睡前');
-    await tester.tap(find.byTooltip('搜歌单'));
-    await tester.pumpAndSettle();
-    await tester.tap(find.byKey(const ValueKey('netease:1')));
-    await tester.pump();
-    await tester.pump();
-    await tester.tap(find.text('新建歌单'));
-    await tester.pump();
-    await tester.pump();
-    await tester.tap(find.text('打开歌单'));
+    await tester.tap(
+      find.byKey(ValueKey('home-playlist-${task.destination!.id}')),
+    );
     await tester.pumpAndSettle();
 
     store.fail = true;
@@ -1347,7 +1450,11 @@ class _Resolver implements MusicResolver {
 class _Controller extends MusicController {
   _Controller(_Store store, {_Matcher? matcher})
     : matcher = matcher ?? _Matcher((draft) async => _match(draft.title)),
-      super(audioHandler: MusicAudioHandler(), playlistStore: store);
+      super(
+        audioHandler: MusicAudioHandler(),
+        playlistStore: store,
+        songSearchCache: SongSearchCache.memory(),
+      );
   final _Matcher matcher;
   int countQueries = 0;
   @override
@@ -1362,6 +1469,33 @@ class _Controller extends MusicController {
   ScreenshotMatcher createScreenshotMatcher() => matcher;
   @override
   ScreenshotMatcher createOnlinePlaylistMatcher() => matcher;
+}
+
+class _SourceController extends _Controller {
+  _SourceController(super.store);
+  final searches = <MusicDataSource>[];
+  final refreshes = <bool>[];
+  MusicSearchCandidate? chosen;
+  @override
+  Future<List<MusicSearchCandidate>> searchSongSources(
+    Track track, {
+    String? query,
+    MusicDataSource? searchSource,
+    bool refresh = false,
+  }) {
+    final source = searchSource ?? MusicDataSource.auto;
+    searches.add(source);
+    refreshes.add(refresh);
+    return _Resolver().search(query ?? track.title, source);
+  }
+
+  @override
+  Future<void> chooseSongSource(
+    Track track,
+    MusicSearchCandidate candidate,
+  ) async {
+    chosen = candidate;
+  }
 }
 
 class _Store extends PlaylistStore {

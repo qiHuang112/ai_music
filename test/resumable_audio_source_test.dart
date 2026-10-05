@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:ai_music/src/playback/resumable_audio_source.dart';
+import 'package:ai_music/src/data/music_cache.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
@@ -83,6 +84,8 @@ void main() {
     final part = File('${root.path}/song.mp3.part');
     final complete = File('${root.path}/song.mp3');
     var completed = 0;
+    final progress = <CachedDownloadProgress>[];
+    final lengths = <int?>[];
     ResumableAudioSource source() => ResumableAudioSource(
       url: Uri.parse('http://127.0.0.1:${server.port}/song'),
       partFile: part,
@@ -91,6 +94,8 @@ void main() {
       onStarted: () {},
       onStopped: () {},
       onComplete: (_) async => completed++,
+      onLength: (length) async => lengths.add(length),
+      onProgress: progress.add,
     );
     try {
       final first = await source().request(0, 4096);
@@ -100,6 +105,8 @@ void main() {
       );
       expect(await part.length(), 4096);
       expect(await complete.exists(), false);
+      expect(progress.last.bytes, 4096);
+      expect(progress.last.totalBytes, payload.length);
 
       final second = await source().request(0);
       expect(await second.stream.expand((chunk) => chunk).toList(), payload);
@@ -107,6 +114,12 @@ void main() {
       expect(await complete.readAsBytes(), payload);
       expect(await part.exists(), false);
       expect(completed, 1);
+      expect(lengths, [payload.length, payload.length]);
+      expect(progress.last.bytes, payload.length);
+      expect(
+        progress.map((p) => p.bytes).toList(),
+        orderedEquals(progress.map((p) => p.bytes).toList()..sort()),
+      );
     } finally {
       await server.close(force: true);
       await root.delete(recursive: true);
@@ -128,6 +141,7 @@ void main() {
       await request.response.close();
     });
     try {
+      final progress = <CachedDownloadProgress>[];
       final source = ResumableAudioSource(
         url: Uri.parse('http://127.0.0.1:${server.port}/song'),
         partFile: part,
@@ -136,11 +150,14 @@ void main() {
         onStarted: () {},
         onStopped: () {},
         onComplete: (_) async {},
+        onProgress: progress.add,
       );
       final response = await source.request();
       expect(response.rangeRequestsSupported, false);
       expect(await response.stream.expand((chunk) => chunk).toList(), payload);
       expect(await complete.readAsBytes(), payload);
+      expect(progress.first.bytes, 0);
+      expect(progress.last.bytes, payload.length);
     } finally {
       await server.close(force: true);
       await root.delete(recursive: true);
@@ -255,6 +272,7 @@ void main() {
     'a seek past the cached prefix respects a bounded 206 response',
     () async {
       final root = await Directory.systemTemp.createTemp('bounded_seek_');
+      final savedProgress = <CachedDownloadProgress>[];
       final payload = List<int>.generate(20000, (i) => i % 251);
       final part = File('${root.path}/song.mp3.part');
       final complete = File('${root.path}/song.mp3');
@@ -282,6 +300,7 @@ void main() {
         onStarted: () {},
         onStopped: () {},
         onComplete: (_) async {},
+        onProgress: savedProgress.add,
       );
       try {
         for (final prefix in [0, 1000]) {
@@ -292,6 +311,7 @@ void main() {
           expect(seek.contentLength, 1000);
           expect(bytes, payload.sublist(5000, 6000));
           expect(await part.exists() ? await part.length() : 0, prefix);
+          expect(savedProgress, isEmpty);
         }
 
         final prefixRequest = await source.request(0, 4096);

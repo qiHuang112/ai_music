@@ -3,6 +3,9 @@ import '../data/music_cache.dart';
 import '../data/music_playlists.dart';
 import '../data/resolver_models.dart';
 import '../data/saved_online_track.dart';
+import '../data/playlist_song.dart';
+import 'dart:convert';
+import 'package:crypto/crypto.dart';
 import '../domain/music_models.dart';
 import 'library_controller.dart';
 import 'music_mappers.dart';
@@ -178,6 +181,10 @@ class LibraryUseCase {
             trackId: track.id,
             addedAt: DateTime.now(),
             onlineTrack: online,
+            song: _entryForTrack(base.playlistLibrary, track.id)?.song,
+            manualSource:
+                _entryForTrack(base.playlistLibrary, track.id)?.manualSource ??
+                false,
           ),
         );
       }
@@ -217,6 +224,111 @@ class LibraryUseCase {
   }
 
   /// Import in one serialized write; no empty playlist or second read/write.
+  Future<MusicPlaylistResult> importPlaylistSongs(
+    String name,
+    List<PlaylistSong> songs, {
+    MusicPlaylist? target,
+    required LibrarySnapshot current,
+  }) => _enqueuePlaylistMutation(() async {
+    final base = _currentSnapshot(current);
+    if (name.trim().isEmpty || songs.isEmpty) {
+      return MusicPlaylistResult(snapshot: base);
+    }
+    final existing = target == null
+        ? null
+        : base.customPlaylists.where((p) => p.id == target.id).firstOrNull;
+    if (target != null && existing == null) {
+      throw StateError('The destination playlist was deleted');
+    }
+    final now = DateTime.now();
+    final playlistId = existing?.id ?? 'playlist-${now.microsecondsSinceEpoch}';
+    final keys = {
+      for (final e in existing?.entries ?? <PlaylistTrackEntry>[])
+        if (e.song != null) e.song!.key,
+    };
+    final entries = [
+      ...?existing?.entries,
+      for (final song in songs)
+        if (keys.add(song.key))
+          PlaylistTrackEntry(
+            trackId:
+                'song-${sha256.convert(utf8.encode('$playlistId\u001f${song.key}'))}',
+            addedAt: now,
+            song: song,
+          ),
+    ];
+    final playlist =
+        existing?.copyWith(entries: entries, updatedAt: now) ??
+        MusicPlaylist(
+          id: playlistId,
+          name: name.trim(),
+          entries: entries,
+          createdAt: now,
+          updatedAt: now,
+        );
+    final snapshot = await _savePlaylistLibrary(
+      base.playlistLibrary.copyWith(
+        playlists: [
+          for (final p in base.customPlaylists)
+            p.id == playlistId ? playlist : p,
+          if (existing == null) playlist,
+        ],
+      ),
+      current: base,
+    );
+    return MusicPlaylistResult(
+      snapshot: snapshot,
+      playlist: playlist,
+      addedTrackIds: playlist.trackIds.toSet().difference(
+        existing?.trackIds.toSet() ?? {},
+      ),
+    );
+  });
+
+  /// A song keeps its logical ID even when the chosen audio resource changes.
+  Future<LibrarySnapshot> saveSongSource(
+    Track track,
+    SavedOnlineTrack source, {
+    required LibrarySnapshot current,
+    required bool manual,
+    SavedOnlineTrack? expectedSource,
+  }) => _enqueuePlaylistMutation(() async {
+    final base = _currentSnapshot(current);
+    List<PlaylistTrackEntry> update(List<PlaylistTrackEntry> entries) => [
+      for (final entry in entries)
+        if (entry.trackId != track.id ||
+            (!manual &&
+                (entry.manualSource ||
+                    entry.onlineTrack?.trackId != expectedSource?.trackId)))
+          entry
+        else
+          PlaylistTrackEntry(
+            trackId: entry.trackId,
+            addedAt: entry.addedAt,
+            song:
+                entry.song ??
+                PlaylistSong(
+                  key: track.id,
+                  title: track.title,
+                  artist: track.artist,
+                  coverUrl: track.artworkUri?.toString() ?? '',
+                ),
+            onlineTrack: source,
+            manualSource: manual,
+          ),
+    ];
+    return _savePlaylistLibrary(
+      base.playlistLibrary.copyWith(
+        favoriteEntries: update(base.playlistLibrary.favoriteEntries),
+        playlists: [
+          for (final p in base.customPlaylists)
+            p.copyWith(entries: update(p.entries)),
+        ],
+      ),
+      current: base,
+    );
+  });
+
   Future<MusicPlaylistResult> importOnlinePlaylist(
     String name,
     List<SavedOnlineTrack> tracks, {
@@ -484,6 +596,13 @@ class LibraryUseCase {
                   onlineTrack:
                       onlineTracksById[track.id] ??
                       _onlineForTrack(base.playlistLibrary, track.id),
+                  song: _entryForTrack(base.playlistLibrary, track.id)?.song,
+                  manualSource:
+                      _entryForTrack(
+                        base.playlistLibrary,
+                        track.id,
+                      )?.manualSource ??
+                      false,
                 ),
               );
             }
@@ -612,7 +731,19 @@ class LibraryUseCase {
       for (final playlist in playlistLibrary.playlists) ...playlist.entries,
     ]) {
       final saved = entry.onlineTrack;
-      if (saved == null) continue;
+      if (saved == null) {
+        final song = entry.song;
+        if (song != null) {
+          onlineById[entry.trackId] = Track(
+            id: entry.trackId,
+            title: song.title,
+            artist: song.artist,
+            album: '',
+            artworkUri: artworkUriFromText(song.coverUrl),
+          );
+        }
+        continue;
+      }
       final candidate = saved.candidate;
       final cached =
           cachedByIdentity[(
@@ -695,6 +826,11 @@ class LibraryUseCase {
     return run;
   }
 }
+
+PlaylistTrackEntry? _entryForTrack(PlaylistLibrary library, String trackId) => [
+  ...library.favoriteEntries,
+  for (final playlist in library.playlists) ...playlist.entries,
+].where((e) => e.trackId == trackId).firstOrNull;
 
 SavedOnlineTrack? _onlineForTrack(PlaylistLibrary library, String trackId) {
   for (final entry in [

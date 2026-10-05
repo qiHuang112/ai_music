@@ -52,8 +52,8 @@ Future<void> showAddTracksToPlaylistSheet(
       final strings = AppStringsScope.of(parentContext);
       final playlists = controller.customPlaylists;
       return SafeArea(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
+        child: ListView(
+          shrinkWrap: true,
           children: [
             ListTile(
               leading: const Icon(Icons.playlist_add),

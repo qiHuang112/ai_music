@@ -36,7 +36,7 @@ Those are shared Flutter concerns and should be changed in `lib/src/` by the cro
 Always use the Flutter SDK checked out beside the app:
 
 ```bash
-cd /Users/huangqi/AIHome/ai_music
+cd /Users/huangqi/AIHome/projects/ai_music
 /Users/huangqi/AIHome/tools/flutter/bin/flutter pub get
 ```
 

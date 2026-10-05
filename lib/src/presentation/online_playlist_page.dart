@@ -10,6 +10,7 @@ import '../data/music_playlists.dart';
 import '../data/music_resolver.dart';
 import '../data/online_playlists.dart';
 import 'app_localizations.dart';
+import 'direct_playlist_page.dart';
 
 class OnlinePlaylistSearchPanel extends StatelessWidget {
   const OnlinePlaylistSearchPanel({
@@ -89,7 +90,7 @@ class OnlinePlaylistSearchPanel extends StatelessWidget {
                       trailing: const Icon(Icons.chevron_right),
                       onTap: () => Navigator.of(context).push(
                         MaterialPageRoute<void>(
-                          builder: (_) => OnlinePlaylistPage(
+                          builder: (_) => DirectPlaylistPage(
                             playlist: item,
                             repository: search.repository,
                             controller: controller,

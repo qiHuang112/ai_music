@@ -4,6 +4,7 @@ import '../application/music_controller.dart';
 import '../data/music_resolver.dart';
 import '../data/music_settings.dart';
 import 'app_localizations.dart';
+import 'app_update_page.dart';
 
 class SettingsPage extends StatelessWidget {
   const SettingsPage({super.key, required this.controller});
@@ -25,6 +26,8 @@ class SettingsPage extends StatelessWidget {
                 _SettingsGroup(
                   title: strings.isZh ? '通用' : 'General',
                   children: [
+                    if (controller.appUpdates.supported)
+                      AppUpdateSetting(updates: controller.appUpdates),
                     ListTile(
                       leading: const Icon(Icons.language),
                       title: Text(strings.language),
