@@ -254,6 +254,35 @@ void main() {
   });
 
   test(
+    'indexed audio truncated above the minimum size is repaired, not reused',
+    () async {
+      final root = await Directory.systemTemp.createTemp(
+        'cache_length_repair_',
+      );
+      final downloader = _FakeDownloader();
+      final store = CachedTrackStore(
+        rootProvider: () async => root,
+        downloader: downloader,
+      );
+      try {
+        final first = await store.downloadOrReuse(_resolvedMusic());
+        final file = File(first.filePath);
+        final bytes = await file.readAsBytes();
+        // Still a valid-looking MP3 header and >=16 KiB, but no longer complete.
+        await file.writeAsBytes(bytes.sublist(0, bytes.length - 1));
+        expect(await store.isValidCachedAudio(first), isFalse);
+        final repaired = await store.downloadOrReuse(_resolvedMusic());
+        expect(repaired.fromCache, isFalse);
+        expect(downloader.calls, 2);
+        expect(await file.readAsBytes(), bytes);
+        expect(await store.isValidCachedAudio(repaired), isTrue);
+      } finally {
+        await root.delete(recursive: true);
+      }
+    },
+  );
+
+  test(
     'clearing playback cache preserves a manually promoted download',
     () async {
       final root = await Directory.systemTemp.createTemp(

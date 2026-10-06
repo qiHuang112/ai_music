@@ -1,3 +1,4 @@
+import '../domain/app_brand.dart';
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
@@ -375,7 +376,7 @@ class AppUpdateController extends ChangeNotifier {
       final opened = await _bridge.install(file, latest!.code);
       installNotice = opened
           ? '请在系统界面确认安装，完成后重新打开应用'
-          : '请允许 AI Music 安装应用，返回后点击“安装”';
+          : '请允许 ${AppBrand.name} 安装应用，返回后点击“安装”';
     } on PlatformException catch (e) {
       error = e.message ?? '无法安装更新包';
     } catch (_) {

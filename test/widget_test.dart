@@ -1,3 +1,5 @@
+import 'package:ai_music/src/data/listening_stats_store.dart';
+import 'package:ai_music/src/presentation/listening_stats_page.dart';
 import 'package:ai_music/src/presentation/playback_queue.dart';
 import 'package:ai_music/src/presentation/app_theme.dart';
 import 'package:ai_music/src/data/song_search_cache.dart';
@@ -28,6 +30,296 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
+  testWidgets('listening statistics entry is only in music library', (
+    tester,
+  ) async {
+    final handler = _WidgetAudioHandler();
+    final stats = ListeningStatsStore.memory();
+    final controller = _QueueUiController(handler, stats: stats);
+    try {
+      await tester.pumpWidget(_app(playbackController: controller));
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('library-listening-stats')), findsNothing);
+      await tester.tap(find.byTooltip('音乐库'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('library-listening-stats')));
+      await tester.pumpAndSettle();
+      expect(find.byType(ListeningStatsPage), findsOneWidget);
+      expect(find.byKey(const Key('listening-total-time')), findsOneWidget);
+    } finally {
+      await tester.pumpWidget(const SizedBox.shrink());
+      controller.dispose();
+      unawaited(handler.dispose());
+    }
+  });
+
+  testWidgets(
+    'statistics adapt to small screens, large text and both themes/languages',
+    (tester) async {
+      tester.view.physicalSize = const Size(320, 700);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      final handler = _WidgetAudioHandler();
+      final stats = ListeningStatsStore.memory();
+      final controller = _QueueUiController(handler, stats: stats);
+      final today = DateTime.now();
+      for (var i = 0; i < 8; i++) {
+        stats.addInterval(
+          'v$i',
+          ListeningContext(
+            ListeningSong(
+              id: 's$i',
+              trackId: 's$i',
+              title: 'A very long song title $i',
+              artist: 'A very long artist name',
+            ),
+            playlistId: 'p$i',
+            playlistName: 'A very long playlist name $i',
+          ),
+          today,
+          today.add(Duration(seconds: 60 + i)),
+          qualifiedAt: today.add(const Duration(seconds: 30)),
+        );
+      }
+      try {
+        for (final language in AppLanguage.values) {
+          for (final brightness in Brightness.values) {
+            await tester.pumpWidget(
+              MaterialApp(
+                theme: MusicAppTheme.create(brightness),
+                builder: (context, child) => MediaQuery(
+                  data: MediaQuery.of(
+                    context,
+                  ).copyWith(textScaler: const TextScaler.linear(2)),
+                  child: AppStringsScope(language: language, child: child!),
+                ),
+                home: ListeningStatsPage(
+                  controller: controller,
+                  onOpenPlaylist: (_) {},
+                ),
+              ),
+            );
+            await tester.pumpAndSettle();
+            await tester.scrollUntilVisible(
+              find.text(language == AppLanguage.zh ? '每日记录' : 'Daily history'),
+              350,
+              scrollable: find.byWidgetPredicate(
+                (w) => w is Scrollable && w.axisDirection == AxisDirection.down,
+              ),
+            );
+            await tester.pumpAndSettle();
+            expect(tester.takeException(), isNull);
+            await tester.pumpWidget(const SizedBox.shrink());
+          }
+        }
+      } finally {
+        await tester.pumpWidget(const SizedBox.shrink());
+        controller.dispose();
+        unawaited(handler.dispose());
+      }
+    },
+  );
+
+  testWidgets(
+    'old history stays collapsed and ranking/history keep deleted song snapshots',
+    (tester) async {
+      final handler = _WidgetAudioHandler();
+      final stats = ListeningStatsStore.memory();
+      final controller = _QueueUiController(handler, stats: stats);
+      final today = DateUtils.dateOnly(DateTime.now());
+      final old = DateTime(today.year - 1, 1, 1);
+      await stats.load();
+      stats.startedAt = old;
+      for (var i = 0; i < 365; i++) {
+        final day = old.add(Duration(days: i));
+        stats.addInterval(
+          'old$i',
+          const ListeningContext(
+            ListeningSong(
+              id: 'a',
+              trackId: 'deleted-a',
+              title: 'Archived song',
+              artist: 'Artist',
+            ),
+          ),
+          day,
+          day.add(const Duration(minutes: 1)),
+          qualifiedAt: day.add(const Duration(seconds: 30)),
+        );
+      }
+      stats.addInterval(
+        'now',
+        const ListeningContext(
+          ListeningSong(
+            id: 'b',
+            trackId: 'deleted-b',
+            title: 'Recent song',
+            artist: 'Artist',
+          ),
+        ),
+        today,
+        today.add(const Duration(minutes: 10)),
+        qualifiedAt: today.add(const Duration(seconds: 30)),
+      );
+      try {
+        await tester.pumpWidget(
+          MaterialApp(
+            theme: MusicAppTheme.create(Brightness.light),
+            home: ListeningStatsPage(
+              controller: controller,
+              onOpenPlaylist: (_) {},
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('累计'));
+        await tester.pumpAndSettle();
+        await tester.scrollUntilVisible(
+          find.text('Archived song'),
+          250,
+          scrollable: find.byWidgetPredicate(
+            (w) => w is Scrollable && w.axisDirection == AxisDirection.down,
+          ),
+        );
+        final tiles = tester
+            .widgetList<ListTile>(find.byType(ListTile))
+            .where(
+              (tile) =>
+                  tile.title is Text &&
+                  [
+                    'Archived song',
+                    'Recent song',
+                  ].contains((tile.title as Text).data),
+            )
+            .toList();
+        expect((tiles.first.title as Text).data, 'Archived song');
+        await tester.ensureVisible(find.text('按次数 ▾'));
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('按次数 ▾'));
+        await tester.pumpAndSettle();
+        await tester.tap(
+          find.byWidgetPredicate(
+            (w) => w is CheckedPopupMenuItem<bool> && w.value == true,
+          ),
+        );
+        await tester.pumpAndSettle();
+        expect(find.text('按时长 ▾'), findsOneWidget);
+        // 365 short listens also win duration; the selected order remains explicit.
+
+        await tester.ensureVisible(find.text('Archived song'));
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('Archived song'));
+        await tester.pumpAndSettle();
+        expect(find.text('这条记录对应的歌曲或歌单已不在音乐库中'), findsOneWidget);
+        await tester.pump(const Duration(seconds: 5));
+        await tester.pumpAndSettle();
+        await tester.scrollUntilVisible(
+          find.byKey(ValueKey('history-year-${old.year}')),
+          250,
+          scrollable: find.byWidgetPredicate(
+            (w) => w is Scrollable && w.axisDirection == AxisDirection.down,
+          ),
+        );
+        expect(
+          find.byKey(ValueKey('history-month-${old.year}-01')),
+          findsNothing,
+        );
+        await tester.ensureVisible(find.text('${old.year}年'));
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('${old.year}年'));
+        await tester.pumpAndSettle();
+        await tester.scrollUntilVisible(
+          find.byKey(ValueKey('history-month-${old.year}-01')),
+          250,
+          scrollable: find.byWidgetPredicate(
+            (w) => w is Scrollable && w.axisDirection == AxisDirection.down,
+          ),
+        );
+        await tester.ensureVisible(find.text('1月'));
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('1月'));
+        await tester.pumpAndSettle();
+        final label = dateGroupLabel(old, zh: true);
+        await tester.scrollUntilVisible(
+          find.text(label),
+          250,
+          scrollable: find.byWidgetPredicate(
+            (w) => w is Scrollable && w.axisDirection == AxisDirection.down,
+          ),
+        );
+        await tester.pumpAndSettle();
+        await tester.ensureVisible(find.text(label));
+        await tester.pumpAndSettle();
+        await tester.tap(find.text(label));
+        await tester.pumpAndSettle();
+        expect(find.text('Archived song'), findsOneWidget);
+        expect(find.textContaining('单曲播放'), findsOneWidget);
+        expect(tester.takeException(), isNull);
+      } finally {
+        await tester.pumpWidget(const SizedBox.shrink());
+        controller.dispose();
+        unawaited(handler.dispose());
+      }
+    },
+  );
+
+  testWidgets('clear history requires confirmation and preserves music state', (
+    tester,
+  ) async {
+    final handler = _WidgetAudioHandler();
+    final fixture = _homeLibraryFixture();
+    final stats = ListeningStatsStore.memory();
+    final controller = _QueueUiController(
+      handler,
+      fixture: fixture,
+      stats: stats,
+    );
+    await controller.initialize();
+    final at = DateTime.now();
+    stats.addInterval(
+      'v',
+      const ListeningContext(
+        ListeningSong(id: 'a', trackId: 'a', title: 'Song', artist: 'Artist'),
+      ),
+      at,
+      at.add(const Duration(minutes: 1)),
+    );
+    final favorites = controller.favoriteTracks.map((t) => t.id).toList();
+    final playlists = controller.customPlaylists.map((p) => p.id).toList();
+    try {
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: Builder(
+              builder: (context) => TextButton(
+                onPressed: () =>
+                    confirmClearListeningStats(context, controller),
+                child: const Text('clear'),
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.tap(find.text('clear'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('取消'));
+      await tester.pumpAndSettle();
+      expect(stats.records, isNotEmpty);
+      await tester.tap(find.text('clear'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('清空'));
+      await tester.pumpAndSettle();
+      expect(stats.records, isEmpty);
+      expect(controller.favoriteTracks.map((t) => t.id), favorites);
+      expect(controller.customPlaylists.map((p) => p.id), playlists);
+      expect(controller.cachedTracks.length, 2);
+    } finally {
+      await tester.pumpWidget(const SizedBox.shrink());
+      controller.dispose();
+      unawaited(handler.dispose());
+    }
+  });
   testWidgets('mini progress resets only when the media item changes', (
     tester,
   ) async {
@@ -3470,18 +3762,22 @@ class _CountingPlaybackController extends MusicController {
 }
 
 class _QueueUiController extends MusicController {
-  _QueueUiController(MusicAudioHandler handler, {_HomeLibraryFixture? fixture})
-    : super(
-        audioHandler: handler,
-        songSearchCache: SongSearchCache.memory(),
-        downloadHistoryStore: MemoryDownloadHistory(),
-        connectivityChanges: const Stream.empty(),
-        resolver: _FakeMusicResolver(),
-        cacheStore: fixture?.cacheStore ?? _FakeCacheStore(),
-        playlistStore: fixture?.playlistStore ?? _FakePlaylistStore(),
-        settingsStore: _FakeSettingsStore(),
-        metadataRepository: _FakeMetadataRepository(),
-      );
+  _QueueUiController(
+    MusicAudioHandler handler, {
+    _HomeLibraryFixture? fixture,
+    ListeningStatsStore? stats,
+  }) : super(
+         audioHandler: handler,
+         listeningStatsStore: stats,
+         songSearchCache: SongSearchCache.memory(),
+         downloadHistoryStore: MemoryDownloadHistory(),
+         connectivityChanges: const Stream.empty(),
+         resolver: _FakeMusicResolver(),
+         cacheStore: fixture?.cacheStore ?? _FakeCacheStore(),
+         playlistStore: fixture?.playlistStore ?? _FakePlaylistStore(),
+         settingsStore: _FakeSettingsStore(),
+         metadataRepository: _FakeMetadataRepository(),
+       );
   final requests = <Completer<void>>[];
   final positions = StreamController<Duration>.broadcast();
   @override

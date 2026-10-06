@@ -17,6 +17,10 @@ class MusicChart {
   final int id;
   final String title;
   final bool isVideo;
+
+  String get playlistId => 'builtin-chart-${platform.name}-$id';
+  String get playlistName =>
+      '${platform == MusicChartPlatform.qq ? 'QQ音乐' : '网易云音乐'} · $title';
 }
 
 const qqMusicCharts = [
@@ -46,12 +50,14 @@ class MusicChartEntry {
     required this.title,
     required this.artist,
     this.artworkUri,
+    this.sourceId = '',
   });
 
   final int rank;
   final String title;
   final String artist;
   final Uri? artworkUri;
+  final String sourceId;
 }
 
 class MusicChartResult {
@@ -133,6 +139,13 @@ MusicChartResult parseQqChart(String body) {
         rank: (song['rank'] as num?)?.toInt() ?? entries.length + 1,
         title: title,
         artist: (song['singerName'] as String? ?? '').trim(),
+        sourceId:
+            (song['songMid'] ??
+                    song['mid'] ??
+                    song['songId'] ??
+                    song['id'] ??
+                    '')
+                .toString(),
         artworkUri: _httpsUri(song['cover']),
       ),
     );
@@ -170,6 +183,7 @@ MusicChartResult parseNeteaseChart(String body) {
         rank: entries.length + 1,
         title: title,
         artist: artistNames,
+        sourceId: (song['id'] ?? '').toString(),
         artworkUri: _httpsUri(_object(song['album'])['picUrl']),
       ),
     );

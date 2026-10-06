@@ -85,6 +85,7 @@ class MusicPlaylist {
   final String name;
   final String lanFolderKey;
   final bool hasBeenOpened;
+  bool get isBuiltIn => id.startsWith('builtin-chart-');
   final List<PlaylistTrackEntry> entries;
   final DateTime createdAt;
   final DateTime updatedAt;

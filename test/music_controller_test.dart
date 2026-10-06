@@ -1,3 +1,5 @@
+import 'package:ai_music/src/data/music_charts.dart';
+import 'package:ai_music/src/data/listening_stats_store.dart';
 import 'package:ai_music/src/data/song_search_cache.dart';
 import 'memory_download_history.dart';
 import 'package:ai_music/src/data/playlist_usage_store.dart';
@@ -28,6 +30,1107 @@ import 'package:flutter_test/flutter_test.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
+
+  group('来听 charts and favorite downloads', () {
+    const rows = MusicChartResult(
+      entries: [
+        MusicChartEntry(
+          rank: 1,
+          title: 'First',
+          artist: 'artist',
+          sourceId: 'a',
+        ),
+        MusicChartEntry(
+          rank: 2,
+          title: 'Second',
+          artist: 'artist',
+          sourceId: 'b',
+        ),
+      ],
+    );
+
+    test(
+      'opening charts saves metadata only and other library writes preserve charts',
+      () async {
+        final f = await _LaitingFixture.create();
+        try {
+          final chart = await f.controller.updateChartPlaylist(
+            qqMusicCharts[1],
+            rows,
+          );
+          expect(chart.isBuiltIn, isTrue);
+          expect(f.controller.customPlaylists, isEmpty);
+          expect(f.controller.tracksForPlaylist(chart).map((t) => t.title), [
+            'First',
+            'Second',
+          ]);
+          expect(f.resolver.searchCalls, 0);
+          expect(f.resolver.ids, isEmpty);
+          expect(f.controller.downloadTasks, isEmpty);
+          final custom = (await f.controller.createPlaylist('Mine'))!;
+          await f.controller.renamePlaylist(custom, 'Renamed');
+          expect(f.store.library.playlists.length, 2);
+          expect(f.controller.builtInPlaylists.single.trackIds, chart.trackIds);
+          expect(f.controller.customPlaylists.single.name, 'Renamed');
+          await f.controller.deletePlaylist(custom);
+          await f.controller.loadCache(repairLegacy: false);
+          expect(f.controller.builtInPlaylists.single.trackIds, chart.trackIds);
+          await expectLater(
+            f.controller.renamePlaylist(chart, 'Not allowed'),
+            throwsStateError,
+          );
+          await expectLater(
+            f.controller.deletePlaylist(chart),
+            throwsStateError,
+          );
+          expect(f.controller.builtInPlaylists.single.name, chart.name);
+        } finally {
+          await f.close();
+        }
+      },
+    );
+
+    test(
+      'refresh reorders by rank, deduplicates rows and retains manual sources and favorites',
+      () async {
+        final f = await _LaitingFixture.create();
+        try {
+          final first = await f.controller.updateChartPlaylist(
+            qqMusicCharts[1],
+            rows,
+          );
+          final track = f.controller.tracksForPlaylist(first).first;
+          await f.controller.chooseSongSource(
+            track,
+            _candidate(id: 'chosen', name: 'First'),
+          );
+          // A saved/manual source remains stable across a changed chart position.
+          final next = await f.controller.updateChartPlaylist(
+            qqMusicCharts[1],
+            const MusicChartResult(
+              entries: [
+                MusicChartEntry(
+                  rank: 1,
+                  title: 'Second',
+                  artist: 'artist',
+                  sourceId: 'b',
+                ),
+                MusicChartEntry(
+                  rank: 2,
+                  title: 'First',
+                  artist: 'artist',
+                  sourceId: 'a',
+                ),
+                MusicChartEntry(
+                  rank: 3,
+                  title: 'First',
+                  artist: 'artist',
+                  sourceId: 'a',
+                ),
+              ],
+            ),
+          );
+          expect(next.trackIds, first.trackIds.reversed.toList());
+          expect(next.entries.last.manualSource, isTrue);
+          expect(next.entries.last.onlineTrack?.candidate.id, 'chosen');
+          expect(next.createdAt, first.createdAt);
+          expect(f.resolver.searchCalls, 0);
+          final persisted = MusicPlaylist.fromJson(next.toJson())!;
+          expect(persisted.isBuiltIn, isTrue);
+          expect(persisted.trackIds, next.trackIds);
+        } finally {
+          await f.close();
+        }
+      },
+    );
+
+    for (final quality in MusicQualityLevel.values) {
+      test(
+        'new favorite downloads in background at captured ${quality.name} quality',
+        () async {
+          final f = await _LaitingFixture.create();
+          f.resolver.gates['fav'] = Completer<void>();
+          try {
+            f.controller.defaultDownloadQuality = quality;
+            final playlist = (await f.controller.importPlaylistCandidates(
+              'Mine',
+              [_candidate(id: 'fav', name: 'Favorite')],
+            ))!;
+            final track = f.controller.tracksForPlaylist(playlist).single;
+            await f.controller.toggleFavorite(track);
+            expect(f.controller.isFavorite(track), isTrue);
+            expect(f.controller.cachedTracks, isEmpty);
+            while (f.resolver.ids.isEmpty) {
+              await Future<void>.delayed(Duration.zero);
+            }
+            expect(f.resolver.levels, [quality]);
+            f.controller.defaultDownloadQuality = MusicQualityLevel.low;
+            f.resolver.gates['fav']!.complete();
+            await f.controller.waitForFavoriteDownloads();
+            expect(f.controller.isFavorite(track), isTrue);
+            expect(f.cache.downloadIds, ['fav']);
+            expect(
+              f.controller.downloadTasks.single.status,
+              DownloadTaskStatus.completed,
+            );
+            expect(f.controller.manuallyDownloadedSongCount, 1);
+            await f.controller.toggleFavorite(track);
+            await f.controller.waitForFavoriteDownloads();
+            expect(f.resolver.ids.length, 1);
+            expect(f.controller.cachedTracks.length, 1);
+          } finally {
+            await f.close();
+          }
+        },
+      );
+    }
+
+    test(
+      'favorite source lookup failure leaves favorite and a visible failed task',
+      () async {
+        final f = await _LaitingFixture.create();
+        try {
+          final chart = await f.controller.updateChartPlaylist(
+            qqMusicCharts[1],
+            rows,
+          );
+          final track = f.controller.tracksForPlaylist(chart).first;
+          f.resolver.searchResults = const [];
+          await f.controller.toggleFavorite(track);
+          await f.controller.waitForFavoriteDownloads();
+          expect(f.controller.isFavorite(track), isTrue);
+          expect(
+            f.controller.downloadTasks.single.status,
+            DownloadTaskStatus.failed,
+          );
+          expect(f.controller.downloadTasks.single.error, isNotEmpty);
+          expect(f.cache.downloadIds, isEmpty);
+          expect(f.controller.activeDownloadTasks, isEmpty);
+          expect(f.controller.customPlaylists, isEmpty);
+          expect(f.controller.builtInPlaylists.single.trackIds.length, 2);
+        } finally {
+          await f.close();
+        }
+      },
+    );
+
+    test('favorite resolve failure does not remove the favorite', () async {
+      final f = await _LaitingFixture.create();
+      try {
+        f.resolver.fail = true;
+        final playlist = (await f.controller.importPlaylistCandidates('Mine', [
+          _candidate(id: 'bad', name: 'Bad'),
+        ]))!;
+        final track = f.controller.tracksForPlaylist(playlist).single;
+        await f.controller.toggleFavorite(track);
+        await f.controller.waitForFavoriteDownloads();
+        expect(f.controller.isFavorite(track), isTrue);
+        expect(
+          f.controller.downloadTasks.single.status,
+          DownloadTaskStatus.failed,
+        );
+        expect(f.controller.downloadTasks.single.error, contains('offline'));
+      } finally {
+        await f.close();
+      }
+    });
+
+    test(
+      'favorite jobs obey concurrency, removal cancels queued work, and re-add is not lost',
+      () async {
+        final f = await _LaitingFixture.create();
+        try {
+          f.controller.playlistDownloadConcurrency = 1;
+          f.controller.defaultDownloadQuality = MusicQualityLevel.medium;
+          f.resolver.gates['one'] = Completer<void>();
+          final playlist = (await f.controller
+              .importPlaylistCandidates('Mine', [
+                _candidate(id: 'one', name: 'One'),
+                _candidate(id: 'two', name: 'Two'),
+                _candidate(id: 'three', name: 'Three'),
+              ]))!;
+          final tracks = f.controller.tracksForPlaylist(playlist);
+          for (final t in tracks) {
+            await f.controller.toggleFavorite(t);
+          }
+          expect(f.resolver.ids, ['one']);
+          await f.controller.toggleFavorite(tracks[1]); // queued remove
+          await f.controller.toggleFavorite(tracks[2]); // queued remove
+          await f.controller.toggleFavorite(tracks[2]); // queued re-add
+          f.controller.defaultDownloadQuality = MusicQualityLevel.low;
+          f.resolver.gates['one']!.complete();
+          await f.controller.waitForFavoriteDownloads();
+          expect(f.resolver.ids, ['one', 'three']);
+          expect(f.resolver.levels, [
+            MusicQualityLevel.medium,
+            MusicQualityLevel.medium,
+          ]);
+          expect(f.controller.isFavorite(tracks[1]), isFalse);
+          expect(f.controller.isFavorite(tracks[2]), isTrue);
+          expect(
+            f.controller.downloadTasks
+                .where((t) => t.status == DownloadTaskStatus.canceled)
+                .length,
+            2,
+          );
+        } finally {
+          await f.close();
+        }
+      },
+    );
+
+    test(
+      'bulk removal cancels unresolved favorites even if search returns later',
+      () async {
+        final f = await _LaitingFixture.create();
+        try {
+          f.resolver.searchGate = Completer<List<MusicSearchCandidate>>();
+          final chart = await f.controller.updateChartPlaylist(
+            qqMusicCharts[1],
+            rows,
+          );
+          final track = f.controller.tracksForPlaylist(chart).first;
+          await f.controller.toggleFavorite(track);
+          while (f.resolver.searchCalls == 0) {
+            await Future<void>.delayed(Duration.zero);
+          }
+          await f.controller.removeTracksFromFavorites([track]);
+          await f.controller.waitForFavoriteDownloads();
+          expect(f.controller.isFavorite(track), isFalse);
+          expect(
+            f.controller.downloadTasks.single.status,
+            DownloadTaskStatus.canceled,
+          );
+          f.resolver.searchGate!.complete([
+            _candidate(id: 'late', name: 'First'),
+          ]);
+          await Future<void>.delayed(const Duration(milliseconds: 20));
+          expect(f.resolver.ids, isEmpty);
+          expect(f.cache.downloadIds, isEmpty);
+        } finally {
+          await f.close();
+        }
+      },
+    );
+
+    test(
+      'manual download and favorite share a task then upgrade only if the shared quality is lower',
+      () async {
+        final f = await _LaitingFixture.create();
+        try {
+          final candidate = _candidate(id: 'shared-fav', name: 'Shared');
+          f.resolver.gates[candidate.id] = Completer<void>();
+          final playlist = (await f.controller.importPlaylistCandidates(
+            'Mine',
+            [candidate],
+          ))!;
+          final track = f.controller.tracksForPlaylist(playlist).single;
+          final downloading = f.controller.downloadCandidate(
+            candidate,
+            quality: MusicQualityLevel.low,
+          );
+          await Future<void>.delayed(Duration.zero);
+          f.controller.defaultDownloadQuality = MusicQualityLevel.high;
+          await f.controller.toggleFavorite(track);
+          f.resolver.gates[candidate.id]!.complete();
+          await downloading;
+          await f.controller.waitForFavoriteDownloads();
+          expect(f.resolver.levels, [
+            MusicQualityLevel.low,
+            MusicQualityLevel.high,
+          ]);
+          expect(f.controller.downloadTasks.length, 1);
+          expect(f.controller.manuallyDownloadedSongCount, 1);
+        } finally {
+          await f.close();
+        }
+      },
+    );
+
+    test(
+      'readding a favorite upgrades an already running lower-quality download',
+      () async {
+        final f = await _LaitingFixture.create();
+        try {
+          final candidate = _candidate(id: 'readd-active', name: 'Readd');
+          f.resolver.gates[candidate.id] = Completer<void>();
+          final playlist = (await f.controller.importPlaylistCandidates(
+            'Mine',
+            [candidate],
+          ))!;
+          final track = f.controller.tracksForPlaylist(playlist).single;
+          f.controller.defaultDownloadQuality = MusicQualityLevel.low;
+          await f.controller.toggleFavorite(track);
+          while (f.resolver.ids.isEmpty) {
+            await Future<void>.delayed(Duration.zero);
+          }
+          await f.controller.toggleFavorite(track);
+          f.controller.defaultDownloadQuality = MusicQualityLevel.high;
+          await f.controller.toggleFavorite(track);
+          f.controller.defaultDownloadQuality = MusicQualityLevel.low;
+          f.resolver.gates[candidate.id]!.complete();
+          await f.controller.waitForFavoriteDownloads();
+          expect(f.controller.isFavorite(track), isTrue);
+          expect(f.resolver.levels, [
+            MusicQualityLevel.low,
+            MusicQualityLevel.high,
+          ]);
+          expect(f.cache.downloadIds, [candidate.id, candidate.id]);
+          expect(
+            f.controller.downloadTasks.single.status,
+            DownloadTaskStatus.completed,
+          );
+        } finally {
+          await f.close();
+        }
+      },
+    );
+
+    for (final damage in ['empty', 'truncated', 'text']) {
+      test(
+        'favorite repairs a $damage manual cache instead of reporting reuse',
+        () async {
+          final f = await _LaitingFixture.create();
+          final root = await Directory.systemTemp.createTemp('fav_bad_cache_');
+          try {
+            final candidate = _candidate(id: 'bad-cache', name: 'Bad cache');
+            final music = await f.resolver.resolveAtQuality(
+              candidate,
+              MusicQualityLevel.high,
+            );
+            f.resolver.ids.clear();
+            f.resolver.levels.clear();
+            final bytes = switch (damage) {
+              'empty' => <int>[],
+              'truncated' => [
+                0x66,
+                0x4c,
+                0x61,
+                0x43,
+                ...List<int>.filled(17000, 0),
+              ],
+              _ => '<html>${List.filled(20000, 'x').join()}</html>'.codeUnits,
+            };
+            final file = File('${root.path}/song.flac');
+            await file.writeAsBytes(bytes);
+            f.cache.cached.add(
+              CachedTrack(
+                cacheId: cacheIdForResolved(music),
+                music: music,
+                filePath: file.path,
+                sizeBytes: damage == 'text' ? bytes.length : 20000,
+                fromCache: true,
+              ),
+            );
+            await f.controller.loadCache(repairLegacy: false);
+            await f.controller.toggleFavorite(f.controller.cachedTracks.single);
+            await f.controller.waitForFavoriteDownloads();
+            expect(f.resolver.ids, [candidate.id]);
+            expect(f.cache.downloadIds, [candidate.id]);
+            expect(f.controller.downloadTasks.single.reusedCache, isFalse);
+          } finally {
+            await f.close();
+            await root.delete(recursive: true);
+          }
+        },
+      );
+    }
+
+    test(
+      'chart refresh retains unresolved songs in the playing queue until stop',
+      () async {
+        final root = await Directory.systemTemp.createTemp(
+          'chart_queue_snapshot_',
+        );
+        final f = await _LaitingFixture.create(root: root);
+        try {
+          final chart = await f.controller.updateChartPlaylist(
+            qqMusicCharts[1],
+            rows,
+          );
+          final tracks = f.controller.tracksForPlaylist(chart);
+          tracks[0] = tracks[0].copyWith(filePath: '${root.path}/current.mp3');
+          await f.controller.playTrack(
+            tracks[0],
+            playlistId: chart.id,
+            queueTracks: tracks,
+          );
+          final deferred =
+              f.handler.loadedItems[1].source as DeferredStreamingAudioSource;
+          final refreshed = await f.controller.updateChartPlaylist(
+            qqMusicCharts[1],
+            const MusicChartResult(
+              entries: [
+                MusicChartEntry(
+                  rank: 1,
+                  title: 'First',
+                  artist: 'artist',
+                  sourceId: 'a',
+                ),
+              ],
+            ),
+          );
+          expect(refreshed.trackIds, [tracks[0].id]);
+          f.resolver.searchResults = [
+            _candidate(id: 'second-source', name: 'Second'),
+          ];
+          // This is the same lazy preparation used by native automatic advance.
+          await deferred.prepare();
+          await f.controller.playQueueItem(tracks[1].id);
+          expect(f.resolver.searchCalls, greaterThan(0));
+          expect(f.resolver.ids, ['second-source', 'second-source']);
+          expect(
+            f.handler.queue.value.map((i) => i.id),
+            tracks.map((t) => t.id),
+          );
+          f.handler.playbackState.add(
+            f.handler.playbackState.value.copyWith(
+              playing: true,
+              processingState: AudioProcessingState.ready,
+            ),
+          );
+          await Future<void>.delayed(const Duration(milliseconds: 10));
+          expect(f.store.library.playlists.single.trackIds, refreshed.trackIds);
+          expect(
+            f.controller.selectedSongSource(tracks[1])?.id,
+            'second-source',
+          );
+          await f.controller.stop();
+          expect(f.controller.canSwitchSongSource(tracks[1]), isFalse);
+          expect(f.controller.selectedSongSource(tracks[1]), isNull);
+        } finally {
+          await f.close();
+          await root.delete(recursive: true);
+        }
+      },
+    );
+
+    test(
+      'a missing high file cannot suppress upgrading a shared low download',
+      () async {
+        final f = await _LaitingFixture.create();
+        try {
+          final candidate = _candidate(
+            id: 'missing-high',
+            name: 'Missing high',
+          );
+          final music = await f.resolver.resolveAtQuality(
+            candidate,
+            MusicQualityLevel.high,
+          );
+          f.resolver.ids.clear();
+          f.resolver.levels.clear();
+          f.cache.cached.add(
+            CachedTrack(
+              cacheId: cacheIdForResolved(music),
+              music: music,
+              filePath: '/nonexistent/laiting-high.flac',
+              sizeBytes: 20000,
+              fromCache: true,
+            ),
+          );
+          await f.controller.loadCache(repairLegacy: false);
+          final track = f.controller.cachedTracks.single;
+          f.resolver.gates[candidate.id] = Completer<void>();
+          final manual = f.controller.downloadCandidate(
+            candidate,
+            quality: MusicQualityLevel.low,
+          );
+          while (f.resolver.ids.isEmpty) {
+            await Future<void>.delayed(Duration.zero);
+          }
+          await f.controller.toggleFavorite(track);
+          f.resolver.gates[candidate.id]!.complete();
+          await manual;
+          await f.controller.waitForFavoriteDownloads();
+          expect(f.resolver.levels, [
+            MusicQualityLevel.low,
+            MusicQualityLevel.high,
+          ]);
+        } finally {
+          await f.close();
+        }
+      },
+    );
+
+    test(
+      'a low file cannot borrow the quality of another broken high record',
+      () async {
+        final root = await Directory.systemTemp.createTemp(
+          'fav_exact_quality_',
+        );
+        final f = await _LaitingFixture.create();
+        try {
+          final candidate = _candidate(id: 'same-source', name: 'Same source');
+          final high = await f.resolver.resolveAtQuality(
+            candidate,
+            MusicQualityLevel.high,
+          );
+          final low = await f.resolver.resolveAtQuality(
+            candidate,
+            MusicQualityLevel.low,
+          );
+          f.resolver.ids.clear();
+          f.resolver.levels.clear();
+          final file = File('${root.path}/low.mp3');
+          final bytes = [0x49, 0x44, 0x33, ...List<int>.filled(20000, 0)];
+          await file.writeAsBytes(bytes);
+          f.cache.cached.addAll([
+            CachedTrack(
+              cacheId: cacheIdForResolved(high),
+              music: high,
+              filePath: '${root.path}/missing.flac',
+              sizeBytes: 20000,
+              fromCache: true,
+            ),
+            CachedTrack(
+              cacheId: cacheIdForResolved(low),
+              music: low,
+              filePath: file.path,
+              sizeBytes: bytes.length,
+              fromCache: true,
+            ),
+          ]);
+          await f.controller.loadCache(repairLegacy: false);
+          await f.controller.toggleFavorite(
+            f.controller.cachedTracks.firstWhere(
+              (t) => t.id == cacheIdForResolved(low),
+            ),
+          );
+          await f.controller.waitForFavoriteDownloads();
+          expect(f.resolver.levels, [MusicQualityLevel.high]);
+          expect(f.controller.downloadTasks.single.reusedCache, isFalse);
+        } finally {
+          await f.close();
+          await root.delete(recursive: true);
+        }
+      },
+    );
+
+    test(
+      'cancel and readd during file validation uses the new captured quality',
+      () async {
+        final root = await Directory.systemTemp.createTemp(
+          'fav_validation_gate_',
+        );
+        final f = await _LaitingFixture.create();
+        try {
+          final candidate = _candidate(id: 'validate-gate', name: 'Validate');
+          final low = await f.resolver.resolveAtQuality(
+            candidate,
+            MusicQualityLevel.low,
+          );
+          f.resolver.ids.clear();
+          f.resolver.levels.clear();
+          final file = File('${root.path}/low.mp3');
+          final bytes = [0x49, 0x44, 0x33, ...List<int>.filled(20000, 0)];
+          await file.writeAsBytes(bytes);
+          f.cache.cached.add(
+            CachedTrack(
+              cacheId: cacheIdForResolved(low),
+              music: low,
+              filePath: file.path,
+              sizeBytes: bytes.length,
+              fromCache: true,
+            ),
+          );
+          await f.controller.loadCache(repairLegacy: false);
+          final track = f.controller.cachedTracks.single;
+          f.cache.validationGate = Completer<void>();
+          f.controller.defaultDownloadQuality = MusicQualityLevel.low;
+          await f.controller.toggleFavorite(track);
+          await f.cache.validationStarted.future;
+          await f.controller.toggleFavorite(track);
+          f.controller.defaultDownloadQuality = MusicQualityLevel.high;
+          await f.controller.toggleFavorite(track);
+          f.cache.validationGate!.complete();
+          await f.controller.waitForFavoriteDownloads();
+          expect(f.resolver.levels, [MusicQualityLevel.high]);
+          expect(
+            f.controller.downloadTasks.where((t) => t.reusedCache),
+            isEmpty,
+          );
+          expect(f.controller.isFavorite(track), isTrue);
+        } finally {
+          if (f.cache.validationGate?.isCompleted == false) {
+            f.cache.validationGate!.complete();
+          }
+          await f.close();
+          await root.delete(recursive: true);
+        }
+      },
+    );
+
+    test(
+      'removed chart queue row keeps manual source against a late old match',
+      () async {
+        final root = await Directory.systemTemp.createTemp(
+          'chart_manual_queue_',
+        );
+        final f = await _LaitingFixture.create(root: root);
+        try {
+          final chart = await f.controller.updateChartPlaylist(
+            qqMusicCharts[1],
+            rows,
+          );
+          final tracks = f.controller.tracksForPlaylist(chart);
+          tracks[0] = tracks[0].copyWith(filePath: '${root.path}/first.mp3');
+          await f.controller.playTrack(
+            tracks[0],
+            playlistId: chart.id,
+            queueTracks: tracks,
+          );
+          final deferred =
+              f.handler.loadedItems[1].source as DeferredStreamingAudioSource;
+          await f.controller.updateChartPlaylist(
+            qqMusicCharts[1],
+            const MusicChartResult(
+              entries: [
+                MusicChartEntry(
+                  rank: 1,
+                  title: 'First',
+                  artist: 'artist',
+                  sourceId: 'a',
+                ),
+              ],
+            ),
+          );
+          f.resolver.searchGate = Completer<List<MusicSearchCandidate>>();
+          final preparing = deferred.prepare();
+          final canceled = expectLater(
+            preparing,
+            throwsA(isA<DownloadCancelledException>()),
+          );
+          while (f.resolver.searchCalls == 0) {
+            await Future<void>.delayed(Duration.zero);
+          }
+          await f.controller.chooseSongSource(
+            tracks[1],
+            _candidate(id: 'manual-new', name: 'Second'),
+          );
+          f.resolver.searchGate!.complete([
+            _candidate(id: 'old-match', name: 'Second'),
+          ]);
+          await canceled;
+          await f.controller.playQueueItem(tracks[1].id);
+          expect(f.controller.selectedSongSource(tracks[1])?.id, 'manual-new');
+          expect(f.resolver.ids, ['manual-new']);
+          expect(f.store.library.playlists.single.trackIds, [tracks[0].id]);
+          // Starting the refreshed chart creates a new queue and drops its old row.
+          final current = f.controller.tracksForPlaylist(
+            f.controller.builtInPlaylists.single,
+          );
+          current[0] = current[0].copyWith(filePath: '${root.path}/first.mp3');
+          await f.controller.playTrack(
+            current[0],
+            playlistId: chart.id,
+            queueTracks: current,
+          );
+          expect(f.controller.canSwitchSongSource(tracks[1]), isFalse);
+          expect(f.controller.selectedSongSource(tracks[1]), isNull);
+        } finally {
+          if (f.resolver.searchGate?.isCompleted == false) {
+            f.resolver.searchGate!.complete([]);
+          }
+          await f.close();
+          await root.delete(recursive: true);
+        }
+      },
+    );
+
+    for (final saveAsFavorite in [true, false]) {
+      test(
+        'removed unresolved chart row persists its song when ${saveAsFavorite ? 'favorited' : 'added to a playlist'}',
+        () async {
+          final root = await Directory.systemTemp.createTemp(
+            'chart_queue_save_',
+          );
+          final f = await _LaitingFixture.create(root: root);
+          try {
+            final chart = await f.controller.updateChartPlaylist(
+              qqMusicCharts[1],
+              rows,
+            );
+            final tracks = f.controller.tracksForPlaylist(chart);
+            tracks[0] = tracks[0].copyWith(filePath: '${root.path}/first.mp3');
+            await f.controller.playTrack(
+              tracks[0],
+              playlistId: chart.id,
+              queueTracks: tracks,
+            );
+            await f.controller.updateChartPlaylist(
+              qqMusicCharts[1],
+              const MusicChartResult(
+                entries: [
+                  MusicChartEntry(
+                    rank: 1,
+                    title: 'First',
+                    artist: 'artist',
+                    sourceId: 'a',
+                  ),
+                ],
+              ),
+            );
+            f.resolver.searchResults = [
+              _candidate(id: 'second-source', name: 'Second'),
+            ];
+            if (saveAsFavorite) {
+              await f.controller.toggleFavorite(tracks[1]);
+              await f.controller.waitForFavoriteDownloads();
+              expect(f.controller.favoriteTracks.single.id, tracks[1].id);
+              expect(f.controller.favoriteTracks.single.title, 'Second');
+              expect(
+                f.store.library.favoriteEntries.single.song?.title,
+                'Second',
+              );
+              expect(f.resolver.levels, [MusicQualityLevel.high]);
+            } else {
+              // Persist a hand-picked source with metadata and its manual flag.
+              await f.controller.chooseSongSource(
+                tracks[1],
+                _candidate(id: 'manual-new', name: 'Second'),
+              );
+              final target = (await f.controller.createPlaylist('Mine'))!;
+              await f.controller.addTracksToPlaylist(target, [tracks[1]]);
+              final entry = f.store.library.playlists
+                  .firstWhere((p) => p.id == target.id)
+                  .entries
+                  .single;
+              expect(entry.song?.title, 'Second');
+              expect(entry.onlineTrack?.candidate.id, 'manual-new');
+              expect(entry.manualSource, isTrue);
+              expect(
+                f.controller
+                    .tracksForPlaylist(f.controller.customPlaylists.single)
+                    .single
+                    .title,
+                'Second',
+              );
+            }
+            expect(f.controller.builtInPlaylists.single.trackIds, [
+              tracks[0].id,
+            ]);
+            await f.controller.stop();
+            // The explicit save survives releasing the temporary playing queue.
+            expect(f.controller.canSwitchSongSource(tracks[1]), isTrue);
+          } finally {
+            await f.close();
+            await root.delete(recursive: true);
+          }
+        },
+      );
+    }
+
+    test(
+      'first chart playback matches similarity, queues all rows and remembers a successful source',
+      () async {
+        final root = await Directory.systemTemp.createTemp(
+          'laiting_chart_play_',
+        );
+        final handler = _StatsAudioHandler();
+        final resolver = _LaitingResolver()
+          ..searchResults = [
+            _candidate(id: 'wrong', name: 'Different song'),
+            _candidate(id: 'right', name: 'First'),
+          ];
+        final store = _MemoryPlaylistStore();
+        final controller = MusicController(
+          audioHandler: handler,
+          resolver: resolver,
+          cacheStore: CachedTrackStore(rootProvider: () async => root),
+          playlistStore: store,
+          settingsStore: _FakeSettingsStore(),
+          metadataRepository: _StaticMetadataRepository(),
+          listeningStatsStore: ListeningStatsStore.memory(),
+          songSearchCache: SongSearchCache.memory(),
+          downloadHistoryStore: MemoryDownloadHistory(),
+          connectivityChanges: const Stream.empty(),
+          checkConnectivity: () async => [],
+        );
+        try {
+          await controller.initialize();
+          final chart = await controller.updateChartPlaylist(
+            qqMusicCharts[1],
+            rows,
+          );
+          final tracks = controller.tracksForPlaylist(chart);
+          await controller.playTrack(
+            tracks.first,
+            queueTracks: tracks,
+            playlistId: chart.id,
+          );
+          expect(resolver.ids, ['right']);
+          expect(resolver.levels, [MusicQualityLevel.low]);
+          expect(handler.queue.value.map((i) => i.id), chart.trackIds);
+          expect(handler.playbackState.value.playing, isTrue);
+          for (
+            var i = 0;
+            i < 20 &&
+                store.library.playlists.single.entries.first.onlineTrack ==
+                    null;
+            i++
+          ) {
+            await Future<void>.delayed(const Duration(milliseconds: 5));
+          }
+          expect(
+            store
+                .library
+                .playlists
+                .single
+                .entries
+                .first
+                .onlineTrack
+                ?.candidate
+                .id,
+            'right',
+          );
+          expect(
+            store.library.playlists.single.entries.last.onlineTrack,
+            isNull,
+          );
+          expect(controller.downloadTasks, isEmpty);
+        } finally {
+          await controller.stop();
+          controller.dispose();
+          await handler.dispose();
+          await root.delete(recursive: true);
+        }
+      },
+    );
+
+    test(
+      'a complete manual file of sufficient quality is reused without network',
+      () async {
+        final f = await _LaitingFixture.create();
+        final root = await Directory.systemTemp.createTemp(
+          'laiting_fav_reuse_',
+        );
+        try {
+          final candidate = _candidate(id: 'existing', name: 'Existing');
+          final music = await f.resolver.resolveAtQuality(
+            candidate,
+            MusicQualityLevel.high,
+          );
+          f.resolver.ids.clear();
+          f.resolver.levels.clear();
+          final file = File('${root.path}/existing.flac');
+          final bytes = [0x66, 0x4c, 0x61, 0x43, ...List<int>.filled(20000, 0)];
+          await file.writeAsBytes(bytes);
+          final record = CachedTrack(
+            cacheId: cacheIdForResolved(music),
+            music: music,
+            filePath: file.path,
+            sizeBytes: bytes.length,
+            fromCache: true,
+          );
+          f.cache.cached.add(record);
+          await f.controller.loadCache(repairLegacy: false);
+          final track = f.controller.cachedTracks.single;
+          await f.controller.toggleFavorite(track);
+          await f.controller.waitForFavoriteDownloads();
+          expect(f.resolver.ids, isEmpty);
+          expect(f.cache.downloadIds, isEmpty);
+          expect(f.controller.downloadTasks.single.reusedCache, isTrue);
+          expect(f.controller.busyCandidate, isNull);
+          expect(f.controller.busyCandidateKeys, isEmpty);
+          expect(f.controller.manuallyDownloadedSongCount, 1);
+          expect(f.controller.isFavorite(track), isTrue);
+        } finally {
+          await f.close();
+          await root.delete(recursive: true);
+        }
+      },
+    );
+
+    test(
+      'a low-quality playback cache is upgraded when newly favorited',
+      () async {
+        final f = await _LaitingFixture.create();
+        try {
+          final candidate = _candidate(id: 'cached-low', name: 'Low cache');
+          final music = await f.resolver.resolveAtQuality(
+            candidate,
+            MusicQualityLevel.low,
+          );
+          f.resolver.ids.clear();
+          f.resolver.levels.clear();
+          final record = CachedTrack(
+            cacheId: cacheIdForResolved(music),
+            music: music,
+            filePath: '/tmp/low-cache.mp3',
+            sizeBytes: 4,
+            fromCache: true,
+            playbackCache: true,
+          );
+          f.cache.cached.add(record);
+          await f.controller.loadCache(repairLegacy: false);
+          final track = f.controller.cachedTracks.single;
+          await f.controller.toggleFavorite(track);
+          await f.controller.waitForFavoriteDownloads();
+          expect(f.resolver.levels, [MusicQualityLevel.high]);
+          expect(f.controller.manuallyDownloadedSongCount, 1);
+          expect(f.controller.isFavorite(track), isTrue);
+          expect(
+            f.controller.favoriteTracks.single.filePath,
+            '/tmp/cached-low.mp3',
+          );
+        } finally {
+          await f.close();
+        }
+      },
+    );
+
+    test(
+      'loading existing favorites does not redownload the collection',
+      () async {
+        final f = await _LaitingFixture.create();
+        try {
+          final candidate = _candidate(
+            id: 'old-favorite',
+            name: 'Old favorite',
+          );
+          final saved = SavedOnlineTrack(candidate: candidate);
+          f.store.library = PlaylistLibrary(
+            favoriteEntries: [
+              PlaylistTrackEntry(
+                trackId: saved.trackId,
+                addedAt: DateTime.now(),
+                onlineTrack: saved,
+              ),
+            ],
+            playlists: const [],
+          );
+          await f.controller.loadCache(repairLegacy: false);
+          await f.controller.waitForFavoriteDownloads();
+          expect(f.controller.favoriteTracks.length, 1);
+          expect(f.resolver.ids, isEmpty);
+          expect(f.controller.downloadTasks, isEmpty);
+        } finally {
+          await f.close();
+        }
+      },
+    );
+
+    test(
+      'disposal cancels queued favorites and leaves no late audio downloads',
+      () async {
+        final f = await _LaitingFixture.create();
+        try {
+          f.controller.playlistDownloadConcurrency = 1;
+          f.resolver.gates['one'] = Completer<void>();
+          final playlist = (await f.controller.importPlaylistCandidates(
+            'Mine',
+            [
+              _candidate(id: 'one', name: 'One'),
+              _candidate(id: 'two', name: 'Two'),
+            ],
+          ))!;
+          for (final track in f.controller.tracksForPlaylist(playlist)) {
+            await f.controller.toggleFavorite(track);
+          }
+          f.controller.dispose();
+          f.disposed = true;
+          f.resolver.gates['one']!.complete();
+          await f.controller.waitForFavoriteDownloads();
+          expect(f.resolver.ids, ['one']);
+          expect(f.cache.downloadIds, isEmpty);
+          expect(f.controller.activeDownloadTasks, isEmpty);
+        } finally {
+          await f.close();
+        }
+      },
+    );
+  });
+
+  test(
+    'statistics retain the actual playlist origin and known quality identity',
+    () async {
+      final handler = _StatsAudioHandler();
+      await handler.dispose();
+      final stats = ListeningStatsStore.memory();
+      final original = _cachedTrack(id: 'shared', name: 'Shared song');
+      final otherQuality = original.copyWith(
+        cacheId: '${original.cacheId}-high',
+        filePath: '/tmp/shared-high.mp3',
+      );
+      final candidate = _candidate(id: 'shared', name: 'Shared song');
+      final canonical = SavedOnlineTrack(candidate: candidate).trackId;
+      final playlistStore = _MemoryPlaylistStore();
+      final controller = MusicController(
+        audioHandler: handler,
+        listeningStatsStore: stats,
+        songSearchCache: SongSearchCache.memory(),
+        downloadHistoryStore: MemoryDownloadHistory(),
+        connectivityChanges: const Stream.empty(),
+        resolver: _FakeMusicResolver(),
+        cacheStore: _FakeCacheStore(cached: [original, otherQuality]),
+        playlistStore: playlistStore,
+        settingsStore: _FakeSettingsStore(),
+        metadataRepository: _StaticMetadataRepository(),
+      );
+      Future<void> hear(Track track, String? playlist) async {
+        handler.currentPositionOverride = Duration.zero;
+        await controller.playTrack(
+          track,
+          queueTracks: [track],
+          playlistId: playlist,
+        );
+        await Future<void>.delayed(const Duration(milliseconds: 5));
+        controller.refreshListeningStats();
+        await Future<void>.delayed(const Duration(milliseconds: 5));
+        handler.currentPositionOverride = const Duration(seconds: 1);
+        controller.refreshListeningStats();
+      }
+
+      try {
+        await controller.initialize();
+        final p = (await controller.createPlaylist('Original'))!;
+        final q = (await controller.createPlaylist('Also contains this song'))!;
+        final tracks = controller.cachedTracks;
+        await controller.addTrackToPlaylist(p, tracks[0]);
+        await controller.addTrackToPlaylist(q, tracks[0]);
+        await hear(tracks[0], p.id);
+        final first = stats.report();
+        expect(first.songCount, 1);
+        expect(first.playlistRanks.single.id, p.id);
+        final identity = first.songRanks.single.id;
+        // Being favorited does not change the identity; another quality is the same song.
+        await controller.toggleFavorite(tracks[0]);
+        await hear(tracks[1], null);
+        expect(stats.report().songCount, 1);
+        expect(stats.report().songRanks.single.id, identity);
+        expect(stats.report().playlistRanks.map((r) => r.id), [p.id]);
+        expect(
+          controller
+              .trackForListeningSong(
+                ListeningSong(
+                  id: identity,
+                  trackId: 'removed-quality',
+                  title: 'Shared song',
+                  artist: 'artist',
+                ),
+              )
+              ?.id,
+          isNotNull,
+        );
+        // An unavailable logical ID cannot silently play an unrelated same-named song.
+        expect(
+          controller.trackForListeningSong(
+            ListeningSong(
+              id: '$canonical-different',
+              trackId: 'missing',
+              title: 'Shared song',
+              artist: 'artist',
+            ),
+          ),
+          isNull,
+        );
+      } finally {
+        controller.dispose();
+        await Future<void>.delayed(Duration.zero);
+      }
+    },
+  );
 
   test(
     'queue selection removes the retired current match after switching',
@@ -4742,6 +5845,18 @@ class _SequencedSearchResolver extends _FakeMusicResolver {
 }
 
 class _DownloadCacheStore extends CachedTrackStore {
+  _DownloadCacheStore({super.rootProvider});
+  Completer<void>? validationGate;
+  final validationStarted = Completer<void>();
+  @override
+  Future<bool> isValidCachedAudio(CachedTrack track) async {
+    if (validationGate != null) {
+      if (!validationStarted.isCompleted) validationStarted.complete();
+      await validationGate!.future;
+    }
+    return super.isValidCachedAudio(track);
+  }
+
   final cached = <CachedTrack>[];
   final downloadIds = <String>[];
   int listCachedCalls = 0;
@@ -4940,5 +6055,111 @@ class _QueuePrepareGateResolver extends _LocalStreamResolver {
       await release.future;
     }
     return super.resolve(candidate);
+  }
+}
+
+class _StatsAudioHandler extends _SpyAudioHandler {
+  @override
+  bool get hasConsistentPlaybackItem => true;
+  @override
+  Future<void> play() async {
+    await super.play();
+    playbackState.add(
+      playbackState.value.copyWith(processingState: AudioProcessingState.ready),
+    );
+  }
+}
+
+class _LaitingFixture {
+  _LaitingFixture(
+    this.controller,
+    this.handler,
+    this.resolver,
+    this.cache,
+    this.store,
+  );
+  final MusicController controller;
+  final _SpyAudioHandler handler;
+  final _LaitingResolver resolver;
+  final _DownloadCacheStore cache;
+  final _MemoryPlaylistStore store;
+  bool disposed = false;
+  static Future<_LaitingFixture> create({Directory? root}) async {
+    final handler = _SpyAudioHandler();
+    final resolver = _LaitingResolver();
+    final cache = _DownloadCacheStore(
+      rootProvider: root == null ? null : () async => root,
+    );
+    final store = _MemoryPlaylistStore();
+    final controller = MusicController(
+      audioHandler: handler,
+      resolver: resolver,
+      cacheStore: cache,
+      playlistStore: store,
+      settingsStore: _FakeSettingsStore(),
+      metadataRepository: _StaticMetadataRepository(),
+      listeningStatsStore: ListeningStatsStore.memory(),
+      songSearchCache: SongSearchCache.memory(),
+      downloadHistoryStore: MemoryDownloadHistory(),
+      connectivityChanges: const Stream.empty(),
+      checkConnectivity: () async => [],
+    );
+    await controller.initialize();
+    return _LaitingFixture(controller, handler, resolver, cache, store);
+  }
+
+  Future<void> close() async {
+    if (!disposed) controller.dispose();
+    for (final gate in resolver.gates.values) {
+      if (!gate.isCompleted) gate.complete();
+    }
+    await controller.waitForFavoriteDownloads();
+    await handler.dispose();
+  }
+}
+
+class _LaitingResolver extends _FakeMusicResolver
+    implements QualitySelectableMusicResolver {
+  final ids = <String>[];
+  final levels = <MusicQualityLevel>[];
+  final gates = <String, Completer<void>>{};
+  int searchCalls = 0;
+  bool fail = false;
+  List<MusicSearchCandidate> searchResults = [];
+  Completer<List<MusicSearchCandidate>>? searchGate;
+  @override
+  Future<List<MusicSearchCandidate>> search(
+    String query,
+    MusicDataSource source,
+  ) async {
+    searchCalls++;
+    return searchGate?.future ?? Future.value(searchResults);
+  }
+
+  @override
+  Future<ResolvedMusic> resolveAtQuality(
+    MusicSearchCandidate candidate,
+    MusicQualityLevel quality,
+  ) async {
+    ids.add(candidate.id);
+    levels.add(quality);
+    if (gates[candidate.id] case final gate?) await gate.future;
+    if (fail) throw StateError('offline');
+    return ResolvedMusic(
+      query: candidate.query,
+      source: candidate.source,
+      platform: candidate.platform,
+      id: candidate.id,
+      name: candidate.name,
+      artist: candidate.artist,
+      album: candidate.album,
+      url: 'https://cdn.example.test/${candidate.id}',
+      quality: quality == MusicQualityLevel.high
+          ? const MusicQuality(format: 'flac')
+          : MusicQuality(
+              format: 'mp3',
+              bitrate: quality == MusicQualityLevel.medium ? '320' : '128',
+            ),
+    );
   }
 }

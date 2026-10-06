@@ -2,15 +2,15 @@
   "string": [
     {
       "name": "module_desc",
-      "value": "AI Music"
+      "value": "来听"
     },
     {
       "name": "EntryAbility_desc",
-      "value": "AI Music"
+      "value": "来听"
     },
     {
       "name": "EntryAbility_label",
-      "value": "AI Music"
+      "value": "来听"
     }
   ]
 }

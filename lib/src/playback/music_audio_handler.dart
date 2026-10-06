@@ -59,6 +59,7 @@ class MusicAudioHandler extends BaseAudioHandler
   final ShuffleSkipPlanner _shuffleSkipPlanner;
   final PlaybackIndexTracker _indexTracker = PlaybackIndexTracker();
   bool _editingQueue = false;
+  bool _loadingQueue = false;
   bool _shuffleModeEnabled = false;
   bool _isCurrentFavorite = false;
 
@@ -89,6 +90,19 @@ class MusicAudioHandler extends BaseAudioHandler
   }
 
   Stream<Duration> get positionStream => _player.positionStream;
+  bool get hasConsistentPlaybackItem =>
+      !_loadingQueue &&
+      _player.currentIndex != null &&
+      _player.currentIndex! >= 0 &&
+      _player.currentIndex! < _items.length &&
+      _items[_player.currentIndex!].mediaItem.id == mediaItem.value?.id;
+  Stream<bool> get listeningDiscontinuities =>
+      _player.positionDiscontinuityStream.map(
+        (event) =>
+            event.reason == PositionDiscontinuityReason.autoAdvance &&
+            !_loadingQueue &&
+            !_editingQueue,
+      );
 
   Future<void> configure() async {
     final session = await AudioSession.instance;
@@ -118,11 +132,16 @@ class MusicAudioHandler extends BaseAudioHandler
     if (!playWhenReady && _player.playing) {
       await _player.pause();
     }
-    await _player.setAudioSources(
-      [for (final item in _items) item.source],
-      initialIndex: safeIndex,
-      initialPosition: initialPosition,
-    );
+    _loadingQueue = true;
+    try {
+      await _player.setAudioSources(
+        [for (final item in _items) item.source],
+        initialIndex: safeIndex,
+        initialPosition: initialPosition,
+      );
+    } finally {
+      _loadingQueue = false;
+    }
     _publishCurrentItem(safeIndex);
     if (playWhenReady) {
       await play();

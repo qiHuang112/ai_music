@@ -32,6 +32,7 @@ import 'app_update_page.dart';
 import 'song_cache_progress.dart';
 import 'playlist_source_progress.dart';
 import 'app_theme.dart';
+import 'listening_stats_page.dart';
 import 'playback_queue.dart';
 import 'music_thumbnail.dart';
 
@@ -487,21 +488,42 @@ class _MusicHomePageState extends State<MusicHomePage>
 
   Future<void> _openChart(MusicChart chart) {
     return Navigator.of(context).push<void>(
-      MaterialPageRoute(
-        builder: (context) => MusicChartPage(
-          chart: chart,
-          controller: controller,
-          onSearchSong: (entry) {
-            Navigator.of(context).pop();
-            _searchController.text = entry.title;
-            setState(() => _playlistMode = false);
-            _submitSearch(entry.title);
-          },
-        ),
-      ),
+      MaterialPageRoute(builder: (context) => _chartPage(controller, chart)),
     );
   }
 }
+
+Widget _chartPage(MusicController controller, MusicChart chart) =>
+    MusicChartPage(
+      chart: chart,
+      controller: controller,
+      playlistBuilder: (playlist, refresh, refreshing, error, updatedAt) =>
+          buildChartPlaylistDetail(
+            controller: controller,
+            playlist: playlist,
+            onRefresh: refresh,
+            refreshing: refreshing,
+            error: error,
+            updatedAt: updatedAt,
+          ),
+    );
+
+/// The same detail view used by saved playlists, with chart refresh controls.
+Widget buildChartPlaylistDetail({
+  required MusicController controller,
+  required MusicPlaylist playlist,
+  VoidCallback? onRefresh,
+  bool refreshing = false,
+  String? error,
+  String? updatedAt,
+}) => _PlaylistDetailPage(
+  controller: controller,
+  selection: _LibraryListSpec.custom(playlist),
+  onRefresh: onRefresh,
+  refreshing: refreshing,
+  refreshError: error,
+  chartUpdatedAt: updatedAt,
+);
 
 bool _shouldShowFloatingStatus(MusicUiMessage message) {
   return switch (message.code) {
@@ -1293,6 +1315,32 @@ class _LibraryLanding extends StatelessWidget {
           ],
         ),
         const SizedBox(height: 24),
+        Card(
+          child: ListTile(
+            key: const Key('library-listening-stats'),
+            leading: Icon(
+              Icons.insights_rounded,
+              color: Theme.of(context).colorScheme.primary,
+            ),
+            title: Text(strings.isZh ? '我的听歌' : 'My listening'),
+            subtitle: Text(
+              strings.isZh ? '时长、排行与每日记录' : 'Time, rankings and daily history',
+            ),
+            trailing: const Icon(Icons.chevron_right),
+            onTap: () => Navigator.push(
+              context,
+              MaterialPageRoute<void>(
+                builder: (_) => ListeningStatsPage(
+                  controller: controller,
+                  bottomPlayer: _MiniPlayer(controller: controller),
+                  onOpenPlaylist: (playlist) =>
+                      _openList(context, _LibraryListSpec.custom(playlist)),
+                ),
+              ),
+            ),
+          ),
+        ),
+        const SizedBox(height: 24),
         Text(
           strings.customPlaylists,
           style: Theme.of(context).textTheme.titleMedium,
@@ -1312,6 +1360,22 @@ class _LibraryLanding extends StatelessWidget {
             const SizedBox(height: 4),
           ],
         const SizedBox(height: 24),
+        if (controller.builtInPlaylists.isNotEmpty) ...[
+          Text(
+            strings.isZh ? '榜单歌单' : 'Charts',
+            style: Theme.of(context).textTheme.titleMedium,
+          ),
+          const SizedBox(height: 8),
+          for (final playlist in controller.builtInPlaylists)
+            _CustomPlaylistTile(
+              playlist: playlist,
+              artwork: _homePlaylistArtwork(controller, playlist),
+              subtitle: _homePlaylistSubtitle(controller, playlist, strings),
+              onTap: () =>
+                  _openList(context, _LibraryListSpec.custom(playlist)),
+            ),
+          const SizedBox(height: 24),
+        ],
         Text(
           strings.isZh ? '匹配歌单' : 'Matching playlists',
           style: Theme.of(context).textTheme.titleMedium,
@@ -1327,6 +1391,15 @@ class _LibraryLanding extends StatelessWidget {
   }
 
   Future<void> _openList(BuildContext context, _LibraryListSpec selection) {
+    final chart = [
+      ...qqMusicCharts,
+      ...neteaseMusicCharts,
+    ].where((c) => c.playlistId == selection.id).firstOrNull;
+    if (chart != null) {
+      return Navigator.of(context).push<void>(
+        MaterialPageRoute(builder: (_) => _chartPage(controller, chart)),
+      );
+    }
     return Navigator.of(context).push<void>(
       MaterialPageRoute(
         builder: (context) =>
@@ -1551,8 +1624,9 @@ class _ResolvedLibraryList {
 
   bool get isLocal => selection.kind == _LibraryListKind.local;
   bool get isFavorite => selection.kind == _LibraryListKind.favorite;
-  bool get canManage => selection.kind == _LibraryListKind.custom;
-  bool get canRemove => !isLocal;
+  bool get isBuiltIn => playlist?.isBuiltIn == true;
+  bool get canManage => selection.kind == _LibraryListKind.custom && !isBuiltIn;
+  bool get canRemove => !isLocal && !isBuiltIn;
   bool get canCustomSort => isFavorite || canManage;
 
   _ResolvedLibraryList copyWith({List<Track>? tracks}) {
@@ -1587,7 +1661,7 @@ _ResolvedLibraryList _resolveLibraryList(
         tracks: controller.favoriteTracks,
       );
     case _LibraryListKind.custom:
-      final playlist = controller.customPlaylists
+      final playlist = controller.allPlaylists
           .where((item) => item.id == selection.id)
           .firstOrNull;
       return _ResolvedLibraryList(
@@ -1606,10 +1680,18 @@ class _PlaylistDetailPage extends StatefulWidget {
   const _PlaylistDetailPage({
     required this.controller,
     required this.selection,
+    this.onRefresh,
+    this.refreshing = false,
+    this.refreshError,
+    this.chartUpdatedAt,
   });
 
   final MusicController controller;
   final _LibraryListSpec selection;
+  final VoidCallback? onRefresh;
+  final bool refreshing;
+  final String? refreshError;
+  final String? chartUpdatedAt;
 
   @override
   State<_PlaylistDetailPage> createState() => _PlaylistDetailPageState();
@@ -1789,7 +1871,7 @@ class _PlaylistDetailPageState extends State<_PlaylistDetailPage> {
           widget.selection,
           strings,
         );
-        final effectiveSortMode = rawList.canManage
+        final effectiveSortMode = rawList.canManage || rawList.isBuiltIn
             ? _LibrarySortMode.custom
             : _sortMode;
         final sortedTracks = _sortLibraryTracks(
@@ -1851,7 +1933,15 @@ class _PlaylistDetailPageState extends State<_PlaylistDetailPage> {
                               : () => _startReorderEditing(sortedTracks),
                           icon: const Icon(Icons.drag_indicator),
                         ),
-                      if (!list.canManage)
+                      if (widget.onRefresh != null)
+                        IconButton(
+                          tooltip: strings.refresh,
+                          onPressed: widget.refreshing
+                              ? null
+                              : widget.onRefresh,
+                          icon: const Icon(Icons.refresh),
+                        ),
+                      if (!list.canManage && !list.isBuiltIn)
                         _LibrarySortButton(
                           mode: _sortMode,
                           timeLabel: list.isLocal
@@ -1877,6 +1967,29 @@ class _PlaylistDetailPageState extends State<_PlaylistDetailPage> {
             body: SafeArea(
               child: Column(
                 children: [
+                  if (widget.refreshing) const LinearProgressIndicator(),
+                  if (widget.refreshError != null)
+                    ListTile(
+                      dense: true,
+                      leading: const Icon(Icons.error_outline),
+                      title: Text(widget.refreshError!),
+                      subtitle: Text(
+                        strings.isZh
+                            ? '暂时显示上次保存的榜单'
+                            : 'Showing the last saved chart',
+                      ),
+                    ),
+                  if (widget.chartUpdatedAt case final updatedAt?)
+                    Padding(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 20,
+                        vertical: 4,
+                      ),
+                      child: Text(
+                        strings.chartUpdated(updatedAt),
+                        style: Theme.of(context).textTheme.bodySmall,
+                      ),
+                    ),
                   if (!_isReorderEditing)
                     ListSearchField(
                       controller: _searchController,
@@ -1886,7 +1999,7 @@ class _PlaylistDetailPageState extends State<_PlaylistDetailPage> {
                         _collapsedDates.clear();
                       }),
                       emptySuffix:
-                          list.canManage &&
+                          (list.canManage || list.isBuiltIn) &&
                               list.playlist != null &&
                               sortedTracks.isNotEmpty &&
                               !_searchFocusNode.hasFocus

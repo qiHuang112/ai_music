@@ -1,4 +1,5 @@
 import 'app_theme.dart';
+import 'listening_stats_page.dart';
 import 'package:flutter/material.dart';
 
 import '../application/music_controller.dart';
@@ -106,6 +107,20 @@ class SettingsPage extends StatelessWidget {
                   title: strings.isZh ? '存储' : 'Storage',
                   children: [
                     _PlaybackCacheSetting(controller: controller),
+                    ListTile(
+                      key: const Key('clear-listening-stats'),
+                      leading: const Icon(Icons.insights_outlined),
+                      title: Text(
+                        strings.isZh ? '清空听歌统计' : 'Clear listening history',
+                      ),
+                      subtitle: Text(
+                        strings.isZh
+                            ? '只清空统计，保留歌曲和歌单'
+                            : 'Reset statistics; keep songs and playlists',
+                      ),
+                      onTap: () =>
+                          confirmClearListeningStats(context, controller),
+                    ),
                     ListTile(
                       key: const Key('manual-download-count'),
                       leading: const Icon(Icons.download_done),
@@ -271,8 +286,8 @@ class _DownloadQualityPage extends StatelessWidget {
                   padding: const EdgeInsets.all(MusicUi.pagePadding),
                   child: Text(
                     zh
-                        ? '主动下载单首或整张歌单使用此品质；音源缺少该品质时使用可用版本。播放缓存始终优先用低品质，不会自动升级。'
-                        : 'Manual song and playlist downloads use this quality when available. Playback cache starts low and is not upgraded automatically.',
+                        ? '新收藏的歌曲、主动下载单首或整张歌单使用此品质；音源缺少该品质时使用可用版本。播放缓存始终优先用低品质，不会自动升级。'
+                        : 'New favorites and manual song and playlist downloads use this quality when available. Playback cache starts low and is not upgraded automatically.',
                   ),
                 ),
               ],

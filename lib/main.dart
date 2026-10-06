@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import 'src/application/music_controller.dart';
+import 'src/domain/app_brand.dart';
 import 'src/data/music_settings.dart';
 import 'src/platform/platform_detection.dart';
 import 'src/presentation/app_localizations.dart';
@@ -34,7 +35,7 @@ Future<MusicAudioHandler> _createAudioHandler() async {
       builder: MusicAudioHandler.new,
       config: const AudioServiceConfig(
         androidNotificationChannelId: 'com.qi.ai.music.channel.audio',
-        androidNotificationChannelName: 'AI Music playback',
+        androidNotificationChannelName: AppBrand.playbackChannel,
         androidNotificationOngoing: false,
         androidStopForegroundOnPause: false,
       ),
@@ -54,9 +55,8 @@ class AiMusicApp extends StatelessWidget {
     return AnimatedBuilder(
       animation: controller,
       builder: (context, _) {
-        final strings = AppStrings(controller.language);
         return MaterialApp(
-          title: strings.appTitle,
+          title: AppBrand.name,
           debugShowCheckedModeBanner: false,
           theme: MusicAppTheme.create(Brightness.light),
           darkTheme: MusicAppTheme.create(Brightness.dark),

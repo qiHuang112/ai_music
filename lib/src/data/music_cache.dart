@@ -379,6 +379,27 @@ class CachedTrackStore {
   final AudioDownloader _downloader;
   Future<void> _indexTail = Future.value();
 
+  /// Checks this exact indexed file without resolving its source or altering it.
+  Future<bool> isValidCachedAudio(CachedTrack cached) async {
+    final file = File(cached.filePath);
+    try {
+      if (cached.sizeBytes <= 0 || await file.length() != cached.sizeBytes) {
+        return false;
+      }
+      await _validateAudioFile(file, cached.music);
+      if (cached.contentSha256.isNotEmpty &&
+          (await sha256.bind(file.openRead()).first).toString() !=
+              cached.contentSha256) {
+        return false;
+      }
+      return true;
+    } on FileSystemException {
+      return false;
+    } on AudioValidationException {
+      return false;
+    }
+  }
+
   Future<File> playbackTargetFor(ResolvedMusic music) async {
     final root = await _rootProvider();
     await root.create(recursive: true);
@@ -538,12 +559,10 @@ class CachedTrackStore {
     cancelToken?.throwIfCanceled();
     if (existing != null && await File(existing.filePath).exists()) {
       final file = File(existing.filePath);
-      try {
-        await _validateAudioFile(file, result);
-        cancelToken?.throwIfCanceled();
-      } on AudioValidationException {
+      if (!await isValidCachedAudio(existing)) {
         await _deleteIfExists(file);
       }
+      cancelToken?.throwIfCanceled();
     }
     cancelToken?.throwIfCanceled();
     if (existing != null && await File(existing.filePath).exists()) {

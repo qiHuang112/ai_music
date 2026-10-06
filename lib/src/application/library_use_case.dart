@@ -1,4 +1,5 @@
 import '../data/lyrics_artwork.dart';
+import '../data/music_charts.dart';
 import '../data/music_cache.dart';
 import '../data/music_playlists.dart';
 import '../data/resolver_models.dart';
@@ -166,6 +167,8 @@ class LibraryUseCase {
     Track track, {
     required LibrarySnapshot current,
     SavedOnlineTrack? onlineTrack,
+    PlaylistTrackEntry? fallbackEntry,
+    void Function(bool added)? onFavoriteChanged,
   }) {
     return _enqueuePlaylistMutation(() async {
       final base = _currentSnapshot(current);
@@ -174,26 +177,94 @@ class LibraryUseCase {
       if (existing != -1) {
         entries.removeAt(existing);
       } else {
+        final entry = _entryForTrack(base.playlistLibrary, track.id);
+        final sourceEntry = entry?.song != null || entry?.onlineTrack != null
+            ? entry
+            : fallbackEntry;
         final online =
-            onlineTrack ?? _onlineForTrack(base.playlistLibrary, track.id);
+            onlineTrack ??
+            _onlineForTrack(base.playlistLibrary, track.id) ??
+            sourceEntry?.onlineTrack;
         entries.add(
           PlaylistTrackEntry(
             trackId: track.id,
             addedAt: DateTime.now(),
             onlineTrack: online,
-            song: _entryForTrack(base.playlistLibrary, track.id)?.song,
-            manualSource:
-                _entryForTrack(base.playlistLibrary, track.id)?.manualSource ??
-                false,
+            song: sourceEntry?.song,
+            manualSource: sourceEntry?.manualSource ?? false,
           ),
         );
       }
-      return _savePlaylistLibrary(
+      final result = await _savePlaylistLibrary(
         base.playlistLibrary.copyWith(favoriteEntries: entries),
         current: base,
       );
+      onFavoriteChanged?.call(existing == -1);
+      return result;
     });
   }
+
+  /// A chart is a persistent, read-only playlist of metadata. Audio is resolved
+  /// on demand, and a refreshed ranking retains each song's selected source.
+  Future<MusicPlaylistResult> upsertChart(
+    MusicChart chart,
+    MusicChartResult result, {
+    required LibrarySnapshot current,
+  }) => _enqueuePlaylistMutation(() async {
+    if (chart.isVideo) throw StateError('MV charts contain videos');
+    final base = _currentSnapshot(current);
+    final existing = base.playlistLibrary.playlists
+        .where((p) => p.id == chart.playlistId)
+        .firstOrNull;
+    final previous = {
+      for (final e in existing?.entries ?? <PlaylistTrackEntry>[]) e.trackId: e,
+    };
+    final now = DateTime.now();
+    final seen = <String>{};
+    final entries = <PlaylistTrackEntry>[];
+    for (final row in result.entries) {
+      final key = row.sourceId.isNotEmpty
+          ? '${chart.platform.name}:${row.sourceId}'
+          : '${chart.platform.name}:${row.title.trim()}\u001f${row.artist.trim()}';
+      final id =
+          'song-${sha256.convert(utf8.encode('${chart.playlistId}\u001f$key'))}';
+      if (!seen.add(id)) continue;
+      final old = previous[id] ?? _entryForTrack(base.playlistLibrary, id);
+      entries.add(
+        PlaylistTrackEntry(
+          trackId: id,
+          addedAt: old?.addedAt ?? now,
+          onlineTrack: old?.onlineTrack,
+          manualSource: old?.manualSource ?? false,
+          song: PlaylistSong(
+            key: key,
+            title: row.title,
+            artist: row.artist,
+            coverUrl: row.artworkUri?.toString() ?? '',
+          ),
+        ),
+      );
+    }
+    final playlist = MusicPlaylist(
+      id: chart.playlistId,
+      name: chart.playlistName,
+      entries: entries,
+      hasBeenOpened: true,
+      createdAt: existing?.createdAt ?? now,
+      updatedAt: now,
+    );
+    final snapshot = await _savePlaylistLibrary(
+      base.playlistLibrary.copyWith(
+        playlists: [
+          for (final p in base.playlistLibrary.playlists)
+            p.id == playlist.id ? playlist : p,
+          if (existing == null) playlist,
+        ],
+      ),
+      current: base,
+    );
+    return MusicPlaylistResult(snapshot: snapshot, playlist: playlist);
+  });
 
   Future<MusicPlaylistResult> createPlaylist(
     String name, {
@@ -230,6 +301,7 @@ class LibraryUseCase {
     MusicPlaylist? target,
     required LibrarySnapshot current,
   }) => _enqueuePlaylistMutation(() async {
+    if (target?.isBuiltIn == true) throw StateError('不能向榜单添加歌曲');
     final base = _currentSnapshot(current);
     if (name.trim().isEmpty || songs.isEmpty) {
       return MusicPlaylistResult(snapshot: base);
@@ -337,6 +409,7 @@ class LibraryUseCase {
     required LibrarySnapshot current,
   }) {
     return _enqueuePlaylistMutation(() async {
+      if (target?.isBuiltIn == true) throw StateError('不能向榜单添加歌曲');
       final base = _currentSnapshot(current);
       if (name.trim().isEmpty || tracks.isEmpty) {
         return MusicPlaylistResult(snapshot: base);
@@ -494,6 +567,7 @@ class LibraryUseCase {
     required LibrarySnapshot current,
   }) {
     return _enqueuePlaylistMutation(() async {
+      if (playlist.isBuiltIn) throw StateError('榜单由平台维护，不能修改');
       final base = _currentSnapshot(current);
       final trimmed = name.trim();
       if (trimmed.isEmpty) {
@@ -518,6 +592,7 @@ class LibraryUseCase {
     required LibrarySnapshot current,
   }) {
     return _enqueuePlaylistMutation(() async {
+      if (playlist.isBuiltIn) throw StateError('榜单由平台维护，不能修改');
       final base = _currentSnapshot(current);
       return _savePlaylistLibrary(
         base.playlistLibrary.copyWith(
@@ -545,6 +620,7 @@ class LibraryUseCase {
     required LibrarySnapshot current,
   }) {
     return _enqueuePlaylistMutation(() async {
+      if (playlist.isBuiltIn) throw StateError('榜单由平台维护，不能修改');
       final base = _currentSnapshot(current);
       return _updatePlaylist(
         playlist.id,
@@ -577,8 +653,10 @@ class LibraryUseCase {
     List<Track> tracks, {
     required LibrarySnapshot current,
     Map<String, SavedOnlineTrack> onlineTracksById = const {},
+    Map<String, PlaylistTrackEntry> fallbackEntriesById = const {},
   }) {
     return _enqueuePlaylistMutation(() async {
+      if (playlist.isBuiltIn) throw StateError('榜单由平台维护，不能修改');
       final base = _currentSnapshot(current);
       return _updatePlaylist(
         playlist.id,
@@ -589,20 +667,21 @@ class LibraryUseCase {
           final now = DateTime.now();
           for (final track in tracks) {
             if (existing.add(track.id)) {
+              final entry = _entryForTrack(base.playlistLibrary, track.id);
+              final sourceEntry =
+                  entry?.song != null || entry?.onlineTrack != null
+                  ? entry
+                  : fallbackEntriesById[track.id];
               additions.add(
                 PlaylistTrackEntry(
                   trackId: track.id,
                   addedAt: now,
                   onlineTrack:
                       onlineTracksById[track.id] ??
-                      _onlineForTrack(base.playlistLibrary, track.id),
-                  song: _entryForTrack(base.playlistLibrary, track.id)?.song,
-                  manualSource:
-                      _entryForTrack(
-                        base.playlistLibrary,
-                        track.id,
-                      )?.manualSource ??
-                      false,
+                      _onlineForTrack(base.playlistLibrary, track.id) ??
+                      sourceEntry?.onlineTrack,
+                  song: sourceEntry?.song,
+                  manualSource: sourceEntry?.manualSource ?? false,
                 ),
               );
             }
@@ -633,6 +712,7 @@ class LibraryUseCase {
     required LibrarySnapshot current,
   }) {
     return _enqueuePlaylistMutation(() async {
+      if (playlist.isBuiltIn) throw StateError('榜单由平台维护，不能修改');
       final base = _currentSnapshot(current);
       final ids = {for (final track in tracks) track.id};
       return _updatePlaylist(
@@ -690,6 +770,7 @@ class LibraryUseCase {
     required LibrarySnapshot current,
   }) {
     return _enqueuePlaylistMutation(() async {
+      if (playlist.isBuiltIn) throw StateError('榜单由平台维护，不能修改');
       final base = _currentSnapshot(current);
       return _updatePlaylist(
         playlist.id,

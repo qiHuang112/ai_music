@@ -1,3 +1,5 @@
+import 'package:ai_music/src/data/music_playlists.dart';
+import 'package:ai_music/src/presentation/music_home_page.dart';
 import 'package:ai_music/src/presentation/app_theme.dart';
 import 'package:ai_music/src/data/song_search_cache.dart';
 import 'memory_download_history.dart';
@@ -255,83 +257,152 @@ void main() {
     expect(opened.single.id, 26);
   });
 
-  testWidgets('chart supports individual and all-song selection', (
+  testWidgets(
+    'audio charts open the ordinary playlist without import or selection',
+    (tester) async {
+      final handler = MusicAudioHandler();
+      final controller = _chartController(handler);
+      try {
+        await tester.pumpWidget(
+          _app(
+            MusicChartPage(
+              chart: qqMusicCharts[1],
+              controller: controller,
+              playlistBuilder: (p, refresh, loading, error, updatedAt) =>
+                  buildChartPlaylistDetail(
+                    controller: controller,
+                    playlist: p,
+                    onRefresh: refresh,
+                    refreshing: loading,
+                    error: error,
+                    updatedAt: updatedAt,
+                  ),
+              repository: _FixedChartRepository(),
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+        expect(find.text('First'), findsOneWidget);
+        expect(find.text('Second'), findsOneWidget);
+        expect(find.byType(Checkbox), findsNothing);
+        expect(find.text('加入歌单'), findsNothing);
+        expect(find.byTooltip('重命名歌单'), findsNothing);
+        expect(find.byKey(const ValueKey('adjust-order-action')), findsNothing);
+        expect(
+          find.byKey(const ValueKey('download-all-playlist')),
+          findsOneWidget,
+        );
+        expect(controller.customPlaylists, isEmpty);
+        expect(controller.builtInPlaylists.single.trackIds.length, 2);
+        expect(controller.downloadTasks, isEmpty);
+      } finally {
+        await tester.pumpWidget(const SizedBox.shrink());
+        controller.dispose();
+        unawaited(handler.dispose());
+      }
+    },
+  );
+
+  testWidgets(
+    'refresh failure retains playable cached rows and shows stale-data error',
+    (tester) async {
+      final handler = MusicAudioHandler();
+      final controller = _chartController(handler);
+      final repository = _RefreshingChartRepository();
+      try {
+        await tester.pumpWidget(
+          _app(
+            MusicChartPage(
+              chart: qqMusicCharts[1],
+              controller: controller,
+              playlistBuilder: (p, refresh, loading, error, updatedAt) =>
+                  buildChartPlaylistDetail(
+                    controller: controller,
+                    playlist: p,
+                    onRefresh: refresh,
+                    refreshing: loading,
+                    error: error,
+                    updatedAt: updatedAt,
+                  ),
+              repository: repository,
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+        await tester.tap(find.byTooltip('刷新'));
+        await tester.pump();
+        expect(find.text('First'), findsOneWidget);
+        expect(find.byType(LinearProgressIndicator), findsOneWidget);
+        repository.refresh.completeError(StateError('offline'));
+        await tester.pumpAndSettle();
+        expect(find.text('First'), findsOneWidget);
+        expect(find.text('暂时显示上次保存的榜单'), findsOneWidget);
+        expect(find.textContaining('offline'), findsOneWidget);
+        expect(controller.builtInPlaylists.single.trackIds.length, 2);
+      } finally {
+        await tester.pumpWidget(const SizedBox.shrink());
+        controller.dispose();
+        unawaited(handler.dispose());
+      }
+    },
+  );
+
+  testWidgets(
+    'leaving a chart before its fetch completes does not save or match songs',
+    (tester) async {
+      final handler = MusicAudioHandler();
+      final controller = _chartController(handler);
+      final repository = _RefreshingChartRepository()..calls = 1;
+      try {
+        await tester.pumpWidget(
+          _app(
+            MusicChartPage(
+              chart: qqMusicCharts[1],
+              controller: controller,
+              playlistBuilder: (p, refresh, loading, error, updatedAt) =>
+                  const SizedBox(),
+              repository: repository,
+            ),
+          ),
+        );
+        await tester.pump();
+        await tester.pumpWidget(const SizedBox.shrink());
+        repository.refresh.complete(
+          const MusicChartResult(
+            entries: [MusicChartEntry(rank: 1, title: 'Late', artist: 'A')],
+          ),
+        );
+        await tester.pumpAndSettle();
+        expect(controller.allPlaylists, isEmpty);
+        expect(controller.downloadTasks, isEmpty);
+      } finally {
+        controller.dispose();
+        unawaited(handler.dispose());
+      }
+    },
+  );
+
+  testWidgets('MV chart stays video-only and is not saved as audio playlist', (
     tester,
   ) async {
     final handler = MusicAudioHandler();
-    final controller = MusicController(
-      songSearchCache: SongSearchCache.memory(),
-      downloadHistoryStore: MemoryDownloadHistory(),
-      audioHandler: handler,
-      connectivityChanges: const Stream.empty(),
-      checkConnectivity: () async => [],
-    );
+    final controller = _chartController(handler);
     try {
       await tester.pumpWidget(
         _app(
           MusicChartPage(
-            chart: qqMusicCharts[1],
+            chart: qqMusicCharts.last,
             controller: controller,
-            onSearchSong: (_) {},
+            playlistBuilder: (p, refresh, loading, error, updatedAt) =>
+                throw StateError('Not audio'),
             repository: _FixedChartRepository(),
           ),
         ),
       );
       await tester.pumpAndSettle();
-
-      await tester.tap(find.byKey(const ValueKey('chart-entry-1')));
-      await tester.pump();
-      expect(find.text('已选 1 首'), findsOneWidget);
-
-      await tester.tap(find.text('全选'));
-      await tester.pump();
-      expect(find.text('已选 2 首'), findsOneWidget);
-
-      await tester.tap(find.text('取消全选'));
-      await tester.pump();
-      expect(find.text('已选 0 首'), findsOneWidget);
-    } finally {
-      await tester.pumpWidget(const SizedBox.shrink());
-      controller.dispose();
-      unawaited(handler.dispose());
-    }
-  });
-
-  testWidgets('refresh clears selected rows before the network completes', (
-    tester,
-  ) async {
-    final handler = MusicAudioHandler();
-    final controller = MusicController(
-      songSearchCache: SongSearchCache.memory(),
-      downloadHistoryStore: MemoryDownloadHistory(),
-      audioHandler: handler,
-      connectivityChanges: const Stream.empty(),
-      checkConnectivity: () async => [],
-    );
-    final repository = _RefreshingChartRepository();
-    try {
-      await tester.pumpWidget(
-        _app(
-          MusicChartPage(
-            chart: qqMusicCharts[1],
-            controller: controller,
-            onSearchSong: (_) {},
-            repository: repository,
-          ),
-        ),
-      );
-      await tester.pumpAndSettle();
-      await tester.tap(find.byKey(const ValueKey('chart-entry-1')));
-      await tester.pump();
-      expect(find.text('已选 1 首'), findsOneWidget);
-
-      await tester.tap(find.byTooltip('刷新'));
-      await tester.pump();
-      expect(find.text('已选 1 首'), findsNothing);
-      expect(find.byKey(const ValueKey('chart-entry-1')), findsNothing);
-      repository.refresh.completeError(StateError('offline'));
-      await tester.pumpAndSettle();
-      expect(find.byKey(const ValueKey('chart-entry-1')), findsNothing);
+      expect(find.byKey(const ValueKey('chart-entry-1')), findsOneWidget);
+      expect(controller.allPlaylists, isEmpty);
+      expect(find.byType(Checkbox), findsNothing);
     } finally {
       await tester.pumpWidget(const SizedBox.shrink());
       controller.dispose();
@@ -475,3 +546,25 @@ MusicSearchCandidate _chartCandidate(String title, String artist) =>
       score: 1,
       raw: const {},
     );
+
+MusicController _chartController(MusicAudioHandler handler) => MusicController(
+  audioHandler: handler,
+  songSearchCache: SongSearchCache.memory(),
+  playlistStore: _ChartPlaylistStore(),
+  downloadHistoryStore: MemoryDownloadHistory(),
+  connectivityChanges: const Stream.empty(),
+  checkConnectivity: () async => [],
+);
+
+class _ChartPlaylistStore extends PlaylistStore {
+  PlaylistLibrary saved = const PlaylistLibrary.empty();
+  @override
+  Future<PlaylistLibrary> load({Set<String>? validTrackIds}) async => saved;
+  @override
+  Future<void> write(
+    PlaylistLibrary library, {
+    Set<String>? validTrackIds,
+  }) async {
+    saved = library;
+  }
+}

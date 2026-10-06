@@ -2,6 +2,8 @@
 
 import '../data/download_history_store.dart';
 import '../data/playlist_usage_store.dart';
+import '../data/listening_stats_store.dart';
+import 'listening_recorder.dart';
 import 'online_playlist_tasks.dart';
 import 'dart:async';
 import 'song_cache_progress.dart';
@@ -20,6 +22,7 @@ import '../data/lan_library_client.dart';
 import '../data/lan_library_models.dart';
 import '../data/music_cache.dart';
 import '../data/music_playlists.dart';
+import '../data/music_charts.dart';
 import '../data/music_resolver.dart';
 import '../data/music_settings.dart';
 import '../data/song_search_cache.dart';
@@ -46,6 +49,18 @@ import 'settings_controller.dart';
 import 'screenshot_matcher.dart';
 import 'screenshot_song_parser.dart';
 import 'app_update_controller.dart';
+
+class _FavoriteDownloadJob {
+  _FavoriteDownloadJob(this.track, this.quality, this.taskId, this.token);
+  final Track track;
+  MusicQualityLevel quality;
+  bool acceptingRequests = true;
+  final String taskId;
+  final DownloadCancelToken token;
+  final done = Completer<void>();
+  String? audioTaskId;
+  bool ownsAudioTask = false;
+}
 
 class PlaylistDownloadSummary {
   const PlaylistDownloadSummary({
@@ -88,6 +103,7 @@ class MusicController extends ChangeNotifier {
     MusicSettingsStore? settingsStore,
     PlaylistAutoDownloadStore? playlistAutoDownloadStore,
     PlaylistUsageStore? playlistUsageStore,
+    ListeningStatsStore? listeningStatsStore,
     DownloadHistoryStore? downloadHistoryStore,
     TrackMetadataRepository? metadataRepository,
     LegacyCacheRepairer? legacyRepairer,
@@ -167,6 +183,12 @@ class MusicController extends ChangeNotifier {
     _mediaItemSubscription = audioHandler.mediaItem.listen(
       _handleMediaItemChanged,
     );
+    listeningStats = listeningStatsStore ?? ListeningStatsStore();
+    _listeningRecorder = ListeningRecorder(
+      handler: audioHandler,
+      store: listeningStats,
+      contextFor: _listeningContext,
+    );
     _playbackSubscription = audioHandler.playbackState.listen((state) {
       if (state.processingState == AudioProcessingState.error) {
         // A resolved URL alone is not proof that its audio can be played.
@@ -185,6 +207,66 @@ class MusicController extends ChangeNotifier {
   }
 
   final MusicAudioHandler audioHandler;
+  late final ListeningStatsStore listeningStats;
+  late final ListeningRecorder _listeningRecorder;
+  Future<void> clearListeningStats() => _listeningRecorder.clear();
+  void refreshListeningStats() {
+    _listeningRecorder.capture();
+    listeningStats.refresh();
+  }
+
+  Track? trackForListeningSong(ListeningSong song) {
+    final direct = _trackForMediaId(song.trackId) ?? _trackForMediaId(song.id);
+    if (direct != null) return direct;
+    // A quality file may have been replaced; use another known variant.
+    return cachedTracks
+        .where((track) => _listeningSongId(track) == song.id)
+        .firstOrNull;
+  }
+
+  String _listeningSongId(Track track) {
+    final recorded = listeningStats.identityForTrack(track.id);
+    if (recorded != null) return recorded;
+    if (track.id.startsWith('online-')) return track.id;
+    // Preserve the original cache identity even when its playlist entry switches source.
+    final original = _cachedRecords
+        .where((r) => r.cacheId == track.id)
+        .firstOrNull;
+    final cached = original ?? _cachedRecordForTrack(track);
+    if (cached == null) return track.id;
+    final music = cached.music;
+    final identity = [
+      music.source.storageValue,
+      music.platform,
+      music.id,
+      music.name.trim().toLowerCase(),
+      music.artist.trim().toLowerCase(),
+    ].join('\u001f');
+    return 'online-${sha256.convert(utf8.encode(identity))}';
+  }
+
+  ListeningContext? _listeningContext(MediaItem item) {
+    if (!listeningStats.loaded) return null;
+    final track = _trackForMediaId(item.id);
+    if (track == null) return null;
+    final id = _listeningSongId(track);
+    final playlist = allPlaylists
+        .where((p) => p.id == _queuePlaylistId)
+        .firstOrNull;
+    return ListeningContext(
+      ListeningSong(
+        id: id,
+        trackId: track.id,
+        title: item.title,
+        artist: item.artist ?? track.artist,
+        artwork: item.artUri?.toString() ?? '',
+        durationMs: item.duration?.inMilliseconds,
+      ),
+      playlistId: playlist?.id,
+      playlistName: playlist?.name ?? '',
+    );
+  }
+
   late final AppUpdateController appUpdates;
   final MusicResolver _resolver;
   late final SongSearchCache _songSearchCache;
@@ -242,6 +324,10 @@ class MusicController extends ChangeNotifier {
   late final PlaybackCachePrefetch _playbackPrefetch;
   bool _prefetchOnline = true;
   final Map<String, Future<void>> _downloadsInFlight = {};
+  final Map<String, MusicQualityLevel> _downloadQualitiesInFlight = {};
+  final Map<String, _FavoriteDownloadJob> _favoriteDownloads = {};
+  final List<_FavoriteDownloadJob> _pendingFavoriteDownloads = [];
+  int _favoriteDownloadsRunning = 0;
   final Map<String, Object> _downloadFailures = {};
   final Map<String, Future<PlaylistDownloadSummary>>
   _playlistDownloadsInFlight = {};
@@ -256,6 +342,9 @@ class MusicController extends ChangeNotifier {
   bool _connectivityKnown = false;
   bool _connectivityEventSeen = false;
   List<Track> _activeQueueTracks = const [];
+  // Chart refresh replaces the saved rows, while the playing queue is stable.
+  // Keep only its required entries in memory; never write removed rows back.
+  final Map<String, PlaylistTrackEntry> _queueSongEntries = {};
   String? _activePlaylistId;
   // Queue ownership survives the temporary sync suspension during device loads.
   String? _queuePlaylistId;
@@ -297,6 +386,9 @@ class MusicController extends ChangeNotifier {
   List<Track> onlineTracks = const [];
   List<Track> favoriteTracks = const [];
   List<MusicPlaylist> customPlaylists = const [];
+  List<MusicPlaylist> get allPlaylists => _playlistLibrary.playlists;
+  List<MusicPlaylist> get builtInPlaylists =>
+      allPlaylists.where((p) => p.isBuiltIn).toList(growable: false);
   List<DownloadTask> get downloadTasks => downloadQueue.tasks;
   MusicSearchCandidate? get busyCandidate => downloadQueue.busyCandidate;
   Set<String> get busyCandidateKeys => downloadQueue.busyCandidateKeys;
@@ -412,6 +504,7 @@ class MusicController extends ChangeNotifier {
   }
 
   Future<void> initialize() async {
+    unawaited(listeningStats.load());
     unawaited(appUpdates.check());
     unawaited(_loadPlaylistUsage());
     unawaited(_loadDownloadHistory());
@@ -670,6 +763,7 @@ class MusicController extends ChangeNotifier {
     MusicSearchCandidate candidate, {
     bool? requireExactIdentity,
     bool background = false,
+    MusicQualityLevel? quality,
   }) async {
     if (!background) await _playbackPrefetch.cancel();
     final key = downloadQueue.taskIdForCandidate(candidate);
@@ -684,16 +778,20 @@ class MusicController extends ChangeNotifier {
       }
       return;
     }
+    final requestedQuality = quality ?? defaultDownloadQuality;
     final work = _downloadCandidateNow(
       candidate,
+      quality: requestedQuality,
       requireExactIdentity: requireExactIdentity,
       background: background,
     );
     _downloadsInFlight[key] = work;
+    _downloadQualitiesInFlight[key] = requestedQuality;
     try {
       await work;
     } finally {
       _downloadsInFlight.remove(key);
+      _downloadQualitiesInFlight.remove(key);
       if (!_isDisposed) _maybePrefetchNext();
     }
   }
@@ -702,6 +800,7 @@ class MusicController extends ChangeNotifier {
     MusicSearchCandidate candidate, {
     bool? requireExactIdentity,
     bool background = false,
+    MusicQualityLevel? quality,
   }) async {
     final key = downloadQueue.taskIdForCandidate(candidate);
     final inFlight = _downloadsInFlight[key];
@@ -713,6 +812,7 @@ class MusicController extends ChangeNotifier {
         candidate,
         requireExactIdentity: requireExactIdentity,
         background: background,
+        quality: quality,
       );
     }
     return downloadQueue.taskById(key);
@@ -740,7 +840,7 @@ class MusicController extends ChangeNotifier {
 
   int cachedCountForPlaylist(MusicPlaylist playlist) {
     final current =
-        customPlaylists.where((item) => item.id == playlist.id).firstOrNull ??
+        allPlaylists.where((item) => item.id == playlist.id).firstOrNull ??
         playlist;
     return current.entries.where((entry) {
       final candidate = entry.onlineTrack?.candidate;
@@ -900,7 +1000,7 @@ class MusicController extends ChangeNotifier {
     required bool wifiOnly,
     MusicPlaylist? playlistSnapshot,
   }) async {
-    final current = customPlaylists
+    final current = allPlaylists
         .where((item) => item.id == playlist.id)
         .firstOrNull;
     if (current == null) return const PlaylistDownloadSummary();
@@ -917,7 +1017,7 @@ class MusicController extends ChangeNotifier {
     bool autoPaused() =>
         wifiOnly &&
         (_isDisposed ||
-            !customPlaylists.any((item) => item.id == playlist.id) ||
+            !allPlaylists.any((item) => item.id == playlist.id) ||
             !_isOnWifi ||
             !downloadPlaylistsOnWifi ||
             _wifiPauseGeneration != wifiPauseGenerationAtStart);
@@ -938,7 +1038,7 @@ class MusicController extends ChangeNotifier {
     Future<void> downloadNext() async {
       while (nextEntry < entries.length) {
         if (_isDisposed ||
-            !customPlaylists.any((item) => item.id == playlist.id) ||
+            !allPlaylists.any((item) => item.id == playlist.id) ||
             autoPaused()) {
           return;
         }
@@ -1022,6 +1122,7 @@ class MusicController extends ChangeNotifier {
     MusicSearchCandidate candidate, {
     bool? requireExactIdentity,
     bool background = false,
+    MusicQualityLevel? quality,
   }) async {
     final taskId = downloadQueue.taskIdForCandidate(candidate);
     _downloadFailures.remove(taskId);
@@ -1045,7 +1146,7 @@ class MusicController extends ChangeNotifier {
     }
     final result = await downloadUseCase.downloadCandidate(
       candidate,
-      quality: defaultDownloadQuality,
+      quality: quality ?? defaultDownloadQuality,
       requireExactIdentity: requireExactIdentity ?? false,
       onStatus: (message) {
         if (!background) {
@@ -1236,7 +1337,9 @@ class MusicController extends ChangeNotifier {
       }
       // Suspend appends only while the device loads, not while resolving a
       // source that may fail while the original playlist keeps playing.
+      _listeningRecorder.capture();
       _activePlaylistId = null;
+      _captureQueueSongEntries(queue, selectedPlaylistId);
       _activeQueueTracks = queue;
       _queuePlaylistId = selectedPlaylistId;
       final loaded = await playbackUseCase.playTrack(
@@ -1308,11 +1411,13 @@ class MusicController extends ChangeNotifier {
   Future<void> previous() => playbackUseCase.previous();
 
   Future<void> stop() async {
+    _listeningRecorder.capture();
     _playRequest += 1;
     _streamingMetadataTracks.clear();
     _activePlaylistId = null;
     _retiredQueueTrackIds.clear();
     await _playbackPrefetch.cancel();
+    _replaceQueueSongEntries(const {});
     _activeQueueTracks = const [];
     _queuePlaylistId = null;
     _lyricsPrefetchQueueKey = null;
@@ -1341,10 +1446,61 @@ class MusicController extends ChangeNotifier {
       _onlineTrackForId(id)?.candidate ??
       _adHocPlayCandidates[id];
 
-  PlaylistTrackEntry? _songEntry(String id) => [
+  PlaylistTrackEntry? _librarySongEntry(String id) => [
     for (final playlist in _playlistLibrary.playlists) ...playlist.entries,
     ..._playlistLibrary.favoriteEntries,
   ].where((entry) => entry.trackId == id).firstOrNull;
+
+  PlaylistTrackEntry? _songEntry(String id) {
+    final entry = _librarySongEntry(id);
+    if (entry?.song != null || entry?.onlineTrack != null) return entry;
+    return _queueSongEntries[id] ?? entry;
+  }
+
+  void _captureQueueSongEntries(List<Track> queue, String? playlistId) {
+    final chart = _playlistLibrary.playlists
+        .where((p) => p.id == playlistId && p.isBuiltIn)
+        .firstOrNull;
+    _replaceQueueSongEntries({
+      if (chart != null)
+        for (final track in queue) track.id: ?_songEntry(track.id),
+    });
+  }
+
+  void _replaceQueueSongEntries(Map<String, PlaylistTrackEntry> entries) {
+    for (final id in _queueSongEntries.keys) {
+      if (!entries.containsKey(id) && _librarySongEntry(id) == null) {
+        _pendingSongSources.remove(id);
+        _songSearches.remove(id);
+        _songSourceRevisions[id] = (_songSourceRevisions[id] ?? 0) + 1;
+      }
+    }
+    _queueSongEntries
+      ..clear()
+      ..addAll(entries);
+  }
+
+  void _saveQueueSongSource(
+    String id,
+    SavedOnlineTrack source, {
+    required bool manual,
+    SavedOnlineTrack? expectedSource,
+  }) {
+    final entry = _queueSongEntries[id];
+    if (entry == null ||
+        (!manual &&
+            (entry.manualSource ||
+                entry.onlineTrack?.trackId != expectedSource?.trackId))) {
+      return;
+    }
+    _queueSongEntries[id] = PlaylistTrackEntry(
+      trackId: id,
+      addedAt: entry.addedAt,
+      song: entry.song,
+      onlineTrack: source,
+      manualSource: manual,
+    );
+  }
 
   bool canSwitchSongSource(Track track) => _songEntry(track.id) != null;
 
@@ -1499,6 +1655,16 @@ class MusicController extends ChangeNotifier {
       album: '',
     );
     try {
+      if (_librarySongEntry(id) == null) {
+        _saveQueueSongSource(
+          id,
+          SavedOnlineTrack(candidate: pending.candidate),
+          manual: false,
+          expectedSource: pending.previous,
+        );
+        if (_pendingSongSources[id] == pending) _pendingSongSources.remove(id);
+        return;
+      }
       final result = await libraryUseCase.saveSongSource(
         track,
         SavedOnlineTrack(candidate: pending.candidate),
@@ -1509,6 +1675,12 @@ class MusicController extends ChangeNotifier {
       if (!_isDisposed) {
         if (_pendingSongSources[id] == pending) _pendingSongSources.remove(id);
         _applyLibrarySnapshot(result);
+        _saveQueueSongSource(
+          id,
+          SavedOnlineTrack(candidate: pending.candidate),
+          manual: false,
+          expectedSource: pending.previous,
+        );
         notifyListeners();
       }
     } catch (_) {
@@ -1535,11 +1707,23 @@ class MusicController extends ChangeNotifier {
       manual: true,
     );
     _applyLibrarySnapshot(snapshot);
+    if ((_songSourceRevisions[track.id] ?? 0) != revision || _isDisposed) {
+      return;
+    }
+    _saveQueueSongSource(
+      track.id,
+      SavedOnlineTrack(candidate: candidate),
+      manual: true,
+    );
     _metadataTrackId = null;
     _autoMetadataRecoveryAttempted.remove(track.id);
     _timedLyricsUpgradeAttempted.remove(track.id);
     notifyListeners();
-    final updated = onlineTracks.where((t) => t.id == track.id).firstOrNull;
+    final updated =
+        onlineTracks.where((t) => t.id == track.id).firstOrNull ??
+        (_queueSongEntries.containsKey(track.id)
+            ? track.copyWith(filePath: '', source: '', sizeBytes: 0)
+            : null);
 
     if (updated == null) {
       _maybePrefetchNext();
@@ -1755,7 +1939,7 @@ class MusicController extends ChangeNotifier {
         return entry.onlineTrack;
       }
     }
-    return null;
+    return _queueSongEntries[id]?.onlineTrack;
   }
 
   void _maybePrefetchNext() {
@@ -1771,7 +1955,7 @@ class MusicController extends ChangeNotifier {
     }
     final currentId = audioHandler.mediaItem.value?.id;
     if (currentId == null) return;
-    final playlist = customPlaylists
+    final playlist = allPlaylists
         .where((p) => p.id == _activePlaylistId)
         .firstOrNull;
     if (_activePlaylistId != null && playlist == null) {
@@ -2383,18 +2567,271 @@ class MusicController extends ChangeNotifier {
   }
 
   Future<void> toggleFavorite(Track track) async {
-    final candidate = _adHocPlayCandidates[track.id];
+    final cached = _cachedRecordForTrack(track);
+    final candidate =
+        _candidateForOnlineTrack(track.id) ??
+        (cached != null &&
+                cached.music.source != MusicDataSource.lan &&
+                cached.music.id.isNotEmpty
+            ? _candidateFromCached(cached)
+            : null);
+    final quality = defaultDownloadQuality;
+    var added = false;
     _applyLibrarySnapshot(
       await libraryUseCase.toggleFavorite(
         track,
         current: _librarySnapshot,
+        fallbackEntry: _queueSongEntries[track.id],
         onlineTrack: candidate == null
             ? null
             : SavedOnlineTrack(candidate: candidate),
+        onFavoriteChanged: (value) => added = value,
       ),
     );
+    if (_isDisposed) return;
+    if (added) {
+      _enqueueFavoriteDownload(track, quality);
+    } else {
+      final job = _favoriteDownloads[track.id];
+      // Once audio has started it may also serve playback or a manual request.
+      // Removing a favorite never removes/cancels that shared audio file.
+      if (job?.audioTaskId == null && job != null) {
+        downloadQueue.cancel(job.taskId);
+      }
+    }
     notifyListeners();
     await _syncOhosControlState();
+  }
+
+  void _enqueueFavoriteDownload(Track track, MusicQualityLevel quality) {
+    final current = _favoriteDownloads[track.id];
+    if (current != null &&
+        !current.token.isCanceled &&
+        current.acceptingRequests) {
+      // A new favorite edge carries its own captured quality, even when the
+      // previous audio request survived unfavoriting because it is shared.
+      current.quality = quality;
+      return;
+    }
+    final placeholder = MusicSearchCandidate(
+      query: '${track.title} ${track.artist}'.trim(),
+      source: MusicDataSource.auto,
+      platform: 'favorite',
+      keyword: track.title,
+      page: 1,
+      id: '${track.id}-${DateTime.now().microsecondsSinceEpoch}',
+      name: track.title,
+      artist: track.artist,
+      album: track.album,
+      duration: 0,
+      link: '',
+      coverUrl: '',
+      qualities: const [],
+      score: 0,
+      raw: const {},
+    );
+    final taskId = downloadQueue.taskIdForCandidate(placeholder);
+    final job = _FavoriteDownloadJob(
+      track,
+      quality,
+      taskId,
+      downloadQueue.start(taskId, placeholder),
+    );
+    _favoriteDownloads[track.id] = job;
+    _pendingFavoriteDownloads.add(job);
+    _pumpFavoriteDownloads();
+  }
+
+  void _pumpFavoriteDownloads() {
+    while (!_isDisposed &&
+        _favoriteDownloadsRunning < playlistDownloadConcurrency &&
+        _pendingFavoriteDownloads.isNotEmpty) {
+      final job = _pendingFavoriteDownloads.removeAt(0);
+      _favoriteDownloadsRunning++;
+      unawaited(
+        _downloadFavorite(job).whenComplete(() {
+          _favoriteDownloadsRunning--;
+          if (identical(_favoriteDownloads[job.track.id], job)) {
+            _favoriteDownloads.remove(job.track.id);
+          }
+          if (!job.done.isCompleted) job.done.complete();
+          _pumpFavoriteDownloads();
+        }),
+      );
+    }
+  }
+
+  @visibleForTesting
+  Future<void> waitForFavoriteDownloads() async {
+    while (_favoriteDownloads.isNotEmpty) {
+      await Future.wait(_favoriteDownloads.values.map((j) => j.done.future));
+    }
+  }
+
+  int _downloadQualityRank(MusicQualityLevel quality) => switch (quality) {
+    MusicQualityLevel.high => 1000,
+    MusicQualityLevel.medium => 320,
+    MusicQualityLevel.low => 128,
+  };
+
+  bool _cachedHasFavoriteQuality(
+    CachedTrack record,
+    MusicQualityLevel quality,
+  ) =>
+      !record.playbackCache &&
+      (record.music.quality.format.toLowerCase() == 'flac' ||
+                  record.music.quality.format.toLowerCase() == 'wav'
+              ? 1000
+              : int.tryParse(record.music.quality.bitrate) ?? 0) >=
+          _downloadQualityRank(quality);
+
+  Future<bool> _hasFavoriteQuality(
+    MusicSearchCandidate candidate,
+    MusicQualityLevel quality,
+  ) async {
+    for (final record in _matchingCachedRecords(candidate)) {
+      if (_cachedHasFavoriteQuality(record, quality) &&
+          await _cacheStore.isValidCachedAudio(record)) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  Future<void> _downloadFavorite(_FavoriteDownloadJob job) async {
+    try {
+      job.token.throwIfCanceled();
+      if (_isDisposed || !isFavorite(job.track)) {
+        throw const DownloadCancelledException();
+      }
+      final cached = _cachedRecordForTrack(job.track);
+      var candidate = _candidateForOnlineTrack(job.track.id);
+      candidate ??= cached == null ? null : _candidateFromCached(cached);
+      final reusableRecords = candidate == null
+          ? <CachedTrack>[]
+          : _matchingCachedRecords(candidate);
+      for (final record in reusableRecords) {
+        if (record.playbackCache ||
+            (candidate!.source != MusicDataSource.lan &&
+                !_cachedHasFavoriteQuality(record, job.quality)) ||
+            !await _cacheStore.isValidCachedAudio(record)) {
+          continue;
+        }
+        job.token.throwIfCanceled();
+        if (_isDisposed || !isFavorite(job.track)) {
+          throw const DownloadCancelledException();
+        }
+        if (candidate.source != MusicDataSource.lan &&
+            !_cachedHasFavoriteQuality(record, job.quality)) {
+          continue;
+        }
+        job.acceptingRequests = false;
+        downloadQueue.update(
+          job.taskId,
+          (t) => t.copyWith(
+            status: DownloadTaskStatus.completed,
+            cachedTrackId: record.cacheId,
+            reusedCache: true,
+            bytes: record.sizeBytes,
+            totalBytes: record.sizeBytes,
+            progress: 1,
+          ),
+        );
+        return;
+      }
+      if (candidate?.source == MusicDataSource.lan) {
+        throw StateError('本地音频文件不存在或已损坏，请重新同步');
+      }
+      candidate ??= await Future.any<MusicSearchCandidate>([
+        _ensureSongCandidate(job.track),
+        job.token.whenCanceled.then<MusicSearchCandidate>(
+          (_) => throw const DownloadCancelledException(),
+        ),
+      ]);
+      job.token.throwIfCanceled();
+      if (_isDisposed || !isFavorite(job.track)) {
+        throw const DownloadCancelledException();
+      }
+      final key = downloadQueue.taskIdForCandidate(candidate);
+      var attemptedQuality = _downloadQualitiesInFlight[key] ?? job.quality;
+      job.audioTaskId = key;
+      job.ownsAudioTask = !_downloadsInFlight.containsKey(key);
+      downloadQueue.release(job.taskId);
+      downloadQueue.clearTask(job.taskId);
+      var task = await downloadCandidateAndWait(
+        candidate,
+        background: true,
+        quality: job.quality,
+      );
+      // Re-favoriting may raise the target while a shared request is running.
+      // Only try a strictly higher requested level, so provider fallback never
+      // loops. A settings change alone does not mutate this captured target.
+      while (!_isDisposed &&
+          isFavorite(job.track) &&
+          task?.status == DownloadTaskStatus.completed) {
+        final target = job.quality;
+        if (_downloadQualityRank(attemptedQuality) >=
+            _downloadQualityRank(target)) {
+          break;
+        }
+        final alreadyCached = await _hasFavoriteQuality(candidate, target);
+        if (_isDisposed || !isFavorite(job.track)) break;
+        if (job.quality != target) continue;
+        if (alreadyCached) break;
+        attemptedQuality = target;
+        job.ownsAudioTask = true;
+        task = await downloadCandidateAndWait(
+          candidate,
+          background: true,
+          quality: attemptedQuality,
+        );
+      }
+      // Subsequent favorite edges must start their own validation rather than
+      // updating a job that is only waiting for source persistence to finish.
+      job.acceptingRequests = false;
+      final pending = _pendingSongSources[job.track.id]?.candidate;
+      if (!_isDisposed &&
+          task?.status == DownloadTaskStatus.completed &&
+          pending != null &&
+          SavedOnlineTrack(candidate: pending).trackId ==
+              SavedOnlineTrack(candidate: candidate).trackId) {
+        await _rememberSongSource(job.track.id);
+      }
+    } catch (error) {
+      if (job.audioTaskId == null) {
+        downloadQueue.update(
+          job.taskId,
+          (t) => t.copyWith(
+            status:
+                job.token.isCanceled ||
+                    error is DownloadCancelledException ||
+                    _isDisposed
+                ? DownloadTaskStatus.canceled
+                : DownloadTaskStatus.failed,
+            error: job.token.isCanceled || error is DownloadCancelledException
+                ? ''
+                : friendlyError(error),
+          ),
+        );
+      }
+    } finally {
+      downloadQueue.release(job.taskId);
+      if (!_isDisposed) notifyListeners();
+    }
+  }
+
+  Future<MusicPlaylist> updateChartPlaylist(
+    MusicChart chart,
+    MusicChartResult result,
+  ) async {
+    final saved = await libraryUseCase.upsertChart(
+      chart,
+      result,
+      current: _librarySnapshot,
+    );
+    _applyLibrarySnapshot(saved.snapshot);
+    if (!_isDisposed) notifyListeners();
+    return saved.playlist!;
   }
 
   Future<MusicPlaylist?> createPlaylist(String name) async {
@@ -2440,6 +2877,9 @@ class MusicController extends ChangeNotifier {
         playlist,
         tracks,
         current: _librarySnapshot,
+        fallbackEntriesById: {
+          for (final track in tracks) track.id: ?_queueSongEntries[track.id],
+        },
         onlineTracksById: {
           for (final track in tracks)
             if (_adHocPlayCandidates[track.id] case final candidate?)
@@ -2487,6 +2927,12 @@ class MusicController extends ChangeNotifier {
         current: _librarySnapshot,
       ),
     );
+    for (final track in tracks) {
+      final job = _favoriteDownloads[track.id];
+      if (job != null && job.audioTaskId == null) {
+        downloadQueue.cancel(job.taskId);
+      }
+    }
     notifyListeners();
   }
 
@@ -2534,17 +2980,25 @@ class MusicController extends ChangeNotifier {
       onlineTracks: onlineTracks,
       playlistLibrary: _playlistLibrary,
       favoriteTracks: favoriteTracks,
-      customPlaylists: customPlaylists,
+      customPlaylists: _playlistLibrary.playlists,
     );
   }
 
   void _applyLibrarySnapshot(LibrarySnapshot snapshot) {
     _cachedRecords = snapshot.cachedRecords;
     _playlistLibrary = snapshot.playlistLibrary;
+    for (final id in _queueSongEntries.keys.toList()) {
+      final live = _librarySongEntry(id);
+      if (live?.song != null || live?.onlineTrack != null) {
+        _queueSongEntries[id] = live!;
+      }
+    }
     cachedTracks = snapshot.cachedTracks;
     onlineTracks = snapshot.onlineTracks;
     favoriteTracks = snapshot.favoriteTracks;
-    customPlaylists = snapshot.customPlaylists;
+    customPlaylists = snapshot.customPlaylists
+        .where((p) => !p.isBuiltIn)
+        .toList(growable: false);
     _cacheProgressTrackKeys.clear();
     final completed = <String>{};
     for (final record in _cachedRecords) {
@@ -3037,10 +3491,24 @@ class MusicController extends ChangeNotifier {
 
   @override
   void dispose() {
+    unawaited(_listeningRecorder.close());
     appUpdates.dispose();
     _searchRequest += 1;
     _playRequest += 1;
     _isDisposed = true;
+    _replaceQueueSongEntries(const {});
+    for (final job in _favoriteDownloads.values) {
+      downloadQueue.cancel(job.taskId);
+      if (job.ownsAudioTask && job.audioTaskId != null) {
+        downloadQueue.cancel(job.audioTaskId!);
+      }
+    }
+    for (final job in _pendingFavoriteDownloads) {
+      downloadQueue.release(job.taskId);
+      if (!job.done.isCompleted) job.done.complete();
+    }
+    _pendingFavoriteDownloads.clear();
+    _favoriteDownloads.removeWhere((_, j) => j.done.isCompleted);
     downloadProgressChanges.dispose();
     songCacheProgress.dispose();
     playlistSourceProgress.dispose();
