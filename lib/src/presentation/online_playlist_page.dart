@@ -1,3 +1,5 @@
+import 'music_thumbnail.dart';
+import 'app_theme.dart';
 import 'dart:async';
 
 import 'package:flutter/material.dart';
@@ -57,11 +59,15 @@ class OnlinePlaylistSearchPanel extends StatelessWidget {
                   ),
                 )
               : ListView.builder(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 8,
+                    vertical: 8,
+                  ),
                   itemCount: items.length + 1,
                   itemBuilder: (context, index) {
                     if (index == items.length) {
                       return Padding(
-                        padding: const EdgeInsets.all(16),
+                        padding: const EdgeInsets.all(MusicUi.pagePadding),
                         child: Center(
                           child: search.hasMore
                               ? TextButton(
@@ -85,6 +91,8 @@ class OnlinePlaylistSearchPanel extends StatelessWidget {
                       ),
                       subtitle: Text(
                         '${item.source.label} · ${item.creator}\n${item.trackCount} ${zh ? '首' : 'songs'}',
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
                       ),
                       isThreeLine: true,
                       trailing: const Icon(Icons.chevron_right),
@@ -112,27 +120,18 @@ class _PlaylistCover extends StatelessWidget {
   final String url;
   @override
   Widget build(BuildContext context) {
-    const fallback = Icon(Icons.queue_music, size: 36);
     final uri = Uri.tryParse(url);
-    return ClipRRect(
-      borderRadius: BorderRadius.circular(8),
-      child: SizedBox.square(
-        dimension: 52,
-        child: uri != null && (uri.scheme == 'http' || uri.scheme == 'https')
-            ? Image.network(
-                uri.replace(scheme: 'https').toString(),
-                headers: {
-                  'User-Agent': 'Mozilla/5.0',
-                  'Referer': uri.host.endsWith('.music.126.net')
-                      ? 'https://music.163.com/'
-                      : 'https://y.qq.com/',
-                },
-                cacheWidth: 192,
-                fit: BoxFit.cover,
-                errorBuilder: (_, _, _) => fallback,
-              )
-            : fallback,
-      ),
+    return MusicThumbnail(
+      uri: uri != null && (uri.scheme == 'http' || uri.scheme == 'https')
+          ? uri.replace(scheme: 'https')
+          : null,
+      headers: {
+        'User-Agent': 'Mozilla/5.0',
+        'Referer': uri?.host.endsWith('.music.126.net') == true
+            ? 'https://music.163.com/'
+            : 'https://y.qq.com/',
+      },
+      icon: Icons.queue_music_rounded,
     );
   }
 }
@@ -319,8 +318,9 @@ class _OnlinePlaylistPageState extends State<OnlinePlaylistPage> {
                             ? null
                             : _task.completed / _task.matchTotal,
                       ),
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.center,
+                      Wrap(
+                        alignment: WrapAlignment.center,
+                        crossAxisAlignment: WrapCrossAlignment.center,
                         children: [
                           Text(
                             _task.saving

@@ -1,3 +1,5 @@
+import 'app_theme.dart';
+import 'playback_queue.dart';
 import 'dart:io';
 
 import 'package:audio_service/audio_service.dart';
@@ -108,7 +110,12 @@ class _PlayerPageState extends State<PlayerPage> {
                       onNext: controller.next,
                       onPrevious: controller.previous,
                       child: ListView(
-                        padding: const EdgeInsets.fromLTRB(24, 12, 24, 32),
+                        padding: const EdgeInsets.fromLTRB(
+                          MusicUi.pagePadding,
+                          12,
+                          MusicUi.pagePadding,
+                          32,
+                        ),
                         children: [
                           _Artwork(
                             uri: item.artUri ?? controller.currentArtworkUri,
@@ -144,6 +151,14 @@ class _PlayerPageState extends State<PlayerPage> {
                             controller: controller,
                             playing: state.playing,
                           ),
+                          const SizedBox(height: 12),
+                          TextButton.icon(
+                            key: const ValueKey('player-queue'),
+                            onPressed: () =>
+                                showPlaybackQueue(context, controller),
+                            icon: const Icon(Icons.queue_music_rounded),
+                            label: Text(strings.isZh ? '当前队列' : 'Play queue'),
+                          ),
                         ],
                       ),
                     );
@@ -168,28 +183,36 @@ class _Artwork extends StatelessWidget {
     final colors = Theme.of(context).colorScheme;
     final artUri = uri;
     return Center(
-      child: AspectRatio(
-        aspectRatio: 1,
-        child: DecoratedBox(
-          decoration: BoxDecoration(
-            color: colors.surfaceContainerHighest,
-            borderRadius: BorderRadius.circular(8),
+      child: ConstrainedBox(
+        constraints: BoxConstraints(
+          maxWidth: (MediaQuery.sizeOf(context).height * .34).clamp(
+            180.0,
+            MusicUi.playerCoverMaxWidth,
           ),
-          child: ClipRRect(
-            borderRadius: BorderRadius.circular(8),
-            child: artUri == null
-                ? Icon(Icons.album, size: 108, color: colors.primary)
-                : Image(
-                    image: _imageProvider(artUri),
-                    fit: BoxFit.cover,
-                    errorBuilder: (_, _, _) {
-                      return Icon(
-                        Icons.album,
-                        size: 108,
-                        color: colors.primary,
-                      );
-                    },
-                  ),
+        ),
+        child: AspectRatio(
+          aspectRatio: 1,
+          child: DecoratedBox(
+            decoration: BoxDecoration(
+              color: colors.surfaceContainerHighest,
+              borderRadius: BorderRadius.circular(MusicUi.radius),
+            ),
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(MusicUi.radius),
+              child: artUri == null
+                  ? Icon(Icons.album, size: 108, color: colors.primary)
+                  : Image(
+                      image: _imageProvider(artUri),
+                      fit: BoxFit.cover,
+                      errorBuilder: (_, _, _) {
+                        return Icon(
+                          Icons.album,
+                          size: 108,
+                          color: colors.primary,
+                        );
+                      },
+                    ),
+            ),
           ),
         ),
       ),
@@ -412,8 +435,23 @@ class _PositionSliderState extends State<_PositionSlider> {
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                Text(_formatDuration(displayPosition)),
-                Text(_formatDuration(widget.duration)),
+                Expanded(
+                  child: Text(
+                    _formatDuration(displayPosition),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: Theme.of(context).textTheme.bodySmall,
+                  ),
+                ),
+                Expanded(
+                  child: Text(
+                    _formatDuration(widget.duration),
+                    textAlign: TextAlign.end,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: Theme.of(context).textTheme.bodySmall,
+                  ),
+                ),
               ],
             ),
           ],
@@ -442,19 +480,24 @@ class _PlaybackControls extends StatelessWidget {
         ),
         IconButton(
           tooltip: strings.previous,
-          iconSize: 40,
+          iconSize: 32,
           onPressed: controller.previous,
           icon: const Icon(Icons.skip_previous),
         ),
         IconButton.filled(
           tooltip: playing ? strings.pause : strings.play,
-          iconSize: 44,
+          iconSize: 40,
+          style: IconButton.styleFrom(
+            backgroundColor: Theme.of(context).colorScheme.primaryContainer,
+            foregroundColor: Theme.of(context).colorScheme.onPrimaryContainer,
+            minimumSize: const Size(64, 64),
+          ),
           onPressed: controller.togglePlayPause,
           icon: Icon(playing ? Icons.pause : Icons.play_arrow),
         ),
         IconButton(
           tooltip: strings.next,
-          iconSize: 40,
+          iconSize: 32,
           onPressed: controller.next,
           icon: const Icon(Icons.skip_next),
         ),
@@ -478,7 +521,7 @@ class _LyricsPreview extends StatelessWidget {
     final colors = Theme.of(context).colorScheme;
     return InkWell(
       key: const ValueKey('lyrics-preview'),
-      borderRadius: BorderRadius.circular(8),
+      borderRadius: BorderRadius.circular(MusicUi.radius),
       onTap: () => Navigator.of(context).push<void>(
         MaterialPageRoute(
           builder: (context) => _LyricsDetailPage(controller: controller),
@@ -490,7 +533,7 @@ class _LyricsPreview extends StatelessWidget {
         padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
         decoration: BoxDecoration(
           color: colors.surfaceContainerHighest,
-          borderRadius: BorderRadius.circular(8),
+          borderRadius: BorderRadius.circular(MusicUi.radius),
         ),
         child: _LyricsPreviewContent(controller: controller),
       ),

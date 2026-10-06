@@ -1,3 +1,4 @@
+import 'package:ai_music/src/presentation/app_theme.dart';
 import 'package:ai_music/src/data/song_search_cache.dart';
 import 'dart:async';
 import 'dart:collection';
@@ -35,6 +36,13 @@ void main() {
       const track = Track(id: 'song', title: '稻香', artist: '周杰伦', album: '');
       await tester.pumpWidget(
         MaterialApp(
+          theme: MusicAppTheme.create(Brightness.light),
+          builder: (context, child) => MediaQuery(
+            data: MediaQuery.of(
+              context,
+            ).copyWith(textScaler: TextScaler.linear(2)),
+            child: child!,
+          ),
           home: Builder(
             builder: (context) => Scaffold(
               body: TextButton(
@@ -72,7 +80,10 @@ void main() {
         _candidate('First'),
       ]))!;
       await tester.pumpWidget(
-        MaterialApp(home: MusicHomePage(controller: controller)),
+        MaterialApp(
+          theme: MusicAppTheme.create(Brightness.light),
+          home: MusicHomePage(controller: controller),
+        ),
       );
       await tester.pumpAndSettle();
       await tester.ensureVisible(
@@ -97,6 +108,8 @@ void main() {
   testWidgets(
     'direct playlist page saves metadata before starting background matching',
     (tester) async {
+      await tester.binding.setSurfaceSize(const Size(320, 700));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
       final store = _Store();
       var matchCalls = 0;
       final controller = _Controller(
@@ -109,6 +122,13 @@ void main() {
       );
       await tester.pumpWidget(
         MaterialApp(
+          theme: MusicAppTheme.create(Brightness.light),
+          builder: (context, child) => MediaQuery(
+            data: MediaQuery.of(
+              context,
+            ).copyWith(textScaler: TextScaler.linear(2)),
+            child: child!,
+          ),
           home: DirectPlaylistPage(
             playlist: _playlist,
             repository: _Repository(),
@@ -277,6 +297,7 @@ void main() {
         await tester.pumpWidget(const SizedBox.shrink());
         await tester.pumpWidget(
           MaterialApp(
+            theme: MusicAppTheme.create(Brightness.light),
             home: OnlinePlaylistPage(
               playlist: playlist,
               repository: _Repository(),
@@ -474,6 +495,7 @@ void main() {
     );
     await tester.pumpWidget(
       MaterialApp(
+        theme: MusicAppTheme.create(Brightness.light),
         home: DownloadManagerPage(
           controller: controller,
           onOpenPlaylist: (_) {},
@@ -766,7 +788,10 @@ void main() {
       await tester.pump();
       expect(task.saving, true);
       await tester.pumpWidget(
-        MaterialApp(home: MusicHomePage(controller: controller)),
+        MaterialApp(
+          theme: MusicAppTheme.create(Brightness.light),
+          home: MusicHomePage(controller: controller),
+        ),
       );
       laterMatch.complete(_match('Second'));
       await tester.pump(const Duration(milliseconds: 350));
@@ -807,7 +832,10 @@ void main() {
       final destination = store.library.playlists.single;
       expect(destination.entries, isEmpty);
       await tester.pumpWidget(
-        MaterialApp(home: MusicHomePage(controller: controller)),
+        MaterialApp(
+          theme: MusicAppTheme.create(Brightness.light),
+          home: MusicHomePage(controller: controller),
+        ),
       );
       await tester.pump();
       expect(
@@ -866,7 +894,10 @@ void main() {
     await tester.pump();
     final destination = store.library.playlists.last;
     await tester.pumpWidget(
-      MaterialApp(home: MusicHomePage(controller: controller)),
+      MaterialApp(
+        theme: MusicAppTheme.create(Brightness.light),
+        home: MusicHomePage(controller: controller),
+      ),
     );
     await tester.pump();
     expect(
@@ -971,7 +1002,10 @@ void main() {
     await task.load();
     await task.startAutoSync();
     await tester.pumpWidget(
-      MaterialApp(home: MusicHomePage(controller: controller)),
+      MaterialApp(
+        theme: MusicAppTheme.create(Brightness.light),
+        home: MusicHomePage(controller: controller),
+      ),
     );
     await tester.pumpAndSettle();
     await tester.tap(
@@ -1026,7 +1060,10 @@ void main() {
     await task.load();
     await task.startAutoSync();
     await tester.pumpWidget(
-      MaterialApp(home: MusicHomePage(controller: controller)),
+      MaterialApp(
+        theme: MusicAppTheme.create(Brightness.light),
+        home: MusicHomePage(controller: controller),
+      ),
     );
     await tester.pumpAndSettle();
     await tester.tap(
@@ -1168,6 +1205,7 @@ void main() {
       final repo = _Repository();
       await tester.pumpWidget(
         MaterialApp(
+          theme: MusicAppTheme.create(Brightness.light),
           home: MusicHomePage(controller: controller, playlistRepository: repo),
         ),
       );
@@ -1236,7 +1274,10 @@ void main() {
       final destination = store.library.playlists.single;
       // Remove the detail route entirely, as returning to home does.
       await tester.pumpWidget(
-        MaterialApp(home: MusicHomePage(controller: controller)),
+        MaterialApp(
+          theme: MusicAppTheme.create(Brightness.light),
+          home: MusicHomePage(controller: controller),
+        ),
       );
       await tester.pump();
       expect(find.textContaining('后台进行中'), findsOneWidget);
@@ -1567,6 +1608,7 @@ Future<void> _mount(
 }) async {
   await tester.pumpWidget(
     MaterialApp(
+      theme: MusicAppTheme.create(Brightness.light),
       home: OnlinePlaylistPage(
         playlist: _playlist,
         repository: _Repository(),

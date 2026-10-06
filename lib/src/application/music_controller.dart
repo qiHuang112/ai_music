@@ -257,6 +257,8 @@ class MusicController extends ChangeNotifier {
   bool _connectivityEventSeen = false;
   List<Track> _activeQueueTracks = const [];
   String? _activePlaylistId;
+  // Queue ownership survives the temporary sync suspension during device loads.
+  String? _queuePlaylistId;
   final Set<String> _retiredQueueTrackIds = {};
   final Map<String, MusicSearchCandidate> _adHocPlayCandidates = {};
   final Map<
@@ -1168,11 +1170,14 @@ class MusicController extends ChangeNotifier {
     int? index,
     List<Track>? queueTracks,
     bool forceReload = false,
+    bool selectFromQueue = false,
   }) async {
     await _playbackPrefetch.cancel();
     if (request != _playRequest || _isDisposed) return;
-    _activePlaylistId = null;
-    _retiredQueueTrackIds.clear();
+    if (!selectFromQueue) {
+      _activePlaylistId = null;
+      _retiredQueueTrackIds.clear();
+    }
     _streamingMetadataTracks.removeWhere((id, _) => id != track.id);
     var prepared = track;
     StreamAudioSource? preparedSource;
@@ -1189,22 +1194,35 @@ class MusicController extends ChangeNotifier {
       }
       if (request != _playRequest) return;
     }
-    final selectedQueue =
-        queueTracks ??
-        (cachedTracks.any((item) => item.id == prepared.id)
-            ? cachedTracks
-            : <Track>[prepared]);
-    final queue = [
-      for (final item in selectedQueue)
-        item.id == prepared.id ? prepared : item,
-    ];
     final prior = _playLoadTail;
     final done = Completer<void>();
     _playLoadTail = done.future;
     await prior;
     var catchUpPlaylist = false;
+    String? selectedPlaylistId;
+    Object? loadError;
+    StackTrace? loadStack;
     try {
-      if (request != _playRequest) return;
+      if (request != _playRequest || _isDisposed) return;
+      // Preparation can overlap recognition appends or candidate replacements.
+      // An existing-queue selection must use the live queue under the load lock.
+      final selectedQueue = selectFromQueue
+          ? _activeQueueTracks
+          : queueTracks ??
+                (cachedTracks.any((item) => item.id == prepared.id)
+                    ? cachedTracks
+                    : <Track>[prepared]);
+      final selectedIndex = selectFromQueue
+          ? selectedQueue.indexWhere((item) => item.id == prepared.id)
+          : index;
+      if (selectFromQueue && selectedIndex == -1) {
+        throw StateError('This song is no longer in the queue');
+      }
+      final queue = [
+        for (final item in selectedQueue)
+          item.id == prepared.id ? prepared : item,
+      ];
+      selectedPlaylistId = selectFromQueue ? _queuePlaylistId : playlistId;
       final sameQueue =
           audioHandler.mediaItem.value?.id == prepared.id &&
           _activeQueueTracks.length == queue.length &&
@@ -1216,39 +1234,70 @@ class MusicController extends ChangeNotifier {
         _lyricsPrefetchQueueKey = null;
         _lyricsPrefetchRequest += 1;
       }
+      // Suspend appends only while the device loads, not while resolving a
+      // source that may fail while the original playlist keeps playing.
+      _activePlaylistId = null;
       _activeQueueTracks = queue;
+      _queuePlaylistId = selectedPlaylistId;
       final loaded = await playbackUseCase.playTrack(
         prepared,
-        index: index,
+        index: selectedIndex,
         fallbackQueue: cachedTracks,
         queueTracks: queue,
         selectedSource: preparedSource,
         shouldPlay: () => request == _playRequest && !_isDisposed,
         forceReload: forceReload,
       );
-      if (request == _playRequest) {
-        _activePlaylistId = playlistId;
-        catchUpPlaylist = playlistId != null;
+      if (request == _playRequest &&
+          !_isDisposed &&
+          _queuePlaylistId == selectedPlaylistId) {
+        _activePlaylistId = selectedPlaylistId;
+        catchUpPlaylist = selectedPlaylistId != null;
       }
       if (loaded && request == _playRequest) {
-        if (playlistId != null) {
-          unawaited(recordPlaylistUsage(playlistId, played: true));
+        if (selectedPlaylistId != null) {
+          unawaited(recordPlaylistUsage(selectedPlaylistId, played: true));
         }
         await setPlaybackMode(playbackMode);
       }
       _maybePrefetchNext();
+    } catch (error, stack) {
+      loadError = error;
+      loadStack = stack;
     } finally {
+      if (selectFromQueue &&
+          request == _playRequest &&
+          !_isDisposed &&
+          _queuePlaylistId == selectedPlaylistId) {
+        _activePlaylistId = selectedPlaylistId;
+        catchUpPlaylist = selectedPlaylistId != null;
+      }
       done.complete();
+    }
+    if (selectFromQueue && request == _playRequest && !_isDisposed) {
+      await _removeRetiredQueueTracks();
     }
     if (catchUpPlaylist) {
       final current = customPlaylists
-          .where((item) => item.id == playlistId)
+          .where((item) => item.id == selectedPlaylistId)
           .firstOrNull;
       if (current != null) await _appendSyncedPlaylistTracksToQueue(current);
     }
+    if (loadError != null) Error.throwWithStackTrace(loadError, loadStack!);
   }
 
   Future<void> togglePlayPause() => playbackUseCase.togglePlayPause();
+
+  /// Select within the existing queue, retaining background playlist additions.
+  Future<void> playQueueItem(String id) {
+    final index = _activeQueueTracks.indexWhere((track) => track.id == id);
+    if (index < 0) throw StateError('This song is no longer in the queue');
+    return _playTrack(
+      _activeQueueTracks[index],
+      request: ++_playRequest,
+      selectFromQueue: true,
+    );
+  }
 
   Future<void> seek(Duration position) => playbackUseCase.seek(position);
 
@@ -1265,6 +1314,7 @@ class MusicController extends ChangeNotifier {
     _retiredQueueTrackIds.clear();
     await _playbackPrefetch.cancel();
     _activeQueueTracks = const [];
+    _queuePlaylistId = null;
     _lyricsPrefetchQueueKey = null;
     _lyricsPrefetchRequest += 1;
     await _playLoadTail;
@@ -2371,6 +2421,7 @@ class MusicController extends ChangeNotifier {
   Future<void> deletePlaylist(MusicPlaylist playlist) async {
     await _playbackPrefetch.cancel();
     if (_activePlaylistId == playlist.id) _activePlaylistId = null;
+    if (_queuePlaylistId == playlist.id) _queuePlaylistId = null;
     _applyLibrarySnapshot(
       await libraryUseCase.deletePlaylist(playlist, current: _librarySnapshot),
     );
@@ -2622,6 +2673,7 @@ class MusicController extends ChangeNotifier {
 
   void _handleMediaItemChanged(MediaItem? item) {
     if (item != null &&
+        _activePlaylistId != null &&
         _retiredQueueTrackIds.isNotEmpty &&
         !_retiredQueueTrackIds.contains(item.id)) {
       unawaited(_removeRetiredQueueTracks());

@@ -1,3 +1,4 @@
+import 'package:ai_music/src/presentation/app_theme.dart';
 import 'package:ai_music/src/data/song_search_cache.dart';
 import 'memory_download_history.dart';
 import 'dart:async';
@@ -34,6 +35,8 @@ void main() {
   testWidgets('OCR typo needs confirmation and editing refreshes one song', (
     tester,
   ) async {
+    await tester.binding.setSurfaceSize(const Size(320, 800));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
     final root = await tester.runAsync(
       () => Directory.systemTemp.createTemp('screenshot_import_'),
     );
@@ -57,6 +60,13 @@ void main() {
     try {
       await tester.pumpWidget(
         MaterialApp(
+          theme: MusicAppTheme.create(Brightness.light),
+          builder: (context, child) => MediaQuery(
+            data: MediaQuery.of(
+              context,
+            ).copyWith(textScaler: TextScaler.linear(2)),
+            child: child!,
+          ),
           home: ScreenshotImportPage(
             controller: controller,
             ocr: _Ocr(),
@@ -134,6 +144,7 @@ void main() {
       try {
         await tester.pumpWidget(
           MaterialApp(
+            theme: MusicAppTheme.create(Brightness.light),
             home: ScreenshotImportPage(
               controller: controller,
               ocr: const _Ocr('稻香 - 周杰伦'),
@@ -198,6 +209,7 @@ void main() {
     try {
       await tester.pumpWidget(
         MaterialApp(
+          theme: MusicAppTheme.create(Brightness.light),
           home: ScreenshotImportPage(
             controller: controller,
             ocr: const _Ocr('稻香 - 周杰伦'),
@@ -254,6 +266,7 @@ void main() {
     try {
       await tester.pumpWidget(
         MaterialApp(
+          theme: MusicAppTheme.create(Brightness.light),
           home: ScreenshotImportPage(
             controller: controller,
             ocr: const _TwoSongsOcr(),
@@ -310,6 +323,7 @@ void main() {
     try {
       await tester.pumpWidget(
         MaterialApp(
+          theme: MusicAppTheme.create(Brightness.light),
           home: ScreenshotImportPage(
             controller: controller,
             ocr: const _Ocr('稻香 - 周杰伦'),
@@ -364,6 +378,7 @@ void main() {
     try {
       await tester.pumpWidget(
         MaterialApp(
+          theme: MusicAppTheme.create(Brightness.light),
           home: ScreenshotImportPage(
             controller: controller,
             ocr: ocr,
@@ -428,6 +443,7 @@ void main() {
     try {
       await tester.pumpWidget(
         MaterialApp(
+          theme: MusicAppTheme.create(Brightness.light),
           home: ScreenshotImportPage(
             controller: controller,
             ocr: const _SixSongsOcr(),
@@ -490,6 +506,7 @@ void main() {
       try {
         await tester.pumpWidget(
           MaterialApp(
+            theme: MusicAppTheme.create(Brightness.light),
             home: ScreenshotImportPage(
               controller: controller,
               ocr: const _SevenSongsOcr(),
@@ -584,6 +601,7 @@ void main() {
     try {
       await tester.pumpWidget(
         MaterialApp(
+          theme: MusicAppTheme.create(Brightness.light),
           home: ScreenshotImportPage(
             controller: controller,
             ocr: const _SevenSongsOcr(),

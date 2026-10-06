@@ -8,6 +8,7 @@ import 'src/platform/platform_detection.dart';
 import 'src/presentation/app_localizations.dart';
 import 'src/playback/music_audio_handler.dart';
 import 'src/presentation/music_home_page.dart';
+import 'src/presentation/app_theme.dart';
 
 const _disableAudioService = bool.fromEnvironment(
   'AI_MUSIC_DISABLE_AUDIO_SERVICE',
@@ -57,20 +58,8 @@ class AiMusicApp extends StatelessWidget {
         return MaterialApp(
           title: strings.appTitle,
           debugShowCheckedModeBanner: false,
-          theme: ThemeData(
-            colorScheme: ColorScheme.fromSeed(
-              seedColor: const Color(0xFF0D9488),
-              brightness: Brightness.light,
-            ),
-            useMaterial3: true,
-          ),
-          darkTheme: ThemeData(
-            colorScheme: ColorScheme.fromSeed(
-              seedColor: const Color(0xFF0D9488),
-              brightness: Brightness.dark,
-            ),
-            useMaterial3: true,
-          ),
+          theme: MusicAppTheme.create(Brightness.light),
+          darkTheme: MusicAppTheme.create(Brightness.dark),
           themeMode: controller.themePreference == AppThemePreference.light
               ? ThemeMode.light
               : ThemeMode.dark,

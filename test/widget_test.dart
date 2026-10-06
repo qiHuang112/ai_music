@@ -1,3 +1,5 @@
+import 'package:ai_music/src/presentation/playback_queue.dart';
+import 'package:ai_music/src/presentation/app_theme.dart';
 import 'package:ai_music/src/data/song_search_cache.dart';
 import 'package:ai_music/src/application/download_queue_controller.dart';
 import 'package:ai_music/src/presentation/date_groups.dart';
@@ -26,6 +28,67 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
+  testWidgets('mini progress resets only when the media item changes', (
+    tester,
+  ) async {
+    final handler = _WidgetAudioHandler();
+    final controller = _QueueUiController(handler);
+    Future<void> show(String id, {int seconds = 100}) => tester.pumpWidget(
+      MaterialApp(
+        theme: MusicAppTheme.create(Brightness.light),
+        home: Scaffold(
+          body: MiniPlaybackProgress(
+            controller: controller,
+            item: MediaItem(
+              id: id,
+              title: id,
+              duration: Duration(seconds: seconds),
+            ),
+            state: PlaybackState(),
+          ),
+        ),
+      ),
+    );
+    try {
+      await show('A');
+      controller.positions.add(const Duration(seconds: 80));
+      await tester.pump();
+      await tester.pump();
+      expect(
+        tester
+            .widget<FractionallySizedBox>(
+              find.byKey(const ValueKey('mini-played-progress')),
+            )
+            .widthFactor,
+        .8,
+      );
+      expect(handler.currentPosition, Duration.zero);
+      await show('A', seconds: 200);
+      expect(
+        tester
+            .widget<FractionallySizedBox>(
+              find.byKey(const ValueKey('mini-played-progress')),
+            )
+            .widthFactor,
+        .4,
+      );
+      await show('B');
+      await tester.pump();
+      expect(
+        tester
+            .widget<FractionallySizedBox>(
+              find.byKey(const ValueKey('mini-played-progress')),
+            )
+            .widthFactor,
+        0,
+      );
+    } finally {
+      await tester.pumpWidget(const SizedBox.shrink());
+      controller.dispose();
+      unawaited(controller.positions.close());
+      unawaited(handler.dispose());
+    }
+  });
   test('reorder helper follows post-removal target index semantics', () {
     final alpha = Track(id: 'alpha', title: 'Alpha', artist: 'A', album: '');
     final beta = Track(id: 'beta', title: 'Beta', artist: 'B', album: '');
@@ -50,17 +113,268 @@ void main() {
     expect(reorderTargetIndexFromRawReorder(2, 0), 0);
   });
 
+  testWidgets(
+    'queue reflects live additions, selection, stale failures and closing',
+    (tester) async {
+      final handler = _WidgetAudioHandler();
+      final controller = _QueueUiController(handler);
+      const first = MediaItem(id: 'one', title: 'First', artist: 'Artist');
+      const second = MediaItem(id: 'two', title: 'Second', artist: 'Artist');
+      try {
+        await tester.pumpWidget(_app(playbackController: controller));
+        await tester.pumpAndSettle();
+        handler.queue.add([first]);
+        handler.emit(first);
+        await tester.pumpAndSettle();
+        await tester.tap(find.byKey(const ValueKey('mini-player-queue')));
+        await tester.pumpAndSettle();
+        expect(find.text('当前队列 · 1'), findsOneWidget);
+        handler.queue.add([first, second]);
+        await tester.pump();
+        await tester.pump();
+        expect(find.text('当前队列 · 2'), findsOneWidget);
+        await tester.tap(find.byKey(const ValueKey('queue-item-one')));
+        await tester.pump();
+        await tester.pump();
+        await tester.tap(find.byKey(const ValueKey('queue-item-one')));
+        expect(controller.requests.length, 1);
+        await tester.tap(find.byKey(const ValueKey('queue-item-two')));
+        await tester.pump();
+        await tester.pump();
+        controller.requests[1].complete();
+        handler.emit(second);
+        await tester.pumpAndSettle();
+        controller.requests[0].completeError(StateError('obsolete failure'));
+        await tester.pumpAndSettle();
+        expect(find.textContaining('obsolete failure'), findsNothing);
+        expect(
+          tester
+              .widget<ListTile>(find.byKey(const ValueKey('queue-item-two')))
+              .selected,
+          isTrue,
+        );
+        await tester.tap(find.byKey(const ValueKey('queue-item-one')));
+        await tester.pump();
+        await tester.pump();
+        controller.requests[2].completeError(StateError('source unavailable'));
+        await tester.pumpAndSettle();
+        expect(find.textContaining('source unavailable'), findsOneWidget);
+        await tester.tap(find.byKey(const ValueKey('queue-item-two')));
+        await tester.pump();
+        await tester.pump();
+        await tester.tap(find.byTooltip('Close'));
+        await tester.pumpAndSettle();
+        controller.requests[3].completeError(StateError('closed failure'));
+        await tester.pumpAndSettle();
+        expect(find.byType(PlaybackQueue), findsNothing);
+        expect(tester.takeException(), isNull);
+      } finally {
+        await tester.pumpWidget(const SizedBox.shrink());
+        controller.dispose();
+        unawaited(handler.dispose());
+      }
+    },
+  );
+
+  testWidgets(
+    'mini progress clamps real time and cached state; unknown duration stays empty',
+    (tester) async {
+      final handler = _WidgetAudioHandler();
+      final controller = _QueueUiController(handler);
+      Future<void> show(MediaItem item, PlaybackState state) =>
+          tester.pumpWidget(
+            MaterialApp(
+              theme: MusicAppTheme.create(Brightness.light),
+              home: Scaffold(
+                body: MiniPlaybackProgress(
+                  controller: controller,
+                  item: item,
+                  state: state,
+                ),
+              ),
+            ),
+          );
+      double fraction(String key) => tester
+          .widget<FractionallySizedBox>(find.byKey(ValueKey(key)))
+          .widthFactor!;
+      try {
+        await show(
+          const MediaItem(
+            id: 'one',
+            title: 'First',
+            duration: Duration(seconds: 100),
+          ),
+          PlaybackState(bufferedPosition: const Duration(seconds: 60)),
+        );
+        controller.positions.add(const Duration(seconds: 25));
+        await tester.pump();
+        await tester.pump();
+        expect(fraction('mini-played-progress'), .25);
+        expect(fraction('mini-buffered-progress'), .6);
+        controller.positions.add(const Duration(seconds: 200));
+        await tester.pump();
+        await tester.pump();
+        expect(fraction('mini-played-progress'), 1);
+        controller.songCacheProgress.completeKeys({'unresolved|one'});
+        await tester.pump();
+        await tester.pump();
+        expect(fraction('mini-buffered-progress'), 1);
+        await show(
+          const MediaItem(id: 'one', title: 'First'),
+          PlaybackState(bufferedPosition: const Duration(seconds: 60)),
+        );
+        await tester.pump();
+        await tester.pump();
+        expect(fraction('mini-played-progress'), 0);
+        expect(fraction('mini-buffered-progress'), 0);
+        expect(tester.takeException(), isNull);
+      } finally {
+        await tester.pumpWidget(const SizedBox.shrink());
+        controller.dispose();
+        unawaited(controller.positions.close());
+        unawaited(handler.dispose());
+      }
+    },
+  );
+
+  testWidgets(
+    'normal phone player exposes playback controls and queue without scrolling',
+    (tester) async {
+      await tester.binding.setSurfaceSize(const Size(393, 851));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+      final handler = _WidgetAudioHandler();
+      final controller = _QueueUiController(handler);
+      try {
+        await tester.pumpWidget(_app(playbackController: controller));
+        await tester.pumpAndSettle();
+        handler.emit(
+          const MediaItem(
+            id: 'phone',
+            title: 'Phone song',
+            artist: 'Artist',
+            duration: Duration(minutes: 3),
+          ),
+        );
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('Phone song'));
+        await tester.pumpAndSettle();
+        final queue = find.byKey(const ValueKey('player-queue'));
+        expect(queue.hitTestable(), findsOneWidget);
+        expect(tester.getRect(queue).bottom, lessThanOrEqualTo(851));
+        expect(tester.takeException(), isNull);
+      } finally {
+        await tester.pumpWidget(const SizedBox.shrink());
+        controller.dispose();
+        unawaited(controller.positions.close());
+        unawaited(handler.dispose());
+      }
+    },
+  );
+
+  testWidgets(
+    'all main routes and long queue stay usable at 320dp with large type',
+    (tester) async {
+      await tester.binding.setSurfaceSize(const Size(320, 700));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+      for (final language in AppLanguage.values) {
+        for (final mode in AppThemePreference.values) {
+          final fixture = _homeLibraryFixture();
+          final handler = _WidgetAudioHandler();
+          final controller = _QueueUiController(handler, fixture: fixture);
+          controller.language = language;
+          controller.themePreference = mode;
+          final strings = AppStrings(language);
+          try {
+            await tester.pumpWidget(
+              _app(
+                playbackController: controller,
+                textScaler: TextScaler.linear(2),
+              ),
+            );
+            await tester.pumpAndSettle();
+            await controller.saveLanguage(language);
+            await controller.saveTheme(mode);
+            await tester.pumpAndSettle();
+            handler.queue.add([
+              for (var i = 0; i < 50; i++)
+                MediaItem(
+                  id: '$i',
+                  title: '很长的歌曲名称 Very long title $i',
+                  artist: 'Artist name',
+                ),
+            ]);
+            handler.emit(handler.queue.value.first);
+            await tester.pumpAndSettle();
+            await tester.tap(find.byKey(const ValueKey('mini-player-queue')));
+            await tester.pumpAndSettle();
+            await tester.scrollUntilVisible(
+              find.byKey(const ValueKey('queue-item-49')),
+              200,
+              scrollable: find.descendant(
+                of: find.byType(BottomSheet),
+                matching: find.byType(Scrollable),
+              ),
+            );
+            expect(tester.takeException(), isNull);
+            await tester.tap(find.byTooltip('Close'));
+            await tester.pumpAndSettle();
+            await tester.tap(
+              find.byTooltip(strings.isZh ? '音乐库' : 'Music library'),
+            );
+            await tester.pumpAndSettle();
+            await tester.tap(find.textContaining(strings.localLibrary));
+            await tester.pumpAndSettle();
+            expect(tester.takeException(), isNull);
+            await tester.pageBack();
+            await tester.pumpAndSettle();
+            await tester.pageBack();
+            await tester.pumpAndSettle();
+            await tester.tap(find.byTooltip(strings.settings));
+            await tester.pumpAndSettle();
+            expect(tester.takeException(), isNull);
+            await tester.pageBack();
+            await tester.pumpAndSettle();
+            await tester.tap(find.byTooltip(strings.downloads));
+            await tester.pumpAndSettle();
+            expect(tester.takeException(), isNull);
+            await tester.pageBack();
+            await tester.pumpAndSettle();
+            await tester.tap(find.text('很长的歌曲名称 Very long title 0'));
+            await tester.pumpAndSettle();
+            await tester.scrollUntilVisible(
+              find.byKey(const ValueKey('player-queue')),
+              200,
+              scrollable: find
+                  .descendant(
+                    of: find.byType(PlayerPage),
+                    matching: find.byType(Scrollable),
+                  )
+                  .first,
+            );
+            expect(find.byKey(const ValueKey('player-queue')), findsOneWidget);
+            expect(tester.takeException(), isNull);
+          } finally {
+            await tester.pumpWidget(const SizedBox.shrink());
+            controller.dispose();
+            unawaited(controller.positions.close());
+            unawaited(handler.dispose());
+          }
+        }
+      }
+    },
+  );
+
   testWidgets('renders Android-first search and cache shell', (tester) async {
     await tester.pumpWidget(_app());
     await tester.pumpAndSettle();
 
-    expect(find.text('搜音乐'), findsOneWidget);
+    expect(find.text('搜音乐'), findsNothing);
     expect(find.text('歌手或歌曲'), findsOneWidget);
     expect(find.text('我的音乐'), findsOneWidget);
     expect(find.text('搜索音乐'), findsNothing);
     expect(find.text('输入歌手或歌曲名，下载后会保存在本机缓存里。'), findsNothing);
     expect(find.byTooltip('下载'), findsOneWidget);
-    expect(find.byTooltip('播放列表'), findsOneWidget);
+    expect(find.byTooltip('音乐库'), findsOneWidget);
     expect(find.text('No cached music yet'), findsNothing);
   });
 
@@ -137,6 +451,65 @@ void main() {
     } finally {
       await tester.pumpWidget(const SizedBox.shrink());
       controller.dispose();
+    }
+  });
+
+  testWidgets('home stays usable on a narrow screen with enlarged text', (
+    tester,
+  ) async {
+    await tester.binding.setSurfaceSize(const Size(320, 700));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    for (final language in AppLanguage.values) {
+      for (final theme in AppThemePreference.values) {
+        final fixture = _homeLibraryFixture();
+        fixture.playlistStore.library = fixture.playlistStore.library.copyWith(
+          playlists: [
+            fixture.playlistStore.library.playlists.first.copyWith(
+              name: '很长的歌单名称 Long playlist name with many songs',
+            ),
+          ],
+        );
+        final settings = _FakeSettingsStore()
+          ..settings = MusicAppSettings(language: language, theme: theme);
+        final handler = _WidgetAudioHandler();
+        await tester.pumpWidget(
+          _app(
+            cacheStore: fixture.cacheStore,
+            playlistStore: fixture.playlistStore,
+            settings: settings,
+            audioHandler: handler,
+            textScaler: const TextScaler.linear(2),
+          ),
+        );
+        await tester.pumpAndSettle();
+        handler.emit(
+          const MediaItem(
+            id: 'narrow',
+            title: '很长的歌曲标题 Long song title',
+            artist: '很长的歌手名称 Long artist name',
+          ),
+        );
+        await tester.pumpAndSettle();
+        expect(tester.takeException(), isNull);
+        final favorite = find.byKey(const ValueKey('home-favorites-entry'));
+        final before = tester.getTopLeft(favorite).dy;
+        await tester.tap(find.byKey(const ValueKey('search-mode-toggle')));
+        await tester.pumpAndSettle();
+        expect(tester.getTopLeft(favorite).dy, before);
+        expect(tester.takeException(), isNull);
+        await tester.tap(find.byType(EditableText));
+        await tester.pumpAndSettle();
+        expect(
+          find.byKey(const ValueKey('search-history-panel')),
+          findsOneWidget,
+        );
+        expect(favorite, findsNothing);
+        await tester.binding.handlePopRoute();
+        await tester.pumpAndSettle();
+        expect(favorite, findsOneWidget);
+        expect(tester.takeException(), isNull);
+        await tester.pumpWidget(const SizedBox.shrink());
+      }
     }
   });
 
@@ -517,7 +890,7 @@ void main() {
 
     expect(find.text('稻香'), findsNothing);
     expect(find.byKey(const ValueKey('search-history-panel')), findsOneWidget);
-    expect(find.text('我的音乐'), findsNothing);
+    expect(find.byKey(const ValueKey('home-favorites-entry')), findsNothing);
     await tester.binding.handlePopRoute();
     await tester.pumpAndSettle();
     expect(find.text('我的音乐'), findsOneWidget);
@@ -681,7 +1054,7 @@ void main() {
       final controller = _CountingPlaybackController(cache);
       await tester.pumpWidget(_app(playbackController: controller));
       await tester.pumpAndSettle();
-      await tester.tap(find.byTooltip('播放列表'));
+      await tester.tap(find.byTooltip('音乐库'));
       await tester.pumpAndSettle();
       await tester.tap(find.textContaining('本地'));
       await tester.pumpAndSettle();
@@ -721,11 +1094,33 @@ void main() {
     await tester.tap(find.byTooltip('下载'));
     await tester.pumpAndSettle();
 
+    await tester.scrollUntilVisible(
+      find.text('Alpha'),
+      100,
+      scrollable: find
+          .descendant(
+            of: find.byType(CustomScrollView),
+            matching: find.byType(Scrollable),
+          )
+          .first,
+    );
+    await tester.pumpAndSettle();
     expect(
       tester.getTopLeft(find.text('Beta')).dy,
       lessThan(tester.getTopLeft(find.text('Alpha')).dy),
     );
 
+    await tester.scrollUntilVisible(
+      find.text('下载时间'),
+      -100,
+      scrollable: find
+          .descendant(
+            of: find.byType(CustomScrollView),
+            matching: find.byType(Scrollable),
+          )
+          .first,
+    );
+    await tester.pumpAndSettle();
     await tester.tap(find.text('下载时间'));
     await tester.pumpAndSettle();
     await tester.tap(find.text('首字母').last);
@@ -829,7 +1224,7 @@ void main() {
     ];
     await tester.pumpWidget(_app(cacheStore: _FakeCacheStore(cached: cached)));
     await tester.pumpAndSettle();
-    await tester.tap(find.byTooltip('播放列表'));
+    await tester.tap(find.byTooltip('音乐库'));
     await tester.pumpAndSettle();
     await tester.tap(find.textContaining('本地'));
     await tester.pumpAndSettle();
@@ -1330,6 +1725,8 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('扫描并同步'), findsOneWidget);
+    await tester.ensureVisible(find.text('扫描并同步'));
+    await tester.pumpAndSettle();
     await tester.tap(find.text('扫描并同步'));
     await tester.pumpAndSettle();
 
@@ -1422,10 +1819,10 @@ void main() {
 
     expect(find.text('稻香'), findsNothing);
 
-    await tester.tap(find.byTooltip('播放列表'));
+    await tester.tap(find.byTooltip('音乐库'));
     await tester.pumpAndSettle();
 
-    expect(find.text('我的缓存列表'), findsOneWidget);
+    expect(find.text('音乐库'), findsOneWidget);
     expect(find.textContaining('收藏'), findsOneWidget);
     expect(find.textContaining('本地'), findsOneWidget);
     expect(find.text('还没有自建歌单'), findsOneWidget);
@@ -1474,7 +1871,7 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      await tester.tap(find.byTooltip('播放列表'));
+      await tester.tap(find.byTooltip('音乐库'));
       await tester.pumpAndSettle();
       await tester.tap(find.textContaining('截图歌单').last);
       await tester.pumpAndSettle();
@@ -1524,7 +1921,7 @@ void main() {
     final controller = _ControlledPlaybackController(playlists);
     await tester.pumpWidget(_app(playbackController: controller));
     await tester.pumpAndSettle();
-    await tester.tap(find.byTooltip('播放列表'));
+    await tester.tap(find.byTooltip('音乐库'));
     await tester.pumpAndSettle();
     await tester.tap(find.textContaining('截图歌单').last);
     await tester.pumpAndSettle();
@@ -1568,7 +1965,7 @@ void main() {
     await tester.pumpWidget(_app(cacheStore: cache));
     await tester.pumpAndSettle();
 
-    await tester.tap(find.byTooltip('播放列表'));
+    await tester.tap(find.byTooltip('音乐库'));
     await tester.pumpAndSettle();
     await tester.tap(find.textContaining('本地'));
     await tester.pumpAndSettle();
@@ -1624,7 +2021,7 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    await tester.tap(find.byTooltip('播放列表'));
+    await tester.tap(find.byTooltip('音乐库'));
     await tester.pumpAndSettle();
     await tester.tap(find.textContaining('本地'));
     await tester.pumpAndSettle();
@@ -1667,7 +2064,7 @@ void main() {
     await tester.pumpWidget(_app(cacheStore: cache));
     await tester.pumpAndSettle();
 
-    await tester.tap(find.byTooltip('播放列表'));
+    await tester.tap(find.byTooltip('音乐库'));
     await tester.pumpAndSettle();
     await tester.tap(find.textContaining('本地'));
     await tester.pumpAndSettle();
@@ -1705,7 +2102,7 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    await tester.tap(find.byTooltip('播放列表'));
+    await tester.tap(find.byTooltip('音乐库'));
     await tester.pumpAndSettle();
     await tester.tap(find.textContaining('本地'));
     await tester.pumpAndSettle();
@@ -1752,7 +2149,7 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    await tester.tap(find.byTooltip('播放列表'));
+    await tester.tap(find.byTooltip('音乐库'));
     await tester.pumpAndSettle();
     await tester.tap(find.textContaining('收藏'));
     await tester.pumpAndSettle();
@@ -1792,11 +2189,13 @@ void main() {
       ),
     );
     await tester.pumpAndSettle();
-    await tester.tap(find.byTooltip('播放列表'));
+    await tester.tap(find.byTooltip('音乐库'));
     await tester.pumpAndSettle();
     await tester.tap(find.textContaining('本地'));
     await tester.pumpAndSettle();
-    await tester.tap(find.byTooltip('添加到歌单').first);
+    await tester.tap(find.byTooltip('更多').first);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('添加到歌单'));
     await tester.pumpAndSettle();
     expect(tester.takeException(), isNull);
     final sheet = find.byType(BottomSheet);
@@ -1840,11 +2239,13 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    await tester.tap(find.byTooltip('播放列表'));
+    await tester.tap(find.byTooltip('音乐库'));
     await tester.pumpAndSettle();
     await tester.tap(find.textContaining('本地'));
     await tester.pumpAndSettle();
-    await tester.tap(find.byTooltip('添加到歌单'));
+    await tester.tap(find.byTooltip('更多').first);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('添加到歌单'));
     await tester.pumpAndSettle();
     await tester.tap(find.text('新建歌单'));
     await tester.pumpAndSettle();
@@ -1922,7 +2323,7 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    await tester.tap(find.byTooltip('播放列表'));
+    await tester.tap(find.byTooltip('音乐库'));
     await tester.pumpAndSettle();
     await tester.tap(find.textContaining('收藏'));
     await tester.pumpAndSettle();
@@ -2005,7 +2406,7 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    await tester.tap(find.byTooltip('播放列表'));
+    await tester.tap(find.byTooltip('音乐库'));
     await tester.pumpAndSettle();
     await tester.tap(find.text('Road'));
     await tester.pumpAndSettle();
@@ -2082,7 +2483,7 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    await tester.tap(find.byTooltip('播放列表'));
+    await tester.tap(find.byTooltip('音乐库'));
     await tester.pumpAndSettle();
     await tester.tap(find.text('Road'));
     await tester.pumpAndSettle();
@@ -2091,7 +2492,7 @@ void main() {
     expect(find.text('调整顺序'), findsNothing);
     expect(find.byTooltip('排序'), findsNothing);
     expect(find.byTooltip('拖拽排序'), findsNothing);
-    expect(find.byTooltip('添加到歌单'), findsWidgets);
+    expect(find.byTooltip('更多'), findsWidgets);
 
     await tester.tap(find.byKey(const ValueKey('adjust-order-action')));
     await tester.pumpAndSettle();
@@ -2157,7 +2558,7 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    await tester.tap(find.byTooltip('播放列表'));
+    await tester.tap(find.byTooltip('音乐库'));
     await tester.pumpAndSettle();
     await tester.tap(find.text('Road'));
     await tester.pumpAndSettle();
@@ -2228,7 +2629,7 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    await tester.tap(find.byTooltip('播放列表'));
+    await tester.tap(find.byTooltip('音乐库'));
     await tester.pumpAndSettle();
     await tester.tap(find.text('Road'));
     await tester.pumpAndSettle();
@@ -2307,7 +2708,7 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    await tester.tap(find.byTooltip('播放列表'));
+    await tester.tap(find.byTooltip('音乐库'));
     await tester.pumpAndSettle();
     await tester.tap(find.text('Road'));
     await tester.pumpAndSettle();
@@ -2370,7 +2771,7 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    await tester.tap(find.byTooltip('播放列表'));
+    await tester.tap(find.byTooltip('音乐库'));
     await tester.pumpAndSettle();
     await tester.tap(find.text('Road'));
     await tester.pumpAndSettle();
@@ -2453,7 +2854,7 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    await tester.tap(find.byTooltip('播放列表'));
+    await tester.tap(find.byTooltip('音乐库'));
     await tester.pumpAndSettle();
     await tester.tap(find.textContaining('收藏'));
     await tester.pumpAndSettle();
@@ -2486,6 +2887,7 @@ Widget _app({
   LanLibraryGateway? lanGateway,
   LanSyncUseCase? lanSyncUseCase,
   SearchHistoryStore? searchHistoryStore,
+  TextScaler? textScaler,
 }) {
   final controller =
       playbackController ??
@@ -2505,14 +2907,17 @@ Widget _app({
     animation: controller,
     builder: (context, _) {
       return MaterialApp(
-        theme: ThemeData.light(useMaterial3: true),
-        darkTheme: ThemeData.dark(useMaterial3: true),
+        theme: MusicAppTheme.create(Brightness.light),
+        darkTheme: MusicAppTheme.create(Brightness.dark),
         themeMode: controller.themePreference == AppThemePreference.light
             ? ThemeMode.light
             : ThemeMode.dark,
-        builder: (context, child) => AppStringsScope(
-          language: controller.language,
-          child: child ?? const SizedBox.shrink(),
+        builder: (context, child) => MediaQuery(
+          data: MediaQuery.of(context).copyWith(textScaler: textScaler),
+          child: AppStringsScope(
+            language: controller.language,
+            child: child ?? const SizedBox.shrink(),
+          ),
         ),
         home: MusicHomePage(
           controller: controller,
@@ -3062,4 +3467,29 @@ class _CountingPlaybackController extends MusicController {
   }, isBroadcast: true);
   @override
   Stream<MediaItem?> get mediaItemStream => _countedStream;
+}
+
+class _QueueUiController extends MusicController {
+  _QueueUiController(MusicAudioHandler handler, {_HomeLibraryFixture? fixture})
+    : super(
+        audioHandler: handler,
+        songSearchCache: SongSearchCache.memory(),
+        downloadHistoryStore: MemoryDownloadHistory(),
+        connectivityChanges: const Stream.empty(),
+        resolver: _FakeMusicResolver(),
+        cacheStore: fixture?.cacheStore ?? _FakeCacheStore(),
+        playlistStore: fixture?.playlistStore ?? _FakePlaylistStore(),
+        settingsStore: _FakeSettingsStore(),
+        metadataRepository: _FakeMetadataRepository(),
+      );
+  final requests = <Completer<void>>[];
+  final positions = StreamController<Duration>.broadcast();
+  @override
+  Stream<Duration> get positionStream => positions.stream;
+  @override
+  Future<void> playQueueItem(String id) {
+    final done = Completer<void>();
+    requests.add(done);
+    return done.future;
+  }
 }

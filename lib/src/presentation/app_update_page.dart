@@ -1,3 +1,4 @@
+import 'app_theme.dart';
 import 'dart:async';
 import 'package:flutter/material.dart';
 import '../application/app_update_controller.dart';
@@ -19,7 +20,7 @@ class UpdateBadge extends StatelessWidget {
     builder: (context, _) => Badge(
       key: const Key('app-update-badge'),
       isLabelVisible: updates.hasUpdate,
-      backgroundColor: Colors.red,
+      backgroundColor: Theme.of(context).colorScheme.error,
       smallSize: 7,
       child: child,
     ),
@@ -174,7 +175,7 @@ class _AppUpdatePageState extends State<AppUpdatePage> {
               if (updates.hasUpdate && latest != null)
                 Card(
                   child: Padding(
-                    padding: const EdgeInsets.all(16),
+                    padding: const EdgeInsets.all(MusicUi.pagePadding),
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [

@@ -31,6 +31,9 @@ import 'song_source_page.dart';
 import 'app_update_page.dart';
 import 'song_cache_progress.dart';
 import 'playlist_source_progress.dart';
+import 'app_theme.dart';
+import 'playback_queue.dart';
+import 'music_thumbnail.dart';
 
 class MusicHomePage extends StatefulWidget {
   const MusicHomePage({
@@ -149,7 +152,8 @@ class _MusicHomePageState extends State<MusicHomePage>
           },
           child: Scaffold(
             appBar: AppBar(
-              title: Text(strings.appTitle),
+              title: Text(strings.homeLibraryTitle),
+              titleTextStyle: Theme.of(context).textTheme.headlineSmall,
               actions: [
                 IconButton(
                   tooltip: strings.downloads,
@@ -163,7 +167,7 @@ class _MusicHomePageState extends State<MusicHomePage>
                       : const Icon(Icons.download),
                 ),
                 IconButton(
-                  tooltip: strings.playlists,
+                  tooltip: strings.isZh ? '音乐库' : 'Music library',
                   onPressed: _openLibrary,
                   icon: const Icon(Icons.queue_music),
                 ),
@@ -172,7 +176,7 @@ class _MusicHomePageState extends State<MusicHomePage>
                   onPressed: _openSettings,
                   icon: UpdateBadge(
                     updates: controller.appUpdates,
-                    child: const Icon(Icons.settings),
+                    child: const Icon(Icons.settings_outlined),
                   ),
                 ),
               ],
@@ -546,10 +550,13 @@ class _SearchHeader extends StatelessWidget {
   Widget build(BuildContext context) {
     final colors = Theme.of(context).colorScheme;
     final strings = AppStringsScope.of(context);
+    final compactMode =
+        MediaQuery.sizeOf(context).width < 360 &&
+        MediaQuery.textScalerOf(context).scale(12) > 16;
     return Material(
       color: colors.surface,
       child: Padding(
-        padding: const EdgeInsets.fromLTRB(16, 8, 16, 12),
+        padding: const EdgeInsets.fromLTRB(20, 4, 20, 16),
         child: Row(
           children: [
             Expanded(
@@ -565,6 +572,9 @@ class _SearchHeader extends StatelessWidget {
                             ? '歌单名称或关键词'
                             : 'Playlist name or keywords')
                       : strings.searchHint,
+                  filled: true,
+                  fillColor: colors.surfaceContainerHighest,
+                  contentPadding: const EdgeInsets.symmetric(vertical: 14),
                   prefixIcon: IconButton(
                     key: const ValueKey('search-mode-toggle'),
                     tooltip: playlistMode
@@ -575,8 +585,34 @@ class _SearchHeader extends StatelessWidget {
                               ? '当前搜歌曲，点击切换歌单'
                               : 'Songs: switch to playlists'),
                     onPressed: onToggleMode,
-                    icon: Icon(
-                      playlistMode ? Icons.queue_music : Icons.music_note,
+                    style: IconButton.styleFrom(
+                      foregroundColor: colors.primary,
+                      padding: const EdgeInsets.symmetric(horizontal: 8),
+                      minimumSize: const Size(76, 48),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(
+                          MusicUi.fieldRadius,
+                        ),
+                      ),
+                    ),
+                    icon: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        if (!compactMode) ...[
+                          Icon(
+                            playlistMode ? Icons.queue_music : Icons.music_note,
+                            size: 16,
+                          ),
+                          const SizedBox(width: 4),
+                        ],
+                        Text(
+                          strings.isZh
+                              ? (playlistMode ? '歌单' : '歌曲')
+                              : (playlistMode ? 'Lists' : 'Songs'),
+                          style: const TextStyle(fontSize: 12),
+                        ),
+                        const Icon(Icons.expand_more, size: 16),
+                      ],
                     ),
                   ),
                   suffixIcon: playlistMode
@@ -584,25 +620,44 @@ class _SearchHeader extends StatelessWidget {
                       : IconButton(
                           tooltip: strings.importScreenshots,
                           onPressed: onImportScreenshots,
-                          icon: const Icon(Icons.add_photo_alternate_outlined),
+                          icon: const Icon(Icons.document_scanner_outlined),
                         ),
-                  border: const OutlineInputBorder(),
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(MusicUi.fieldRadius),
+                    borderSide: BorderSide.none,
+                  ),
+                  focusedBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(MusicUi.fieldRadius),
+                    borderSide: BorderSide(color: colors.primary),
+                  ),
                   isDense: true,
                 ),
               ),
             ),
-            const SizedBox(width: 10),
+            const SizedBox(width: 8),
             IconButton.filled(
               tooltip: playlistMode
                   ? (strings.isZh ? '搜歌单' : 'Search playlists')
                   : strings.searchOnline,
               onPressed: isSearching ? null : onSearch,
+              style: IconButton.styleFrom(
+                backgroundColor: colors.primaryContainer,
+                foregroundColor: colors.onPrimaryContainer,
+                disabledBackgroundColor: colors.surfaceContainerHighest,
+                minimumSize: const Size(48, 50),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(15),
+                ),
+              ),
               icon: isSearching
-                  ? const SizedBox.square(
+                  ? SizedBox.square(
                       dimension: 18,
-                      child: CircularProgressIndicator(strokeWidth: 2),
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        color: colors.onPrimaryContainer,
+                      ),
                     )
-                  : const Icon(Icons.travel_explore),
+                  : const Icon(Icons.search),
             ),
           ],
         ),
@@ -632,19 +687,23 @@ class _SearchHistoryPanel extends StatelessWidget {
   Widget build(BuildContext context) {
     final strings = AppStringsScope.of(context);
     final colors = Theme.of(context).colorScheme;
-    final maxWidth = MediaQuery.sizeOf(context).width - 48;
+    final maxWidth = MediaQuery.sizeOf(context).width - 60;
     return ListView(
       key: const ValueKey('search-history-panel'),
-      padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
+      padding: const EdgeInsets.fromLTRB(20, 8, 20, 16),
       children: [
         Row(
           children: [
-            Text(
-              strings.isZh ? '搜索历史' : 'Search history',
-              style: Theme.of(context).textTheme.titleSmall,
+            Expanded(
+              child: Text(
+                strings.isZh ? '搜索历史' : 'Search history',
+                style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                  fontSize: 19,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
             ),
             if (editing) ...[
-              const Spacer(),
               TextButton(
                 onPressed: onDone,
                 child: Text(strings.isZh ? '完成' : 'Done'),
@@ -665,7 +724,7 @@ class _SearchHistoryPanel extends StatelessWidget {
             children: [
               for (final entry in entries)
                 Material(
-                  color: colors.surfaceContainerHigh,
+                  color: colors.surfaceContainerHighest,
                   borderRadius: BorderRadius.circular(8),
                   child: InkWell(
                     key: ValueKey('search-history-$entry'),
@@ -889,13 +948,13 @@ class _SearchBody extends StatelessWidget {
       return const _SearchEmptyPrompt();
     }
     return ListView(
-      padding: const EdgeInsets.fromLTRB(16, 16, 16, 112),
+      padding: const EdgeInsets.fromLTRB(20, 0, 20, 24),
       children: [
         _HomeLibrarySection(
           controller: controller,
           onOpenLibrary: onOpenLibrary,
         ),
-        const SizedBox(height: 20),
+        const SizedBox(height: 24),
         DiscoverChartsSection(onOpenChart: onOpenChart),
       ],
     );
@@ -952,30 +1011,15 @@ class _HomeLibrarySection extends StatelessWidget {
   Widget _buildContent(BuildContext context) {
     final strings = AppStringsScope.of(context);
     final playlists = _playlistsWithActiveSyncFirst(controller);
+    final theme = Theme.of(context);
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        Row(
-          children: [
-            Expanded(
-              child: Text(
-                strings.homeLibraryTitle,
-                style: Theme.of(context).textTheme.titleMedium,
-              ),
-            ),
-            TextButton.icon(
-              key: const ValueKey('home-manage-playlists'),
-              onPressed: onOpenLibrary,
-              icon: const Icon(Icons.queue_music),
-              label: Text(strings.managePlaylists),
-            ),
-          ],
-        ),
-        const SizedBox(height: 8),
         _HomeLibraryTile(
           key: const ValueKey('home-favorites-entry'),
-          icon: Icons.favorite,
-          title: strings.favorite,
+          icon: Icons.favorite_border,
+          highlighted: true,
+          title: strings.isZh ? '我的收藏' : 'Favorites',
           subtitle: _librarySubtitle(
             strings,
             controller.favoriteTracks,
@@ -984,9 +1028,33 @@ class _HomeLibrarySection extends StatelessWidget {
           onTap: () => _openList(context, _LibraryListSpec.favorite()),
         ),
         const SizedBox(height: 20),
-        Text(
-          strings.customPlaylists,
-          style: Theme.of(context).textTheme.titleMedium,
+        Row(
+          children: [
+            Expanded(
+              child: Text(
+                strings.isZh ? '常听歌单' : 'Your playlists',
+                style: theme.textTheme.titleLarge?.copyWith(
+                  fontSize: 19,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ),
+            TextButton(
+              key: const ValueKey('home-manage-playlists'),
+              onPressed: onOpenLibrary,
+              style: TextButton.styleFrom(
+                foregroundColor: theme.colorScheme.onSurfaceVariant,
+                padding: const EdgeInsets.symmetric(horizontal: 4),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(strings.isZh ? '管理' : 'Manage'),
+                  const Icon(Icons.chevron_right, size: 16),
+                ],
+              ),
+            ),
+          ],
         ),
         const SizedBox(height: 8),
         if (playlists.isEmpty)
@@ -1002,22 +1070,15 @@ class _HomeLibrarySection extends StatelessWidget {
             _HomeLibraryTile(
               key: ValueKey('home-playlist-${playlist.id}'),
               icon: Icons.queue_music,
+              artworkUri: _homePlaylistArtwork(controller, playlist),
+              artworkLabel: playlist.name,
               title: playlist.name,
               subtitle: _homePlaylistSubtitle(controller, playlist, strings),
               onTap: () =>
                   _openList(context, _LibraryListSpec.custom(playlist)),
             ),
-            const SizedBox(height: 8),
+            const SizedBox(height: 10),
           ],
-        if (playlists.length > 4)
-          Align(
-            alignment: Alignment.centerLeft,
-            child: TextButton.icon(
-              onPressed: onOpenLibrary,
-              icon: const Icon(Icons.more_horiz),
-              label: Text(strings.managePlaylists),
-            ),
-          ),
       ],
     );
   }
@@ -1039,26 +1100,102 @@ class _HomeLibraryTile extends StatelessWidget {
     required this.title,
     required this.subtitle,
     required this.onTap,
+    this.artworkUri,
+    this.artworkLabel = '',
+    this.highlighted = false,
   });
 
   final IconData icon;
   final String title;
   final String subtitle;
   final VoidCallback onTap;
+  final Uri? artworkUri;
+  final String artworkLabel;
+  final bool highlighted;
 
   @override
   Widget build(BuildContext context) {
     final colors = Theme.of(context).colorScheme;
-    return ListTile(
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-      tileColor: colors.surfaceContainerHighest,
-      leading: Icon(icon, color: colors.primary),
-      title: Text(title, maxLines: 1, overflow: TextOverflow.ellipsis),
-      subtitle: Text(subtitle, maxLines: 2, overflow: TextOverflow.ellipsis),
-      trailing: const Icon(Icons.chevron_right),
-      onTap: onTap,
+    final text = Theme.of(context).textTheme;
+    return Material(
+      color: highlighted ? colors.surfaceContainer : Colors.transparent,
+      borderRadius: BorderRadius.circular(MusicUi.radius),
+      clipBehavior: Clip.antiAlias,
+      child: InkWell(
+        onTap: onTap,
+        child: Padding(
+          padding: highlighted
+              ? const EdgeInsets.all(14)
+              : const EdgeInsets.symmetric(vertical: 5),
+          child: Row(
+            children: [
+              if (highlighted)
+                Container(
+                  width: 40,
+                  height: 40,
+                  decoration: BoxDecoration(
+                    color: colors.surfaceContainerLow,
+                    borderRadius: BorderRadius.circular(MusicUi.coverRadius),
+                  ),
+                  child: Icon(icon, color: colors.primary, size: 21),
+                )
+              else
+                MusicThumbnail(
+                  uri: artworkUri,
+                  label: artworkLabel,
+                  icon: icon,
+                ),
+              const SizedBox(width: 13),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      title,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: text.titleSmall?.copyWith(
+                        fontSize: 15,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      subtitle,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: text.bodySmall?.copyWith(
+                        fontSize: 12,
+                        color: colors.onSurfaceVariant,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 8),
+              Icon(
+                Icons.chevron_right,
+                size: 16,
+                color: colors.onSurfaceVariant,
+              ),
+            ],
+          ),
+        ),
+      ),
     );
   }
+}
+
+Uri? _homePlaylistArtwork(MusicController controller, MusicPlaylist playlist) {
+  for (final entry in playlist.entries) {
+    final url = entry.song?.coverUrl ?? '';
+    if (url.isNotEmpty) return Uri.tryParse(url);
+  }
+  for (final track in controller.tracksForPlaylist(playlist)) {
+    if (track.artworkUri != null) return track.artworkUri;
+  }
+  return null;
 }
 
 String _librarySubtitle(
@@ -1089,7 +1226,7 @@ class _LibraryPage extends StatelessWidget {
         final strings = AppStringsScope.of(context);
         return Scaffold(
           appBar: AppBar(
-            title: Text(strings.libraryTitle),
+            title: Text(strings.isZh ? '音乐库' : 'Music library'),
             actions: [
               IconButton(
                 tooltip: strings.newPlaylist,
@@ -1126,7 +1263,12 @@ class _LibraryLanding extends StatelessWidget {
     final playlists = _playlistsWithActiveSyncFirst(controller);
     final strings = AppStringsScope.of(context);
     return ListView(
-      padding: const EdgeInsets.fromLTRB(16, 12, 16, 96),
+      padding: const EdgeInsets.fromLTRB(
+        MusicUi.pagePadding,
+        12,
+        MusicUi.pagePadding,
+        24,
+      ),
       children: [
         if (controller.isLoadingCache) ...[
           const LinearProgressIndicator(),
@@ -1162,11 +1304,12 @@ class _LibraryLanding extends StatelessWidget {
           for (final playlist in playlists) ...[
             _CustomPlaylistTile(
               playlist: playlist,
-              subtitle: _playlistSyncLabel(controller, playlist, strings),
+              artwork: _homePlaylistArtwork(controller, playlist),
+              subtitle: _homePlaylistSubtitle(controller, playlist, strings),
               onTap: () =>
                   _openList(context, _LibraryListSpec.custom(playlist)),
             ),
-            const Divider(height: 1),
+            const SizedBox(height: 4),
           ],
         const SizedBox(height: 24),
         Text(
@@ -1255,10 +1398,12 @@ class _CustomPlaylistTile extends StatelessWidget {
   const _CustomPlaylistTile({
     required this.playlist,
     required this.subtitle,
+    this.artwork,
     required this.onTap,
   });
 
   final MusicPlaylist playlist;
+  final Uri? artwork;
   final String subtitle;
   final VoidCallback onTap;
 
@@ -1267,9 +1412,11 @@ class _CustomPlaylistTile extends StatelessWidget {
     return ListTile(
       key: ValueKey('custom-playlist-${playlist.id}'),
       contentPadding: EdgeInsets.zero,
-      leading: const Icon(Icons.queue_music),
+      leading: MusicThumbnail(uri: artwork, label: playlist.name),
       title: Text(playlist.name, maxLines: 1, overflow: TextOverflow.ellipsis),
-      subtitle: subtitle.isEmpty ? null : Text(subtitle),
+      subtitle: subtitle.isEmpty
+          ? null
+          : Text(subtitle, maxLines: 2, overflow: TextOverflow.ellipsis),
       trailing: const Icon(Icons.chevron_right),
       onTap: onTap,
     );
@@ -2654,16 +2801,15 @@ class _TrackActions extends StatelessWidget {
           onPressed: () => controller.toggleFavorite(track),
           icon: Icon(favorite ? Icons.favorite : Icons.favorite_border),
         ),
-        IconButton(
-          tooltip: strings.addToPlaylist,
-          onPressed: () => showAddToPlaylistSheet(context, controller, track),
-          icon: const Icon(Icons.playlist_add),
-        ),
         PopupMenuButton<_TrackAction>(
           tooltip: strings.more,
           onSelected: (action) => _handle(context, action),
           itemBuilder: (context) {
             return [
+              PopupMenuItem(
+                value: _TrackAction.addToPlaylist,
+                child: Text(strings.addToPlaylist),
+              ),
               PopupMenuItem(
                 enabled: controller.canSwitchSongSource(track),
                 value: _TrackAction.switchSource,
@@ -2694,6 +2840,8 @@ class _TrackActions extends StatelessWidget {
 
   Future<void> _handle(BuildContext context, _TrackAction action) async {
     switch (action) {
+      case _TrackAction.addToPlaylist:
+        await showAddToPlaylistSheet(context, controller, track);
       case _TrackAction.switchSource:
         await showSongSourcePicker(context, controller, track);
       case _TrackAction.deleteLocal:
@@ -2714,7 +2862,12 @@ class _TrackActions extends StatelessWidget {
   }
 }
 
-enum _TrackAction { deleteLocal, removeFromCurrent, switchSource }
+enum _TrackAction {
+  deleteLocal,
+  removeFromCurrent,
+  switchSource,
+  addToPlaylist,
+}
 
 enum _ReorderExitAction { keepEditing, discard, save }
 
@@ -2784,6 +2937,7 @@ class _MiniPlayer extends StatelessWidget {
   Widget build(BuildContext context) {
     return StreamBuilder<MediaItem?>(
       stream: controller.mediaItemStream,
+      initialData: controller.audioHandler.mediaItem.value,
       builder: (context, mediaSnapshot) {
         final item = mediaSnapshot.data;
         if (item == null) {
@@ -2791,65 +2945,161 @@ class _MiniPlayer extends StatelessWidget {
         }
         return StreamBuilder<PlaybackState>(
           stream: controller.playbackStateStream,
+          initialData: controller.audioHandler.playbackState.value,
           builder: (context, stateSnapshot) {
             final state = stateSnapshot.data ?? PlaybackState();
             final strings = AppStringsScope.of(context);
-            return Material(
-              elevation: 12,
-              color: Theme.of(context).colorScheme.surfaceContainerHighest,
-              child: SafeArea(
-                top: false,
-                child: SwipeToSkip(
-                  key: const ValueKey('mini-player-swipe-area'),
-                  onNext: controller.next,
-                  onPrevious: controller.previous,
-                  child: InkWell(
-                    onTap: () => _openPlayer(context),
-                    child: Padding(
-                      padding: const EdgeInsets.fromLTRB(16, 10, 8, 10),
-                      child: Row(
-                        children: [
-                          const Icon(Icons.album),
-                          const SizedBox(width: 12),
-                          Expanded(
-                            child: Column(
-                              mainAxisSize: MainAxisSize.min,
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                  item.title,
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                  style: Theme.of(context).textTheme.titleSmall,
+            final colors = Theme.of(context).colorScheme;
+            const radius = BorderRadius.all(
+              Radius.circular(MusicUi.miniPlayerRadius),
+            );
+            return SafeArea(
+              top: false,
+              child: Padding(
+                padding: MusicUi.miniPlayerInsets,
+                child: DecoratedBox(
+                  decoration: BoxDecoration(
+                    borderRadius: radius,
+                    boxShadow: [
+                      BoxShadow(
+                        color: colors.primary.withValues(alpha: .10),
+                        blurRadius: 20,
+                        offset: const Offset(0, 5),
+                      ),
+                    ],
+                  ),
+                  child: Material(
+                    key: const ValueKey('mini-player-card'),
+                    color: colors.surfaceContainerLow,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: radius,
+                      side: BorderSide(color: colors.outlineVariant),
+                    ),
+                    clipBehavior: Clip.antiAlias,
+                    child: Ink(
+                      decoration: BoxDecoration(
+                        gradient: LinearGradient(
+                          colors: [
+                            colors.surfaceContainerLow,
+                            colors.secondaryContainer,
+                          ],
+                          begin: AlignmentDirectional.topStart,
+                          end: AlignmentDirectional.bottomEnd,
+                        ),
+                      ),
+                      child: SwipeToSkip(
+                        key: const ValueKey('mini-player-swipe-area'),
+                        onNext: controller.next,
+                        onPrevious: controller.previous,
+                        child: InkWell(
+                          onTap: () => _openPlayer(context),
+                          child: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Padding(
+                                padding: const EdgeInsets.fromLTRB(
+                                  12,
+                                  10,
+                                  8,
+                                  8,
                                 ),
-                                Text(
-                                  item.artist ?? '',
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
+                                child: Row(
+                                  children: [
+                                    MusicThumbnail(
+                                      uri: item.artUri,
+                                      size: 48,
+                                      radius: 14,
+                                    ),
+                                    const SizedBox(width: 10),
+                                    Expanded(
+                                      child: Column(
+                                        mainAxisSize: MainAxisSize.min,
+                                        crossAxisAlignment:
+                                            CrossAxisAlignment.start,
+                                        children: [
+                                          Text(
+                                            item.title,
+                                            maxLines: 1,
+                                            overflow: TextOverflow.ellipsis,
+                                            style: Theme.of(
+                                              context,
+                                            ).textTheme.titleSmall,
+                                          ),
+                                          Text(
+                                            item.artist ?? '',
+                                            maxLines: 1,
+                                            overflow: TextOverflow.ellipsis,
+                                            style: Theme.of(
+                                              context,
+                                            ).textTheme.bodySmall,
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                    SizedBox.square(
+                                      dimension: 48,
+                                      child: Center(
+                                        child: IconButton.filled(
+                                          key: const ValueKey(
+                                            'mini-player-play',
+                                          ),
+                                          tooltip: state.playing
+                                              ? strings.pause
+                                              : strings.play,
+                                          style: IconButton.styleFrom(
+                                            backgroundColor:
+                                                colors.primaryContainer,
+                                            foregroundColor:
+                                                colors.onPrimaryContainer,
+                                            minimumSize: const Size.square(44),
+                                            padding: const EdgeInsets.all(10),
+                                          ),
+                                          onPressed: controller.togglePlayPause,
+                                          icon: Icon(
+                                            state.playing
+                                                ? Icons.pause_rounded
+                                                : Icons.play_arrow_rounded,
+                                          ),
+                                        ),
+                                      ),
+                                    ),
+                                    IconButton(
+                                      tooltip: strings.next,
+                                      onPressed: controller.next,
+                                      icon: const Icon(Icons.skip_next_rounded),
+                                    ),
+                                    IconButton(
+                                      key: const ValueKey('mini-player-queue'),
+                                      tooltip: strings.isZh
+                                          ? '当前队列'
+                                          : 'Play queue',
+                                      onPressed: () => showPlaybackQueue(
+                                        context,
+                                        controller,
+                                      ),
+                                      icon: const Icon(
+                                        Icons.queue_music_rounded,
+                                      ),
+                                    ),
+                                  ],
                                 ),
-                              ],
-                            ),
+                              ),
+                              Padding(
+                                padding: const EdgeInsets.fromLTRB(
+                                  70,
+                                  0,
+                                  16,
+                                  12,
+                                ),
+                                child: MiniPlaybackProgress(
+                                  controller: controller,
+                                  item: item,
+                                  state: state,
+                                ),
+                              ),
+                            ],
                           ),
-                          IconButton(
-                            tooltip: strings.previous,
-                            onPressed: controller.previous,
-                            icon: const Icon(Icons.skip_previous),
-                          ),
-                          IconButton(
-                            tooltip: state.playing
-                                ? strings.pause
-                                : strings.play,
-                            onPressed: controller.togglePlayPause,
-                            icon: Icon(
-                              state.playing ? Icons.pause : Icons.play_arrow,
-                            ),
-                          ),
-                          IconButton(
-                            tooltip: strings.next,
-                            onPressed: controller.next,
-                            icon: const Icon(Icons.skip_next),
-                          ),
-                        ],
+                        ),
                       ),
                     ),
                   ),

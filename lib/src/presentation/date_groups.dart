@@ -1,3 +1,4 @@
+import 'app_theme.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter/rendering.dart';
@@ -68,7 +69,12 @@ class DateGroupHeader extends StatelessWidget {
   final bool zh;
   @override
   Widget build(BuildContext context) => Padding(
-    padding: EdgeInsets.fromLTRB(12 + indent, 16, 12, 6),
+    padding: EdgeInsets.fromLTRB(
+      MusicUi.pagePadding + indent,
+      16,
+      MusicUi.pagePadding,
+      6,
+    ),
     child: Text(
       '${label ?? dateGroupLabel(day, zh: zh)} · $summary',
       style: Theme.of(context).textTheme.titleSmall?.copyWith(
@@ -198,21 +204,33 @@ class DateFilterButton extends StatelessWidget {
             child: Text(zh ? '日期未知' : 'Unknown date'),
           ),
       ],
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 12),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(
-              value == null ? Icons.filter_alt_outlined : Icons.filter_alt,
-              size: 20,
+      child: MusicUi.compactActions(context)
+          ? Semantics(
+              value: label,
+              child: SizedBox.square(
+                dimension: 48,
+                child: Icon(
+                  value == null ? Icons.filter_alt_outlined : Icons.filter_alt,
+                ),
+              ),
+            )
+          : Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 12),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(
+                    value == null
+                        ? Icons.filter_alt_outlined
+                        : Icons.filter_alt,
+                    size: 20,
+                  ),
+                  const SizedBox(width: 4),
+                  Text(label),
+                  const Icon(Icons.arrow_drop_down, size: 18),
+                ],
+              ),
             ),
-            const SizedBox(width: 4),
-            Text(label),
-            const Icon(Icons.arrow_drop_down, size: 18),
-          ],
-        ),
-      ),
     );
   }
 }

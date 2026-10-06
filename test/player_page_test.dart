@@ -1,3 +1,4 @@
+import 'package:ai_music/src/presentation/app_theme.dart';
 import 'package:ai_music/src/data/song_search_cache.dart';
 import 'memory_download_history.dart';
 import 'dart:async';
@@ -47,6 +48,7 @@ void main() {
           AppStringsScope(
             language: AppLanguage.zh,
             child: MaterialApp(
+              theme: MusicAppTheme.create(Brightness.light),
               home: Scaffold(
                 body: SongCacheProgressRow(
                   controller: controller,
@@ -170,7 +172,10 @@ void main() {
         await tester.pumpWidget(
           AppStringsScope(
             language: AppLanguage.zh,
-            child: MaterialApp(home: PlayerPage(controller: controller)),
+            child: MaterialApp(
+              theme: MusicAppTheme.create(Brightness.light),
+              home: PlayerPage(controller: controller),
+            ),
           ),
         );
         await tester.pump();
@@ -295,7 +300,7 @@ void main() {
         AppStringsScope(
           language: AppLanguage.zh,
           child: MaterialApp(
-            theme: ThemeData.dark(useMaterial3: true),
+            theme: MusicAppTheme.create(Brightness.dark),
             home: Scaffold(
               body: SizedBox(
                 height: 360,
@@ -366,6 +371,7 @@ void main() {
         AppStringsScope(
           language: AppLanguage.zh,
           child: MaterialApp(
+            theme: MusicAppTheme.create(Brightness.light),
             home: Scaffold(
               body: SizedBox(
                 height: 360,
@@ -424,6 +430,7 @@ void main() {
         AppStringsScope(
           language: AppLanguage.zh,
           child: MaterialApp(
+            theme: MusicAppTheme.create(Brightness.light),
             home: Scaffold(
               body: SizedBox(
                 height: 360,
@@ -470,7 +477,7 @@ void main() {
         AppStringsScope(
           language: AppLanguage.zh,
           child: MaterialApp(
-            theme: ThemeData.dark(useMaterial3: true),
+            theme: MusicAppTheme.create(Brightness.dark),
             home: Scaffold(
               body: SizedBox(
                 height: 360,

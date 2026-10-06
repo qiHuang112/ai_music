@@ -1,3 +1,5 @@
+import 'music_thumbnail.dart';
+import 'app_theme.dart';
 import 'package:flutter/material.dart';
 import '../application/music_controller.dart';
 import '../data/music_playlists.dart';
@@ -210,6 +212,11 @@ class _DirectPlaylistPageState extends State<DirectPlaylistPage> {
               : Column(
                   children: [
                     ListTile(
+                      leading: MusicThumbnail(
+                        uri: Uri.tryParse(widget.playlist.coverUrl),
+                        label: widget.playlist.name,
+                        size: 48,
+                      ),
                       title: Text(widget.playlist.source.label),
                       subtitle: Text(
                         '${widget.playlist.creator} · ${detail.songs.length} ${zh ? '首' : 'songs'}',
@@ -228,8 +235,16 @@ class _DirectPlaylistPageState extends State<DirectPlaylistPage> {
                           final song = detail.songs[i];
                           return CheckboxListTile(
                             key: ValueKey('direct-song-$i'),
-                            title: Text(song.title),
-                            subtitle: Text(song.artist),
+                            title: Text(
+                              song.title,
+                              maxLines: 2,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                            subtitle: Text(
+                              song.artist,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
                             value: _selected.contains(i),
                             onChanged: _saving || _destination != null
                                 ? null
@@ -245,7 +260,12 @@ class _DirectPlaylistPageState extends State<DirectPlaylistPage> {
                       ),
                     ),
                     Padding(
-                      padding: const EdgeInsets.fromLTRB(16, 8, 16, 12),
+                      padding: const EdgeInsets.fromLTRB(
+                        MusicUi.pagePadding,
+                        8,
+                        MusicUi.pagePadding,
+                        12,
+                      ),
                       child: _destination != null
                           ? SizedBox(
                               width: double.infinity,

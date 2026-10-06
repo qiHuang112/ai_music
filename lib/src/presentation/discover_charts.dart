@@ -1,3 +1,4 @@
+import 'app_theme.dart';
 import 'package:flutter/material.dart';
 
 import '../application/chart_playlist_importer.dart';
@@ -20,21 +21,19 @@ class DiscoverChartsSection extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        Text(strings.discover, style: Theme.of(context).textTheme.titleMedium),
-        const SizedBox(height: 8),
-        _platformCard(
-          context,
-          title: strings.qqMusic,
-          subtitle: strings.qqPeakCharts,
-          icon: Icons.music_note,
-          charts: qqMusicCharts,
+        Text(
+          strings.discover,
+          style: Theme.of(context).textTheme.titleLarge?.copyWith(
+            fontSize: 19,
+            fontWeight: FontWeight.w600,
+          ),
         ),
-        const SizedBox(height: 8),
+        const SizedBox(height: 14),
+        _platformCard(context, title: strings.qqMusic, charts: qqMusicCharts),
+        const SizedBox(height: 18),
         _platformCard(
           context,
           title: strings.neteaseMusic,
-          subtitle: strings.neteaseFeaturedCharts,
-          icon: Icons.library_music,
           charts: neteaseMusicCharts,
         ),
       ],
@@ -44,51 +43,58 @@ class DiscoverChartsSection extends StatelessWidget {
   Widget _platformCard(
     BuildContext context, {
     required String title,
-    required String subtitle,
-    required IconData icon,
     required List<MusicChart> charts,
   }) {
     final colors = Theme.of(context).colorScheme;
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(12),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
           children: [
-            Row(
-              children: [
-                Icon(icon, color: colors.primary),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: Text(
-                    title,
-                    style: Theme.of(context).textTheme.titleSmall,
-                  ),
-                ),
-                Text(
-                  subtitle,
-                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                    color: colors.onSurfaceVariant,
-                  ),
-                ),
-              ],
+            Container(
+              width: 6,
+              height: 6,
+              decoration: BoxDecoration(
+                color: colors.primary,
+                shape: BoxShape.circle,
+              ),
             ),
-            const SizedBox(height: 8),
-            Wrap(
-              spacing: 8,
-              runSpacing: 0,
-              children: [
-                for (final chart in charts)
-                  ActionChip(
-                    key: ValueKey('chart-${chart.platform.name}-${chart.id}'),
-                    label: Text(chart.title),
-                    onPressed: () => onOpenChart(chart),
-                  ),
-              ],
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(
+                title,
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                  color: colors.onSurfaceVariant,
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
             ),
           ],
         ),
-      ),
+        const SizedBox(height: 8),
+        Wrap(
+          spacing: 8,
+          runSpacing: 0,
+          children: [
+            for (final chart in charts)
+              TextButton(
+                key: ValueKey('chart-${chart.platform.name}-${chart.id}'),
+                style: TextButton.styleFrom(
+                  foregroundColor: colors.onSurface,
+                  backgroundColor: colors.surfaceContainerHighest,
+                  minimumSize: const Size(48, 40),
+                  padding: const EdgeInsets.symmetric(horizontal: 12),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(MusicUi.coverRadius),
+                  ),
+                  textStyle: Theme.of(context).textTheme.bodySmall,
+                ),
+                child: Text(chart.title),
+                onPressed: () => onOpenChart(chart),
+              ),
+          ],
+        ),
+      ],
     );
   }
 }

@@ -1,3 +1,4 @@
+import 'package:ai_music/src/presentation/app_theme.dart';
 import 'package:ai_music/src/data/song_search_cache.dart';
 import 'memory_download_history.dart';
 import 'dart:async';
@@ -340,6 +341,7 @@ void main() {
 }
 
 Widget _app(Widget child) => MaterialApp(
+  theme: MusicAppTheme.create(Brightness.light),
   home: Scaffold(
     body: AppStringsScope(language: AppLanguage.zh, child: child),
   ),

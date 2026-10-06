@@ -1,3 +1,4 @@
+import 'app_theme.dart';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
@@ -110,8 +111,16 @@ class _ScreenshotImportPageState extends State<ScreenshotImportPage> {
         child: Column(
           children: [
             Padding(
-              padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
-              child: Row(
+              padding: const EdgeInsets.fromLTRB(
+                MusicUi.pagePadding,
+                8,
+                MusicUi.pagePadding,
+                8,
+              ),
+              child: Wrap(
+                crossAxisAlignment: WrapCrossAlignment.center,
+                spacing: 12,
+                runSpacing: 8,
                 children: [
                   FilledButton.icon(
                     onPressed: _recognizing ? null : () => _pickImages(),
@@ -157,7 +166,9 @@ class _ScreenshotImportPageState extends State<ScreenshotImportPage> {
                           InkWell(
                             onTap: () => _preview(image),
                             child: ClipRRect(
-                              borderRadius: BorderRadius.circular(6),
+                              borderRadius: BorderRadius.circular(
+                                MusicUi.coverRadius,
+                              ),
                               child: Image.file(
                                 File(image.path),
                                 width: 78,
@@ -246,11 +257,21 @@ class _ScreenshotImportPageState extends State<ScreenshotImportPage> {
               minimum: const EdgeInsets.fromLTRB(16, 8, 16, 12),
               child: Row(
                 children: [
-                  Text(zh ? '已选 $selected 首' : '$selected selected'),
-                  const Spacer(),
-                  OutlinedButton(
-                    onPressed: selected == 0 || _adding ? null : _addToPlaylist,
-                    child: Text(zh ? '加入歌单' : 'Add to playlist'),
+                  Expanded(
+                    child: Text(
+                      zh ? '已选 $selected 首' : '$selected selected',
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Flexible(
+                    child: OutlinedButton(
+                      onPressed: selected == 0 || _adding
+                          ? null
+                          : _addToPlaylist,
+                      child: Text(zh ? '加入歌单' : 'Add to playlist'),
+                    ),
                   ),
                 ],
               ),

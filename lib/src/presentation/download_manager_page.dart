@@ -1,3 +1,4 @@
+import 'app_theme.dart';
 import 'date_groups.dart';
 import 'package:flutter/material.dart';
 
@@ -102,7 +103,12 @@ class _DownloadManagerPageState extends State<DownloadManagerPage> {
               key: ValueKey(_dateFilter),
               slivers: [
                 SliverPadding(
-                  padding: const EdgeInsets.fromLTRB(12, 8, 12, 0),
+                  padding: const EdgeInsets.fromLTRB(
+                    MusicUi.pagePadding,
+                    8,
+                    MusicUi.pagePadding,
+                    0,
+                  ),
                   sliver: SliverList.list(
                     children: [
                       if (controller.customPlaylists.isNotEmpty) ...[
@@ -196,7 +202,7 @@ class _DownloadManagerPageState extends State<DownloadManagerPage> {
                       onToggle: (key) => _toggle(_collapsedTasks, key),
                       expandInitially: _dateFilter != null,
                       itemBuilder: (context, task) => Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 12),
+                        padding: MusicUi.horizontalInsets,
                         child: _DownloadTaskTile(
                           controller: controller,
                           task: task,
@@ -204,7 +210,7 @@ class _DownloadManagerPageState extends State<DownloadManagerPage> {
                       ),
                     ),
                 SliverPadding(
-                  padding: const EdgeInsets.symmetric(horizontal: 12),
+                  padding: MusicUi.horizontalInsets,
                   sliver: SliverList.list(
                     children: [
                       const SizedBox(height: 18),
@@ -249,7 +255,7 @@ class _DownloadManagerPageState extends State<DownloadManagerPage> {
                       expandInitially:
                           _dateFilter != null || _query.trim().isNotEmpty,
                       itemBuilder: (context, item) => Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 12),
+                        padding: MusicUi.horizontalInsets,
                         child: _CachedTrackTile(
                           controller: controller,
                           track: item.$2,
@@ -260,7 +266,7 @@ class _DownloadManagerPageState extends State<DownloadManagerPage> {
                     ),
                 if (_sortMode != _DownloadSortMode.downloadedAt)
                   SliverPadding(
-                    padding: const EdgeInsets.symmetric(horizontal: 12),
+                    padding: MusicUi.horizontalInsets,
                     sliver: SliverList.list(
                       children: [
                         for (
@@ -495,21 +501,23 @@ class _CachedSortButton extends StatelessWidget {
           child: Text(strings.sortByDownloadTime),
         ),
       ],
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const Icon(Icons.sort, size: 18),
-            const SizedBox(width: 6),
-            Text(
-              value == _DownloadSortMode.initial
-                  ? strings.sortByInitial
-                  : strings.sortByDownloadTime,
+      child: MusicUi.compactActions(context)
+          ? const SizedBox.square(dimension: 48, child: Icon(Icons.sort))
+          : Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Icon(Icons.sort, size: 18),
+                  const SizedBox(width: 6),
+                  Text(
+                    value == _DownloadSortMode.initial
+                        ? strings.sortByInitial
+                        : strings.sortByDownloadTime,
+                  ),
+                ],
+              ),
             ),
-          ],
-        ),
-      ),
     );
   }
 }

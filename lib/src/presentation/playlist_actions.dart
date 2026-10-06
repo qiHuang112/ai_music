@@ -1,3 +1,4 @@
+import 'app_theme.dart';
 import 'package:flutter/material.dart';
 
 import '../application/music_controller.dart';
@@ -53,6 +54,10 @@ Future<void> showAddTracksToPlaylistSheet(
       final playlists = controller.customPlaylists;
       return SafeArea(
         child: ListView(
+          padding: const EdgeInsets.symmetric(
+            horizontal: MusicUi.pagePadding,
+            vertical: 8,
+          ),
           shrinkWrap: true,
           children: [
             ListTile(

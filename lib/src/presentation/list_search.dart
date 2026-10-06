@@ -1,3 +1,4 @@
+import 'app_theme.dart';
 import 'package:flutter/material.dart';
 
 import '../domain/music_models.dart';
@@ -21,7 +22,12 @@ class ListSearchField extends StatelessWidget {
   Widget build(BuildContext context) {
     final strings = AppStringsScope.of(context);
     return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
+      padding: const EdgeInsets.fromLTRB(
+        MusicUi.pagePadding,
+        8,
+        MusicUi.pagePadding,
+        8,
+      ),
       child: TextField(
         controller: controller,
         focusNode: focusNode,
@@ -42,7 +48,7 @@ class ListSearchField extends StatelessWidget {
                   },
                   icon: const Icon(Icons.close),
                 ),
-          border: const OutlineInputBorder(),
+
           isDense: true,
         ),
       ),

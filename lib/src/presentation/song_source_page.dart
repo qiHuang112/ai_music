@@ -1,3 +1,4 @@
+import 'app_theme.dart';
 import 'package:flutter/material.dart';
 import '../application/music_controller.dart';
 import '../data/music_resolver.dart';
@@ -122,7 +123,7 @@ class _SongSourcePageState extends State<SongSourcePage> {
         child: Column(
           children: [
             Padding(
-              padding: const EdgeInsets.all(16),
+              padding: const EdgeInsets.all(MusicUi.pagePadding),
               child: TextField(
                 controller: _query,
                 enabled: !_saving,
@@ -130,7 +131,7 @@ class _SongSourcePageState extends State<SongSourcePage> {
                 textInputAction: TextInputAction.search,
                 decoration: InputDecoration(
                   labelText: zh ? '歌名 / 歌手' : 'Song / artist',
-                  border: const OutlineInputBorder(),
+
                   suffixIcon: IconButton(
                     onPressed: _saving ? null : _search,
                     icon: const Icon(Icons.search),
@@ -138,28 +139,38 @@ class _SongSourcePageState extends State<SongSourcePage> {
                 ),
               ),
             ),
-            SegmentedButton<MusicDataSource>(
-              segments: [
-                ButtonSegment(
-                  value: MusicDataSource.auto,
-                  label: Text(zh ? '全部' : 'All'),
+            Padding(
+              padding: MusicUi.horizontalInsets,
+              child: Align(
+                alignment: AlignmentDirectional.centerStart,
+                child: Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: [
+                    for (final source in [
+                      MusicDataSource.auto,
+                      MusicDataSource.buguyy,
+                      MusicDataSource.flac,
+                    ])
+                      ChoiceChip(
+                        label: Text(
+                          source == MusicDataSource.auto
+                              ? (zh ? '全部' : 'All')
+                              : source == MusicDataSource.buguyy
+                              ? '布谷YY'
+                              : 'FLAC',
+                        ),
+                        selected: _source == source,
+                        onSelected: _saving
+                            ? null
+                            : (_) {
+                                setState(() => _source = source);
+                                _search();
+                              },
+                      ),
+                  ],
                 ),
-                const ButtonSegment(
-                  value: MusicDataSource.buguyy,
-                  label: Text('布谷YY'),
-                ),
-                const ButtonSegment(
-                  value: MusicDataSource.flac,
-                  label: Text('FLAC'),
-                ),
-              ],
-              selected: {_source},
-              onSelectionChanged: _saving
-                  ? null
-                  : (selected) {
-                      setState(() => _source = selected.single);
-                      _search();
-                    },
+              ),
             ),
             const SizedBox(height: 8),
             if (_error != null)
@@ -180,7 +191,11 @@ class _SongSourcePageState extends State<SongSourcePage> {
                         final candidate = _results[i];
                         return ListTile(
                           key: ValueKey('song-source-$i'),
-                          title: Text(candidate.name),
+                          title: Text(
+                            candidate.name,
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                          ),
                           subtitle: Text(
                             '${candidate.subtitle}${candidate.platform.isEmpty ? '' : ' · ${candidate.platform}'}',
                           ),

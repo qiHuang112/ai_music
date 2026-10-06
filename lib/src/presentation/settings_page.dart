@@ -1,3 +1,4 @@
+import 'app_theme.dart';
 import 'package:flutter/material.dart';
 
 import '../application/music_controller.dart';
@@ -21,7 +22,7 @@ class SettingsPage extends StatelessWidget {
           appBar: AppBar(title: Text(strings.settings)),
           body: SafeArea(
             child: ListView(
-              padding: const EdgeInsets.fromLTRB(12, 16, 12, 24),
+              padding: MusicUi.pageInsets,
               children: [
                 _SettingsGroup(
                   title: strings.isZh ? '通用' : 'General',
@@ -173,8 +174,7 @@ class _SettingsGroup extends StatelessWidget {
     return Material(
       color: theme.colorScheme.surfaceContainerLow,
       shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(20),
-        side: BorderSide(color: theme.colorScheme.outlineVariant),
+        borderRadius: BorderRadius.circular(MusicUi.radius),
       ),
       clipBehavior: Clip.antiAlias,
       child: ListTileTheme.merge(
@@ -185,12 +185,12 @@ class _SettingsGroup extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             Padding(
-              padding: const EdgeInsets.fromLTRB(52, 16, 12, 4),
+              padding: const EdgeInsets.fromLTRB(16, 18, 16, 8),
               child: Text(
                 title,
                 style: theme.textTheme.titleLarge?.copyWith(
                   color: theme.colorScheme.onSurface,
-                  fontWeight: FontWeight.w700,
+                  fontWeight: FontWeight.w600,
                 ),
               ),
             ),
@@ -219,7 +219,7 @@ class _ConcurrencySettingsPage extends StatelessWidget {
       appBar: AppBar(title: Text(zh ? '并发设置' : 'Concurrency')),
       body: SafeArea(
         child: ListView(
-          padding: const EdgeInsets.fromLTRB(12, 16, 12, 24),
+          padding: MusicUi.pageInsets,
           children: [
             _SettingsGroup(
               title: zh ? '任务并发' : 'Parallel tasks',
@@ -268,7 +268,7 @@ class _DownloadQualityPage extends StatelessWidget {
                     title: Text(_qualityTitle(zh, level)),
                   ),
                 Padding(
-                  padding: const EdgeInsets.all(16),
+                  padding: const EdgeInsets.all(MusicUi.pagePadding),
                   child: Text(
                     zh
                         ? '主动下载单首或整张歌单使用此品质；音源缺少该品质时使用可用版本。播放缓存始终优先用低品质，不会自动升级。'
@@ -531,7 +531,7 @@ class _LanLibrarySettingsPageState extends State<LanLibrarySettingsPage> {
           appBar: AppBar(title: Text(strings.lanLibrary)),
           body: SafeArea(
             child: ListView(
-              padding: const EdgeInsets.all(16),
+              padding: const EdgeInsets.all(MusicUi.pagePadding),
               children: [
                 Text(strings.lanLibraryDescription),
                 const SizedBox(height: 16),
@@ -544,7 +544,6 @@ class _LanLibrarySettingsPageState extends State<LanLibrarySettingsPage> {
                     labelText: strings.lanLibraryAddress,
                     hintText: 'http://192.168.31.57:8787',
                     errorText: _inputError,
-                    border: const OutlineInputBorder(),
                   ),
                 ),
                 const SizedBox(height: 12),
