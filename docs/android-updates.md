@@ -81,7 +81,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\start_lan_update_server.ps
 python3 tool/push_and_publish_android.py
 ```
 
-这是提交交付命令，按顺序执行Git push、确认远端main等于当前干净HEAD、签名release构建、证书校验、不可变归档、原子更新latest，以及局域网元数据和完整APK大小/哈希校验。版本号高于历史debug/release全部包；保留当前发布的versionName，arm64版本偏移由脚本处理。元数据记录sourceCommit；同一已发布提交再次执行只验证服务，不重复构建。它由后续开发/提交流程调用，并不是Git原生post-push钩子；手工裸git push不会触发。
+这是提交交付命令，按顺序执行Git push、确认远端main等于当前干净HEAD、签名release构建、证书校验、不可变归档、原子更新latest，以及局域网元数据和完整APK大小/哈希校验。版本号高于历史debug/release全部包；versionName读取源码pubspec.yaml声明（支持用户升版，不沿用旧latest版本名），arm64版本偏移由脚本处理。元数据记录sourceCommit；同一已发布提交再次执行只验证服务，不重复构建。它由后续开发/提交流程调用，并不是Git原生post-push钩子；手工裸git push不会触发。
 
 若Git已经推送而构建或发布失败，修复本机问题后从同一干净提交重试：
 

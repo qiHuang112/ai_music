@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:ai_music/src/playback/music_audio_handler.dart';
+import 'package:ai_music/src/playback/shuffle_skip_planner.dart';
 import 'package:audio_service/audio_service.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:just_audio/just_audio.dart';
@@ -174,6 +175,225 @@ void main() {
   });
 
   test(
+    'shuffle next uses native current song even when displayed metadata is stale',
+    () async {
+      final original = JustAudioPlatform.instance;
+      final platform = _TestJustAudioPlatform();
+      JustAudioPlatform.instance = platform;
+      final planner = ShuffleSkipPlanner(seed: 7);
+      final handler = MusicAudioHandler(shuffleSkipPlanner: planner);
+      try {
+        final ids = ['a', 'b', 'c', 'd'];
+        await handler.loadQueue([
+          for (final id in ids)
+            PlayableAudio(
+              mediaItem: MediaItem(id: id, title: id),
+              source: AudioSource.uri(Uri.parse('https://example.com/$id.mp3')),
+            ),
+        ], playWhenReady: false);
+        await handler.setShuffleMode(AudioServiceShuffleMode.all);
+        await handler.skipToQueueItem(2);
+        await Future<void>.delayed(Duration.zero);
+        final expected = ids.indexOf(planner.peekNextAfter('c')!);
+        final stale = ids.firstWhere(
+          (id) => planner.peekNextAfter(id) != ids[expected],
+        );
+        handler.mediaItem.add(MediaItem(id: stale, title: stale));
+        await handler.skipToNext();
+        await Future<void>.delayed(const Duration(milliseconds: 10));
+        expect(platform._players.values.single._index, expected);
+        expect(handler.mediaItem.value?.id, ids[expected]);
+        expect(handler.playbackState.value.queueIndex, expected);
+      } finally {
+        await handler.dispose();
+        JustAudioPlatform.instance = original;
+      }
+    },
+  );
+
+  test(
+    'shuffle redirect keeps displayed item aligned with native audio while seeking',
+    () async {
+      final original = JustAudioPlatform.instance;
+      final platform = _TestJustAudioPlatform();
+      JustAudioPlatform.instance = platform;
+      final planner = ShuffleSkipPlanner(seed: 7);
+      final handler = MusicAudioHandler(shuffleSkipPlanner: planner);
+      try {
+        final ids = ['a', 'b', 'c', 'd'];
+        await handler.loadQueue([
+          for (final id in ids)
+            PlayableAudio(
+              mediaItem: MediaItem(id: id, title: id),
+              source: AudioSource.uri(Uri.parse('https://example.com/$id.mp3')),
+            ),
+        ], playWhenReady: false);
+        await handler.setShuffleMode(AudioServiceShuffleMode.all);
+        await Future<void>.delayed(Duration.zero);
+        final native = platform._players.values.single;
+        final target = ids.indexOf(planner.peekNextAfter('a')!);
+        final fallback = [1, 2, 3].firstWhere((i) => i != target);
+        native.seekGate = Completer<void>();
+        native.advanceTo(fallback);
+        await native.seekStarted.future.timeout(const Duration(seconds: 2));
+        await Future<void>.delayed(Duration.zero);
+        expect(handler.currentQueueIndex, fallback);
+        expect(
+          handler.mediaItem.value?.id,
+          ids[fallback],
+          reason:
+              'The source currently producing audio must supply system metadata.',
+        );
+        native.seekGate!.complete();
+        await Future<void>.delayed(const Duration(milliseconds: 10));
+        expect(handler.mediaItem.value?.id, ids[native._index!]);
+        expect(handler.playbackState.value.queueIndex, native._index);
+      } finally {
+        for (final player in platform._players.values) {
+          if (player.seekGate?.isCompleted == false) {
+            player.seekGate!.complete();
+          }
+        }
+        await handler.dispose();
+        JustAudioPlatform.instance = original;
+      }
+    },
+  );
+
+  test(
+    'shuffle publishes actual error fallback rather than waiting forever for its target',
+    () async {
+      final original = JustAudioPlatform.instance;
+      final platform = _TestJustAudioPlatform();
+      JustAudioPlatform.instance = platform;
+      final planner = ShuffleSkipPlanner(seed: 7);
+      final handler = MusicAudioHandler(shuffleSkipPlanner: planner);
+      try {
+        final ids = ['a', 'b', 'c', 'd'];
+        await handler.loadQueue([
+          for (final id in ids)
+            PlayableAudio(
+              mediaItem: MediaItem(id: id, title: id),
+              source: AudioSource.uri(Uri.parse('https://example.com/$id.mp3')),
+            ),
+        ], playWhenReady: false);
+        await handler.setShuffleMode(AudioServiceShuffleMode.all);
+        await Future<void>.delayed(Duration.zero);
+        final native = platform._players.values.single;
+        final target = ids.indexOf(planner.peekNextAfter('a')!);
+        final fallback = [1, 2, 3].firstWhere((i) => i != target);
+        final recovered = [
+          1,
+          2,
+          3,
+        ].firstWhere((i) => i != target && i != fallback);
+        native.seekGate = Completer<void>();
+        native.advanceTo(fallback);
+        await native.seekStarted.future.timeout(const Duration(seconds: 2));
+        native.advanceTo(recovered);
+        await Future<void>.delayed(const Duration(milliseconds: 10));
+        expect(handler.mediaItem.value?.id, ids[recovered]);
+        expect(handler.playbackState.value.queueIndex, recovered);
+      } finally {
+        for (final player in platform._players.values) {
+          if (player.seekGate?.isCompleted == false) {
+            player.seekGate!.complete();
+          }
+        }
+        await Future<void>.delayed(const Duration(milliseconds: 10));
+        await handler.dispose();
+        JustAudioPlatform.instance = original;
+      }
+    },
+  );
+
+  test(
+    'removing an earlier queue item synchronizes the system index without another native event',
+    () async {
+      final original = JustAudioPlatform.instance;
+      final platform = _TestJustAudioPlatform();
+      JustAudioPlatform.instance = platform;
+      final handler = MusicAudioHandler();
+      try {
+        await handler.loadQueue(
+          [
+            for (final id in ['a', 'b', 'c', 'd'])
+              PlayableAudio(
+                mediaItem: MediaItem(id: id, title: id),
+                source: AudioSource.uri(
+                  Uri.parse('https://example.com/$id.mp3'),
+                ),
+              ),
+          ],
+          initialIndex: 2,
+          playWhenReady: false,
+        );
+        await handler.removeQueueItemAt(0);
+        await Future<void>.delayed(Duration.zero);
+        expect(platform._players.values.single._index, 1);
+        expect(handler.mediaItem.value?.id, 'c');
+        expect(handler.playbackState.value.queueIndex, 1);
+      } finally {
+        await handler.dispose();
+        JustAudioPlatform.instance = original;
+      }
+    },
+  );
+
+  test(
+    'editing the queue cancels a deferred shuffle seek whose index would move',
+    () async {
+      final original = JustAudioPlatform.instance;
+      final platform = _TestJustAudioPlatform();
+      JustAudioPlatform.instance = platform;
+      final planner = ShuffleSkipPlanner(seed: 7);
+      final handler = MusicAudioHandler(shuffleSkipPlanner: planner);
+      Future<void>? editing;
+      try {
+        final ids = ['a', 'b', 'c', 'd'];
+        await handler.loadQueue([
+          for (final id in ids)
+            PlayableAudio(
+              mediaItem: MediaItem(id: id, title: id),
+              source: AudioSource.uri(Uri.parse('https://example.com/$id.mp3')),
+            ),
+        ], playWhenReady: false);
+        await handler.setShuffleMode(AudioServiceShuffleMode.all);
+        await Future<void>.delayed(Duration.zero);
+        final native = platform._players.values.single;
+        final target = ids.indexOf(planner.peekNextAfter('a')!);
+        final fallback = [1, 2, 3].firstWhere((index) => index != target);
+        final advanced = handler.mediaItem.firstWhere(
+          (item) => item?.id == ids[fallback],
+        );
+        native.advanceTo(fallback);
+        await advanced.timeout(const Duration(seconds: 2));
+        native.removeGate = Completer<void>();
+        editing = handler.removeQueueItemAt(0);
+        await native.removeStarted.future.timeout(const Duration(seconds: 2));
+        await Future<void>.delayed(const Duration(milliseconds: 10));
+        expect(native.seekStarted.isCompleted, isFalse);
+        native.removeGate!.complete();
+        await editing;
+        await Future<void>.delayed(const Duration(milliseconds: 10));
+        expect(native.seekStarted.isCompleted, isFalse);
+        expect(native._index, fallback - 1);
+        expect(handler.mediaItem.value?.id, ids[fallback]);
+        expect(handler.playbackState.value.queueIndex, fallback - 1);
+      } finally {
+        for (final player in platform._players.values) {
+          if (player.removeGate?.isCompleted == false) {
+            player.removeGate!.complete();
+          }
+        }
+        await editing;
+        await handler.dispose();
+        JustAudioPlatform.instance = original;
+      }
+    },
+  );
+
+  test(
     'appending recognized songs keeps the current item and queue index',
     () async {
       final originalPlatform = JustAudioPlatform.instance;
@@ -258,6 +478,14 @@ class _TestAudioPlayerPlatform extends AudioPlayerPlatform {
 
   final _events = StreamController<PlaybackEventMessage>.broadcast();
   int? _index;
+  Completer<void>? seekGate;
+  Completer<void>? removeGate;
+  final removeStarted = Completer<void>();
+  final seekStarted = Completer<void>();
+  void advanceTo(int index) {
+    _index = index;
+    _emit();
+  }
 
   @override
   Stream<PlaybackEventMessage> get playbackEventMessageStream => _events.stream;
@@ -271,6 +499,8 @@ class _TestAudioPlayerPlatform extends AudioPlayerPlatform {
 
   @override
   Future<SeekResponse> seek(SeekRequest request) async {
+    if (!seekStarted.isCompleted) seekStarted.complete();
+    if (seekGate != null) await seekGate!.future;
     _index = request.index ?? _index;
     _emit();
     return SeekResponse();
@@ -279,12 +509,26 @@ class _TestAudioPlayerPlatform extends AudioPlayerPlatform {
   @override
   Future<ConcatenatingInsertAllResponse> concatenatingInsertAll(
     ConcatenatingInsertAllRequest request,
-  ) async => ConcatenatingInsertAllResponse();
+  ) async {
+    if (_index != null && _index! >= request.index) {
+      _index = _index! + request.children.length;
+    }
+    _emit();
+    return ConcatenatingInsertAllResponse();
+  }
 
   @override
   Future<ConcatenatingRemoveRangeResponse> concatenatingRemoveRange(
     ConcatenatingRemoveRangeRequest request,
-  ) async => ConcatenatingRemoveRangeResponse();
+  ) async {
+    if (!removeStarted.isCompleted) removeStarted.complete();
+    if (removeGate != null) await removeGate!.future;
+    if (_index != null && _index! >= request.endIndex) {
+      _index = _index! - (request.endIndex - request.startIndex);
+    }
+    _emit();
+    return ConcatenatingRemoveRangeResponse();
+  }
 
   @override
   Future<PlayResponse> play(PlayRequest request) async => PlayResponse();

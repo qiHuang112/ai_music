@@ -26,11 +26,11 @@ class MusicAudioHandler extends BaseAudioHandler
       );
     }
     _playbackEventSubscription = _player.playbackEventStream.listen((event) {
+      // Use the same native event for metadata and queueIndex. The derived
+      // currentIndex stream can lag, especially with fast release callbacks.
+      _handleCurrentIndexChanged(event.currentIndex);
       playbackState.add(_transformEvent(event));
     });
-    _currentIndexSubscription = _player.currentIndexStream.listen(
-      _handleCurrentIndexChanged,
-    );
     _durationSubscription = _player.durationStream.listen(_publishDuration);
     _processingStateSubscription = _player.processingStateStream.listen((
       state,
@@ -52,7 +52,6 @@ class MusicAudioHandler extends BaseAudioHandler
   Future<void> Function(String mediaId)? onToggleFavoriteRequested;
   Future<void> Function()? onTogglePlaybackModeRequested;
   late final StreamSubscription<PlaybackEvent> _playbackEventSubscription;
-  late final StreamSubscription<int?> _currentIndexSubscription;
   late final StreamSubscription<Duration?> _durationSubscription;
   late final StreamSubscription<ProcessingState> _processingStateSubscription;
   List<PlayableAudio> _items = const [];
@@ -60,13 +59,14 @@ class MusicAudioHandler extends BaseAudioHandler
   final PlaybackIndexTracker _indexTracker = PlaybackIndexTracker();
   bool _editingQueue = false;
   bool _loadingQueue = false;
+  int _queueRevision = 0;
   bool _shuffleModeEnabled = false;
   bool _isCurrentFavorite = false;
 
   Duration get currentPosition => _player.position;
   Duration get currentBufferedPosition => _player.bufferedPosition;
   double get currentSpeed => _player.speed;
-  int? get currentQueueIndex => _player.currentIndex;
+  int? get currentQueueIndex => _player.playbackEvent.currentIndex;
   int? get nextQueueIndex {
     final current = mediaItem.value;
     if (_shuffleModeEnabled && current != null) {
@@ -116,24 +116,28 @@ class MusicAudioHandler extends BaseAudioHandler
     bool playWhenReady = true,
   }) async {
     // App 内播放器、通知栏、锁屏和耳机按键都消费 audio_service 队列，不能绕过这里直接播。
-    _items = List<PlayableAudio>.unmodifiable(items);
-    _indexTracker.reset();
-    _shuffleSkipPlanner.reset(_items.map((item) => item.mediaItem.id).toList());
-    queue.add(_items.map((item) => item.mediaItem).toList(growable: false));
-
-    if (_items.isEmpty) {
-      mediaItem.add(null);
-      unawaited(_syncOhosMediaItem(null));
-      await _player.stop();
-      return;
-    }
-
-    final safeIndex = initialIndex.clamp(0, _items.length - 1);
-    if (!playWhenReady && _player.playing) {
-      await _player.pause();
-    }
     _loadingQueue = true;
+    _queueRevision += 1;
+    var safeIndex = 0;
     try {
+      _items = List<PlayableAudio>.unmodifiable(items);
+      _indexTracker.reset();
+      _shuffleSkipPlanner.reset(
+        _items.map((item) => item.mediaItem.id).toList(),
+      );
+      queue.add(_items.map((item) => item.mediaItem).toList(growable: false));
+
+      if (_items.isEmpty) {
+        mediaItem.add(null);
+        unawaited(_syncOhosMediaItem(null));
+        await _player.stop();
+        return;
+      }
+
+      safeIndex = initialIndex.clamp(0, _items.length - 1);
+      if (!playWhenReady && _player.playing) {
+        await _player.pause();
+      }
       await _player.setAudioSources(
         [for (final item in _items) item.source],
         initialIndex: safeIndex,
@@ -142,7 +146,9 @@ class MusicAudioHandler extends BaseAudioHandler
     } finally {
       _loadingQueue = false;
     }
-    _publishCurrentItem(safeIndex);
+    final actualIndex = _player.playbackEvent.currentIndex ?? safeIndex;
+    _publishCurrentItem(actualIndex.clamp(0, _items.length - 1));
+    playbackState.add(_transformEvent(_player.playbackEvent));
     if (playWhenReady) {
       await play();
     }
@@ -152,9 +158,16 @@ class MusicAudioHandler extends BaseAudioHandler
   /// source, position, or playback state.
   Future<void> appendQueue(List<PlayableAudio> additions) async {
     if (additions.isEmpty) return;
-    await _player.addAudioSources([for (final item in additions) item.source]);
-    _items = List<PlayableAudio>.unmodifiable([..._items, ...additions]);
-    _publishQueue();
+    _beginQueueEdit();
+    try {
+      await _player.addAudioSources([
+        for (final item in additions) item.source,
+      ]);
+      _items = List<PlayableAudio>.unmodifiable([..._items, ...additions]);
+      _publishQueue();
+    } finally {
+      await _finishQueueEdit();
+    }
   }
 
   /// Replaces an upcoming or previous item without seeking or restarting the
@@ -164,7 +177,7 @@ class MusicAudioHandler extends BaseAudioHandler
     if (index < 0 || index >= _items.length || index == _player.currentIndex) {
       throw RangeError.index(index, _items);
     }
-    _editingQueue = true;
+    _beginQueueEdit();
     try {
       await _player.insertAudioSource(index, replacement.source);
       await _player.removeAudioSourceAt(index + 1);
@@ -174,8 +187,7 @@ class MusicAudioHandler extends BaseAudioHandler
       ]);
       _publishQueue();
     } finally {
-      _editingQueue = false;
-      _publishCurrentIfChanged();
+      await _finishQueueEdit();
     }
   }
 
@@ -184,7 +196,7 @@ class MusicAudioHandler extends BaseAudioHandler
     if (index < 0 || index >= _items.length || index == _player.currentIndex) {
       throw RangeError.index(index, _items);
     }
-    _editingQueue = true;
+    _beginQueueEdit();
     try {
       await _player.removeAudioSourceAt(index);
       _items = List<PlayableAudio>.unmodifiable([
@@ -193,9 +205,24 @@ class MusicAudioHandler extends BaseAudioHandler
       ]);
       _publishQueue();
     } finally {
-      _editingQueue = false;
-      _publishCurrentIfChanged();
+      await _finishQueueEdit();
     }
+  }
+
+  void _beginQueueEdit() {
+    _editingQueue = true;
+    _queueRevision += 1;
+    // Pending numeric seek targets belong to the old source list. Cancel them
+    // before native insert/remove callbacks can move those indices.
+    _indexTracker.reset();
+  }
+
+  Future<void> _finishQueueEdit() async {
+    // just_audio may complete the mutation before its queued index callback.
+    // Keep that structural index shift out of automatic shuffle detection.
+    await Future<void>.delayed(Duration.zero);
+    _editingQueue = false;
+    _publishCurrentIfChanged();
   }
 
   void _publishQueue() {
@@ -206,13 +233,14 @@ class MusicAudioHandler extends BaseAudioHandler
   }
 
   void _publishCurrentIfChanged() {
-    final index = _player.currentIndex;
+    final index = _player.playbackEvent.currentIndex;
     if (index == null || index < 0 || index >= _items.length) return;
     if (mediaItem.value?.id != _items[index].mediaItem.id) {
       _publishCurrentItem(index);
     } else {
       _indexTracker.markPublished(index);
     }
+    playbackState.add(_transformEvent(_player.playbackEvent));
   }
 
   Future<void> updateCurrentMediaItem(MediaItem updated) async {
@@ -289,7 +317,10 @@ class MusicAudioHandler extends BaseAudioHandler
   @override
   Future<void> skipToNext() async {
     if (_shuffleModeEnabled && _items.length > 1) {
-      final current = mediaItem.value;
+      final index = _player.playbackEvent.currentIndex;
+      final current = index == null || index < 0 || index >= _items.length
+          ? null
+          : _items[index].mediaItem;
       final nextId = current == null
           ? null
           : _shuffleSkipPlanner.nextAfter(
@@ -355,6 +386,7 @@ class MusicAudioHandler extends BaseAudioHandler
         shuffleMode == AudioServiceShuffleMode.all ||
         shuffleMode == AudioServiceShuffleMode.group;
     _shuffleModeEnabled = enabled;
+    if (!enabled) _indexTracker.pendingShuffleRedirectIndex = null;
     if (enabled) {
       _shuffleSkipPlanner.updateQueue(
         _items.map((item) => item.mediaItem.id).toList(),
@@ -418,6 +450,7 @@ class MusicAudioHandler extends BaseAudioHandler
 
   @override
   Future<void> stop() async {
+    _indexTracker.pendingShuffleRedirectIndex = null;
     await _player.stop();
     playbackState.add(
       playbackState.value.copyWith(
@@ -429,8 +462,8 @@ class MusicAudioHandler extends BaseAudioHandler
   }
 
   Future<void> dispose() async {
+    _indexTracker.pendingShuffleRedirectIndex = null;
     await _playbackEventSubscription.cancel();
-    await _currentIndexSubscription.cancel();
     await _durationSubscription.cancel();
     await _processingStateSubscription.cancel();
     if (isOpenHarmonyPlatform) {
@@ -440,7 +473,7 @@ class MusicAudioHandler extends BaseAudioHandler
   }
 
   void _handleCurrentIndexChanged(int? index) {
-    if (_editingQueue) return;
+    if (_editingQueue || _loadingQueue) return;
     if (index == null || index < 0 || index >= _items.length) {
       _indexTracker.markPublished(null);
       mediaItem.add(null);
@@ -479,24 +512,41 @@ class MusicAudioHandler extends BaseAudioHandler
     final shuffleIndex = nextId == null
         ? -1
         : _items.indexWhere((item) => item.mediaItem.id == nextId);
-    if (shuffleIndex == -1 || shuffleIndex == fallbackIndex) {
-      _publishCurrentItem(fallbackIndex);
-      return;
-    }
+    // The fallback is already the native current source. Publish it now,
+    // then publish the random target only when native confirms that transition.
+    _publishCurrentItem(fallbackIndex);
+    if (shuffleIndex == -1 || shuffleIndex == fallbackIndex) return;
     _indexTracker.markPendingShuffleRedirect(shuffleIndex);
-    unawaited(_seekToShuffleRedirect(shuffleIndex, fallbackIndex));
+    unawaited(_seekToShuffleRedirect(shuffleIndex, _queueRevision));
   }
 
   Future<void> _seekToShuffleRedirect(
     int shuffleIndex,
-    int fallbackIndex,
+    int queueRevision,
   ) async {
     try {
+      // Native events reach playbackEvent before just_audio's derived state.
+      // Seeking inside that callback can otherwise be discarded as "loading".
+      await Future<void>.delayed(Duration.zero);
+      if (_loadingQueue ||
+          _editingQueue ||
+          _queueRevision != queueRevision ||
+          _indexTracker.pendingShuffleRedirectIndex != shuffleIndex) {
+        return;
+      }
       await _player.seek(Duration.zero, index: shuffleIndex);
     } catch (_) {
-      if (_indexTracker.pendingShuffleRedirectIndex == shuffleIndex) {
+      if (_queueRevision == queueRevision &&
+          _indexTracker.pendingShuffleRedirectIndex == shuffleIndex) {
         _indexTracker.pendingShuffleRedirectIndex = null;
-        _publishCurrentItem(fallbackIndex);
+        final actual = _player.playbackEvent.currentIndex;
+        if (!_loadingQueue &&
+            !_editingQueue &&
+            actual != null &&
+            actual >= 0 &&
+            actual < _items.length) {
+          _publishCurrentItem(actual);
+        }
       }
     }
   }
@@ -661,7 +711,9 @@ class MusicAudioHandler extends BaseAudioHandler
       updatePosition: _player.position,
       bufferedPosition: _player.bufferedPosition,
       speed: _player.speed,
-      queueIndex: event.currentIndex,
+      queueIndex: _loadingQueue || _editingQueue
+          ? null
+          : _indexTracker.lastIndex,
       repeatMode: playbackState.value.repeatMode,
       shuffleMode: playbackState.value.shuffleMode,
     );

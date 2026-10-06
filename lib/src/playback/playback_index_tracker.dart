@@ -3,11 +3,13 @@ enum PlaybackIndexChangeAction { publish, ignore, redirectAutomaticShuffle }
 class PlaybackIndexTracker {
   int? lastIndex;
   int? manualTargetIndex;
+  int? _manualOriginIndex;
   int? pendingShuffleRedirectIndex;
 
   void reset() {
     lastIndex = null;
     manualTargetIndex = null;
+    _manualOriginIndex = null;
     pendingShuffleRedirectIndex = null;
   }
 
@@ -19,6 +21,8 @@ class PlaybackIndexTracker {
     required int? currentIndex,
     required int targetIndex,
   }) {
+    pendingShuffleRedirectIndex = null;
+    _manualOriginIndex = currentIndex;
     manualTargetIndex = currentIndex == targetIndex ? null : targetIndex;
   }
 
@@ -36,7 +40,11 @@ class PlaybackIndexTracker {
         pendingShuffleRedirectIndex = null;
         return PlaybackIndexChangeAction.publish;
       }
-      return PlaybackIndexChangeAction.ignore;
+      // Native may still be on the intermediate source or skip an unavailable
+      // target. Metadata must always describe the source actually producing
+      // audio, even while a shuffle seek is pending.
+      if (index != lastIndex) pendingShuffleRedirectIndex = null;
+      return PlaybackIndexChangeAction.publish;
     }
 
     if (manualTargetIndex != null) {
@@ -44,7 +52,8 @@ class PlaybackIndexTracker {
         manualTargetIndex = null;
         return PlaybackIndexChangeAction.publish;
       }
-      manualTargetIndex = null;
+      if (index != _manualOriginIndex) manualTargetIndex = null;
+      return PlaybackIndexChangeAction.publish;
     }
 
     if (shuffleModeEnabled &&

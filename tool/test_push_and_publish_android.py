@@ -20,7 +20,11 @@ class DeliveryTest(unittest.TestCase):
             'packageName': 'com.qi.ai.music', 'sha256': 'debug', 'versionCode': 10156}))
         (self.root / 'latest.json').write_text(json.dumps({
             'sha256': 'release', 'versionCode': 10153, 'versionName': '1.0.2'}))
-        self.assertEqual(delivery.next_version(self.root), ('1.0.2', 8157))
+        project = self.root / 'project'
+        project.mkdir()
+        (project / 'pubspec.yaml').write_text('version: 1.0.3+8171\n')
+        with patch.object(delivery, 'PROJECT', project):
+            self.assertEqual(delivery.next_version(self.root), ('1.0.3', 8157))
 
     def test_dirty_tree_refused_before_push(self):
         with patch.object(delivery, 'git', return_value=' M file'), \
@@ -61,6 +65,7 @@ class DeliveryTest(unittest.TestCase):
         project = self.root / 'project'
         (project / 'android').mkdir(parents=True)
         (project / 'android/key.properties').touch()
+        (project / 'pubspec.yaml').write_text('version: 1.0.3+8171\n')
         sdk = self.root / 'sdk'
         tools = sdk / 'build-tools/35.0.0'
         tools.mkdir(parents=True)

@@ -38,11 +38,9 @@ def require_clean(commit=None):
 def next_version(root):
     records = retained_versions(root)
     actual_code = max([2000] + [r['versionCode'] for r in records]) + 1
-    latest = root / 'latest.json'
-    if latest.exists():
-        name = json.loads(latest.read_text())['versionName']
-    else:
-        name = re.search(r'^version:\s*([^+\s]+)', (PROJECT / 'pubspec.yaml').read_text(), re.M)[1]
+    # The source declares the release name; latest may still be the previous
+    # minor version while a reviewed version bump is being published.
+    name = re.search(r'^version:\s*([^+\s]+)', (PROJECT / 'pubspec.yaml').read_text(), re.M)[1]
     # Flutter's split-per-ABI arm64 APK adds 2000 to the build number.
     return name, actual_code - 2000
 

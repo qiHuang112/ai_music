@@ -14,17 +14,50 @@ void main() {
     );
   });
 
-  test('stale manual target clears and allows automatic shuffle redirect', () {
+  test(
+    'native fallback clears manual target and publishes its actual source',
+    () {
+      final tracker = PlaybackIndexTracker()
+        ..markPublished(0)
+        ..markManualTarget(currentIndex: 0, targetIndex: 2);
+
+      expect(
+        tracker.handleIndexChanged(1, shuffleModeEnabled: true, itemCount: 3),
+        PlaybackIndexChangeAction.publish,
+      );
+      expect(tracker.manualTargetIndex, isNull);
+    },
+  );
+
+  test('old-index seek echo keeps the requested manual target', () {
     final tracker = PlaybackIndexTracker()
       ..markPublished(0)
       ..markManualTarget(currentIndex: 0, targetIndex: 2);
-
     expect(
-      tracker.handleIndexChanged(1, shuffleModeEnabled: true, itemCount: 3),
-      PlaybackIndexChangeAction.redirectAutomaticShuffle,
+      tracker.handleIndexChanged(0, shuffleModeEnabled: true, itemCount: 3),
+      PlaybackIndexChangeAction.publish,
+    );
+    expect(tracker.manualTargetIndex, 2);
+    expect(
+      tracker.handleIndexChanged(2, shuffleModeEnabled: true, itemCount: 3),
+      PlaybackIndexChangeAction.publish,
     );
     expect(tracker.manualTargetIndex, isNull);
   });
+
+  test(
+    'native skips unavailable shuffle target without hiding the real song',
+    () {
+      final tracker = PlaybackIndexTracker()
+        ..markPublished(1)
+        ..markPendingShuffleRedirect(2);
+      expect(
+        tracker.handleIndexChanged(3, shuffleModeEnabled: true, itemCount: 4),
+        PlaybackIndexChangeAction.publish,
+      );
+      expect(tracker.pendingShuffleRedirectIndex, isNull);
+    },
+  );
 
   test('matching manual target publishes without shuffle redirect', () {
     final tracker = PlaybackIndexTracker()
