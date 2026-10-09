@@ -15,6 +15,7 @@ class ScreenshotSongDraft {
     required this.artist,
     required this.version,
     required this.rawText,
+    this.durationSeconds = 0,
   });
 
   final String imageId;
@@ -23,6 +24,7 @@ class ScreenshotSongDraft {
   final String artist;
   final String version;
   final String rawText;
+  final int durationSeconds;
 
   ScreenshotSongDraft copyWith({
     String? title,
@@ -36,6 +38,7 @@ class ScreenshotSongDraft {
       artist: artist ?? this.artist,
       version: version ?? this.version,
       rawText: rawText,
+      durationSeconds: durationSeconds,
     );
   }
 }

@@ -21,154 +21,160 @@ class SettingsPage extends StatelessWidget {
       builder: (context, _) {
         return Scaffold(
           appBar: AppBar(title: Text(strings.settings)),
-          body: SafeArea(
-            child: ListView(
-              padding: MusicUi.pageInsets,
-              children: [
-                _SettingsGroup(
-                  title: strings.isZh ? '通用' : 'General',
-                  children: [
-                    if (controller.appUpdates.supported)
-                      AppUpdateSetting(updates: controller.appUpdates),
-                    ListTile(
-                      leading: const Icon(Icons.language),
-                      title: Text(strings.language),
-                      subtitle: Text(
-                        controller.language == AppLanguage.zh
-                            ? strings.chinese
-                            : strings.english,
-                      ),
-                      trailing: const Icon(Icons.chevron_right),
-                      onTap: () => Navigator.of(context).push<void>(
-                        MaterialPageRoute(
-                          builder: (_) =>
-                              LanguageSettingsPage(controller: controller),
-                        ),
-                      ),
-                    ),
-                    ListTile(
-                      leading: const Icon(Icons.contrast),
-                      title: Text(strings.theme),
-                      subtitle: Text(
-                        controller.themePreference == AppThemePreference.light
-                            ? strings.lightTheme
-                            : strings.darkTheme,
-                      ),
-                      trailing: const Icon(Icons.chevron_right),
-                      onTap: () => Navigator.of(context).push<void>(
-                        MaterialPageRoute(
-                          builder: (_) =>
-                              ThemeSettingsPage(controller: controller),
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 12),
-                _SettingsGroup(
-                  title: strings.isZh ? '音乐与下载' : 'Music & downloads',
-                  children: [
-                    ListTile(
-                      leading: const Icon(Icons.hub),
-                      title: Text(strings.musicSource),
-                      subtitle: Text(_sourceTitle(strings, controller.source)),
-                      trailing: const Icon(Icons.chevron_right),
-                      onTap: () => Navigator.of(context).push<void>(
-                        MaterialPageRoute(
-                          builder: (_) =>
-                              SourceSettingsPage(controller: controller),
-                        ),
-                      ),
-                    ),
-                    ListTile(
-                      key: const Key('default-download-quality'),
-                      leading: const Icon(Icons.high_quality),
-                      title: Text(
-                        strings.isZh ? '默认下载品质' : 'Default download quality',
-                      ),
-                      subtitle: Text(
-                        _qualityTitle(
+          body: MusicPageBackdrop(
+            child: SafeArea(
+              child: ListView(
+                padding: MusicUi.pageInsets,
+                children: [
+                  _SettingsGroup(
+                    title: strings.isZh ? '播放与下载' : 'Playback & downloads',
+                    children: [
+                      _SettingValueTile(
+                        key: const Key('default-download-quality'),
+                        title: strings.isZh
+                            ? '默认下载品质'
+                            : 'Default download quality',
+                        value: _qualityTitle(
                           strings.isZh,
                           controller.defaultDownloadQuality,
+                        ).split('（').first.split(' (').first,
+                        onTap: () => Navigator.of(context).push<void>(
+                          MaterialPageRoute(
+                            builder: (_) =>
+                                _DownloadQualityPage(controller: controller),
+                          ),
                         ),
                       ),
-                      trailing: const Icon(Icons.chevron_right),
-                      onTap: () => Navigator.of(context).push<void>(
-                        MaterialPageRoute(
-                          builder: (_) =>
-                              _DownloadQualityPage(controller: controller),
+                      _SettingValueTile(
+                        title: strings.musicSource,
+                        value: _sourceTitle(strings, controller.source),
+                        onTap: () => Navigator.of(context).push<void>(
+                          MaterialPageRoute(
+                            builder: (_) =>
+                                SourceSettingsPage(controller: controller),
+                          ),
                         ),
                       ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 12),
-                _SettingsGroup(
-                  title: strings.isZh ? '存储' : 'Storage',
-                  children: [
-                    _PlaybackCacheSetting(controller: controller),
-                    ListTile(
-                      key: const Key('clear-listening-stats'),
-                      leading: const Icon(Icons.insights_outlined),
-                      title: Text(
-                        strings.isZh ? '清空听歌统计' : 'Clear listening history',
-                      ),
-                      subtitle: Text(
-                        strings.isZh
-                            ? '只清空统计，保留歌曲和歌单'
-                            : 'Reset statistics; keep songs and playlists',
-                      ),
-                      onTap: () =>
-                          confirmClearListeningStats(context, controller),
-                    ),
-                    ListTile(
-                      key: const Key('manual-download-count'),
-                      leading: const Icon(Icons.download_done),
-                      title: Text(strings.isZh ? '已下载歌曲' : 'Downloaded songs'),
-                      subtitle: Text(
-                        strings.isZh
-                            ? '${controller.manuallyDownloadedSongCount} 首'
-                            : '${controller.manuallyDownloadedSongCount} songs',
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 12),
-                _SettingsGroup(
-                  title: strings.isZh ? '高级' : 'Advanced',
-                  children: [
-                    ListTile(
-                      key: const Key('concurrency-settings'),
-                      leading: const Icon(Icons.tune),
-                      title: Text(strings.isZh ? '并发设置' : 'Concurrency'),
-                      subtitle: Text(
-                        strings.isZh
-                            ? '截图搜歌 ${controller.screenshotSearchConcurrency} 首 · 歌单下载 ${controller.playlistDownloadConcurrency} 首'
-                            : 'Screenshot search ${controller.screenshotSearchConcurrency} · Playlist downloads ${controller.playlistDownloadConcurrency}',
-                      ),
-                      trailing: const Icon(Icons.chevron_right),
-                      onTap: () => Navigator.of(context).push<void>(
-                        MaterialPageRoute(
-                          builder: (_) =>
-                              _ConcurrencySettingsPage(controller: controller),
+                    ],
+                  ),
+                  _SettingsGroup(
+                    title: strings.isZh ? '性能与并发' : 'Performance & concurrency',
+                    children: [
+                      _SettingValueTile(
+                        key: const Key('concurrency-settings'),
+                        title: strings.isZh ? '歌单下载并发' : 'Playlist downloads',
+                        value: strings.isZh
+                            ? '${controller.playlistDownloadConcurrency} 首'
+                            : '${controller.playlistDownloadConcurrency}',
+                        onTap: () => Navigator.of(context).push<void>(
+                          MaterialPageRoute(
+                            builder: (_) => _ConcurrencySettingsPage(
+                              controller: controller,
+                            ),
+                          ),
                         ),
                       ),
-                    ),
-                    ListTile(
-                      leading: const Icon(Icons.wifi_tethering),
-                      title: Text(strings.lanLibrary),
-                      subtitle: Text(controller.lanLibraryUrl),
-                      trailing: const Icon(Icons.chevron_right),
-                      onTap: () => Navigator.of(context).push<void>(
-                        MaterialPageRoute(
-                          builder: (_) =>
-                              LanLibrarySettingsPage(controller: controller),
+                      _SettingValueTile(
+                        title: strings.isZh ? '截图搜歌并发' : 'Screenshot search',
+                        value: strings.isZh
+                            ? '${controller.screenshotSearchConcurrency} 首'
+                            : '${controller.screenshotSearchConcurrency}',
+                        onTap: () => Navigator.of(context).push<void>(
+                          MaterialPageRoute(
+                            builder: (_) => _ConcurrencySettingsPage(
+                              controller: controller,
+                            ),
+                          ),
                         ),
                       ),
-                    ),
-                  ],
-                ),
-              ],
+                    ],
+                  ),
+                  _SettingsGroup(
+                    title: strings.isZh ? '存储空间' : 'Storage',
+                    children: [
+                      _PlaybackCacheSetting(controller: controller),
+                      ListTile(
+                        key: const Key('manual-download-count'),
+                        title: Text(
+                          strings.isZh ? '已下载歌曲' : 'Downloaded songs',
+                        ),
+                        subtitle: Text(
+                          strings.isZh
+                              ? '${controller.manuallyDownloadedSongCount} 首'
+                              : '${controller.manuallyDownloadedSongCount} songs',
+                        ),
+                      ),
+                    ],
+                  ),
+                  _SettingsGroup(
+                    title: strings.isZh ? '外观与应用' : 'Appearance & app',
+                    children: [
+                      _SettingValueTile(
+                        title: strings.theme,
+                        value:
+                            controller.themePreference ==
+                                AppThemePreference.light
+                            ? strings.lightTheme
+                            : strings.darkTheme,
+                        onTap: () => Navigator.of(context).push<void>(
+                          MaterialPageRoute(
+                            builder: (_) =>
+                                ThemeSettingsPage(controller: controller),
+                          ),
+                        ),
+                      ),
+                      _SettingValueTile(
+                        key: const Key('language-setting'),
+                        title: strings.language,
+                        value: controller.language == AppLanguage.zh
+                            ? strings.chinese
+                            : strings.english,
+                        onTap: () => Navigator.of(context).push<void>(
+                          MaterialPageRoute(
+                            builder: (_) =>
+                                LanguageSettingsPage(controller: controller),
+                          ),
+                        ),
+                      ),
+                      if (controller.appUpdates.supported)
+                        AppUpdateSetting(updates: controller.appUpdates),
+                    ],
+                  ),
+                  _SettingsGroup(
+                    title: strings.isZh ? '更多设置' : 'More settings',
+                    children: [
+                      ListTile(
+                        title: Text(strings.lanLibrary),
+                        subtitle: Text(
+                          controller.lanLibraryUrl,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                        trailing: const Icon(Icons.chevron_right, size: 18),
+                        onTap: () => Navigator.of(context).push<void>(
+                          MaterialPageRoute(
+                            builder: (_) =>
+                                LanLibrarySettingsPage(controller: controller),
+                          ),
+                        ),
+                      ),
+                      ListTile(
+                        key: const Key('clear-listening-stats'),
+                        title: Text(
+                          strings.isZh ? '清空听歌统计' : 'Clear listening history',
+                        ),
+                        subtitle: Text(
+                          strings.isZh
+                              ? '只清空统计，保留歌曲和歌单'
+                              : 'Reset statistics; keep songs and playlists',
+                        ),
+                        onTap: () =>
+                            confirmClearListeningStats(context, controller),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
             ),
           ),
         );
@@ -177,46 +183,126 @@ class SettingsPage extends StatelessWidget {
   }
 }
 
+class _SettingValueTile extends StatelessWidget {
+  const _SettingValueTile({
+    super.key,
+    required this.title,
+    required this.value,
+    required this.onTap,
+  });
+  final String title;
+  final String value;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return InkWell(
+      hoverColor: Colors.transparent,
+      onTap: () {
+        // Do not restore a tapped row as a selected-looking focus highlight
+        // when its settings route is popped. Keyboard traversal still works.
+        FocusManager.instance.primaryFocus?.unfocus();
+        onTap();
+      },
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            final stacked =
+                constraints.maxWidth < 290 ||
+                MediaQuery.textScalerOf(context).scale(14) > 20;
+            final valueText = Text(
+              value,
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: theme.colorScheme.onSurfaceVariant,
+              ),
+            );
+            return Row(
+              children: [
+                Expanded(
+                  child: stacked
+                      ? Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(title, style: theme.textTheme.bodyMedium),
+                            const SizedBox(height: 4),
+                            valueText,
+                          ],
+                        )
+                      : Text(title, style: theme.textTheme.bodyMedium),
+                ),
+                if (!stacked) ...[
+                  const SizedBox(width: 10),
+                  ConstrainedBox(
+                    constraints: BoxConstraints(
+                      maxWidth: constraints.maxWidth * .54,
+                    ),
+                    child: valueText,
+                  ),
+                ],
+                const SizedBox(width: 6),
+                Icon(
+                  Icons.chevron_right,
+                  size: 18,
+                  color: theme.colorScheme.onSurfaceVariant,
+                ),
+              ],
+            );
+          },
+        ),
+      ),
+    );
+  }
+}
+
 class _SettingsGroup extends StatelessWidget {
   const _SettingsGroup({required this.title, required this.children});
-
   final String title;
   final List<Widget> children;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    return Material(
-      color: theme.colorScheme.surfaceContainerLow,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(MusicUi.radius),
-      ),
-      clipBehavior: Clip.antiAlias,
-      child: ListTileTheme.merge(
-        contentPadding: const EdgeInsets.symmetric(horizontal: 12),
-        minVerticalPadding: 10,
-        iconColor: theme.colorScheme.primary,
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            Padding(
-              padding: const EdgeInsets.fromLTRB(16, 18, 16, 8),
-              child: Text(
-                title,
-                style: theme.textTheme.titleLarge?.copyWith(
-                  color: theme.colorScheme.onSurface,
-                  fontWeight: FontWeight.w600,
-                ),
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 22),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(4, 0, 4, 9),
+            child: Text(
+              title,
+              style: theme.textTheme.labelLarge?.copyWith(
+                color: theme.colorScheme.onSurfaceVariant,
+                fontWeight: FontWeight.w500,
               ),
             ),
-            for (var index = 0; index < children.length; index++) ...[
-              if (index > 0)
-                const Divider(height: 1, indent: 52, endIndent: 12),
-              children[index],
-            ],
-            const SizedBox(height: 8),
-          ],
-        ),
+          ),
+          Material(
+            color: theme.colorScheme.surfaceContainerLow,
+            borderRadius: BorderRadius.circular(MusicUi.radius),
+            clipBehavior: Clip.antiAlias,
+            child: ListTileTheme.merge(
+              contentPadding: const EdgeInsets.symmetric(horizontal: 16),
+              minVerticalPadding: 10,
+              iconColor: theme.colorScheme.primary,
+              titleTextStyle: theme.textTheme.bodyMedium,
+              subtitleTextStyle: theme.textTheme.bodySmall?.copyWith(
+                color: theme.colorScheme.onSurfaceVariant,
+              ),
+              child: Column(
+                children: [
+                  for (var index = 0; index < children.length; index++) ...[
+                    if (index > 0)
+                      const Divider(height: 1, indent: 16, endIndent: 16),
+                    children[index],
+                  ],
+                ],
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -232,18 +318,20 @@ class _ConcurrencySettingsPage extends StatelessWidget {
     final zh = AppStringsScope.of(context).isZh;
     return Scaffold(
       appBar: AppBar(title: Text(zh ? '并发设置' : 'Concurrency')),
-      body: SafeArea(
-        child: ListView(
-          padding: MusicUi.pageInsets,
-          children: [
-            _SettingsGroup(
-              title: zh ? '任务并发' : 'Parallel tasks',
-              children: [
-                _ScreenshotSearchConcurrencySetting(controller: controller),
-                _PlaylistDownloadConcurrencySetting(controller: controller),
-              ],
-            ),
-          ],
+      body: MusicPageBackdrop(
+        child: SafeArea(
+          child: ListView(
+            padding: MusicUi.pageInsets,
+            children: [
+              _SettingsGroup(
+                title: zh ? '任务并发' : 'Parallel tasks',
+                children: [
+                  _ScreenshotSearchConcurrencySetting(controller: controller),
+                  _PlaylistDownloadConcurrencySetting(controller: controller),
+                ],
+              ),
+            ],
+          ),
         ),
       ),
     );
@@ -268,29 +356,31 @@ class _DownloadQualityPage extends StatelessWidget {
       animation: controller,
       builder: (context, _) => Scaffold(
         appBar: AppBar(title: Text(zh ? '默认下载品质' : 'Default download quality')),
-        body: SafeArea(
-          child: RadioGroup<MusicQualityLevel>(
-            groupValue: controller.defaultDownloadQuality,
-            onChanged: (value) {
-              if (value != null) controller.saveDefaultDownloadQuality(value);
-            },
-            child: ListView(
-              children: [
-                for (final level in MusicQualityLevel.values)
-                  RadioListTile<MusicQualityLevel>(
-                    key: ValueKey('download-quality-${level.storageValue}'),
-                    value: level,
-                    title: Text(_qualityTitle(zh, level)),
+        body: MusicPageBackdrop(
+          child: SafeArea(
+            child: RadioGroup<MusicQualityLevel>(
+              groupValue: controller.defaultDownloadQuality,
+              onChanged: (value) {
+                if (value != null) controller.saveDefaultDownloadQuality(value);
+              },
+              child: ListView(
+                children: [
+                  for (final level in MusicQualityLevel.values)
+                    RadioListTile<MusicQualityLevel>(
+                      key: ValueKey('download-quality-${level.storageValue}'),
+                      value: level,
+                      title: Text(_qualityTitle(zh, level)),
+                    ),
+                  Padding(
+                    padding: const EdgeInsets.all(MusicUi.pagePadding),
+                    child: Text(
+                      zh
+                          ? '新收藏的歌曲、主动下载单首或整张歌单使用此品质；音源缺少该品质时使用可用版本。播放缓存始终优先用低品质，不会自动升级。'
+                          : 'New favorites and manual song and playlist downloads use this quality when available. Playback cache starts low and is not upgraded automatically.',
+                    ),
                   ),
-                Padding(
-                  padding: const EdgeInsets.all(MusicUi.pagePadding),
-                  child: Text(
-                    zh
-                        ? '新收藏的歌曲、主动下载单首或整张歌单使用此品质；音源缺少该品质时使用可用版本。播放缓存始终优先用低品质，不会自动升级。'
-                        : 'New favorites and manual song and playlist downloads use this quality when available. Playback cache starts low and is not upgraded automatically.',
-                  ),
-                ),
-              ],
+                ],
+              ),
             ),
           ),
         ),
@@ -353,7 +443,6 @@ class _PlaybackCacheSettingState extends State<_PlaybackCacheSetting> {
       future: _bytes,
       builder: (context, snapshot) => ListTile(
         key: const Key('playback-cache-size'),
-        leading: const Icon(Icons.storage),
         title: Text(zh ? '播放缓存' : 'Playback cache'),
         subtitle: Text(
           snapshot.hasData
@@ -413,7 +502,7 @@ class _ScreenshotSearchConcurrencySettingState
           ),
         ),
         Padding(
-          padding: const EdgeInsets.only(left: 72, right: 24, bottom: 8),
+          padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
           child: Slider(
             key: const Key('screenshotSearchConcurrencySlider'),
             value: _value.toDouble(),
@@ -476,7 +565,7 @@ class _PlaylistDownloadConcurrencySettingState
           ),
         ),
         Padding(
-          padding: const EdgeInsets.only(left: 72, right: 24, bottom: 8),
+          padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
           child: Slider(
             key: const Key('playlistDownloadConcurrencySlider'),
             value: _value.toDouble(),
@@ -544,55 +633,59 @@ class _LanLibrarySettingsPageState extends State<LanLibrarySettingsPage> {
         final controller = widget.controller;
         return Scaffold(
           appBar: AppBar(title: Text(strings.lanLibrary)),
-          body: SafeArea(
-            child: ListView(
-              padding: const EdgeInsets.all(MusicUi.pagePadding),
-              children: [
-                Text(strings.lanLibraryDescription),
-                const SizedBox(height: 16),
-                TextField(
-                  key: const Key('lanLibraryUrlField'),
-                  controller: _addressController,
-                  keyboardType: TextInputType.url,
-                  autocorrect: false,
-                  decoration: InputDecoration(
-                    labelText: strings.lanLibraryAddress,
-                    hintText: 'http://192.168.31.57:8787',
-                    errorText: _inputError,
-                  ),
-                ),
-                const SizedBox(height: 12),
-                Wrap(
-                  spacing: 12,
-                  runSpacing: 8,
-                  children: [
-                    FilledButton.icon(
-                      onPressed: _save,
-                      icon: const Icon(Icons.save_outlined),
-                      label: Text(strings.saveLanAddress),
+          body: MusicPageBackdrop(
+            child: SafeArea(
+              child: ListView(
+                padding: const EdgeInsets.all(MusicUi.pagePadding),
+                children: [
+                  Text(strings.lanLibraryDescription),
+                  const SizedBox(height: 16),
+                  TextField(
+                    key: const Key('lanLibraryUrlField'),
+                    controller: _addressController,
+                    keyboardType: TextInputType.url,
+                    autocorrect: false,
+                    decoration: InputDecoration(
+                      labelText: strings.lanLibraryAddress,
+                      hintText: 'http://192.168.31.57:8787',
+                      errorText: _inputError,
                     ),
-                    OutlinedButton.icon(
-                      onPressed: controller.isTestingLanConnection
-                          ? null
-                          : () => controller.testLanConnection(
-                              _addressController.text,
-                            ),
-                      icon: controller.isTestingLanConnection
-                          ? const SizedBox.square(
-                              dimension: 16,
-                              child: CircularProgressIndicator(strokeWidth: 2),
-                            )
-                          : const Icon(Icons.network_check),
-                      label: Text(strings.testLanConnection),
-                    ),
-                  ],
-                ),
-                if (controller.lanConnectionStatus != null)
-                  Padding(
-                    padding: const EdgeInsets.only(top: 16),
-                    child: Text(controller.lanConnectionStatus!),
                   ),
-              ],
+                  const SizedBox(height: 12),
+                  Wrap(
+                    spacing: 12,
+                    runSpacing: 8,
+                    children: [
+                      FilledButton.icon(
+                        onPressed: _save,
+                        icon: const Icon(Icons.save_outlined),
+                        label: Text(strings.saveLanAddress),
+                      ),
+                      OutlinedButton.icon(
+                        onPressed: controller.isTestingLanConnection
+                            ? null
+                            : () => controller.testLanConnection(
+                                _addressController.text,
+                              ),
+                        icon: controller.isTestingLanConnection
+                            ? const SizedBox.square(
+                                dimension: 16,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                ),
+                              )
+                            : const Icon(Icons.network_check),
+                        label: Text(strings.testLanConnection),
+                      ),
+                    ],
+                  ),
+                  if (controller.lanConnectionStatus != null)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 16),
+                      child: Text(controller.lanConnectionStatus!),
+                    ),
+                ],
+              ),
             ),
           ),
         );
@@ -614,25 +707,27 @@ class LanguageSettingsPage extends StatelessWidget {
       builder: (context, _) {
         return Scaffold(
           appBar: AppBar(title: Text(strings.language)),
-          body: SafeArea(
-            child: RadioGroup<AppLanguage>(
-              groupValue: controller.language,
-              onChanged: (language) {
-                if (language != null) {
-                  controller.saveLanguage(language);
-                }
-              },
-              child: ListView(
-                children: [
-                  RadioListTile<AppLanguage>(
-                    value: AppLanguage.zh,
-                    title: Text(strings.chinese),
-                  ),
-                  RadioListTile<AppLanguage>(
-                    value: AppLanguage.en,
-                    title: Text(strings.english),
-                  ),
-                ],
+          body: MusicPageBackdrop(
+            child: SafeArea(
+              child: RadioGroup<AppLanguage>(
+                groupValue: controller.language,
+                onChanged: (language) {
+                  if (language != null) {
+                    controller.saveLanguage(language);
+                  }
+                },
+                child: ListView(
+                  children: [
+                    RadioListTile<AppLanguage>(
+                      value: AppLanguage.zh,
+                      title: Text(strings.chinese),
+                    ),
+                    RadioListTile<AppLanguage>(
+                      value: AppLanguage.en,
+                      title: Text(strings.english),
+                    ),
+                  ],
+                ),
               ),
             ),
           ),
@@ -655,25 +750,27 @@ class ThemeSettingsPage extends StatelessWidget {
       builder: (context, _) {
         return Scaffold(
           appBar: AppBar(title: Text(strings.theme)),
-          body: SafeArea(
-            child: RadioGroup<AppThemePreference>(
-              groupValue: controller.themePreference,
-              onChanged: (theme) {
-                if (theme != null) {
-                  controller.saveTheme(theme);
-                }
-              },
-              child: ListView(
-                children: [
-                  RadioListTile<AppThemePreference>(
-                    value: AppThemePreference.light,
-                    title: Text(strings.lightTheme),
-                  ),
-                  RadioListTile<AppThemePreference>(
-                    value: AppThemePreference.dark,
-                    title: Text(strings.darkTheme),
-                  ),
-                ],
+          body: MusicPageBackdrop(
+            child: SafeArea(
+              child: RadioGroup<AppThemePreference>(
+                groupValue: controller.themePreference,
+                onChanged: (theme) {
+                  if (theme != null) {
+                    controller.saveTheme(theme);
+                  }
+                },
+                child: ListView(
+                  children: [
+                    RadioListTile<AppThemePreference>(
+                      value: AppThemePreference.light,
+                      title: Text(strings.lightTheme),
+                    ),
+                    RadioListTile<AppThemePreference>(
+                      value: AppThemePreference.dark,
+                      title: Text(strings.darkTheme),
+                    ),
+                  ],
+                ),
               ),
             ),
           ),
@@ -696,32 +793,42 @@ class SourceSettingsPage extends StatelessWidget {
       builder: (context, _) {
         return Scaffold(
           appBar: AppBar(title: Text(strings.musicSource)),
-          body: SafeArea(
-            child: RadioGroup<MusicDataSource>(
-              groupValue: controller.source,
-              onChanged: (source) {
-                if (source != null) {
-                  controller.saveSource(source);
-                }
-              },
-              child: ListView(
-                children: [
-                  RadioListTile<MusicDataSource>(
-                    value: MusicDataSource.auto,
-                    title: Text(strings.autoSource),
-                    subtitle: Text(strings.autoSourceDescription),
-                  ),
-                  RadioListTile<MusicDataSource>(
-                    value: MusicDataSource.buguyy,
-                    title: Text(strings.buguyy),
-                    subtitle: Text(strings.buguyyDescription),
-                  ),
-                  RadioListTile<MusicDataSource>(
-                    value: MusicDataSource.flac,
-                    title: Text(strings.flacSource),
-                    subtitle: Text(strings.flacSourceDescription),
-                  ),
-                ],
+          body: MusicPageBackdrop(
+            child: SafeArea(
+              child: RadioGroup<MusicDataSource>(
+                groupValue: controller.source,
+                onChanged: (source) {
+                  if (source != null) {
+                    controller.saveSource(source);
+                  }
+                },
+                child: ListView(
+                  children: [
+                    RadioListTile<MusicDataSource>(
+                      value: MusicDataSource.flac,
+                      title: Text(strings.flacSource),
+                      subtitle: Text(strings.flacSourceDescription),
+                    ),
+                    RadioListTile<MusicDataSource>(
+                      value: MusicDataSource.auto,
+                      title: Text(strings.autoSource),
+                      subtitle: Text(strings.autoSourceDescription),
+                    ),
+                    RadioListTile<MusicDataSource>(
+                      value: MusicDataSource.buguyy,
+                      title: Text(strings.buguyy),
+                      subtitle: Text(strings.buguyyDescription),
+                    ),
+
+                    Padding(
+                      padding: const EdgeInsets.all(16),
+                      child: Text(
+                        strings.sourcePreferenceNote,
+                        style: Theme.of(context).textTheme.bodySmall,
+                      ),
+                    ),
+                  ],
+                ),
               ),
             ),
           ),
@@ -733,9 +840,9 @@ class SourceSettingsPage extends StatelessWidget {
 
 String _sourceTitle(AppStrings strings, MusicDataSource source) {
   return switch (source) {
-    MusicDataSource.auto => strings.autoSource,
-    MusicDataSource.buguyy => strings.buguyy,
-    MusicDataSource.flac => strings.flacSource,
+    MusicDataSource.auto => strings.isZh ? '自动' : 'Auto',
+    MusicDataSource.buguyy => strings.isZh ? '布谷YY' : 'BuguYY',
+    MusicDataSource.flac => 'FLAC',
     MusicDataSource.lan => 'LAN',
   };
 }

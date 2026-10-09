@@ -40,25 +40,40 @@ class OnlinePlaylistImporter {
       while (next < songs.length && !isCanceled() && !paused) {
         final index = next++;
         final song = songs[index];
-        try {
-          final result = await matcher.match(
-            ScreenshotSongDraft(
-              imageId: 'online-playlist',
-              row: index + 1,
-              title: song.title,
-              artist: song.artist,
-              version: '',
-              rawText: '${song.title} ${song.artist}',
-            ),
-            failOnSourceErrorWhenEmpty: true,
-          );
-          if (isCanceled()) return;
-          recordOutcome(index, true);
-          onResult(index, OnlinePlaylistMatch(result: result));
-        } catch (_) {
-          if (isCanceled()) return;
-          recordOutcome(index, false);
-          onResult(index, const OnlinePlaylistMatch(serviceFailed: true));
+        while (!isCanceled()) {
+          final source = matcher.sourceProvider?.call() ?? matcher.source;
+          try {
+            final result = await matcher.match(
+              ScreenshotSongDraft(
+                imageId: 'online-playlist',
+                row: index + 1,
+                title: song.title,
+                artist: song.artist,
+                durationSeconds: song.durationSeconds,
+                version: '',
+                rawText: '${song.title} ${song.artist}',
+              ),
+              failOnSourceErrorWhenEmpty: true,
+              source: source,
+            );
+            if (isCanceled()) return;
+            // Source settings may change while this row's network request is
+            // pending. Do not persist its stale choice or count its old error;
+            // retry this same row with the latest source instead.
+            if (source != (matcher.sourceProvider?.call() ?? matcher.source)) {
+              continue;
+            }
+            recordOutcome(index, true);
+            onResult(index, OnlinePlaylistMatch(result: result));
+          } catch (_) {
+            if (isCanceled()) return;
+            if (source != (matcher.sourceProvider?.call() ?? matcher.source)) {
+              continue;
+            }
+            recordOutcome(index, false);
+            onResult(index, const OnlinePlaylistMatch(serviceFailed: true));
+          }
+          break;
         }
       }
     }

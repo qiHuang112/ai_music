@@ -5,6 +5,245 @@ import 'package:ai_music/src/data/music_resolver.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
+  test(
+    'auto failures are shared by search, progressive and playlist lookup',
+    () async {
+      var buguyyCalls = 0;
+      var buguyyOnline = false;
+      final resolver = RemoteMusicResolver(
+        pages: 1,
+        platforms: const ['kuwo'],
+        initialFlacCookie: 'sl-session=test',
+        httpClient: _FakeResolverHttp(
+          onGet: (uri, _) async {
+            buguyyCalls++;
+            if (!buguyyOnline) throw const HttpException('HTTP 503');
+            if (uri.path == '/api/geturl') {
+              return _json(uri, {
+                'success': true,
+                'url': 'https://audio.example/song.mp3',
+              });
+            }
+            return _json(uri, {
+              'data': [
+                {'id': 'buguyy-1', 'title': '梧桐灯', 'singer': '许嵩'},
+              ],
+            });
+          },
+          onPostForm: (uri, _, _) async => _json(uri, {
+            'data': {
+              'list': [
+                {'id': 'flac-1', 'name': '梧桐灯', 'artist': '许嵩'},
+              ],
+            },
+          }),
+        ),
+      );
+
+      expect(
+        (await resolver.search('梧桐灯', MusicDataSource.auto)).single.source,
+        MusicDataSource.flac,
+      );
+      final progress = await resolver
+          .searchProgressively('梧桐灯', MusicDataSource.auto)
+          .toList();
+      expect(progress.last.isComplete, isTrue);
+      expect(progress.last.error, isNull);
+      await expectLater(
+        resolver.searchScreenshotPrimary('梧桐灯'),
+        throwsA(isA<HttpException>()),
+      );
+      expect(buguyyCalls, 3);
+      expect(resolver.availableAutoSources, [MusicDataSource.flac]);
+
+      expect(await resolver.searchScreenshotPrimary('梧桐灯'), isEmpty);
+      expect(
+        (await resolver.searchScreenshot('梧桐灯', '许嵩')).single.source,
+        MusicDataSource.flac,
+      );
+      final laterProgress = await resolver
+          .searchProgressively('梧桐灯', MusicDataSource.auto)
+          .toList();
+      expect(laterProgress, hasLength(1));
+      await expectLater(
+        resolver.resolveForSourceMode(
+          _encryptedBuguyyCandidate(),
+          MusicDataSource.auto,
+        ),
+        throwsA(isA<AutoSourceUnavailableException>()),
+      );
+      expect(buguyyCalls, 3);
+
+      // The user's explicit choice remains usable, but does not silently reopen auto.
+      buguyyOnline = true;
+      expect(
+        (await resolver.search('梧桐灯', MusicDataSource.buguyy)).single.source,
+        MusicDataSource.buguyy,
+      );
+      expect(
+        (await resolver.resolveForSourceMode(
+          _encryptedBuguyyCandidate(),
+          MusicDataSource.buguyy,
+        )).url,
+        endsWith('song.mp3'),
+      );
+      expect(buguyyCalls, 5);
+      await resolver.search('梧桐灯', MusicDataSource.auto);
+      expect(buguyyCalls, 5);
+      expect(
+        resolver.isSourceAvailableForAuto(MusicDataSource.buguyy),
+        isFalse,
+      );
+    },
+  );
+
+  test(
+    'auto counts a retried resolver operation once, not each HTTP attempt',
+    () async {
+      var attempts = 0;
+      final resolver = RemoteMusicResolver(
+        initialFlacCookie: 'sl-session=test',
+        pages: 1,
+        platforms: const ['kuwo'],
+        httpClient: _FakeResolverHttp(
+          onGet: (_, _) async {
+            attempts++;
+            if (attempts > 3) throw const HttpException('HTTP 503');
+            throw const SocketException('connection reset');
+          },
+          onPostForm: (uri, _, _) async => _json(uri, {
+            'data': {'list': const []},
+          }),
+        ),
+      );
+      await expectLater(
+        resolver.search('song', MusicDataSource.auto),
+        throwsA(isA<StateError>()),
+      );
+      expect(attempts, 3);
+      expect(resolver.isSourceAvailableForAuto(MusicDataSource.buguyy), isTrue);
+      await expectLater(
+        resolver.search('song', MusicDataSource.auto),
+        throwsA(isA<StateError>()),
+      );
+      expect(resolver.isSourceAvailableForAuto(MusicDataSource.buguyy), isTrue);
+      await expectLater(
+        resolver.search('song', MusicDataSource.auto),
+        throwsA(isA<StateError>()),
+      );
+      expect(
+        resolver.isSourceAvailableForAuto(MusicDataSource.buguyy),
+        isFalse,
+      );
+    },
+  );
+
+  test(
+    'successful empty search resets failures and is never a source outage',
+    () async {
+      var offline = true;
+      final resolver = RemoteMusicResolver(
+        pages: 1,
+        platforms: const ['kuwo'],
+        initialFlacCookie: 'sl-session=test',
+        httpClient: _FakeResolverHttp(
+          onGet: (uri, _) async {
+            if (offline) throw const HttpException('HTTP 503');
+            return _json(uri, {'data': const []});
+          },
+          onPostForm: (uri, _, _) async => _json(uri, {
+            'data': {'list': const []},
+          }),
+        ),
+      );
+      for (var i = 0; i < 2; i++) {
+        await expectLater(
+          resolver.search('song', MusicDataSource.auto),
+          throwsA(isA<StateError>()),
+        );
+      }
+      offline = false;
+      for (var i = 0; i < 4; i++) {
+        expect(await resolver.search('song', MusicDataSource.auto), isEmpty);
+      }
+      offline = true;
+      for (var i = 0; i < 2; i++) {
+        await expectLater(
+          resolver.search('song', MusicDataSource.auto),
+          throwsA(isA<StateError>()),
+        );
+      }
+      expect(resolver.isSourceAvailableForAuto(MusicDataSource.buguyy), isTrue);
+    },
+  );
+
+  test(
+    'resolve failure opens auto circuit and manual resolution still works',
+    () async {
+      var calls = 0;
+      var offline = true;
+      final resolver = RemoteMusicResolver(
+        httpClient: _FakeResolverHttp(
+          onGet: (uri, _) async {
+            calls++;
+            if (offline) throw const HttpException('HTTP 503');
+            return _json(uri, {
+              'success': true,
+              'url': 'https://audio.example/song.mp3',
+            });
+          },
+        ),
+      );
+      for (var i = 0; i < 3; i++) {
+        await expectLater(
+          resolver.resolveForSourceMode(
+            _encryptedBuguyyCandidate(),
+            MusicDataSource.auto,
+          ),
+          throwsA(isA<HttpException>()),
+        );
+      }
+      expect(calls, 3);
+      await expectLater(
+        resolver.resolveForSourceMode(
+          _encryptedBuguyyCandidate(),
+          MusicDataSource.auto,
+        ),
+        throwsA(isA<AutoSourceUnavailableException>()),
+      );
+      expect(calls, 3);
+      offline = false;
+      await resolver.resolve(_encryptedBuguyyCandidate());
+      expect(calls, 4);
+      expect(
+        resolver.isSourceAvailableForAuto(MusicDataSource.buguyy),
+        isFalse,
+      );
+    },
+  );
+
+  test(
+    'both unavailable sources finish progressive search without more HTTP',
+    () async {
+      final resolver = RemoteMusicResolver(httpClient: _FakeResolverHttp());
+      for (final source in [MusicDataSource.flac, MusicDataSource.buguyy]) {
+        for (var i = 0; i < 3; i++) {
+          resolver.reportSourceFailure(source, const HttpException('HTTP 503'));
+        }
+      }
+      await expectLater(
+        resolver.search('song', MusicDataSource.auto),
+        throwsA(isA<StateError>()),
+      );
+      final progress = await resolver
+          .searchProgressively('song', MusicDataSource.auto)
+          .toList();
+      expect(progress, hasLength(1));
+      expect(progress.single.isComplete, isTrue);
+      expect(progress.single.error.toString(), contains('两个音源'));
+    },
+  );
+
   test('encrypted BuguYY audio uses the sole exact playable result', () async {
     final actions = <String>[];
     final resolver = RemoteMusicResolver(

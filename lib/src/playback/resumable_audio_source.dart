@@ -23,6 +23,8 @@ class ResumableAudioSource extends StreamAudioSource {
     required this.onStarted,
     this.onLength,
     this.onProgress,
+    this.onFailure,
+    this.onSuccess,
     required super.tag,
   });
 
@@ -34,12 +36,16 @@ class ResumableAudioSource extends StreamAudioSource {
   final void Function() onStarted;
   final Future<void> Function(int? total)? onLength;
   final void Function(CachedDownloadProgress progress)? onProgress;
+  final void Function(Object error)? onFailure;
+  final void Function()? onSuccess;
   bool _writing = false;
   final _clients = <HttpClient>{};
+  final _cancelledClients = <HttpClient>{};
   Future<void>? _finishing;
 
   void cancelRequests() {
     for (final client in _clients.toList()) {
+      _cancelledClients.add(client);
       client.close(force: true);
     }
   }
@@ -84,9 +90,11 @@ class ResumableAudioSource extends StreamAudioSource {
           type == 'text/plain') {
         throw HttpException('Audio source returned $type', uri: url);
       }
-    } catch (_) {
+    } catch (error) {
+      if (!_cancelledClients.contains(client)) onFailure?.call(error);
       client.close(force: true);
       _clients.remove(client);
+      _cancelledClients.remove(client);
       onStopped();
       rethrow;
     }
@@ -97,19 +105,31 @@ class ResumableAudioSource extends StreamAudioSource {
         ? null
         : RegExp(r'^bytes (\d+)-(\d+)/(\d+|\*)$').firstMatch(range);
     if (ranged && parsed == null) {
+      final error = HttpException(
+        'Audio returned an invalid byte range',
+        uri: url,
+      );
+      if (!_cancelledClients.contains(client)) onFailure?.call(error);
       client.close(force: true);
       _clients.remove(client);
+      _cancelledClients.remove(client);
       onStopped();
-      throw HttpException('Audio returned an invalid byte range', uri: url);
+      throw error;
     }
     final actualOffset = ranged
         ? int.tryParse(parsed?.group(1) ?? '') ?? requestedOffset
         : 0;
     if (ranged && actualOffset != requestedOffset) {
+      final error = HttpException(
+        'Audio returned an unexpected byte range',
+        uri: url,
+      );
+      if (!_cancelledClients.contains(client)) onFailure?.call(error);
       client.close(force: true);
       _clients.remove(client);
+      _cancelledClients.remove(client);
       onStopped();
-      throw HttpException('Audio returned an unexpected byte range', uri: url);
+      throw error;
     }
     final total = ranged
         ? int.tryParse(parsed?.group(3) ?? '')
@@ -153,9 +173,13 @@ class ResumableAudioSource extends StreamAudioSource {
         if (cachedEnd > effectiveFrom) {
           yield* partFile.openRead(effectiveFrom, cachedEnd);
         }
-        await for (final chunk in response.timeout(
-          const Duration(seconds: 20),
-        )) {
+        final network = response
+            .timeout(const Duration(seconds: 20))
+            .handleError((Object error, StackTrace stack) {
+              if (!_cancelledClients.contains(client)) onFailure?.call(error);
+              Error.throwWithStackTrace(error, stack);
+            });
+        await for (final chunk in network) {
           final remaining = end == null
               ? chunk.length
               : max(0, end - (actualOffset + received));
@@ -189,8 +213,10 @@ class ResumableAudioSource extends StreamAudioSource {
         await writer?.close();
         client.close(force: true);
         _clients.remove(client);
+        final cancelled = _cancelledClients.remove(client);
         if (write) _writing = false;
         if (finished) {
+          if (!cancelled) onSuccess?.call();
           try {
             await partFile.rename(completeFile.path);
             _finishing = onComplete(completeFile);
@@ -243,17 +269,38 @@ String _contentType(String path) {
 
 /// Defers URL resolution until the player asks for audio for this queue item.
 class DeferredStreamingAudioSource extends StreamAudioSource {
-  DeferredStreamingAudioSource({required this.prepare, required super.tag});
+  DeferredStreamingAudioSource({
+    required this.prepare,
+    this.preparationRevision,
+    this.initialSource,
+    required super.tag,
+  }) {
+    if (initialSource != null) {
+      _preparedRevision = preparationRevision?.call();
+      _pending = Future.value(initialSource!);
+    }
+  }
   final Future<StreamAudioSource> Function() prepare;
+  final int Function()? preparationRevision;
+  final StreamAudioSource? initialSource;
   Future<StreamAudioSource>? _pending;
+  int? _preparedRevision;
 
   @override
   Future<StreamAudioResponse> request([int? start, int? end]) async {
+    final revision = preparationRevision?.call();
+    if (_preparedRevision != revision) _pending = null;
+    _preparedRevision = revision;
+    final pending = _pending ??= prepare();
     try {
-      final source = await (_pending ??= prepare());
-      return source.request(start, end);
+      final source = await pending;
+      if (preparationRevision?.call() != revision) {
+        if (identical(_pending, pending)) _pending = null;
+        return request(start, end);
+      }
+      return await source.request(start, end);
     } catch (_) {
-      _pending = null;
+      if (identical(_pending, pending)) _pending = null;
       rethrow;
     }
   }

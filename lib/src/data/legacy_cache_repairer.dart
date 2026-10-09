@@ -2,6 +2,7 @@ import 'dart:io';
 
 import 'music_cache.dart';
 import 'music_resolver.dart';
+import 'song_match_identity.dart';
 
 class LegacyCacheRepairer {
   const LegacyCacheRepairer({
@@ -9,12 +10,16 @@ class LegacyCacheRepairer {
     required this.cacheStore,
     this.minimumScore = 80,
     this.minimumGap = 10,
+    this.sourceProvider,
   });
 
   final MusicResolver resolver;
   final CachedTrackStore cacheStore;
   final double minimumScore;
   final double minimumGap;
+  final MusicDataSource Function()? sourceProvider;
+
+  MusicDataSource get _source => sourceProvider?.call() ?? MusicDataSource.flac;
 
   Future<int> repair(List<CachedTrack> tracks) async {
     var repaired = 0;
@@ -26,21 +31,62 @@ class LegacyCacheRepairer {
       if (query.isEmpty) {
         continue;
       }
-      try {
-        final candidates = await resolver.search(query, MusicDataSource.buguyy);
-        final chosen = _highConfidenceCandidate(candidates);
-        if (chosen == null) {
-          continue;
+      while (true) {
+        final source = _source;
+        try {
+          final candidates = await resolver.search(query, source);
+          if (source != _source) continue;
+          final chosen = _highConfidenceCandidate([
+            for (final candidate in candidates)
+              if ((source == MusicDataSource.auto ||
+                      candidate.source == source) &&
+                  _matchesKnownIdentity(track.music, candidate))
+                candidate,
+          ]);
+          if (chosen == null) break;
+          final resolved = resolver is AutoSourceHealthResolver
+              ? await (resolver as AutoSourceHealthResolver)
+                    .resolveForSourceMode(chosen, source)
+              : await resolver.resolve(chosen);
+          if (source != _source) continue;
+          if (!SongMatchIdentity(
+            chosen.name,
+            chosen.artist,
+          ).sameRecording(SongMatchIdentity(resolved.name, resolved.artist))) {
+            break;
+          }
+          final merged = _mergeResolved(track.music, resolved, query);
+          await cacheStore.updateCachedMusic(track, merged);
+          repaired += 1;
+        } catch (_) {
+          if (source != _source) continue;
+          // Repair is opportunistic; individual failures should not block startup.
         }
-        final resolved = await resolver.resolve(chosen);
-        final merged = _mergeResolved(track.music, resolved, query);
-        await cacheStore.updateCachedMusic(track, merged);
-        repaired += 1;
-      } catch (_) {
-        // Repair is opportunistic; individual failures should not block startup.
+        break;
       }
     }
     return repaired;
+  }
+
+  bool _hasKnownTitle(ResolvedMusic music) =>
+      music.name.trim().isNotEmpty &&
+      normalizeSongText(music.name) != 'unknowntitle';
+
+  bool _hasKnownArtist(ResolvedMusic music) =>
+      music.artist.trim().isNotEmpty &&
+      normalizeSongText(music.artist) != 'unknownartist';
+
+  bool _matchesKnownIdentity(
+    ResolvedMusic current,
+    MusicSearchCandidate candidate,
+  ) {
+    final expected = SongMatchIdentity(current.name, current.artist);
+    final found = SongMatchIdentity(candidate.name, candidate.artist);
+    if (_hasKnownTitle(current) &&
+        (expected.title != found.title || expected.version != found.version)) {
+      return false;
+    }
+    return !_hasKnownArtist(current) || expected.sameArtists(found);
   }
 
   bool _needsRepair(CachedTrack track) {
@@ -90,24 +136,23 @@ class LegacyCacheRepairer {
     ResolvedMusic resolved,
     String query,
   ) {
+    final hasIdentity = current.id.trim().isNotEmpty;
     return ResolvedMusic(
       query: current.query.trim().isNotEmpty ? current.query : query,
-      source: MusicDataSource.buguyy,
-      platform: resolved.platform,
-      id: resolved.id,
-      name: resolved.name.trim().isNotEmpty ? resolved.name : current.name,
-      artist: resolved.artist.trim().isNotEmpty
-          ? resolved.artist
-          : current.artist,
-      album: resolved.album.trim().isNotEmpty ? resolved.album : current.album,
+      source: hasIdentity ? current.source : resolved.source,
+      platform: hasIdentity ? current.platform : resolved.platform,
+      id: hasIdentity ? current.id : resolved.id,
+      name: _hasKnownTitle(current) ? current.name : resolved.name,
+      artist: _hasKnownArtist(current) ? current.artist : resolved.artist,
+      album: current.album.trim().isNotEmpty ? current.album : resolved.album,
       url: current.url.trim().isNotEmpty ? current.url : resolved.url,
       quality: current.quality.format.trim().isNotEmpty
           ? current.quality
           : resolved.quality,
-      coverUrl: resolved.coverUrl.trim().isNotEmpty
-          ? resolved.coverUrl
-          : current.coverUrl,
-      lyrics: resolved.lyrics ?? current.lyrics,
+      coverUrl: current.coverUrl.trim().isNotEmpty
+          ? current.coverUrl
+          : resolved.coverUrl,
+      lyrics: current.lyrics ?? resolved.lyrics,
       panLink: current.panLink,
     );
   }

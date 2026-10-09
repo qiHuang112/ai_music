@@ -1,0 +1,180 @@
+{
+  "code": 0,
+  "total_song_num": 7,
+  "hasmore": 0,
+  "songlist": [
+    {
+      "id": 706347122,
+      "mid": "002PX2ID4Zh0NA",
+      "name": "归零",
+      "title": "归零",
+      "subtitle": "",
+      "singer": [
+        {
+          "id": 21284099,
+          "mid": "000HaeCx26jbQl",
+          "name": "魔鬼花园_李安健",
+          "title": "魔鬼花园_李安健"
+        }
+      ],
+      "interval": 126,
+      "album": {
+        "id": 97085474,
+        "mid": "001uFUfG2RdZ54",
+        "name": "归零",
+        "title": "归零",
+        "pmid": "001uFUfG2RdZ54_1"
+      }
+    },
+    {
+      "id": 564018844,
+      "mid": "0021XzX52BNwql",
+      "name": "鸿门旋律",
+      "title": "鸿门旋律 (Version)",
+      "subtitle": "",
+      "singer": [
+        {
+          "id": 11191014,
+          "mid": "003KJwrn2IANoQ",
+          "name": "GTR7",
+          "title": "GTR7"
+        }
+      ],
+      "interval": 89,
+      "album": {
+        "id": 63417983,
+        "mid": "004Reuej19XJKq",
+        "name": "鸿门旋律",
+        "title": "鸿门旋律",
+        "pmid": "004Reuej19XJKq_1"
+      }
+    },
+    {
+      "id": 650709457,
+      "mid": "003Drb5l3iudOn",
+      "name": "Time is Broken",
+      "title": "Time is Broken (浴室氛围版)",
+      "subtitle": "",
+      "singer": [
+        {
+          "id": 17000012,
+          "mid": "000VbQhD4473LJ",
+          "name": "Dr.Phonk",
+          "title": "Dr.Phonk"
+        }
+      ],
+      "interval": 241,
+      "album": {
+        "id": 88008522,
+        "mid": "000bSOFh1c9D6k",
+        "name": "2026抖音热曲2",
+        "title": "2026抖音热曲2",
+        "pmid": "000bSOFh1c9D6k_1"
+      }
+    },
+    {
+      "id": 274967058,
+      "mid": "002o6dxt0oxVUC",
+      "name": "回忆观影券",
+      "title": "回忆观影券 (伴奏)",
+      "subtitle": "",
+      "singer": [
+        {
+          "id": 6597642,
+          "mid": "002yupVT2XEFaA",
+          "name": "IN-K",
+          "title": "IN-K"
+        },
+        {
+          "id": 202043,
+          "mid": "004W8PqQ0EYrEr",
+          "name": "王忻辰",
+          "title": "王忻辰"
+        }
+      ],
+      "interval": 172,
+      "album": {
+        "id": 14220033,
+        "mid": "002CPuo31idf0E",
+        "name": "回忆观影券",
+        "title": "回忆观影券",
+        "pmid": "002CPuo31idf0E_3"
+      }
+    },
+    {
+      "id": 660996194,
+      "mid": "002gMe4p4cUaSm",
+      "name": "星游记进行曲",
+      "title": "星游记进行曲",
+      "subtitle": "",
+      "singer": [
+        {
+          "id": 22976297,
+          "mid": "003A38d54B3G8M",
+          "name": "LUCHANGSHENG",
+          "title": "LUCHANGSHENG"
+        }
+      ],
+      "interval": 143,
+      "album": {
+        "id": 90926468,
+        "mid": "000oLm4C1g6mgH",
+        "name": "星游记进行曲",
+        "title": "星游记进行曲",
+        "pmid": "000oLm4C1g6mgH_1"
+      }
+    },
+    {
+      "id": 200521379,
+      "mid": "000G4KWD410jOe",
+      "name": "Lost Control (feat. Bianca)",
+      "title": "Lost Control (feat. Bianca)",
+      "subtitle": "",
+      "singer": [
+        {
+          "id": 1269034,
+          "mid": "003CLtoA1bS3cQ",
+          "name": "Tyron Hapi",
+          "title": "Tyron Hapi"
+        },
+        {
+          "id": 6582726,
+          "mid": "001IqIDD1uLLap",
+          "name": "Bianca",
+          "title": "Bianca"
+        }
+      ],
+      "interval": 269,
+      "album": {
+        "id": 1825849,
+        "mid": "001ac1wv2MGW4K",
+        "name": "Lost Control (feat. Bianca)",
+        "title": "Lost Control (feat. Bianca)",
+        "pmid": "001ac1wv2MGW4K_2"
+      }
+    },
+    {
+      "id": 618331482,
+      "mid": "003QlkuN3IhgNb",
+      "name": "Manestein",
+      "title": "Manestein (慢摇氛围版)",
+      "subtitle": "",
+      "singer": [
+        {
+          "id": 22470147,
+          "mid": "000SZ5BM1XWG4P",
+          "name": "TF",
+          "title": "TF"
+        }
+      ],
+      "interval": 153,
+      "album": {
+        "id": 78793060,
+        "mid": "001ay7Mj3hDMnI",
+        "name": "NO CANAL DELE",
+        "title": "NO CANAL DELE",
+        "pmid": "001ay7Mj3hDMnI_1"
+      }
+    }
+  ]
+}

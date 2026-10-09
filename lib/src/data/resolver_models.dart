@@ -230,6 +230,38 @@ abstract interface class QualitySelectableMusicResolver {
   );
 }
 
+/// Optional process-local health policy. Manual source selection remains usable
+/// even when a source is temporarily excluded from automatic requests.
+abstract interface class AutoSourceHealthResolver {
+  List<MusicDataSource> get availableAutoSources;
+
+  bool isSourceAvailableForAuto(MusicDataSource source);
+
+  String? sourceDegradationReason(MusicDataSource source);
+
+  Future<ResolvedMusic> resolveForSourceMode(
+    MusicSearchCandidate candidate,
+    MusicDataSource mode, {
+    MusicQualityLevel? quality,
+  });
+
+  /// Report failures after resolution, such as audio transfer/network failure.
+  /// Resolution failures are already counted by the resolver itself.
+  void reportSourceFailure(MusicDataSource source, Object error);
+
+  void reportSourceSuccess(MusicDataSource source);
+}
+
+class AutoSourceUnavailableException implements Exception {
+  const AutoSourceUnavailableException(this.source, this.reason);
+
+  final MusicDataSource source;
+  final String reason;
+
+  @override
+  String toString() => reason;
+}
+
 abstract interface class ScreenshotSearchResolver {
   Future<List<MusicSearchCandidate>> searchScreenshot(
     String title,

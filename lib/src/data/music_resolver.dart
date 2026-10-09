@@ -9,6 +9,7 @@ export 'resolver_models.dart';
 import 'dart:async';
 import 'dart:developer' as developer;
 
+import 'auto_source_health.dart';
 import 'buguyy_resolver.dart';
 import 'candidate_scorer.dart';
 import 'challenge_client.dart';
@@ -22,6 +23,7 @@ class RemoteMusicResolver
     implements
         MusicResolver,
         QualitySelectableMusicResolver,
+        AutoSourceHealthResolver,
         ProgressiveMusicResolver,
         ScreenshotSearchResolver,
         StagedScreenshotSearchResolver {
@@ -55,6 +57,31 @@ class RemoteMusicResolver
 
   late final BuguyyResolver _buguyy;
   late final FlacResolver _flac;
+  final _sourceHealth = AutoSourceHealth();
+
+  @override
+  List<MusicDataSource> get availableAutoSources =>
+      _sourceHealth.availableSources;
+
+  @override
+  bool isSourceAvailableForAuto(MusicDataSource source) =>
+      _sourceHealth.isAvailable(source);
+
+  @override
+  String? sourceDegradationReason(MusicDataSource source) =>
+      _sourceHealth.degradationReason(source);
+
+  @override
+  void reportSourceFailure(MusicDataSource source, Object error) =>
+      _sourceHealth.recordFailure(
+        source,
+        error,
+        operation: AutoSourceOperation.media,
+      );
+
+  @override
+  void reportSourceSuccess(MusicDataSource source) =>
+      _sourceHealth.recordSuccess(source, operation: AutoSourceOperation.media);
 
   @override
   Future<List<MusicSearchCandidate>> searchScreenshot(
@@ -82,13 +109,41 @@ class RemoteMusicResolver
 
   @override
   Future<List<MusicSearchCandidate>> searchScreenshotPrimary(String title) =>
-      _buguyy.searchSingleKeyword(title.trim());
+      _searchScreenshotSource(
+        title,
+        MusicDataSource.buguyy,
+        _buguyy.searchSingleKeyword,
+      );
 
   @override
   Future<List<MusicSearchCandidate>> searchScreenshotFallback(
     String title,
     String artist,
-  ) => _flac.searchFirstPages(title.trim(), stopAfterPage: (_) => true);
+  ) => _searchScreenshotSource(
+    title,
+    MusicDataSource.flac,
+    (query) => _flac.searchFirstPages(query, stopAfterPage: (_) => true),
+  );
+
+  Future<List<MusicSearchCandidate>> _searchScreenshotSource(
+    String title,
+    MusicDataSource source,
+    Future<List<MusicSearchCandidate>> Function(String) action,
+  ) async {
+    final query = title.trim();
+    if (query.isEmpty) return const [];
+    if (!isSourceAvailableForAuto(source)) return const [];
+    try {
+      return await _sourceHealth.run(
+        source,
+        () => action(query),
+        automatic: true,
+      );
+    } on AutoSourceUnavailableException {
+      // The circuit can open while this song waits behind another search.
+      return const [];
+    }
+  }
 
   @override
   Future<List<MusicSearchCandidate>> search(
@@ -104,8 +159,16 @@ class RemoteMusicResolver
       '[AI Music][resolver] search query="$trimmed" source=${source.storageValue}',
     );
     final result = switch (source) {
-      MusicDataSource.buguyy => await _buguyy.search(trimmed),
-      MusicDataSource.flac => await _flac.search(trimmed),
+      MusicDataSource.buguyy => await _sourceHealth.run(
+        source,
+        () => _buguyy.search(trimmed),
+        automatic: false,
+      ),
+      MusicDataSource.flac => await _sourceHealth.run(
+        source,
+        () => _flac.search(trimmed),
+        automatic: false,
+      ),
       MusicDataSource.auto => await _searchAuto(trimmed),
       MusicDataSource.lan => throw UnsupportedError(
         'LAN is a cache provenance and cannot be searched online.',
@@ -146,13 +209,29 @@ class RemoteMusicResolver
     _logResolver(
       '[AI Music][resolver] search query="$trimmed" source=${source.storageValue}',
     );
-    final stream = StreamController<MusicSearchProgress>();
     final merged = <MusicSearchCandidate>[];
     final errors = <Object>[];
-    var remaining = 2;
+    final sources = availableAutoSources;
+    if (sources.isEmpty) {
+      yield MusicSearchProgress(
+        candidates: const [],
+        isComplete: true,
+        error: _noAvailableAutoSourceError(),
+      );
+      return;
+    }
+    var cancelled = false;
+    final stream = StreamController<MusicSearchProgress>(
+      onCancel: () => cancelled = true,
+    );
+    var remaining = sources.length;
 
     void handleResult(_AutoSourceResult result) {
       remaining -= 1;
+      if (cancelled) {
+        if (remaining == 0) unawaited(stream.close());
+        return;
+      }
       if (result.error != null) {
         errors.add(result.error!);
       }
@@ -181,20 +260,15 @@ class RemoteMusicResolver
       }
     }
 
-    unawaited(
-      _searchAutoSource(
-        trimmed,
-        MusicDataSource.buguyy,
-        _buguyy.search,
-      ).then(handleResult),
-    );
-    unawaited(
-      _searchAutoSource(
-        trimmed,
-        MusicDataSource.flac,
-        _flac.search,
-      ).then(handleResult),
-    );
+    for (final source in sources) {
+      unawaited(
+        _searchAutoSource(
+          trimmed,
+          source,
+          isCancelled: () => cancelled,
+        ).then(handleResult),
+      );
+    }
     yield* stream.stream;
   }
 
@@ -208,15 +282,33 @@ class RemoteMusicResolver
     MusicQualityLevel level,
   ) => _resolveWithPreference(candidate, level.resolverPreference);
 
+  @override
+  Future<ResolvedMusic> resolveForSourceMode(
+    MusicSearchCandidate candidate,
+    MusicDataSource mode, {
+    MusicQualityLevel? quality,
+  }) => _resolveWithPreference(
+    candidate,
+    quality?.resolverPreference,
+    automatic: mode == MusicDataSource.auto,
+  );
+
   Future<ResolvedMusic> _resolveWithPreference(
     MusicSearchCandidate candidate,
-    String? qualityPreference,
-  ) async {
+    String? qualityPreference, {
+    bool automatic = false,
+  }) async {
     final resolved = await switch (candidate.source) {
-      MusicDataSource.buguyy => _resolveBuguyy(candidate, qualityPreference),
-      MusicDataSource.flac => _flac.resolve(
+      MusicDataSource.buguyy => _resolveBuguyy(
         candidate,
-        qualityPreference: qualityPreference,
+        qualityPreference,
+        automatic: automatic,
+      ),
+      MusicDataSource.flac => _sourceHealth.run(
+        MusicDataSource.flac,
+        () => _flac.resolve(candidate, qualityPreference: qualityPreference),
+        automatic: automatic,
+        operation: AutoSourceOperation.resolve,
       ),
       MusicDataSource.auto => throw StateError(
         'Auto candidates must be tagged with their concrete source.',
@@ -237,119 +329,154 @@ class RemoteMusicResolver
 
   Future<ResolvedMusic> _resolveBuguyy(
     MusicSearchCandidate candidate,
-    String? qualityPreference,
-  ) async {
+    String? qualityPreference, {
+    required bool automatic,
+  }) async {
     try {
-      return await _buguyy.resolve(
-        candidate,
-        qualityPreference: qualityPreference,
+      return await _sourceHealth.run(
+        MusicDataSource.buguyy,
+        () => _buguyy.resolve(candidate, qualityPreference: qualityPreference),
+        automatic: automatic,
+        operation: AutoSourceOperation.resolve,
       );
     } on UnsupportedEncryptedAudioException {
-      // An encrypted URL cannot be downloaded as ordinary audio. Check both
-      // platform first pages before deciding whether the identity is unique.
-      final found = await _flac.searchFirstPages(
-        candidate.name,
-        maxResults: 40,
-      );
-      final matches = found
-          .where(
-            (item) =>
-                item.name.trim().toLowerCase() ==
-                    candidate.name.trim().toLowerCase() &&
-                item.artist.trim().toLowerCase() ==
-                    candidate.artist.trim().toLowerCase(),
-          )
-          .toList(growable: false);
-      if (matches.length != 1) {
-        throw const UnsupportedEncryptedAudioException();
-      }
-      // The verified alternate for 梧桐灯 is MP3. A FLAC choice can itself
-      // resolve to encrypted .mflac, so restrict this fallback to MP3 URLs.
-      final match = matches.single;
-      final mp3Qualities = match.qualities
-          .where((quality) => quality.format.toLowerCase() == 'mp3')
-          .toList(growable: false);
-      if (mp3Qualities.isEmpty) {
-        throw const UnsupportedEncryptedAudioException();
-      }
-      final playable = await _flac.resolve(
-        MusicSearchCandidate(
-          query: match.query,
-          source: match.source,
-          platform: match.platform,
-          keyword: match.keyword,
-          page: match.page,
-          id: match.id,
-          name: match.name,
-          artist: match.artist,
-          album: match.album,
-          duration: match.duration,
-          link: match.link,
-          coverUrl: match.coverUrl,
-          qualities: mp3Qualities,
-          score: match.score,
-          raw: match.raw,
-        ),
-        qualityPreference: qualityPreference ?? 'mp3:320',
-      );
-      if (urlExtension(playable.url) == '.mflac') {
-        throw const UnsupportedEncryptedAudioException();
-      }
-      // Keep the user's saved playlist identity so a later cache lookup finds
-      // the downloaded audio. The alternate source supplies only its media.
-      return ResolvedMusic(
-        query: candidate.query,
-        source: candidate.source,
-        platform: candidate.platform,
-        id: candidate.id,
-        name: candidate.name,
-        artist: candidate.artist,
-        album: playable.album,
-        url: playable.url,
-        quality: playable.quality,
-        coverUrl: candidate.coverUrl.isNotEmpty
-            ? candidate.coverUrl
-            : playable.coverUrl,
-        lyrics:
-            playable.lyrics ??
-            makeResolvedLyrics(candidate.raw['about'], 'buguyy:search:about'),
+      return _sourceHealth.run(
+        MusicDataSource.flac,
+        () => _resolveEncryptedAlternate(candidate, qualityPreference),
+        automatic: automatic,
+        operation: AutoSourceOperation.resolve,
       );
     }
   }
 
+  Future<ResolvedMusic> _resolveEncryptedAlternate(
+    MusicSearchCandidate candidate,
+    String? qualityPreference,
+  ) async {
+    // An encrypted URL cannot be downloaded as ordinary audio. Check both
+    // platform first pages before deciding whether the identity is unique.
+    final found = await _flac.searchFirstPages(candidate.name, maxResults: 40);
+    final matches = found
+        .where(
+          (item) =>
+              item.name.trim().toLowerCase() ==
+                  candidate.name.trim().toLowerCase() &&
+              item.artist.trim().toLowerCase() ==
+                  candidate.artist.trim().toLowerCase(),
+        )
+        .toList(growable: false);
+    if (matches.length != 1) {
+      throw const UnsupportedEncryptedAudioException();
+    }
+    // The verified alternate for 梧桐灯 is MP3. A FLAC choice can itself
+    // resolve to encrypted .mflac, so restrict this fallback to MP3 URLs.
+    final match = matches.single;
+    final mp3Qualities = match.qualities
+        .where((quality) => quality.format.toLowerCase() == 'mp3')
+        .toList(growable: false);
+    if (mp3Qualities.isEmpty) {
+      throw const UnsupportedEncryptedAudioException();
+    }
+    final playable = await _flac.resolve(
+      MusicSearchCandidate(
+        query: match.query,
+        source: match.source,
+        platform: match.platform,
+        keyword: match.keyword,
+        page: match.page,
+        id: match.id,
+        name: match.name,
+        artist: match.artist,
+        album: match.album,
+        duration: match.duration,
+        link: match.link,
+        coverUrl: match.coverUrl,
+        qualities: mp3Qualities,
+        score: match.score,
+        raw: match.raw,
+      ),
+      qualityPreference: qualityPreference ?? 'mp3:320',
+    );
+    if (urlExtension(playable.url) == '.mflac') {
+      throw const UnsupportedEncryptedAudioException();
+    }
+    // Keep the user's saved playlist identity so a later cache lookup finds
+    // the downloaded audio. The alternate source supplies only its media.
+    return ResolvedMusic(
+      query: candidate.query,
+      source: candidate.source,
+      platform: candidate.platform,
+      id: candidate.id,
+      name: candidate.name,
+      artist: candidate.artist,
+      album: playable.album,
+      url: playable.url,
+      quality: playable.quality,
+      coverUrl: candidate.coverUrl.isNotEmpty
+          ? candidate.coverUrl
+          : playable.coverUrl,
+      lyrics:
+          playable.lyrics ??
+          makeResolvedLyrics(candidate.raw['about'], 'buguyy:search:about'),
+    );
+  }
+
   Future<List<MusicSearchCandidate>> _searchAuto(String query) async {
-    final buguyyFuture = _searchAutoSource(
-      query,
-      MusicDataSource.buguyy,
-      _buguyy.search,
-    );
-    final flacFuture = _searchAutoSource(
-      query,
-      MusicDataSource.flac,
-      _flac.search,
-    );
-    final results = await Future.wait([buguyyFuture, flacFuture]);
-    final buguyy = results[0];
-    final flac = results[1];
-    final merged = [...buguyy.candidates, ...flac.candidates]
-      ..sort((a, b) => b.score.compareTo(a.score));
-    _logResolver(
-      '[AI Music][resolver] auto merged query="$query" '
-      'buguyy=${buguyy.candidates.length} flac=${flac.candidates.length} '
-      'count=${merged.length}',
-    );
-    if (merged.isNotEmpty) {
-      return merged.take(80).toList(growable: false);
-    }
-    if (buguyy.error != null && flac.error != null) {
-      throw _combinedAutoError([buguyy.error!, flac.error!]);
-    }
-    final error = buguyy.error ?? flac.error;
-    if (error != null) {
-      throw StateError(formatResolverError(error));
-    }
+    final sources = availableAutoSources;
+    if (sources.isEmpty) throw _noAvailableAutoSourceError();
+    final results = await Future.wait([
+      for (final source in sources) _searchAutoSource(query, source),
+    ]);
+    final merged = [for (final result in results) ...result.candidates]
+      ..sort((a, b) {
+        final score = b.score.compareTo(a.score);
+        if (score != 0) return score;
+        // Same recording score: prefer FLAC without reordering better matches.
+        return (a.source == MusicDataSource.flac ? 0 : 1).compareTo(
+          b.source == MusicDataSource.flac ? 0 : 1,
+        );
+      });
+    if (merged.isNotEmpty) return merged.take(80).toList(growable: false);
+    final errors = [
+      for (final result in results)
+        if (result.error != null) result.error!,
+    ];
+    if (errors.isNotEmpty) throw _combinedAutoError(errors);
     return const [];
   }
+
+  Future<_AutoSourceResult> _searchAutoSource(
+    String query,
+    MusicDataSource source, {
+    bool Function()? isCancelled,
+  }) async {
+    try {
+      final candidates = await _sourceHealth.run(
+        source,
+        () => source == MusicDataSource.flac
+            ? _flac.search(query)
+            : _buguyy.search(query),
+        automatic: true,
+        isCancelled: isCancelled,
+      );
+      _logResolver(
+        '[AI Music][resolver] auto ${source.storageValue} query="$query" '
+        'count=${candidates.length}',
+      );
+      return _AutoSourceResult(candidates: candidates);
+    } catch (error) {
+      _logResolver(
+        '[AI Music][resolver] auto ${source.storageValue} failed query="$query" '
+        'error=${formatResolverError(error)}',
+      );
+      return _AutoSourceResult(
+        error: StateError('${source.label}: ${formatResolverError(error)}'),
+      );
+    }
+  }
+
+  StateError _noAvailableAutoSourceError() =>
+      StateError('两个音源均多次请求失败，本次运行已暂停自动请求。可在设置中手动选择音源重试，或重新打开应用。');
 }
 
 void _appendStableCandidates(
@@ -369,41 +496,13 @@ void _appendStableCandidates(
   }
 }
 
-StateError _combinedAutoError(List<Object> errors) {
-  if (errors.length <= 1) {
-    return StateError(formatResolverError(errors.single));
-  }
-  return StateError(
-    'buguyy failed: ${formatResolverError(errors[0])}; '
-    'flac failed: ${formatResolverError(errors[1])}',
-  );
-}
+StateError _combinedAutoError(List<Object> errors) =>
+    StateError(errors.map(formatResolverError).join('; '));
 
 void _logResolver(String message) {
   developer.log(message, name: 'ai_music.resolver');
   // ignore: avoid_print
   print(message);
-}
-
-Future<_AutoSourceResult> _searchAutoSource(
-  String query,
-  MusicDataSource source,
-  Future<List<MusicSearchCandidate>> Function(String query) search,
-) async {
-  try {
-    final candidates = await search(query);
-    _logResolver(
-      '[AI Music][resolver] auto ${source.storageValue} query="$query" '
-      'count=${candidates.length}',
-    );
-    return _AutoSourceResult(candidates: candidates);
-  } catch (error) {
-    _logResolver(
-      '[AI Music][resolver] auto ${source.storageValue} failed query="$query" '
-      'error=${formatResolverError(error)}',
-    );
-    return _AutoSourceResult(error: error);
-  }
 }
 
 class _AutoSourceResult {

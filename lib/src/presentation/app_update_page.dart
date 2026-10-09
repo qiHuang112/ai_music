@@ -49,18 +49,16 @@ class _AppUpdateSettingState extends State<AppUpdateSetting> {
       final zh = AppStringsScope.of(context).isZh;
       return ListTile(
         key: const Key('check-app-update'),
-        leading: UpdateBadge(
-          updates: widget.updates,
-          child: const Icon(Icons.system_update),
-        ),
         title: Text(zh ? '检测更新' : 'Check for updates'),
         subtitle: Text(
           current == null
               ? (zh ? '读取版本中…' : 'Reading version…')
               : '${current.label}${current.channel == 'debug' ? ' · debug' : ''}\n${zh ? '更新时间' : 'Updated'} ${updateDateLabel(current.builtAt)}',
         ),
-        isThreeLine: true,
-        trailing: const Icon(Icons.chevron_right),
+        trailing: UpdateBadge(
+          updates: widget.updates,
+          child: const Icon(Icons.chevron_right, size: 18),
+        ),
         onTap: () => Navigator.of(context).push<void>(
           MaterialPageRoute(
             builder: (_) => AppUpdatePage(updates: widget.updates),

@@ -1,4 +1,5 @@
 import '../data/music_resolver.dart';
+import '../data/song_match_identity.dart';
 import 'screenshot_song_parser.dart';
 
 class ScreenshotMatchPolicy {
@@ -7,53 +8,15 @@ class ScreenshotMatchPolicy {
   bool resolvedStillMatches(ScreenshotSongDraft draft, ResolvedMusic resolved) {
     return resolved.panLink == false &&
         Uri.tryParse(resolved.url)?.scheme == 'https' &&
-        _base(draft.title) == _base(resolved.name) &&
-        _normal(draft.artist) == _normal(resolved.artist) &&
-        _version(draft.title, draft.version) == _version(resolved.name, '');
+        SongMatchIdentity(
+          draft.title,
+          draft.artist,
+          version: draft.version,
+        ).sameRecording(SongMatchIdentity(resolved.name, resolved.artist));
   }
 
-  static String _base(String value) => _normal(
-    _withoutContext(value).replaceAll(
-      RegExp(
-        r'[（(]?\s*(?:live|现场(?:版)?|remix|混音(?:版)?|伴奏|翻唱|cover|纯音乐|instrumental|demo|acoustic|哼唱(?:版)?|钢琴版|[哄吹]睡版|英文版|中文版)\s*[）)]?',
-        caseSensitive: false,
-      ),
-      '',
-    ),
-  );
-
-  static String _withoutContext(String value) {
-    // Strip only a trailing soundtrack/work annotation, not arbitrary subtitles.
-    // The OCR may truncate it before the closing bracket.
-    final annotation = RegExp(
-      r'\s*(?:[（(]\s*(?:电影|电视剧|动画|选自《|《)|[-—]\s*(?:电影|电视剧|动画|选自《|《)|《)',
-    ).firstMatch(value);
-    return annotation != null && annotation.start > 0
-        ? value.substring(0, annotation.start).trim()
-        : value;
-  }
-
-  static String _version(String title, String explicit) {
-    final value = '$title $explicit'.toLowerCase();
-    if (RegExp(r'[哄吹]睡版').hasMatch(value)) return 'lullaby';
-    if (RegExp(r'英文版').hasMatch(value)) return 'english';
-    if (RegExp(r'中文版').hasMatch(value)) return 'chinese';
-    if (RegExp(r'哼唱|humming').hasMatch(value)) return 'humming';
-    if (RegExp(r'钢琴版').hasMatch(value)) return 'piano';
-    if (RegExp(r'live|现场').hasMatch(value)) return 'live';
-    if (RegExp(r'remix|混音').hasMatch(value)) return 'remix';
-    if (RegExp(r'伴奏|instrumental').hasMatch(value)) return 'instrumental';
-    if (RegExp(r'翻唱|cover').hasMatch(value)) return 'cover';
-    if (RegExp(r'demo').hasMatch(value)) return 'demo';
-    if (RegExp(r'acoustic').hasMatch(value)) return 'acoustic';
-    if (RegExp(r'纯音乐').hasMatch(value)) return 'instrumental';
-    return '';
-  }
-
-  static String _normal(String value) => value.toLowerCase().replaceAll(
-    RegExp(r'[\s\p{P}\p{S}]', unicode: true),
-    '',
-  );
+  static String _base(String value) => SongMatchIdentity(value, '').title;
+  static String _withoutContext(String value) => withoutSongContext(value);
 }
 
 class ScreenshotMatchResult {
@@ -75,6 +38,8 @@ class ScreenshotMatcher {
     Future<void> Function(Duration)? wait,
     this.requestStartSpacing = const Duration(milliseconds: 350),
     this.allowTitleFragments = true,
+    this.source = MusicDataSource.auto,
+    this.sourceProvider,
   }) : _now = now ?? DateTime.now,
        _wait = wait ?? Future<void>.delayed;
 
@@ -83,6 +48,8 @@ class ScreenshotMatcher {
   final Future<void> Function(Duration) _wait;
   final Duration requestStartSpacing;
   final bool allowTitleFragments;
+  final MusicDataSource source;
+  final MusicDataSource Function()? sourceProvider;
   final Map<String, List<MusicSearchCandidate>> _searchCache = {};
   final Map<String, Future<List<MusicSearchCandidate>>> _searchInFlight = {};
   final Map<String, List<MusicSearchCandidate>> _primaryCache = {};
@@ -101,12 +68,16 @@ class ScreenshotMatcher {
   Future<ScreenshotMatchResult> match(
     ScreenshotSongDraft draft, {
     bool failOnSourceErrorWhenEmpty = false,
+    MusicDataSource? source,
   }) async {
+    final selectedSource = source ?? sourceProvider?.call() ?? this.source;
     if (draft.title.trim().isEmpty) {
       return const ScreenshotMatchResult([], null);
     }
-    if (resolver is! StagedScreenshotSearchResolver) {
-      final candidates = await search(draft);
+    if (!allowTitleFragments ||
+        selectedSource != MusicDataSource.auto ||
+        resolver is! StagedScreenshotSearchResolver) {
+      final candidates = await search(draft, source: selectedSource);
       return _rank(draft, candidates);
     }
     final staged = resolver as StagedScreenshotSearchResolver;
@@ -127,7 +98,12 @@ class ScreenshotMatcher {
       primaryFailure = error;
       primary = const [];
     }
-    if (_hasTitleMatch(draft, primary)) return _rank(draft, primary);
+    final primaryMatch = _rank(draft, primary);
+    if (allowTitleFragments
+        ? _hasTitleMatch(draft, primary)
+        : primaryMatch.recommended != null && !primaryMatch.needsReview) {
+      return primaryMatch;
+    }
 
     List<MusicSearchCandidate> fallback;
     try {
@@ -191,15 +167,25 @@ class ScreenshotMatcher {
     required Map<String, Future<List<MusicSearchCandidate>>> inFlight,
     required String source,
     required Future<List<MusicSearchCandidate>> Function() action,
+    bool automatic = true,
   }) async {
+    final health = resolver;
+    if (automatic &&
+        health is AutoSourceHealthResolver &&
+        source != MusicDataSource.auto.storageValue &&
+        !(health as AutoSourceHealthResolver).isSourceAvailableForAuto(
+          MusicDataSource.fromStorage(source),
+        )) {
+      return const [];
+    }
     final cached = cache[key];
     if (cached != null) return cached;
     final pending = inFlight[key];
     if (pending != null) return pending;
-    if (_blockedUntil[source]?.isAfter(_now()) ?? false) {
+    if (automatic && (_blockedUntil[source]?.isAfter(_now()) ?? false)) {
       throw StateError('$source is temporarily unavailable');
     }
-    final search = _paced(source, action);
+    final search = _paced(source, action, automatic: automatic);
     inFlight[key] = search;
     try {
       final found = await search;
@@ -222,6 +208,7 @@ class ScreenshotMatcher {
 
   static double _similarity(String a, String b) {
     if (a.isEmpty || b.isEmpty) return 0;
+    if (a == b) return 1;
     var previous = List<int>.generate(b.length + 1, (i) => i);
     for (var i = 1; i <= a.length; i++) {
       final current = <int>[i];
@@ -255,35 +242,91 @@ class ScreenshotMatcher {
     ScreenshotSongDraft draft,
     List<MusicSearchCandidate> candidates,
   ) {
-    final artist = ScreenshotMatchPolicy._normal(draft.artist);
-    final version = ScreenshotMatchPolicy._version(draft.title, draft.version);
+    final expected = SongMatchIdentity(
+      draft.title,
+      draft.artist,
+      version: draft.version,
+    );
+    final identities = {
+      for (final candidate in candidates)
+        candidate: SongMatchIdentity(candidate.name, candidate.artist),
+    };
     bool sameVersion(MusicSearchCandidate candidate) =>
-        version == ScreenshotMatchPolicy._version(candidate.name, '');
+        expected.version == identities[candidate]!.version;
     bool exact(MusicSearchCandidate candidate) =>
-        _titleSimilarity(draft, candidate) == 1 &&
-        artist.isNotEmpty &&
-        artist == ScreenshotMatchPolicy._normal(candidate.artist) &&
-        sameVersion(candidate);
-    double score(MusicSearchCandidate candidate) {
-      final title = _titleSimilarity(draft, candidate);
-      // Title is the identity gate. Artist similarity cannot promote a different song.
-      return (exact(candidate) ? 1000 : 0) +
-          title * 100 +
-          (title >= 2 / 3
-              ? _similarity(
-                      artist,
-                      ScreenshotMatchPolicy._normal(candidate.artist),
-                    ) *
-                    50
-              : 0) +
-          (sameVersion(candidate) ? 5 : -20);
+        expected.sameRecording(identities[candidate]!);
+    double artistSimilarity(SongMatchIdentity found) {
+      if (expected.artists.isEmpty || found.artists.isEmpty) return 0;
+      if (expected.sameArtists(found)) return 1;
+      final overlap = expected.artists.intersection(found.artists).length;
+      if (overlap > 0) {
+        final largest = expected.artists.length > found.artists.length
+            ? expected.artists.length
+            : found.artists.length;
+        return overlap / largest;
+      }
+      return _similarity(expected.artistKey, found.artistKey);
     }
 
-    final indexed = candidates.indexed.toList()
-      ..sort((a, b) {
-        final order = score(b.$2).compareTo(score(a.$2));
+    final titleScores = {
+      for (final candidate in candidates)
+        candidate: _similarity(expected.title, identities[candidate]!.title),
+    };
+    final titleWithoutAnnotations = normalizeSongText(
+      withoutSongContext(
+        draft.title,
+      ).replaceAll(RegExp(r'[（(][^（）()]*[）)]'), ''),
+    );
+    double durationBonus(MusicSearchCandidate candidate) {
+      if (draft.durationSeconds <= 0 || candidate.duration <= 0) return 0;
+      final found = identities[candidate]!;
+      if ((titleScores[candidate]! < 2 / 3 &&
+              titleWithoutAnnotations != found.title) ||
+          expected.artists.intersection(found.artists).isEmpty) {
+        return 0;
+      }
+      // Resolver durations are usually seconds; a millisecond response is
+      // recognizable relative to the known platform duration, not by a fixed
+      // threshold that would corrupt a legitimately long song.
+      final seconds = candidate.duration > draft.durationSeconds * 100
+          ? candidate.duration / 1000
+          : candidate.duration.toDouble();
+      final difference = (seconds - draft.durationSeconds).abs();
+      return difference <= 2
+          ? 10
+          : difference <= 5
+          ? 5
+          : 0;
+    }
+
+    final scores = {
+      for (final candidate in candidates)
+        candidate:
+            (exact(candidate) ? 1000 : 0) +
+            titleScores[candidate]! * 100 +
+            (titleScores[candidate]! >= 2 / 3
+                ? artistSimilarity(identities[candidate]!) * 50
+                : 0) +
+            (sameVersion(candidate) ? 5 : -20) +
+            (sameVersion(candidate) &&
+                    titleScores[candidate] == 1 &&
+                    expected.artists
+                        .intersection(identities[candidate]!.artists)
+                        .isNotEmpty
+                ? 40
+                : 0) +
+            durationBonus(candidate),
+    };
+    final indexed = candidates.indexed.toList();
+    // Without even a plausible title, preserve the source's first fallback.
+    // An arbitrary partial overlap must not promote another unrelated song.
+    if (titleScores.values.any((score) => score >= 2 / 3) ||
+        candidates.any((candidate) => durationBonus(candidate) > 0)) {
+      indexed.sort((a, b) {
+        final order = scores[b.$2]!.compareTo(scores[a.$2]!);
         return order == 0 ? a.$1.compareTo(b.$1) : order;
       });
+    }
     final ranked = [for (final entry in indexed) entry.$2];
 
     bool oneWrongCharacter(String a, String b, {required int minimumLength}) {
@@ -295,36 +338,36 @@ class ScreenshotMatcher {
       return differences == 1;
     }
 
-    String identity(MusicSearchCandidate candidate) =>
-        '${ScreenshotMatchPolicy._base(candidate.name)}|${ScreenshotMatchPolicy._normal(candidate.artist)}|${ScreenshotMatchPolicy._version(candidate.name, '')}';
-
     bool confidentCorrection(MusicSearchCandidate candidate) {
-      if (!sameVersion(candidate) || artist.isEmpty) return false;
-      final title = ScreenshotMatchPolicy._base(draft.title);
-      final foundTitle = ScreenshotMatchPolicy._base(candidate.name);
-      final foundArtist = ScreenshotMatchPolicy._normal(candidate.artist);
-      final titleExact = title == foundTitle;
-      final artistExact = artist == foundArtist;
+      if (!allowTitleFragments ||
+          !sameVersion(candidate) ||
+          expected.artists.isEmpty) {
+        return false;
+      }
+      final found = identities[candidate]!;
+      final titleExact = expected.title == found.title;
+      final artistExact = expected.sameArtists(found);
       final titleClose = oneWrongCharacter(
-        title,
-        foundTitle,
+        expected.title,
+        found.title,
         minimumLength: artistExact ? 3 : 4,
       );
-      final artistClose = oneWrongCharacter(
-        artist,
-        foundArtist,
-        minimumLength: 2,
-      );
+      final artistClose =
+          expected.artists.length == 1 &&
+          found.artists.length == 1 &&
+          oneWrongCharacter(
+            expected.artistKey,
+            found.artistKey,
+            minimumLength: 2,
+          );
       if (!(titleExact || titleClose) || !(artistExact || artistClose)) {
         return false;
       }
-      // Duplicate sources for the same song are not competing identities.
-      // A close alternative song/artist must still be confirmed by the user.
       return !ranked.any(
         (other) =>
             sameVersion(other) &&
-            identity(other) != identity(candidate) &&
-            score(candidate) - score(other) < 12,
+            identities[other]!.key != found.key &&
+            scores[candidate]! - scores[other]! < 12,
       );
     }
 
@@ -337,28 +380,44 @@ class ScreenshotMatcher {
     );
   }
 
-  Future<List<MusicSearchCandidate>> search(ScreenshotSongDraft draft) async {
+  Future<List<MusicSearchCandidate>> search(
+    ScreenshotSongDraft draft, {
+    MusicDataSource? source,
+  }) async {
+    final selectedSource = source ?? sourceProvider?.call() ?? this.source;
     final query = ScreenshotMatchPolicy._withoutContext(draft.title).trim();
     if (query.isEmpty) return const [];
-    final key = '$query\u001f${draft.artist.trim()}';
+    final searchQuery = !allowTitleFragments && draft.artist.trim().isNotEmpty
+        ? '${draft.artist.trim()} $query'
+        : query;
+    final key =
+        '${selectedSource.storageValue}\u001f$query\u001f${draft.artist.trim()}';
     return _stageSearch(
       key: key,
       cache: _searchCache,
       inFlight: _searchInFlight,
-      source: MusicDataSource.auto.storageValue,
-      action: () => resolver is ScreenshotSearchResolver
+      source: selectedSource.storageValue,
+      automatic: selectedSource == MusicDataSource.auto,
+      action: () =>
+          allowTitleFragments &&
+              selectedSource == MusicDataSource.auto &&
+              resolver is ScreenshotSearchResolver
           ? (resolver as ScreenshotSearchResolver).searchScreenshot(
               query,
               draft.artist,
             )
-          : resolver.search(query, MusicDataSource.auto),
+          : resolver.search(searchQuery, selectedSource),
     );
   }
 
-  Future<T> _paced<T>(String source, Future<T> Function() action) {
+  Future<T> _paced<T>(
+    String source,
+    Future<T> Function() action, {
+    required bool automatic,
+  }) {
     final tail = _networkTails[source] ?? Future<void>.value();
     final start = tail.then((_) async {
-      if (_blockedUntil[source]?.isAfter(_now()) ?? false) {
+      if (automatic && (_blockedUntil[source]?.isAfter(_now()) ?? false)) {
         throw StateError('$source is temporarily unavailable');
       }
       final last = _lastNetworkStarts[source];
@@ -366,7 +425,7 @@ class ScreenshotMatcher {
         final remaining = requestStartSpacing - _now().difference(last);
         if (remaining > Duration.zero) await _wait(remaining);
       }
-      if (_blockedUntil[source]?.isAfter(_now()) ?? false) {
+      if (automatic && (_blockedUntil[source]?.isAfter(_now()) ?? false)) {
         throw StateError('$source is temporarily unavailable');
       }
       _lastNetworkStarts[source] = _now();

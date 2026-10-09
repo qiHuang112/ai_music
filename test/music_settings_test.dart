@@ -30,7 +30,7 @@ void main() {
     }
   });
 
-  test('settings store defaults to auto source', () async {
+  test('settings store defaults to FLAC source', () async {
     final root = await Directory.systemTemp.createTemp(
       'ai_music_settings_default_',
     );
@@ -39,7 +39,7 @@ void main() {
     try {
       final settings = await store.loadSettings();
 
-      expect(settings.source, MusicDataSource.auto);
+      expect(settings.source, MusicDataSource.flac);
       expect(settings.language, AppLanguage.zh);
       expect(settings.theme, AppThemePreference.dark);
       expect(settings.lanLibraryUrl, defaultLanLibraryUrl);
@@ -85,6 +85,33 @@ void main() {
       await root.delete(recursive: true);
     }
   });
+
+  test(
+    'source defaults cover invalid settings and preserve explicit modes',
+    () async {
+      final root = await Directory.systemTemp.createTemp(
+        'music_source_default_',
+      );
+      final file = File('${root.path}/settings.json');
+      final store = MusicSettingsStore(rootProvider: () async => root);
+      try {
+        for (final json in ['{}', '{"source":"retired"}', '{"source":"lan"}']) {
+          await file.writeAsString(json);
+          expect((await store.loadSettings()).source, MusicDataSource.flac);
+        }
+        for (final source in [
+          MusicDataSource.auto,
+          MusicDataSource.buguyy,
+          MusicDataSource.flac,
+        ]) {
+          await store.saveSettings(MusicAppSettings(source: source));
+          expect((await store.loadSettings()).source, source);
+        }
+      } finally {
+        await root.delete(recursive: true);
+      }
+    },
+  );
 
   test('settings store bounds screenshot search concurrency to 1–10', () async {
     final root = await Directory.systemTemp.createTemp(

@@ -2,6 +2,7 @@ import 'dart:math';
 
 import 'resolver_models.dart';
 import 'resolver_utils.dart';
+import 'song_match_identity.dart';
 
 class CandidateScorer {
   const CandidateScorer();
@@ -78,6 +79,14 @@ class CandidateScorer {
       score -= 25;
     }
 
+    final requestedVersion = SongMatchIdentity(query, '').version;
+    final candidateVersion = SongMatchIdentity(name, '').version;
+    if (requestedVersion != candidateVersion) {
+      // Codec quality must not promote a different performance (Live/DJ/etc.).
+      score -= 60;
+    } else if (requestedVersion.isNotEmpty) {
+      score += 30;
+    }
     score += _qualityScore(item['minfo']);
     score -= max(0, page - 1) * 0.4;
     if (platform == 'kuwo') {
@@ -91,10 +100,17 @@ class CandidateScorer {
       return true;
     }
     final tokens = _splitTokens(query);
-    final artistExact = tokens.any((token) => best.artist == token);
+    final artists = SongMatchIdentity('', best.artist);
+    final artistExact = tokens.any(
+      (token) => artists.sameArtists(SongMatchIdentity('', token)),
+    );
     final nameExact = tokens.any(
       (token) => _normalize(best.name) == _normalize(token),
     );
+    if (SongMatchIdentity(query, '').version !=
+        SongMatchIdentity(best.name, '').version) {
+      return true;
+    }
     if (artistExact && nameExact) {
       return false;
     }
@@ -109,8 +125,13 @@ class CandidateScorer {
     if (parts.tokens.length < 2) {
       return true;
     }
-    return _normalize(candidate.artist) == parts.artist &&
-        _hasTitleMatch(candidate.name, parts.title);
+    return SongMatchIdentity(
+          '',
+          candidate.artist,
+        ).sameArtists(SongMatchIdentity('', parts.artist)) &&
+        _hasTitleMatch(candidate.name, parts.title) &&
+        SongMatchIdentity(candidate.name, '').version ==
+            SongMatchIdentity(parts.title, '').version;
   }
 
   bool isLooseArtistTitleCandidate(
@@ -153,24 +174,10 @@ double _qualityScore(Object? minfo) {
   return 5;
 }
 
-String _normalize(Object? value) {
-  return value.toString().toLowerCase().replaceAll(
-    RegExp(r'''[\s\-_.＿—–()（）《》〈〉【】\[\]{}"'“”‘’]'''),
-    '',
-  );
-}
+String _normalize(Object? value) => normalizeSongText(value?.toString() ?? '');
 
-String _normalizeTitleBase(Object? value) {
-  return _normalize(
-    value
-        .toString()
-        .replaceAll(RegExp(r'[（(][^（）()]{1,12}[）)]'), '')
-        .replaceAll(
-          RegExp(r'(?:国语|粤语|国|粤|现场版|现场|live|remix|伴奏)$', caseSensitive: false),
-          '',
-        ),
-  );
-}
+String _normalizeTitleBase(Object? value) =>
+    SongMatchIdentity(value?.toString() ?? '', '').title;
 
 List<String> _splitTokens(String query) {
   return query
@@ -192,35 +199,24 @@ _ArtistTitle _queryArtistTitle(String query) {
   }
   return _ArtistTitle(
     tokens: tokens,
-    artist: _normalize(tokens.first),
-    title: _normalize(tokens.skip(1).join()),
+    artist: tokens.first,
+    title: tokens.skip(1).join(' '),
   );
 }
 
 bool _hasLooseArtistMatch(Object? candidateArtist, String queryArtist) {
-  final artist = _normalize(candidateArtist);
-  if (queryArtist.isEmpty || artist.isEmpty) {
-    return true;
-  }
-  if (artist == queryArtist ||
-      artist.contains(queryArtist) ||
-      queryArtist.contains(artist)) {
-    return true;
-  }
-
-  final common = <String>{};
-  for (final rune in queryArtist.runes) {
-    final char = String.fromCharCode(rune);
-    if (artist.contains(char)) {
-      common.add(char);
-    }
-  }
-  return common.length >= min(2, queryArtist.length);
+  final artist = artistNamesForMatch(candidateArtist?.toString() ?? '');
+  final query = artistNamesForMatch(queryArtist);
+  if (query.isEmpty || artist.isEmpty) return true;
+  // A shared credited artist is useful for duet recall; two shared Chinese
+  // characters alone are not evidence that these are the same performer.
+  return artist.intersection(query).isNotEmpty;
 }
 
 bool _hasTitleMatch(Object? candidateName, String queryTitle) {
   final name = _normalize(candidateName);
   final baseName = _normalizeTitleBase(candidateName);
+  queryTitle = _normalizeTitleBase(queryTitle);
   if (queryTitle.isEmpty || name.isEmpty) {
     return true;
   }

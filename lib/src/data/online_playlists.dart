@@ -42,10 +42,12 @@ class OnlinePlaylistSong {
     required this.id,
     required this.title,
     required this.artist,
+    this.durationSeconds = 0,
   });
   final String id;
   final String title;
   final String artist;
+  final int durationSeconds;
 }
 
 class OnlinePlaylistDetail {
@@ -162,6 +164,26 @@ class OnlinePlaylistRepository {
     );
   }
 
+  /// Refresh the original identity of a legacy QQ playlist entry by its exact
+  /// platform ID, never by fuzzy search. No audio or account access is involved.
+  Future<OnlinePlaylistSong> loadQqSong(String id) async {
+    if (!RegExp(r'^\d+$').hasMatch(id)) throw ArgumentError.value(id, 'id');
+    final data = await _qq('music.pf_song_detail_svr', 'get_song_detail_yqq', {
+      'song_id': int.parse(id),
+    });
+    final row = _map(data['track_info']);
+    final title = _qqSongTitle(row);
+    if (_text(row['id']) != id || title.isEmpty) {
+      throw const FormatException('QQ returned another song identity');
+    }
+    return OnlinePlaylistSong(
+      id: id,
+      title: title,
+      artist: _artists(row['singer']),
+      durationSeconds: _int(row['interval']),
+    );
+  }
+
   Future<OnlinePlaylistDetail> load(
     OnlinePlaylist playlist, {
     bool Function()? isCanceled,
@@ -194,13 +216,14 @@ class OnlinePlaylistRepository {
         for (final item in data['songlist'] as List) {
           final row = _map(item);
           final id = _text(row['id']);
-          final title = _text(row['name'] ?? row['title']);
+          final title = _qqSongTitle(row);
           if (id.isEmpty || title.isEmpty || !seen.add(id)) continue;
           songs.add(
             OnlinePlaylistSong(
               id: id,
               title: title,
               artist: _artists(row['singer']),
+              durationSeconds: _int(row['interval']),
             ),
           );
         }
@@ -246,6 +269,7 @@ class OnlinePlaylistRepository {
           id: id,
           title: title,
           artist: _artists(row['ar'] ?? row['artists']),
+          durationSeconds: (_int(row['dt'] ?? row['duration']) / 1000).round(),
         );
       }
     }
@@ -335,3 +359,8 @@ String _artists(Object? value) => value is List
           .where((name) => name.isNotEmpty)
           .join(' / ')
     : '';
+
+String _qqSongTitle(Map<String, dynamic> row) {
+  final full = _text(row['title']);
+  return full.isNotEmpty ? full : _text(row['name']);
+}

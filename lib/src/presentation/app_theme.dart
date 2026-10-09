@@ -13,10 +13,16 @@ class MusicPalette {
     required this.text,
     required this.muted,
     required this.line,
+    required this.accentEnd,
+    required this.playerStart,
+    required this.playerEnd,
+    required this.playerEdge,
+    required this.cache,
   });
 
   final Color ink, accent, onAccent, background, panel, tint, field;
   final Color text, muted, line;
+  final Color accentEnd, playerStart, playerEnd, playerEdge, cache;
 
   static const light = MusicPalette(
     ink: Color(0xFF087F64),
@@ -27,8 +33,13 @@ class MusicPalette {
     tint: Color(0xFFE5F9EF),
     field: Color(0xFFF0F8F3),
     text: Color(0xFF172620),
-    muted: Color(0xFF69746E),
+    muted: Color(0xFF5D7368),
     line: Color(0xFFDCEEE2),
+    accentEnd: Color(0xFF43CCBA),
+    playerStart: Color(0xFFF1FFF5),
+    playerEnd: Color(0xFFEDF8F6),
+    playerEdge: Color(0xFFFFFFFF),
+    cache: Color(0xFFB2C8BD),
   );
 
   static const dark = MusicPalette(
@@ -42,6 +53,11 @@ class MusicPalette {
     text: Color(0xFFE6ECE8),
     muted: Color(0xFFA3AFA7),
     line: Color(0xFF304237),
+    accentEnd: Color(0xFF80D1D8),
+    playerStart: Color(0xFF1E322D),
+    playerEnd: Color(0xFF171F24),
+    playerEdge: Color(0x4871B7A1),
+    cache: Color(0xFF506C5E),
   );
 }
 
@@ -52,14 +68,140 @@ abstract final class MusicUi {
   static const fieldRadius = 16.0;
   static const coverRadius = 12.0;
   static const sectionGap = 24.0;
-  static const playerCoverMaxWidth = 320.0;
+  static const playerCoverMaxWidth = 260.0;
+  static const readingMaxWidth = 720.0;
   static const miniPlayerRadius = 26.0;
   static const miniPlayerInsets = EdgeInsets.fromLTRB(12, 8, 12, 10);
   static const pageInsets = EdgeInsets.fromLTRB(20, 16, 20, 24);
   static const horizontalInsets = EdgeInsets.symmetric(horizontal: pagePadding);
+  static MusicSurfaces surfaces(BuildContext context) =>
+      Theme.of(context).extension<MusicSurfaces>() ??
+      MusicSurfaces.fromPalette(
+        Theme.of(context).brightness == Brightness.dark
+            ? MusicPalette.dark
+            : MusicPalette.light,
+      );
+  static LinearGradient playerGradient(BuildContext context) {
+    final colors = surfaces(context);
+    return LinearGradient(
+      begin: Alignment.topLeft,
+      end: Alignment.bottomRight,
+      colors: [colors.playerStart, colors.playerEnd],
+    );
+  }
+
+  static LinearGradient accentGradient(BuildContext context) => LinearGradient(
+    begin: Alignment.topLeft,
+    end: Alignment.bottomRight,
+    colors: [
+      Theme.of(context).colorScheme.primaryContainer,
+      surfaces(context).accentEnd,
+    ],
+  );
+  static Color playerBorder(BuildContext context) =>
+      surfaces(context).playerEdge;
+  static Color cacheColor(BuildContext context) => surfaces(context).cache;
   static bool compactActions(BuildContext context) =>
       MediaQuery.sizeOf(context).width < 420 ||
       MediaQuery.textScalerOf(context).scale(14) > 18;
+}
+
+/// Branded materials interpolate with the user's light/dark theme selection.
+@immutable
+class MusicSurfaces extends ThemeExtension<MusicSurfaces> {
+  const MusicSurfaces({
+    required this.accentEnd,
+    required this.playerStart,
+    required this.playerEnd,
+    required this.playerEdge,
+    required this.cache,
+  });
+  factory MusicSurfaces.fromPalette(MusicPalette p) => MusicSurfaces(
+    accentEnd: p.accentEnd,
+    playerStart: p.playerStart,
+    playerEnd: p.playerEnd,
+    playerEdge: p.playerEdge,
+    cache: p.cache,
+  );
+  final Color accentEnd, playerStart, playerEnd, playerEdge, cache;
+  @override
+  MusicSurfaces copyWith({
+    Color? accentEnd,
+    Color? playerStart,
+    Color? playerEnd,
+    Color? playerEdge,
+    Color? cache,
+  }) => MusicSurfaces(
+    accentEnd: accentEnd ?? this.accentEnd,
+    playerStart: playerStart ?? this.playerStart,
+    playerEnd: playerEnd ?? this.playerEnd,
+    playerEdge: playerEdge ?? this.playerEdge,
+    cache: cache ?? this.cache,
+  );
+  @override
+  MusicSurfaces lerp(covariant MusicSurfaces? other, double t) {
+    if (other == null) return this;
+    return MusicSurfaces(
+      accentEnd: Color.lerp(accentEnd, other.accentEnd, t)!,
+      playerStart: Color.lerp(playerStart, other.playerStart, t)!,
+      playerEnd: Color.lerp(playerEnd, other.playerEnd, t)!,
+      playerEdge: Color.lerp(playerEdge, other.playerEdge, t)!,
+      cache: Color.lerp(cache, other.cache, t)!,
+    );
+  }
+}
+
+/// A static ambient wash, isolated from scrolling and playback repaint work.
+class MusicPageBackdrop extends StatelessWidget {
+  const MusicPageBackdrop({super.key, required this.child});
+  final Widget child;
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+    return Stack(
+      fit: StackFit.passthrough,
+      children: [
+        Positioned.fill(
+          child: IgnorePointer(
+            child: RepaintBoundary(
+              child: DecoratedBox(
+                decoration: BoxDecoration(
+                  color: colors.surface,
+                  gradient: RadialGradient(
+                    center: Alignment.topRight,
+                    radius: 1.25,
+                    colors: [
+                      Color.alphaBlend(
+                        colors.secondaryContainer.withValues(alpha: .62),
+                        colors.surface,
+                      ),
+                      colors.surface,
+                    ],
+                    stops: const [0, .8],
+                  ),
+                ),
+                child: DecoratedBox(
+                  decoration: BoxDecoration(
+                    gradient: RadialGradient(
+                      center: Alignment.bottomLeft,
+                      radius: 1.1,
+                      colors: [
+                        MusicUi.surfaces(
+                          context,
+                        ).accentEnd.withValues(alpha: .035),
+                        Colors.transparent,
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+        child,
+      ],
+    );
+  }
 }
 
 abstract final class MusicAppTheme {
@@ -130,6 +272,7 @@ abstract final class MusicAppTheme {
     );
     return base.copyWith(
       textTheme: text,
+      extensions: [MusicSurfaces.fromPalette(p)],
       scaffoldBackgroundColor: p.background,
       appBarTheme: AppBarTheme(
         backgroundColor: p.background,

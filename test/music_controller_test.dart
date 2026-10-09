@@ -1,4 +1,6 @@
 import 'package:ai_music/src/data/music_charts.dart';
+import 'package:ai_music/src/data/auto_source_health.dart';
+import 'package:ai_music/src/data/playlist_song.dart';
 import 'package:ai_music/src/data/listening_stats_store.dart';
 import 'package:ai_music/src/data/song_search_cache.dart';
 import 'memory_download_history.dart';
@@ -30,6 +32,797 @@ import 'package:flutter_test/flutter_test.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
+
+  group('legacy QQ playlist metadata repair', () {
+    for (final action in ['play', 'favorite']) {
+      test(
+        '$action does not revive vocal cache when the logical song ID is its old cache ID',
+        () async {
+          final f = await _QqMetadataFixture.create(useCacheId: true);
+          try {
+            final stale = f.track;
+            expect(stale.id, f.cache.cached.single.cacheId);
+            if (action == 'play') {
+              await f.controller.playTrack(stale, queueTracks: [stale]);
+              expect(
+                f.handler.loadedItems.single.source,
+                isA<DeferredStreamingAudioSource>(),
+              );
+              final prepared =
+                  (f.handler.loadedItems.single.source
+                              as DeferredStreamingAudioSource)
+                          .initialSource
+                      as ResumableAudioSource;
+              expect(prepared.url.path, '/instrumental');
+            } else {
+              await f.controller.toggleFavorite(stale);
+              await f.controller.waitForFavoriteDownloads();
+              expect(f.cache.downloadIds, ['instrumental']);
+            }
+            expect(f.repository.calls, ['42']);
+            expect(f.resolver.ids, ['instrumental']);
+            expect(f.controller.selectedSongSource(stale)?.id, 'instrumental');
+            expect(f.controller.customPlaylists.single.trackIds, [stale.id]);
+            expect(await f.vocalFile.exists(), true);
+          } finally {
+            await f.close();
+          }
+        },
+      );
+    }
+
+    test(
+      'a stale repaired song later in a new queue cannot keep its old vocal URI',
+      () async {
+        final f = await _QqMetadataFixture.create();
+        try {
+          final stale = f.track;
+          await f.controller.matchPlaylistSources(f.playlist.id);
+          final current = stale.copyWith(id: 'current-local', title: '本地歌曲');
+          await f.controller.playTrack(current, queueTracks: [current, stale]);
+          expect(f.repository.calls, ['42']);
+          expect(f.handler.loadedItems, hasLength(2));
+          expect(
+            f.handler.loadedItems.last.source,
+            isA<DeferredStreamingAudioSource>(),
+          );
+          expect(f.handler.loadedItems.last.mediaItem.title, '回忆观影券 (伴奏)');
+          expect(await f.vocalFile.exists(), true);
+        } finally {
+          await f.close();
+        }
+      },
+    );
+
+    test(
+      'a reused pre-repair Track snapshot cannot replay the old vocal file later',
+      () async {
+        final f = await _QqMetadataFixture.create();
+        try {
+          final stale = f.track;
+          await f.controller.playTrack(stale, queueTracks: [stale]);
+          await f.controller.stop();
+          await f.controller.playTrack(stale, queueTracks: [stale]);
+          expect(f.repository.calls, ['42']);
+          expect(
+            f.handler.loadedItems.single.source,
+            isA<DeferredStreamingAudioSource>(),
+          );
+          final prepared =
+              (f.handler.loadedItems.single.source
+                          as DeferredStreamingAudioSource)
+                      .initialSource
+                  as ResumableAudioSource;
+          expect(prepared.url.path, '/instrumental');
+          expect(f.resolver.ids, ['instrumental', 'instrumental']);
+          expect(await f.vocalFile.exists(), true);
+        } finally {
+          await f.close();
+        }
+      },
+    );
+
+    test(
+      'favorite download repairs legacy QQ identity before reusing old audio',
+      () async {
+        final f = await _QqMetadataFixture.create();
+        try {
+          final stale = f.track;
+          await f.controller.toggleFavorite(stale);
+          await f.controller.waitForFavoriteDownloads();
+          expect(f.repository.calls, ['42']);
+          expect(f.cache.downloadIds, ['instrumental']);
+          expect(f.controller.favoriteTracks.single.id, stale.id);
+          expect(
+            f.store.library.favoriteEntries.single.song?.title,
+            '回忆观影券 (伴奏)',
+          );
+          expect(
+            f.store.library.favoriteEntries.single.onlineTrack?.candidate.id,
+            'instrumental',
+          );
+          expect(await f.vocalFile.exists(), true);
+        } finally {
+          await f.close();
+        }
+      },
+    );
+
+    test(
+      'version repair stops playing a valid vocal cache and preserves its file and logical order',
+      () async {
+        final f = await _QqMetadataFixture.create(favorite: true);
+        try {
+          final oldTrack = f.track;
+          expect(oldTrack.filePath, f.vocalFile.path);
+          expect(f.repository.calls, isEmpty);
+          final ids = f.playlist.trackIds;
+          await f.controller.playTrack(
+            oldTrack,
+            queueTracks: [oldTrack],
+            playlistId: f.playlist.id,
+          );
+          expect(f.repository.calls, ['42']);
+          expect(f.resolver.ids, ['instrumental']);
+          expect(
+            f.controller.originalSongForTrack(oldTrack)?.title,
+            '回忆观影券 (伴奏)',
+          );
+          expect(
+            f.controller.originalSongForTrack(oldTrack)?.metadataVersion,
+            1,
+          );
+          expect(f.controller.selectedSongSource(oldTrack)?.id, 'instrumental');
+          expect(f.controller.customPlaylists.single.trackIds, ids);
+          expect(f.store.library.favoriteEntries.single.trackId, oldTrack.id);
+          expect(
+            f.store.library.favoriteEntries.single.song?.title,
+            '回忆观影券 (伴奏)',
+          );
+          expect(
+            f.store.library.playlists.single.entries.single.addedAt,
+            DateTime(2026, 10, 1),
+          );
+          final prepared =
+              (f.handler.loadedItems.single.source
+                          as DeferredStreamingAudioSource)
+                      .initialSource
+                  as ResumableAudioSource;
+          expect(prepared.url.path, '/instrumental');
+          expect(await f.vocalFile.exists(), true);
+        } finally {
+          await f.close();
+        }
+      },
+    );
+
+    test(
+      'download all repairs original metadata before treating vocal cache as already downloaded',
+      () async {
+        final f = await _QqMetadataFixture.create();
+        try {
+          final result = await f.controller.downloadPlaylist(f.playlist);
+          expect(result.downloaded, 1);
+          expect(result.skipped, 0);
+          expect(result.failed, 0);
+          expect(f.repository.calls, ['42']);
+          expect(f.cache.downloadIds, ['instrumental']);
+          expect(f.resolver.ids, ['instrumental']);
+          expect(await f.vocalFile.exists(), true);
+        } finally {
+          await f.close();
+        }
+      },
+    );
+
+    test(
+      'explicit manual vocal choice remains cached while original QQ metadata is repaired',
+      () async {
+        final f = await _QqMetadataFixture.create(manual: true);
+        try {
+          final oldTrack = f.track;
+          await f.controller.playTrack(oldTrack, queueTracks: [oldTrack]);
+          expect(f.repository.calls, ['42']);
+          expect(
+            f.controller.originalSongForTrack(oldTrack)?.title,
+            '回忆观影券 (伴奏)',
+          );
+          expect(f.controller.selectedSongSource(oldTrack)?.id, 'vocal');
+          expect(
+            f.store.library.playlists.single.entries.single.manualSource,
+            true,
+          );
+          expect(f.resolver.ids, isEmpty);
+          expect(f.track.filePath, f.vocalFile.path);
+          expect(await f.vocalFile.exists(), true);
+        } finally {
+          await f.close();
+        }
+      },
+    );
+
+    test(
+      'metadata lookup failure leaves local playback usable and is not repeated in the process',
+      () async {
+        final f = await _QqMetadataFixture.create();
+        f.repository.failure = const SocketException('metadata unavailable');
+        try {
+          final oldTrack = f.track;
+          await f.controller.playTrack(oldTrack, queueTracks: [oldTrack]);
+          await f.controller.playTrack(oldTrack, queueTracks: [oldTrack]);
+          await f.controller.matchPlaylistSources(f.playlist.id);
+          expect(f.repository.calls, ['42']);
+          expect(f.resolver.ids, isEmpty);
+          expect(f.controller.selectedSongSource(oldTrack)?.id, 'vocal');
+          expect(
+            f.controller.originalSongForTrack(oldTrack)?.metadataVersion,
+            0,
+          );
+          expect(f.handler.mediaItem.value?.id, oldTrack.id);
+          expect(await f.vocalFile.exists(), true);
+        } finally {
+          await f.close();
+        }
+      },
+    );
+
+    test(
+      'playback and download share one pending original metadata request',
+      () async {
+        final f = await _QqMetadataFixture.create();
+        f.repository.gate = Completer<OnlinePlaylistSong>();
+        try {
+          final oldTrack = f.track;
+          final playing = f.controller.playTrack(
+            oldTrack,
+            queueTracks: [oldTrack],
+          );
+          await f.repository.started.future.timeout(const Duration(seconds: 2));
+          final downloading = f.controller.downloadPlaylist(f.playlist);
+          await Future<void>.delayed(const Duration(milliseconds: 10));
+          expect(f.repository.calls, ['42']);
+          f.repository.gate!.complete(_repairedQqSong);
+          await playing;
+          final result = await downloading;
+          expect(result.failed, 0);
+          expect(f.repository.calls, ['42']);
+          expect(f.resolver.ids, everyElement('instrumental'));
+          expect(
+            f.controller.originalSongForTrack(oldTrack)?.metadataVersion,
+            1,
+          );
+        } finally {
+          await f.close();
+        }
+      },
+    );
+
+    test(
+      'manual source chosen during QQ refresh survives its late response',
+      () async {
+        final f = await _QqMetadataFixture.create();
+        f.repository.gate = Completer<OnlinePlaylistSong>();
+        try {
+          final oldTrack = f.track;
+          final matching = f.controller.matchPlaylistSources(f.playlist.id);
+          await f.repository.started.future.timeout(const Duration(seconds: 2));
+          await f.controller.chooseSongSource(
+            oldTrack,
+            _qqRepairCandidate('manual', '回忆观影券 (现场手选)'),
+          );
+          f.repository.gate!.complete(_repairedQqSong);
+          await matching;
+          expect(
+            f.store.library.playlists.single.entries.single.manualSource,
+            true,
+          );
+          expect(f.controller.selectedSongSource(oldTrack)?.id, 'manual');
+          expect(f.controller.customPlaylists.single.trackIds, [oldTrack.id]);
+          expect(await f.vocalFile.exists(), true);
+        } finally {
+          await f.close();
+        }
+      },
+    );
+
+    test(
+      'deleted playlist entry is not resurrected by late QQ metadata',
+      () async {
+        final f = await _QqMetadataFixture.create();
+        f.repository.gate = Completer<OnlinePlaylistSong>();
+        try {
+          final oldTrack = f.track;
+          final matching = f.controller.matchPlaylistSources(f.playlist.id);
+          await f.repository.started.future.timeout(const Duration(seconds: 2));
+          await f.controller.removeTrackFromPlaylist(f.playlist, oldTrack);
+          f.repository.gate!.complete(_repairedQqSong);
+          await matching;
+          expect(f.controller.customPlaylists.single.trackIds, isEmpty);
+          expect(f.store.library.playlists.single.entries, isEmpty);
+          expect(f.controller.canSwitchSongSource(oldTrack), false);
+          expect(await f.vocalFile.exists(), true);
+        } finally {
+          await f.close();
+        }
+      },
+    );
+
+    test(
+      'already current metadata does not require a QQ network lookup',
+      () async {
+        final f = await _QqMetadataFixture.create(metadataVersion: 1);
+        try {
+          final track = f.track;
+          await f.controller.playTrack(track, queueTracks: [track]);
+          expect(f.repository.calls, isEmpty);
+          expect(f.resolver.ids, isEmpty);
+        } finally {
+          await f.close();
+        }
+      },
+    );
+  });
+
+  group('auto source media failure recovery', () {
+    for (final action in ['pause', 'next']) {
+      test(
+        '$action during failed native load cancels the queued automatic recovery',
+        () async {
+          final resolver = _MediaHealthResolver();
+          final handler = _MediaHealthHandler()..failFirstLoad = true;
+          final release = Completer<void>();
+          handler.firstFailureGate = release;
+          resolver.reportSourceFailure(
+            MusicDataSource.buguyy,
+            const HttpException('Audio HTTP 503'),
+          );
+          resolver.reportSourceFailure(
+            MusicDataSource.buguyy,
+            const HttpException('Audio HTTP 503'),
+          );
+          final f = await _SourcePreferenceFixture.create(
+            initialSource: MusicDataSource.auto,
+            resolverOverride: resolver,
+            handlerOverride: handler,
+          );
+          try {
+            final track = f.track;
+            final loading = expectLater(
+              f.controller.playTrack(track, queueTracks: [track]),
+              throwsA(isA<HttpException>()),
+            );
+            await handler.firstFailureStarted.future.timeout(
+              const Duration(seconds: 2),
+            );
+            if (action == 'pause') {
+              handler.playbackState.add(
+                PlaybackState(
+                  playing: true,
+                  processingState: AudioProcessingState.loading,
+                ),
+              );
+              await f.controller.togglePlayPause();
+              expect(handler.playbackState.value.playing, false);
+            } else {
+              await f.controller.next();
+            }
+            release.complete();
+            await loading;
+            await Future<void>.delayed(const Duration(milliseconds: 30));
+            expect(handler.loadCalls, 1);
+            expect(resolver.ids, ['old-song']);
+            expect(resolver.searchProviders, isEmpty);
+          } finally {
+            if (!release.isCompleted) release.complete();
+            await f.close();
+          }
+        },
+      );
+    }
+
+    test(
+      'switching to the next song cancels stale recovery of the previous song',
+      () async {
+        final resolver = _MediaHealthResolver();
+        final handler = _MediaHealthHandler();
+        final f = await _SourcePreferenceFixture.create(
+          initialSource: MusicDataSource.auto,
+          resolverOverride: resolver,
+          handlerOverride: handler,
+        );
+        try {
+          final first = f.track;
+          final playlist = f.controller.customPlaylists.single;
+          await f.controller.importPlaylistSelection(playlist.name, [
+            _sourcePreferenceCandidate(
+              MusicDataSource.buguyy,
+              id: 'old-next',
+              name: '第二首',
+            ),
+          ], target: playlist);
+          final tracks = f.controller.tracksForPlaylist(
+            f.controller.customPlaylists.single,
+          );
+          final next = tracks.last;
+          await f.controller.playTrack(
+            first,
+            queueTracks: tracks,
+            playlistId: playlist.id,
+          );
+          final prepared =
+              (handler.loadedItems.first.source as DeferredStreamingAudioSource)
+                      .initialSource
+                  as ResumableAudioSource;
+          for (var i = 0; i < 3; i++) {
+            prepared.onFailure!(const HttpException('Audio HTTP 503'));
+          }
+          await f.controller.playQueueItem(next.id);
+          await Future<void>.delayed(const Duration(milliseconds: 30));
+          expect(handler.mediaItem.value?.id, next.id);
+          expect(resolver.ids, ['old-song', 'flac-next']);
+          expect(resolver.searchProviders, everyElement(MusicDataSource.flac));
+        } finally {
+          await f.close();
+        }
+      },
+    );
+
+    test(
+      'rolling prefetch uses healthy provider after current media failure opens circuit',
+      () async {
+        final overrides = HttpOverrides.current;
+        HttpOverrides.global = null;
+        final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+        final requests = <String>[];
+        final payload = _controllerLanMp3Bytes();
+        server.listen((request) async {
+          requests.add(request.uri.path);
+          request.response.headers.contentType = ContentType('audio', 'mpeg');
+          request.response.contentLength = payload.length;
+          request.response.add(payload);
+          await request.response.close();
+        });
+        final resolver = _MediaHealthResolver(port: server.port);
+        final handler = _MediaHealthHandler()..readyOnPlay = true;
+        final f = await _SourcePreferenceFixture.create(
+          initialSource: MusicDataSource.auto,
+          resolverOverride: resolver,
+          handlerOverride: handler,
+          onlineConnectivity: true,
+        );
+        try {
+          final first = f.track;
+          final playlist = f.controller.customPlaylists.single;
+          await f.controller.importPlaylistSelection(playlist.name, [
+            _sourcePreferenceCandidate(
+              MusicDataSource.buguyy,
+              id: 'old-next',
+              name: '第二首',
+            ),
+          ], target: playlist);
+          final tracks = f.controller.tracksForPlaylist(
+            f.controller.customPlaylists.single,
+          );
+          await f.controller.playTrack(
+            first,
+            queueTracks: tracks,
+            playlistId: playlist.id,
+          );
+          final prepared =
+              (handler.loadedItems.first.source as DeferredStreamingAudioSource)
+                      .initialSource
+                  as ResumableAudioSource;
+          for (var i = 0; i < 3; i++) {
+            prepared.onFailure!(const HttpException('Audio HTTP 503'));
+          }
+          await _waitForMediaCondition(() => handler.loadCalls >= 2);
+          await _waitForMediaCondition(
+            () => f.controller.cacheProgressFor(tracks.last).value.offline,
+            timeout: const Duration(seconds: 4),
+          );
+          expect(resolver.ids, ['old-song', 'flac-song', 'flac-next']);
+          expect(requests, ['/flac-next']);
+          expect(resolver.searchProviders, everyElement(MusicDataSource.flac));
+          await f.controller.playQueueItem(tracks.last.id);
+          expect(resolver.ids.where((id) => id.startsWith('old-')), [
+            'old-song',
+          ]);
+        } finally {
+          await f.controller.stop();
+          await f.close();
+          await server.close(force: true);
+          HttpOverrides.global = overrides;
+        }
+      },
+    );
+
+    test(
+      'third media failure recovers current song and future searches omit disabled provider',
+      () async {
+        final resolver = _MediaHealthResolver();
+        final handler = _MediaHealthHandler();
+        final f = await _SourcePreferenceFixture.create(
+          initialSource: MusicDataSource.auto,
+          resolverOverride: resolver,
+          handlerOverride: handler,
+        );
+        try {
+          final track = f.track;
+          await f.controller.playTrack(track, queueTracks: [track]);
+          final prepared =
+              (handler.loadedItems.single.source
+                          as DeferredStreamingAudioSource)
+                      .initialSource
+                  as ResumableAudioSource;
+          prepared.onFailure!(const HttpException('Audio HTTP 503'));
+          prepared.onFailure!(const HttpException('Audio HTTP 503'));
+          expect(
+            resolver.isSourceAvailableForAuto(MusicDataSource.buguyy),
+            true,
+          );
+          prepared.onFailure!(const HttpException('Audio HTTP 503'));
+          await _waitForMediaCondition(() => handler.loadCalls >= 2);
+          expect(
+            resolver.isSourceAvailableForAuto(MusicDataSource.buguyy),
+            false,
+          );
+          expect(resolver.ids, ['old-song', 'flac-song']);
+          expect(
+            f.controller.selectedSongSource(track)?.source,
+            MusicDataSource.flac,
+          );
+          final results = await f.controller.searchSongSources(
+            track,
+            refresh: true,
+          );
+          expect(
+            results.map((c) => c.source),
+            everyElement(MusicDataSource.flac),
+          );
+          expect(resolver.searchProviders, everyElement(MusicDataSource.flac));
+          expect(handler.mediaItem.value?.id, track.id);
+        } finally {
+          await f.close();
+        }
+      },
+    );
+
+    test(
+      'third media failure during native load recovers even before metadata was published',
+      () async {
+        final resolver = _MediaHealthResolver();
+        final handler = _MediaHealthHandler()..failFirstLoad = true;
+        resolver.reportSourceFailure(
+          MusicDataSource.buguyy,
+          const HttpException('Audio HTTP 503'),
+        );
+        resolver.reportSourceFailure(
+          MusicDataSource.buguyy,
+          const HttpException('Audio HTTP 503'),
+        );
+        final f = await _SourcePreferenceFixture.create(
+          initialSource: MusicDataSource.auto,
+          resolverOverride: resolver,
+          handlerOverride: handler,
+        );
+        try {
+          final track = f.track;
+          await expectLater(
+            f.controller.playTrack(track, queueTracks: [track]),
+            throwsA(isA<HttpException>()),
+          );
+          await _waitForMediaCondition(() => handler.loadCalls >= 2);
+          expect(resolver.ids, ['old-song', 'flac-song']);
+          expect(handler.mediaItem.value?.id, track.id);
+        } finally {
+          await f.close();
+        }
+      },
+    );
+
+    test(
+      'manual choice does not auto-switch after media circuit opens',
+      () async {
+        final resolver = _MediaHealthResolver();
+        final handler = _MediaHealthHandler();
+        final f = await _SourcePreferenceFixture.create(
+          initialSource: MusicDataSource.auto,
+          manual: true,
+          resolverOverride: resolver,
+          handlerOverride: handler,
+        );
+        try {
+          final track = f.track;
+          await f.controller.playTrack(track, queueTracks: [track]);
+          final prepared =
+              (handler.loadedItems.single.source
+                          as DeferredStreamingAudioSource)
+                      .initialSource
+                  as ResumableAudioSource;
+          for (var i = 0; i < 3; i++) {
+            prepared.onFailure!(const HttpException('Audio HTTP 503'));
+          }
+          await Future<void>.delayed(const Duration(milliseconds: 30));
+          expect(
+            resolver.isSourceAvailableForAuto(MusicDataSource.buguyy),
+            false,
+          );
+          expect(handler.loadCalls, 1);
+          expect(resolver.ids, ['old-song']);
+          expect(resolver.searchProviders, isEmpty);
+          expect(
+            f.controller.selectedSongSource(track)?.source,
+            MusicDataSource.buguyy,
+          );
+        } finally {
+          await f.close();
+        }
+      },
+    );
+  });
+
+  group('source preference applies to saved playlist audio', () {
+    for (final manual in [false, true]) {
+      test(
+        'same-source saved wrong singer ${manual ? 'stays as manual choice' : 'is rematched automatically'}',
+        () async {
+          final f = await _SourcePreferenceFixture.create(
+            wrongArtist: true,
+            manual: manual,
+          );
+          try {
+            final track = f.track;
+            await f.controller.playTrack(track, queueTracks: [track]);
+            if (manual) {
+              expect(f.resolver.searchSources, isEmpty);
+              expect(f.resolver.ids, ['old-song']);
+            } else {
+              expect(f.resolver.searchSources, [MusicDataSource.buguyy]);
+              expect(f.resolver.ids, ['buguyy-song']);
+              expect(f.controller.selectedSongSource(track)?.artist, 'artist');
+            }
+          } finally {
+            await f.close();
+          }
+        },
+      );
+    }
+
+    for (final legacy in [false, true]) {
+      test(
+        'uncached ${legacy ? 'legacy' : 'metadata'} song re-matches after BuguYY to FLAC switch',
+        () async {
+          final f = await _SourcePreferenceFixture.create(legacy: legacy);
+          try {
+            expect(
+              f.controller.selectedSongSource(f.track)?.source,
+              MusicDataSource.buguyy,
+            );
+            await f.controller.saveSource(MusicDataSource.flac);
+            await f.controller.playTrack(f.track, queueTracks: [f.track]);
+            expect(f.resolver.searchSources, [MusicDataSource.flac]);
+            expect(f.resolver.ids, ['flac-song']);
+            expect(
+              f.controller.selectedSongSource(f.track)?.source,
+              MusicDataSource.flac,
+            );
+          } finally {
+            await f.close();
+          }
+        },
+      );
+
+      for (final action in ['playlist', 'favorite']) {
+        test(
+          '${legacy ? 'legacy' : 'metadata'} $action download respects saved FLAC preference',
+          () async {
+            final f = await _SourcePreferenceFixture.create(
+              legacy: legacy,
+              initialSource: MusicDataSource.flac,
+            );
+            try {
+              if (action == 'playlist') {
+                final summary = await f.controller.downloadPlaylist(
+                  f.controller.customPlaylists.single,
+                );
+                expect(summary.failed, 0);
+                expect(summary.downloaded, 1);
+              } else {
+                await f.controller.toggleFavorite(f.track);
+                await f.controller.waitForFavoriteDownloads();
+                expect(
+                  f.controller.downloadTasks.every(
+                    (task) => task.status == DownloadTaskStatus.completed,
+                  ),
+                  true,
+                );
+              }
+              expect(f.resolver.searchSources, [MusicDataSource.flac]);
+              expect(f.resolver.ids, ['flac-song']);
+              expect(f.cache.downloadIds, ['flac-song']);
+            } finally {
+              await f.close();
+            }
+          },
+        );
+      }
+    }
+
+    test(
+      'manual per-song choice remains fixed when the global source changes',
+      () async {
+        final f = await _SourcePreferenceFixture.create(
+          manual: true,
+          initialSource: MusicDataSource.flac,
+        );
+        try {
+          await f.controller.playTrack(f.track, queueTracks: [f.track]);
+          expect(f.resolver.searchSources, isEmpty);
+          expect(f.resolver.ids, ['old-song']);
+          expect(
+            f.controller.selectedSongSource(f.track)?.source,
+            MusicDataSource.buguyy,
+          );
+        } finally {
+          await f.close();
+        }
+      },
+    );
+
+    test(
+      'complete local audio is reused after changing source with no online request',
+      () async {
+        final f = await _SourcePreferenceFixture.create(
+          cached: true,
+          initialSource: MusicDataSource.flac,
+        );
+        try {
+          await f.controller.playTrack(f.track, queueTracks: [f.track]);
+          expect(f.resolver.searchSources, isEmpty);
+          expect(f.resolver.ids, isEmpty);
+          expect(f.handler.loadedIds, [f.track.id]);
+          expect(f.controller.cacheProgressFor(f.track).value.offline, true);
+        } finally {
+          await f.close();
+        }
+      },
+    );
+
+    test(
+      'old in-flight matching cannot overwrite the result after source change',
+      () async {
+        final f = await _SourcePreferenceFixture.create(savedCandidate: false);
+        final gate = Completer<List<MusicSearchCandidate>>();
+        f.resolver.searchGates[MusicDataSource.buguyy] = gate;
+        try {
+          final first = f.controller.playTrack(f.track, queueTracks: [f.track]);
+          final rejected = expectLater(
+            first,
+            throwsA(isA<DownloadCancelledException>()),
+          );
+          await f.resolver.searchStarted.future.timeout(
+            const Duration(seconds: 2),
+          );
+          await f.controller.saveSource(MusicDataSource.flac);
+          await f.controller.playTrack(f.track, queueTracks: [f.track]);
+          gate.complete([_sourcePreferenceCandidate(MusicDataSource.buguyy)]);
+          await rejected;
+          expect(f.resolver.searchSources, [
+            MusicDataSource.buguyy,
+            MusicDataSource.flac,
+          ]);
+          expect(f.resolver.ids, ['flac-song']);
+          expect(
+            f.controller.selectedSongSource(f.track)?.source,
+            MusicDataSource.flac,
+          );
+        } finally {
+          if (!gate.isCompleted) gate.complete([]);
+          await f.close();
+        }
+      },
+    );
+  });
 
   group('来听 charts and favorite downloads', () {
     const rows = MusicChartResult(
@@ -449,7 +1242,10 @@ void main() {
             rows,
           );
           final tracks = f.controller.tracksForPlaylist(chart);
-          tracks[0] = tracks[0].copyWith(filePath: '${root.path}/current.mp3');
+          tracks[0] = await f.cacheChartTrack(
+            tracks[0],
+            File('${root.path}/current.mp3'),
+          );
           await f.controller.playTrack(
             tracks[0],
             playlistId: chart.id,
@@ -674,7 +1470,10 @@ void main() {
             rows,
           );
           final tracks = f.controller.tracksForPlaylist(chart);
-          tracks[0] = tracks[0].copyWith(filePath: '${root.path}/first.mp3');
+          tracks[0] = await f.cacheChartTrack(
+            tracks[0],
+            File('${root.path}/first.mp3'),
+          );
           await f.controller.playTrack(
             tracks[0],
             playlistId: chart.id,
@@ -720,7 +1519,6 @@ void main() {
           final current = f.controller.tracksForPlaylist(
             f.controller.builtInPlaylists.single,
           );
-          current[0] = current[0].copyWith(filePath: '${root.path}/first.mp3');
           await f.controller.playTrack(
             current[0],
             playlistId: chart.id,
@@ -752,7 +1550,10 @@ void main() {
               rows,
             );
             final tracks = f.controller.tracksForPlaylist(chart);
-            tracks[0] = tracks[0].copyWith(filePath: '${root.path}/first.mp3');
+            tracks[0] = await f.cacheChartTrack(
+              tracks[0],
+              File('${root.path}/first.mp3'),
+            );
             await f.controller.playTrack(
               tracks[0],
               playlistId: chart.id,
@@ -1676,7 +2477,9 @@ void main() {
                 )
                 .timeout(const Duration(seconds: 2));
             final source =
-                handler.loadedItems[1].source as ResumableAudioSource;
+                (handler.loadedItems[1].source as DeferredStreamingAudioSource)
+                        .initialSource
+                    as ResumableAudioSource;
             final response = await source.request();
             final bytes = await response.stream
                 .expand((chunk) => chunk)
@@ -5057,7 +5860,10 @@ void main() {
     try {
       await controller.initialize();
       await controller.playCandidate(_candidate(id: 'song-1', name: '第一首'));
-      final source = handler.loadedItems.single.source as ResumableAudioSource;
+      final source =
+          (handler.loadedItems.single.source as DeferredStreamingAudioSource)
+                  .initialSource
+              as ResumableAudioSource;
       final first = await source.request();
       final firstDone = first.stream.listen((_) {
         if (!firstChunk.isCompleted) firstChunk.complete();
@@ -5501,7 +6307,7 @@ List<int> _controllerLanMp3Bytes() {
 class _FakeSettingsStore implements MusicSettingsStore {
   @override
   Future<MusicAppSettings> loadSettings() async {
-    return const MusicAppSettings();
+    return const MusicAppSettings(source: MusicDataSource.auto);
   }
 
   @override
@@ -6084,6 +6890,24 @@ class _LaitingFixture {
   final _DownloadCacheStore cache;
   final _MemoryPlaylistStore store;
   bool disposed = false;
+
+  Future<Track> cacheChartTrack(Track track, File file) async {
+    final candidate = _candidate(id: 'cached-${track.id}', name: track.title);
+    final bytes = _controllerLanMp3Bytes();
+    await file.writeAsBytes(bytes);
+    cache.cached.add(
+      _cachedTrack(
+        id: candidate.id,
+        name: track.title,
+      ).copyWith(filePath: file.path, sizeBytes: bytes.length),
+    );
+    await controller.chooseSongSource(track, candidate);
+    await controller.loadCache(repairLegacy: false);
+    return controller
+        .tracksForPlaylist(controller.builtInPlaylists.single)
+        .firstWhere((item) => item.id == track.id);
+  }
+
   static Future<_LaitingFixture> create({Directory? root}) async {
     final handler = _SpyAudioHandler();
     final resolver = _LaitingResolver();
@@ -6161,5 +6985,489 @@ class _LaitingResolver extends _FakeMusicResolver
               bitrate: quality == MusicQualityLevel.medium ? '320' : '128',
             ),
     );
+  }
+}
+
+class _SourcePreferenceFixture {
+  _SourcePreferenceFixture(
+    this.controller,
+    this.handler,
+    this.resolver,
+    this.cache,
+    this.root,
+  );
+  final MusicController controller;
+  final _SpyAudioHandler handler;
+  final _SourcePreferenceResolver resolver;
+  final _DownloadCacheStore cache;
+  final Directory root;
+  Track get track =>
+      controller.tracksForPlaylist(controller.customPlaylists.single).single;
+  static Future<_SourcePreferenceFixture> create({
+    bool legacy = false,
+    bool manual = false,
+    bool cached = false,
+    bool savedCandidate = true,
+    bool wrongArtist = false,
+    bool onlineConnectivity = false,
+    MusicDataSource initialSource = MusicDataSource.buguyy,
+    _SourcePreferenceResolver? resolverOverride,
+    _SpyAudioHandler? handlerOverride,
+  }) async {
+    final root = await Directory.systemTemp.createTemp('source-preference-');
+    final handler = handlerOverride ?? _SpyAudioHandler();
+    final resolver = resolverOverride ?? _SourcePreferenceResolver();
+    final cache = _DownloadCacheStore(rootProvider: () async => root);
+    final old = SavedOnlineTrack(
+      candidate: _sourcePreferenceCandidate(
+        MusicDataSource.buguyy,
+        id: 'old-song',
+        artist: wrongArtist ? '翻唱歌手' : 'artist',
+      ),
+    );
+    if (cached) {
+      final resolved = await resolver.resolveAtQuality(
+        old.candidate,
+        MusicQualityLevel.low,
+      );
+      final music = ResolvedMusic.fromJson({
+        ...resolved.toJson(),
+        'coverUrl': 'https://example.test/cover.jpg',
+        'lyrics': {
+          'source': 'fixture',
+          'text': '完整歌词',
+          'lines': [],
+          'timed': false,
+        },
+      });
+      resolver.ids.clear();
+      final file = File('${root.path}/complete.mp3');
+      final bytes = _controllerLanMp3Bytes();
+      await file.writeAsBytes(bytes);
+      cache.cached.add(
+        CachedTrack(
+          cacheId: cacheIdForResolved(music),
+          music: music,
+          filePath: file.path,
+          sizeBytes: bytes.length,
+          fromCache: true,
+        ),
+      );
+    }
+    final at = DateTime(2026, 10, 8);
+    final store = _MemoryPlaylistStore()
+      ..library = PlaylistLibrary(
+        favoriteEntries: [],
+        playlists: [
+          MusicPlaylist(
+            id: 'source-pref',
+            name: '测试歌单',
+            createdAt: at,
+            updatedAt: at,
+            entries: [
+              PlaylistTrackEntry(
+                trackId: old.trackId,
+                addedAt: at,
+                onlineTrack: savedCandidate ? old : null,
+                manualSource: manual,
+                song: legacy
+                    ? null
+                    : const PlaylistSong(
+                        key: 'netease:42',
+                        title: '测试歌曲',
+                        artist: 'artist',
+                      ),
+              ),
+            ],
+          ),
+        ],
+      );
+    final controller = MusicController(
+      audioHandler: handler,
+      resolver: resolver,
+      cacheStore: cache,
+      playlistStore: store,
+      settingsStore: _SourcePreferenceSettings(initialSource),
+      metadataRepository: _StaticMetadataRepository(),
+      listeningStatsStore: ListeningStatsStore.memory(),
+      songSearchCache: SongSearchCache.memory(),
+      downloadHistoryStore: MemoryDownloadHistory(),
+      connectivityChanges: const Stream.empty(),
+      checkConnectivity: () async =>
+          onlineConnectivity ? [ConnectivityResult.wifi] : [],
+    );
+    await controller.initialize();
+    return _SourcePreferenceFixture(controller, handler, resolver, cache, root);
+  }
+
+  Future<void> close() async {
+    controller.dispose();
+    for (final gate in resolver.searchGates.values) {
+      if (!gate.isCompleted) gate.complete([]);
+    }
+    await controller.waitForFavoriteDownloads();
+    await handler.dispose();
+    await root.delete(recursive: true);
+  }
+}
+
+class _SourcePreferenceSettings extends _FakeSettingsStore {
+  _SourcePreferenceSettings(this.source);
+  final MusicDataSource source;
+  @override
+  Future<MusicAppSettings> loadSettings() async =>
+      MusicAppSettings(source: source, downloadPlaylistsOnWifi: false);
+}
+
+class _SourcePreferenceResolver extends _LaitingResolver {
+  final searchSources = <MusicDataSource>[];
+  final searchGates =
+      <MusicDataSource, Completer<List<MusicSearchCandidate>>>{};
+  final searchStarted = Completer<void>();
+  @override
+  Future<List<MusicSearchCandidate>> search(
+    String query,
+    MusicDataSource source,
+  ) {
+    searchSources.add(source);
+    if (!searchStarted.isCompleted) searchStarted.complete();
+    return searchGates[source]?.future ??
+        Future.value([_sourcePreferenceCandidate(source)]);
+  }
+}
+
+MusicSearchCandidate _sourcePreferenceCandidate(
+  MusicDataSource source, {
+  String? id,
+  String name = '测试歌曲',
+  String artist = 'artist',
+}) => MusicSearchCandidate(
+  query: '测试歌曲 artist',
+  source: source,
+  platform: source == MusicDataSource.flac ? 'wyy' : 'buguyy',
+  keyword: '测试歌曲',
+  page: 1,
+  id: id ?? '${source.storageValue}-song',
+  name: name,
+  artist: artist,
+  album: '',
+  duration: 200,
+  link: '',
+  coverUrl: '',
+  qualities: const [MusicQuality(format: 'mp3')],
+  score: 100,
+  raw: const {},
+);
+
+Future<void> _waitForMediaCondition(
+  bool Function() ready, {
+  Duration timeout = const Duration(seconds: 1),
+}) async {
+  for (var i = 0; i < timeout.inMilliseconds ~/ 10 && !ready(); i++) {
+    await Future<void>.delayed(const Duration(milliseconds: 10));
+  }
+  expect(
+    ready(),
+    true,
+    reason: 'Expected media recovery state before deadline',
+  );
+  await Future<void>.delayed(Duration.zero);
+}
+
+class _MediaHealthHandler extends _SpyAudioHandler {
+  int loadCalls = 0;
+  bool failFirstLoad = false;
+  final firstFailureStarted = Completer<void>();
+  Completer<void>? firstFailureGate;
+  bool readyOnPlay = false;
+  @override
+  Future<void> pause() async {
+    playbackState.add(playbackState.value.copyWith(playing: false));
+  }
+
+  @override
+  Future<void> play() async {
+    await super.play();
+    if (readyOnPlay) {
+      playbackState.add(
+        playbackState.value.copyWith(
+          processingState: AudioProcessingState.ready,
+        ),
+      );
+    }
+  }
+
+  @override
+  Future<void> loadQueue(
+    List<PlayableAudio> items, {
+    int initialIndex = 0,
+    Duration initialPosition = Duration.zero,
+    bool playWhenReady = true,
+  }) async {
+    loadCalls++;
+    if (loadCalls == 1 && failFirstLoad) {
+      loadedItems = items;
+      queue.add(items.map((item) => item.mediaItem).toList());
+      final prepared =
+          (items[initialIndex].source as DeferredStreamingAudioSource)
+                  .initialSource
+              as ResumableAudioSource;
+      prepared.onFailure!(const HttpException('Audio HTTP 503'));
+      if (!firstFailureStarted.isCompleted) firstFailureStarted.complete();
+      await firstFailureGate?.future;
+      throw const HttpException('Audio HTTP 503');
+    }
+    await super.loadQueue(
+      items,
+      initialIndex: initialIndex,
+      initialPosition: initialPosition,
+      playWhenReady: playWhenReady,
+    );
+  }
+}
+
+class _MediaHealthResolver extends _SourcePreferenceResolver
+    implements AutoSourceHealthResolver {
+  _MediaHealthResolver({this.port});
+  final int? port;
+  final health = AutoSourceHealth();
+  final searchProviders = <MusicDataSource>[];
+  @override
+  List<MusicDataSource> get availableAutoSources => health.availableSources;
+  @override
+  bool isSourceAvailableForAuto(MusicDataSource source) =>
+      health.isAvailable(source);
+  @override
+  String? sourceDegradationReason(MusicDataSource source) =>
+      health.degradationReason(source);
+  @override
+  void reportSourceFailure(MusicDataSource source, Object error) =>
+      health.recordFailure(source, error, operation: AutoSourceOperation.media);
+  @override
+  void reportSourceSuccess(MusicDataSource source) =>
+      health.recordSuccess(source, operation: AutoSourceOperation.media);
+  @override
+  Future<ResolvedMusic> resolveForSourceMode(
+    MusicSearchCandidate candidate,
+    MusicDataSource mode, {
+    MusicQualityLevel? quality,
+  }) => health.run(
+    candidate.source,
+    () async {
+      final result = await super.resolveAtQuality(
+        candidate,
+        quality ?? MusicQualityLevel.low,
+      );
+      return port == null
+          ? result
+          : ResolvedMusic.fromJson({
+              ...result.toJson(),
+              'url': 'http://127.0.0.1:$port/${candidate.id}',
+            });
+    },
+    automatic: mode == MusicDataSource.auto,
+    operation: AutoSourceOperation.resolve,
+  );
+  @override
+  Future<List<MusicSearchCandidate>> search(
+    String query,
+    MusicDataSource source,
+  ) async {
+    searchSources.add(source);
+    final provider = source == MusicDataSource.auto
+        ? health.availableSources.first
+        : source;
+    return health.run(
+      provider,
+      () async {
+        searchProviders.add(provider);
+        return [
+          _sourcePreferenceCandidate(
+            provider,
+            id: '${provider.storageValue}-${query.contains('第二首') ? 'next' : 'song'}',
+            name: query.contains('第二首') ? '第二首' : '测试歌曲',
+          ),
+        ];
+      },
+      automatic: source == MusicDataSource.auto,
+      operation: AutoSourceOperation.search,
+    );
+  }
+}
+
+const _repairedQqSong = OnlinePlaylistSong(
+  id: '42',
+  title: '回忆观影券 (伴奏)',
+  artist: '版本歌手',
+  durationSeconds: 200,
+);
+
+class _QqMetadataRepository extends OnlinePlaylistRepository {
+  final calls = <String>[];
+  final started = Completer<void>();
+  Completer<OnlinePlaylistSong>? gate;
+  Object? failure;
+  @override
+  Future<OnlinePlaylistSong> loadQqSong(String id) async {
+    calls.add(id);
+    if (!started.isCompleted) started.complete();
+    if (failure case final error?) throw error;
+    return gate?.future ?? _repairedQqSong;
+  }
+}
+
+class _QqMetadataResolver extends _LaitingResolver {
+  @override
+  Future<List<MusicSearchCandidate>> search(
+    String query,
+    MusicDataSource source,
+  ) async {
+    searchCalls++;
+    return [_qqRepairCandidate('instrumental', '回忆观影券 (伴奏)')];
+  }
+}
+
+MusicSearchCandidate _qqRepairCandidate(String id, String name) =>
+    MusicSearchCandidate(
+      query: '$name 版本歌手',
+      source: MusicDataSource.flac,
+      platform: 'wyy',
+      keyword: name,
+      page: 1,
+      id: id,
+      name: name,
+      artist: '版本歌手',
+      album: '',
+      duration: 200,
+      link: '',
+      coverUrl: 'https://example.test/cover.jpg',
+      qualities: const [MusicQuality(format: 'mp3', bitrate: '128')],
+      score: 100,
+      raw: const {},
+    );
+
+class _QqMetadataFixture {
+  _QqMetadataFixture(
+    this.controller,
+    this.handler,
+    this.repository,
+    this.resolver,
+    this.store,
+    this.cache,
+    this.root,
+    this.vocalFile,
+  );
+  final MusicController controller;
+  final _SpyAudioHandler handler;
+  final _QqMetadataRepository repository;
+  final _QqMetadataResolver resolver;
+  final _MemoryPlaylistStore store;
+  final _DownloadCacheStore cache;
+  final Directory root;
+  final File vocalFile;
+  MusicPlaylist get playlist => controller.customPlaylists.single;
+  Track get track => controller.tracksForPlaylist(playlist).single;
+  static Future<_QqMetadataFixture> create({
+    bool manual = false,
+    bool favorite = false,
+    bool useCacheId = false,
+    int metadataVersion = 0,
+  }) async {
+    final root = await Directory.systemTemp.createTemp('qq-legacy-metadata-');
+    final file = File('${root.path}/vocal.mp3');
+    final bytes = _controllerLanMp3Bytes();
+    await file.writeAsBytes(bytes);
+    final candidate = _qqRepairCandidate('vocal', '回忆观影券');
+    final saved = SavedOnlineTrack(candidate: candidate);
+    final resolver = _QqMetadataResolver();
+    final resolved = await resolver.resolveAtQuality(
+      candidate,
+      MusicQualityLevel.high,
+    );
+    resolver.ids.clear();
+    final music = ResolvedMusic.fromJson({
+      ...resolved.toJson(),
+      'quality': {'format': 'mp3', 'bitrate': '320'},
+      'coverUrl': 'https://example.test/cover.jpg',
+      'lyrics': {
+        'source': 'fixture',
+        'text': '完整歌词',
+        'lines': 1,
+        'timed': false,
+      },
+    });
+    final cache = _DownloadCacheStore(rootProvider: () async => root)
+      ..cached.add(
+        CachedTrack(
+          cacheId: cacheIdForResolved(music),
+          music: music,
+          filePath: file.path,
+          sizeBytes: bytes.length,
+          fromCache: true,
+        ),
+      );
+    final original = PlaylistSong.fromJson({
+      'key': 'qq:42',
+      'title': '回忆观影券',
+      'artist': '版本歌手',
+      if (metadataVersion > 0) 'metadataVersion': metadataVersion,
+    })!;
+    final entry = PlaylistTrackEntry(
+      trackId: useCacheId ? cacheIdForResolved(music) : 'legacy-qq-logical',
+      addedAt: DateTime(2026, 10, 1),
+      onlineTrack: saved,
+      song: original,
+      manualSource: manual,
+    );
+    final store = _MemoryPlaylistStore()
+      ..library = PlaylistLibrary(
+        favoriteEntries: favorite ? [entry] : [],
+        playlists: [
+          MusicPlaylist(
+            id: 'legacy-qq',
+            name: '凡人百世书-BGM',
+            entries: [entry],
+            createdAt: DateTime(2026, 10, 1),
+            updatedAt: DateTime(2026, 10, 1),
+          ),
+        ],
+      );
+    final handler = _SpyAudioHandler();
+    final repository = _QqMetadataRepository();
+    final controller = MusicController(
+      audioHandler: handler,
+      resolver: resolver,
+      cacheStore: cache,
+      playlistStore: store,
+      playlistMetadataRepository: repository,
+      settingsStore: _SourcePreferenceSettings(MusicDataSource.flac),
+      metadataRepository: _StaticMetadataRepository(),
+      listeningStatsStore: ListeningStatsStore.memory(),
+      songSearchCache: SongSearchCache.memory(),
+      downloadHistoryStore: MemoryDownloadHistory(),
+      connectivityChanges: const Stream.empty(),
+      checkConnectivity: () async => [],
+    );
+    await controller.initialize();
+    return _QqMetadataFixture(
+      controller,
+      handler,
+      repository,
+      resolver,
+      store,
+      cache,
+      root,
+      file,
+    );
+  }
+
+  Future<void> close() async {
+    if (repository.gate case final gate? when !gate.isCompleted) {
+      gate.complete(_repairedQqSong);
+    }
+    controller.dispose();
+    await controller.waitForFavoriteDownloads();
+    await handler.dispose();
+    await root.delete(recursive: true);
   }
 }
