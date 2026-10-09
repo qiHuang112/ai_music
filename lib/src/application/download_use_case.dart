@@ -33,6 +33,7 @@ class DownloadUseCase {
   Future<DownloadUseCaseResult> downloadCandidate(
     MusicSearchCandidate candidate, {
     MusicQualityLevel quality = MusicQualityLevel.high,
+    MusicDataSource? sourceMode,
     bool requireExactIdentity = false,
     required void Function(MusicUiMessage message) onStatus,
     required void Function() onChanged,
@@ -52,8 +53,18 @@ class DownloadUseCase {
       MusicUiMessage(MusicUiMessageCode.resolving, subject: candidate.name),
     );
     onChanged();
+    final sourceHealth = resolver is AutoSourceHealthResolver
+        ? resolver as AutoSourceHealthResolver
+        : null;
+    MusicDataSource? downloadingSource;
     try {
-      final resolved = resolver is QualitySelectableMusicResolver
+      final resolved = sourceHealth != null
+          ? await sourceHealth.resolveForSourceMode(
+              candidate,
+              sourceMode ?? candidate.source,
+              quality: quality,
+            )
+          : resolver is QualitySelectableMusicResolver
           ? await (resolver as QualitySelectableMusicResolver).resolveAtQuality(
               candidate,
               quality,
@@ -87,6 +98,7 @@ class DownloadUseCase {
         ),
         onChanged,
       );
+      downloadingSource = resolved.source;
       final cached = await cacheStore.downloadOrReuse(
         resolved,
         onProgress: (progress) {
@@ -115,6 +127,8 @@ class DownloadUseCase {
         },
         cancelToken: token,
       );
+      token.throwIfCanceled();
+      if (!cached.fromCache) sourceHealth?.reportSourceSuccess(resolved.source);
       final statusMessage = MusicUiMessage(
         cached.fromCache
             ? MusicUiMessageCode.alreadyInCache
@@ -151,6 +165,9 @@ class DownloadUseCase {
         return const DownloadUseCaseResult(
           statusMessage: MusicUiMessage(MusicUiMessageCode.downloadCanceled),
         );
+      }
+      if (downloadingSource != null) {
+        sourceHealth?.reportSourceFailure(downloadingSource, exception);
       }
       final errorDetail = friendlyError(exception);
       _updateTask(

@@ -5,17 +5,23 @@ class PlaylistSong {
     required this.title,
     required this.artist,
     this.coverUrl = '',
+    this.durationSeconds = 0,
+    this.metadataVersion = 1,
   });
   final String key;
   final String title;
   final String artist;
   final String coverUrl;
+  final int durationSeconds;
+  final int metadataVersion;
   String get query => '$title $artist'.trim();
   Map<String, Object?> toJson() => {
     'key': key,
     'title': title,
     'artist': artist,
     'coverUrl': coverUrl,
+    'durationSeconds': durationSeconds,
+    'metadataVersion': metadataVersion,
   };
   static PlaylistSong? fromJson(Object? value) {
     if (value is! Map) return null;
@@ -27,6 +33,8 @@ class PlaylistSong {
       title: title,
       artist: value['artist']?.toString() ?? '',
       coverUrl: value['coverUrl']?.toString() ?? '',
+      durationSeconds: int.tryParse('${value['durationSeconds']}') ?? 0,
+      metadataVersion: int.tryParse('${value['metadataVersion']}') ?? 0,
     );
   }
 }

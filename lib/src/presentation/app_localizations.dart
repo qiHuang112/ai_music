@@ -141,13 +141,17 @@ class AppStrings {
   String get buguyy => isZh ? '布谷歪歪 / BuguYY' : 'BuguYY';
   String get flacSource => isZh ? 'FLAC / flac.music.hi.cn' : 'FLAC';
   String get autoSourceDescription => isZh
-      ? '同时搜索布谷歪歪和 FLAC，合并展示可用结果。'
-      : 'Search BuguYY and FLAC together, then show the merged results.';
-  String get buguyyDescription =>
-      isZh ? '只使用布谷歪歪搜索和下载。' : 'Search and download with BuguYY only.';
+      ? '合并可用音源；某个来源连续失败时，本次使用自动改用其他来源。'
+      : 'Merge available sources and temporarily skip repeatedly failing providers.';
+  String get buguyyDescription => isZh
+      ? '搜索、歌单匹配及未缓存歌曲使用布谷歪歪。'
+      : 'Use BuguYY for search, playlist matching and uncached songs.';
   String get flacSourceDescription => isZh
-      ? '只使用 flac.music.hi.cn 搜索和下载。'
-      : 'Search and download with flac.music.hi.cn only.';
+      ? '默认来源。搜索、歌单匹配及未缓存歌曲使用 FLAC。'
+      : 'Default source for search, playlist matching and uncached songs.';
+  String get sourcePreferenceNote => isZh
+      ? '已完整缓存的歌曲优先播放本地文件。单首歌曲手动选定的来源会保留，可在歌曲的“切换来源”里修改。'
+      : 'Complete cached songs play locally. A manually selected song source stays fixed until you change it in Switch source.';
   String get activeDownloads => isZh ? '正在下载' : 'Active Downloads';
   String get recentDownloads => isZh ? '最近任务' : 'Recent Tasks';
   String get cachedMusic => isZh ? '已缓存音乐' : 'Cached Music';

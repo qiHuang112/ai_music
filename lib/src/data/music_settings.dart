@@ -41,7 +41,7 @@ enum AppThemePreference {
 
 class MusicAppSettings {
   const MusicAppSettings({
-    this.source = MusicDataSource.auto,
+    this.source = MusicDataSource.flac,
     this.language = AppLanguage.zh,
     this.theme = AppThemePreference.dark,
     this.lanLibraryUrl = defaultLanLibraryUrl,
@@ -122,7 +122,7 @@ class MusicSettingsStore {
       final decoded = await _tryDecodeJson(file, text);
       if (decoded is Map) {
         return MusicAppSettings(
-          source: MusicDataSource.fromStorage(decoded['source']?.toString()),
+          source: _restoredSource(decoded['source']?.toString()),
           language: AppLanguage.fromStorage(decoded['language']?.toString()),
           theme: AppThemePreference.fromStorage(
             decoded['themeMode']?.toString() ?? decoded['theme']?.toString(),
@@ -142,7 +142,7 @@ class MusicSettingsStore {
           ),
         );
       }
-      return MusicAppSettings(source: MusicDataSource.fromStorage(text));
+      return MusicAppSettings(source: _restoredSource(text));
     } catch (_) {
       return const MusicAppSettings();
     }
@@ -221,3 +221,10 @@ Future<Object?> _tryDecodeJson(File file, String text) async {
     return text;
   }
 }
+
+MusicDataSource _restoredSource(String? value) => switch (value) {
+  'auto' => MusicDataSource.auto,
+  'buguyy' => MusicDataSource.buguyy,
+  'flac' => MusicDataSource.flac,
+  _ => MusicDataSource.flac,
+};

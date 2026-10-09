@@ -24,6 +24,12 @@ class PlaybackUseCase {
   final Future<StreamAudioSource> Function(Track track)? prepareOnlineStream;
   String? _lastRequestedTrackId;
   String? _lastQueueSignature;
+  int _onlineSourceRevision = 0;
+
+  void invalidateOnlineSources() {
+    _onlineSourceRevision++;
+    _lastQueueSignature = null;
+  }
 
   Future<bool> playTrack(
     Track track, {
@@ -59,12 +65,10 @@ class PlaybackUseCase {
     await audioHandler.loadQueue(
       [
         for (final item in queue)
-          item.id == track.id && selectedSource != null
-              ? PlayableAudio(
-                  mediaItem: mediaItemFromTrack(item),
-                  source: selectedSource,
-                )
-              : _playableFromTrack(item),
+          _playableFromTrack(
+            item,
+            selectedSource: item.id == track.id ? selectedSource : null,
+          ),
       ],
       initialIndex: safeIndex,
       initialPosition: initialPosition,
@@ -108,14 +112,29 @@ class PlaybackUseCase {
     _lastQueueSignature = _queueSignature(updated);
   }
 
-  PlayableAudio _playableFromTrack(Track track) {
+  PlayableAudio _playableFromTrack(Track track, {AudioSource? selectedSource}) {
     final mediaItem = mediaItemFromTrack(track);
+    if (selectedSource != null) {
+      return PlayableAudio(
+        mediaItem: mediaItem,
+        source:
+            selectedSource is StreamAudioSource && prepareOnlineStream != null
+            ? DeferredStreamingAudioSource(
+                tag: mediaItem,
+                initialSource: selectedSource,
+                preparationRevision: () => _onlineSourceRevision,
+                prepare: () => prepareOnlineStream!(track),
+              )
+            : selectedSource,
+      );
+    }
     return PlayableAudio(
       mediaItem: mediaItem,
       source: track.playbackSource.isEmpty
           ? prepareOnlineStream != null
                 ? DeferredStreamingAudioSource(
                     tag: mediaItem,
+                    preparationRevision: () => _onlineSourceRevision,
                     prepare: () => prepareOnlineStream!(track),
                   )
                 : OnDemandAudioSource(

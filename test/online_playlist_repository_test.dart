@@ -1,5 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
+import 'package:ai_music/src/data/playlist_song.dart';
 
 import 'package:ai_music/src/application/online_playlist_search.dart';
 import 'package:ai_music/src/data/online_playlists.dart';
@@ -165,6 +167,116 @@ void main() {
       expect(detail.songs.length, 41);
       expect(detail.unavailable, 2);
       expect(detail.songs.last.id, '43');
+    },
+  );
+
+  test(
+    'actual QQ Fanren playlist keeps all four version annotations and durations',
+    () async {
+      final fixture =
+          jsonDecode(
+                await File(
+                  'test/fixtures/qq_fanren_playlist.json',
+                ).readAsString(),
+              )
+              as Map<String, dynamic>;
+      final repo = OnlinePlaylistRepository(
+        httpClient: _Http((_, _) => _qq(fixture)),
+      );
+      final detail = await repo.load(
+        _playlist(OnlinePlaylistSource.qq, id: '9765682818'),
+      );
+      expect(detail.songs.map((s) => s.title), [
+        '归零',
+        '鸿门旋律 (Version)',
+        'Time is Broken (浴室氛围版)',
+        '回忆观影券 (伴奏)',
+        '星游记进行曲',
+        'Lost Control (feat. Bianca)',
+        'Manestein (慢摇氛围版)',
+      ]);
+      expect(detail.songs.map((s) => s.durationSeconds), [
+        126,
+        89,
+        241,
+        172,
+        143,
+        269,
+        153,
+      ]);
+      expect(detail.songs[3].artist, 'IN-K / 王忻辰');
+    },
+  );
+
+  test(
+    'QQ exact-ID metadata refresh prefers full title and rejects another ID',
+    () async {
+      var returnedId = 274967058;
+      final repo = OnlinePlaylistRepository(
+        httpClient: _Http((uri, _) {
+          final req = jsonDecode(uri.queryParameters['data']!)['request'];
+          expect(req['method'], 'get_song_detail_yqq');
+          expect(req['param']['song_id'], 274967058);
+          return _qq({
+            'track_info': {
+              'id': returnedId,
+              'name': '回忆观影券',
+              'title': '回忆观影券 (伴奏)',
+              'singer': [
+                {'name': 'IN-K'},
+                {'name': '王忻辰'},
+              ],
+              'interval': 172,
+            },
+          });
+        }),
+      );
+      final song = await repo.loadQqSong('274967058');
+      expect(song.title, '回忆观影券 (伴奏)');
+      expect(song.durationSeconds, 172);
+      returnedId++;
+      await expectLater(repo.loadQqSong('274967058'), throwsFormatException);
+    },
+  );
+
+  test('QQ blank full title still falls back to a nonempty name', () async {
+    final repo = OnlinePlaylistRepository(
+      httpClient: _Http(
+        (_, _) => _qq({
+          'total_song_num': 1,
+          'hasmore': 0,
+          'songlist': [
+            {'id': 42, 'title': '  ', 'name': '保留歌名', 'singer': []},
+          ],
+        }),
+      ),
+    );
+    expect(
+      (await repo.load(_playlist(OnlinePlaylistSource.qq))).songs.single.title,
+      '保留歌名',
+    );
+  });
+
+  test(
+    'original metadata marks legacy JSON and round trips a repaired version',
+    () {
+      final legacy = PlaylistSong.fromJson({
+        'key': 'qq:274967058',
+        'title': '回忆观影券',
+        'artist': 'IN-K / 王忻辰',
+      })!;
+      expect(legacy.metadataVersion, 0);
+      expect(legacy.durationSeconds, 0);
+      const updated = PlaylistSong(
+        key: 'qq:274967058',
+        title: '回忆观影券 (伴奏)',
+        artist: 'IN-K / 王忻辰',
+        durationSeconds: 172,
+      );
+      final restored = PlaylistSong.fromJson(updated.toJson())!;
+      expect(restored.title, updated.title);
+      expect(restored.metadataVersion, 1);
+      expect(restored.durationSeconds, 172);
     },
   );
 

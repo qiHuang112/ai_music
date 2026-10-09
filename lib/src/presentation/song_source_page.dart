@@ -35,13 +35,16 @@ class _SongSourcePageState extends State<SongSourcePage> {
   bool _loading = false;
   bool _saving = false;
   int _request = 0;
-  MusicDataSource _source = MusicDataSource.auto;
+  late MusicDataSource _source;
   bool get zh => AppStringsScope.of(context).isZh;
   @override
   void initState() {
     super.initState();
+    _source = widget.controller.source;
     _query = TextEditingController(
-      text: '${widget.track.title} ${widget.track.artist}'.trim(),
+      text:
+          widget.controller.originalSongForTrack(widget.track)?.query ??
+          '${widget.track.title} ${widget.track.artist}'.trim(),
     );
     _search();
   }

@@ -63,6 +63,13 @@ class MusicAudioHandler extends BaseAudioHandler
   bool _shuffleModeEnabled = false;
   bool _isCurrentFavorite = false;
 
+  int _playbackIntentRevision = 0;
+  int get playbackIntentRevision => _playbackIntentRevision;
+
+  /// Record commands before awaiting native work, including system controls.
+  /// Overrides that handle these commands must preserve this notification.
+  void recordPlaybackIntent() => _playbackIntentRevision++;
+
   Duration get currentPosition => _player.position;
   Duration get currentBufferedPosition => _player.bufferedPosition;
   double get currentSpeed => _player.speed;
@@ -296,13 +303,17 @@ class MusicAudioHandler extends BaseAudioHandler
   }
 
   @override
-  Future<void> pause() => _player.pause();
+  Future<void> pause() {
+    recordPlaybackIntent();
+    return _player.pause();
+  }
 
   @override
   Future<void> seek(Duration position) => _player.seek(position);
 
   @override
   Future<void> skipToQueueItem(int index) async {
+    recordPlaybackIntent();
     if (index < 0 || index >= _items.length) {
       return;
     }
@@ -316,6 +327,7 @@ class MusicAudioHandler extends BaseAudioHandler
 
   @override
   Future<void> skipToNext() async {
+    recordPlaybackIntent();
     if (_shuffleModeEnabled && _items.length > 1) {
       final index = _player.playbackEvent.currentIndex;
       final current = index == null || index < 0 || index >= _items.length
@@ -352,6 +364,7 @@ class MusicAudioHandler extends BaseAudioHandler
 
   @override
   Future<void> skipToPrevious() async {
+    recordPlaybackIntent();
     final previousIndex = _manualAdjacentIndex(-1);
     if (previousIndex == null) return;
     _indexTracker.markManualTarget(
@@ -450,6 +463,7 @@ class MusicAudioHandler extends BaseAudioHandler
 
   @override
   Future<void> stop() async {
+    recordPlaybackIntent();
     _indexTracker.pendingShuffleRedirectIndex = null;
     await _player.stop();
     playbackState.add(

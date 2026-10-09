@@ -16,12 +16,108 @@ import 'package:ai_music/src/domain/music_models.dart';
 import 'package:ai_music/src/playback/music_audio_handler.dart';
 import 'package:ai_music/src/presentation/app_localizations.dart';
 import 'package:ai_music/src/presentation/player_page.dart';
+import 'package:ai_music/src/presentation/playback_queue.dart';
+import 'package:ai_music/src/presentation/song_comments_page.dart';
 import 'package:ai_music/src/presentation/song_cache_progress.dart';
 import 'package:audio_service/audio_service.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
+  testWidgets(
+    'comments entry opens the current song without replacing the player',
+    (tester) async {
+      final cached = _cachedTrack();
+      final handler = _SpyAudioHandler();
+      final controller = MusicController(
+        songSearchCache: SongSearchCache.memory(),
+        downloadHistoryStore: MemoryDownloadHistory(),
+        connectivityChanges: const Stream.empty(),
+        audioHandler: handler,
+        resolver: _FakeMusicResolver(),
+        cacheStore: _FakeCacheStore(cached: [cached]),
+        playlistStore: _FakePlaylistStore(),
+        settingsStore: _FakeSettingsStore(),
+        metadataRepository: _StaticMetadataRepository(
+          metadata: const TrackMetadata(),
+        ),
+      );
+      try {
+        await controller.initialize();
+        final track = trackFromCached(cached);
+        await controller.playTrack(track);
+        handler.emit(mediaItemFromTrack(track));
+        await tester.pumpWidget(
+          MaterialApp(home: PlayerPage(controller: controller)),
+        );
+        await tester.pump();
+        final entry = find.byKey(const ValueKey('player-comments'));
+        await tester.scrollUntilVisible(
+          entry,
+          200,
+          scrollable: find.byType(Scrollable).first,
+        );
+        await tester.tap(entry);
+        await tester.pumpAndSettle();
+        final page = tester.widget<SongCommentsPage>(
+          find.byType(SongCommentsPage),
+        );
+        expect(page.query.title, track.title);
+        expect(page.query.artist, track.artist);
+        expect(
+          page.query.platformIds,
+          isEmpty,
+          reason: 'BuguYY internal IDs are not official song IDs',
+        );
+        expect(controller.currentTrack?.id, track.id);
+        handler.emit(
+          const MediaItem(id: 'next', title: '下一首', artist: '另一位歌手'),
+        );
+        await tester.pump();
+        expect(
+          page.query.title,
+          track.title,
+          reason: 'Reading stays on the opened song',
+        );
+        await tester.pageBack();
+        await tester.pumpAndSettle();
+        expect(find.byType(PlayerPage), findsOneWidget);
+        expect(find.byKey(const ValueKey('player-queue')), findsOneWidget);
+        handler.emit(mediaItemFromTrack(track));
+        await tester.pump();
+        expect(find.byIcon(Icons.stop), findsNothing);
+        expect(
+          find.descendant(
+            of: find.byType(AppBar),
+            matching: find.byKey(const Key('player-switch-source')),
+          ),
+          findsNothing,
+        );
+        await tester.tap(find.byKey(const ValueKey('player-queue')));
+        await tester.pumpAndSettle();
+        expect(find.byType(PlaybackQueue), findsOneWidget);
+        Navigator.of(tester.element(find.byType(PlaybackQueue))).pop();
+        await tester.pumpAndSettle();
+        await tester.ensureVisible(
+          find.byKey(const ValueKey('lyrics-preview')),
+        );
+        await tester.tap(find.byKey(const ValueKey('lyrics-preview')));
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 350));
+        expect(find.byIcon(Icons.stop), findsNothing);
+        await tester.tap(find.byKey(const ValueKey('player-queue')));
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 350));
+        expect(find.byType(PlaybackQueue), findsOneWidget);
+        expect(controller.currentTrack?.id, track.id);
+        await tester.pumpWidget(const SizedBox.shrink());
+      } finally {
+        controller.dispose();
+        await tester.runAsync(handler.dispose);
+      }
+    },
+  );
+
   testWidgets(
     'song background repaints progress without rebuilding row contents',
     (tester) async {

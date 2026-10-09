@@ -1,3 +1,5 @@
+import 'package:ai_music/src/data/playlist_song.dart';
+import 'package:ai_music/src/presentation/song_source_page.dart';
 import 'package:ai_music/src/data/listening_stats_store.dart';
 import 'package:ai_music/src/presentation/listening_stats_page.dart';
 import 'package:ai_music/src/presentation/playback_queue.dart';
@@ -30,6 +32,169 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
+  for (final largeText in [false, true]) {
+    testWidgets(
+      'playlist uncertain source is actionable without background search largeText=$largeText',
+      (tester) async {
+        if (largeText) {
+          tester.view.physicalSize = const Size(320, 760);
+          tester.view.devicePixelRatio = 1;
+          addTearDown(tester.view.resetPhysicalSize);
+          addTearDown(tester.view.resetDevicePixelRatio);
+        }
+        final candidate = _candidate(
+          id: 'instrumental',
+          name: '回忆观影券 (伴奏)',
+          artist: 'IN-K',
+          source: MusicDataSource.flac,
+          platform: 'wyy',
+        );
+        final saved = SavedOnlineTrack(candidate: candidate);
+        final stamp = DateTime(2026, 10, 8);
+        PlaylistTrackEntry entry(
+          String id, {
+          bool manual = false,
+          bool pending = false,
+          bool exact = false,
+        }) => PlaylistTrackEntry(
+          trackId: id,
+          addedAt: stamp,
+          song: PlaylistSong(
+            key: 'qq:song:$id',
+            title: '回忆观影券 (伴奏)',
+            artist: exact ? 'IN-K' : 'IN-K / 王忻辰',
+            durationSeconds: 172,
+          ),
+          onlineTrack: pending ? null : saved,
+          manualSource: manual,
+        );
+        final playlists = _FakePlaylistStore()
+          ..library = PlaylistLibrary(
+            playlists: [
+              MusicPlaylist(
+                id: 'review-list',
+                name: '待核对测试歌单',
+                entries: [
+                  entry('uncertain'),
+                  entry('manual', manual: true),
+                  entry('exact', exact: true),
+                  entry('pending', pending: true),
+                ],
+                createdAt: stamp,
+                updatedAt: stamp,
+              ),
+            ],
+          );
+        final resolver = _FakeMusicResolver(candidates: [candidate]);
+        final handler = _WidgetAudioHandler();
+        final controller = MusicController(
+          audioHandler: handler,
+          resolver: resolver,
+          cacheStore: _FakeCacheStore(),
+          playlistStore: playlists,
+          settingsStore: _FakeSettingsStore(),
+          metadataRepository: _FakeMetadataRepository(),
+          songSearchCache: SongSearchCache.memory(),
+          downloadHistoryStore: MemoryDownloadHistory(),
+          listeningStatsStore: ListeningStatsStore.memory(),
+          connectivityChanges: const Stream.empty(),
+        );
+        try {
+          await tester.pumpWidget(
+            _app(
+              playbackController: controller,
+              textScaler: largeText ? const TextScaler.linear(2) : null,
+            ),
+          );
+          await tester.pumpAndSettle();
+          await tester.tap(find.byTooltip('音乐库'));
+          await tester.pumpAndSettle();
+          await tester.pumpAndSettle();
+          await tester.tap(find.textContaining('待核对测试歌单').last);
+          await tester.pumpAndSettle();
+          final review = find.byKey(
+            const ValueKey('song-match-review-uncertain'),
+          );
+          expect(review, findsOneWidget);
+          expect(
+            find.byKey(const ValueKey('song-match-review-manual')),
+            findsNothing,
+          );
+          expect(
+            find.byKey(const ValueKey('song-match-review-exact')),
+            findsNothing,
+          );
+          expect(
+            find.byKey(const ValueKey('song-match-review-pending')),
+            findsNothing,
+          );
+          expect(resolver.searchCount, 0);
+          expect(tester.takeException(), isNull);
+          final tracks = controller.tracksForPlaylist(
+            controller.allPlaylists.single,
+          );
+          expect(
+            controller.songSourceNeedsReview(
+              tracks.firstWhere((t) => t.id == 'uncertain'),
+            ),
+            isTrue,
+          );
+          expect(
+            controller.songSourceNeedsReview(
+              tracks.firstWhere((t) => t.id == 'manual'),
+            ),
+            isFalse,
+          );
+          expect(
+            controller.songSourceNeedsReview(
+              tracks.firstWhere((t) => t.id == 'exact'),
+            ),
+            isFalse,
+          );
+          expect(
+            controller.songSourceNeedsReview(
+              tracks.firstWhere((t) => t.id == 'pending'),
+            ),
+            isFalse,
+          );
+          expect(resolver.searchCount, 0);
+
+          await tester.ensureVisible(review);
+          await tester.tap(review);
+          await tester.pumpAndSettle();
+          expect(find.byType(SongSourcePage), findsOneWidget);
+          expect(resolver.lastQuery, '回忆观影券 (伴奏) IN-K / 王忻辰');
+          expect(
+            tester
+                .widget<TextField>(find.byType(TextField).last)
+                .controller
+                ?.text,
+            '回忆观影券 (伴奏) IN-K / 王忻辰',
+          );
+          expect(resolver.searchCount, 1);
+          expect(tester.takeException(), isNull);
+          await tester.tap(find.byKey(const ValueKey('song-source-0')));
+          await tester.pumpAndSettle();
+          expect(find.byType(SongSourcePage), findsNothing);
+          expect(
+            find.byKey(const ValueKey('song-match-review-uncertain')),
+            findsNothing,
+          );
+          expect(
+            playlists.library.playlists.single.entries.first.manualSource,
+            isTrue,
+          );
+          expect(resolver.searchCount, 1);
+          expect(tester.takeException(), isNull);
+        } finally {
+          await tester.pumpWidget(const SizedBox.shrink());
+          controller.dispose();
+          unawaited(handler.dispose());
+        }
+      },
+    );
+  }
+
   testWidgets('listening statistics entry is only in music library', (
     tester,
   ) async {
@@ -1025,6 +1190,7 @@ void main() {
             name: '稻香 $i',
             artist: '周杰伦',
             album: '叶惠美',
+            source: MusicDataSource.flac,
             platform: 'kuwo',
             quality: const MusicQuality(format: 'flac', size: '30MB'),
           ),
@@ -1038,13 +1204,14 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(resolver.lastQuery, '周杰伦');
-    expect(resolver.lastSource, MusicDataSource.auto);
+    expect(resolver.lastSource, MusicDataSource.flac);
     expect(find.text('稻香 0'), findsOneWidget);
-    expect(find.text('布谷'), findsWidgets);
+    expect(find.text('FLAC'), findsWidgets);
     expect(find.textContaining('BuguYY'), findsNothing);
     expect(find.textContaining('kuwo'), findsNothing);
     expect(find.textContaining('03:20'), findsNothing);
-    expect(find.textContaining('FLAC · 30MB'), findsWidgets);
+    expect(find.textContaining('30MB'), findsWidgets);
+    expect(find.textContaining('FLAC · 30MB'), findsNothing);
     expect(
       tester.getSize(find.byType(ListView).first).height,
       greaterThan(300),
@@ -1061,7 +1228,14 @@ void main() {
     tester,
   ) async {
     final resolver = _DeferredFailingMusicResolver(
-      candidates: [_candidate(name: '哎呀', artist: '王蓉')],
+      candidates: [
+        _candidate(
+          name: '哎呀',
+          artist: '王蓉',
+          source: MusicDataSource.flac,
+          platform: 'kuwo',
+        ),
+      ],
     );
     await tester.pumpWidget(_app(resolver: resolver));
     await tester.pumpAndSettle();
@@ -1101,12 +1275,19 @@ void main() {
     'auto search shows first source while another source is loading',
     (tester) async {
       final resolver = _ProgressiveMusicResolver();
-      await tester.pumpWidget(_app(resolver: resolver));
+      await tester.pumpWidget(
+        _app(
+          resolver: resolver,
+          settings: _FakeSettingsStore()
+            ..settings = const MusicAppSettings(source: MusicDataSource.auto),
+        ),
+      );
       await tester.pumpAndSettle();
 
       await tester.enterText(find.byType(TextField), '晴天');
       await tester.tap(find.byTooltip('在线搜索'));
       await tester.pump();
+      expect(resolver.lastSource, MusicDataSource.auto);
 
       resolver.emit(
         MusicSearchProgress(
@@ -1638,6 +1819,9 @@ void main() {
     expect(find.text('BuguYY'), findsOneWidget);
     expect(find.text('FLAC'), findsOneWidget);
 
+    await tester.tap(find.text('BuguYY'));
+    await tester.pumpAndSettle();
+    expect(settings.savedSource, MusicDataSource.buguyy);
     await tester.tap(find.text('FLAC'));
     await tester.pumpAndSettle();
 
@@ -2157,7 +2341,7 @@ void main() {
             ),
           ],
         );
-      final resolver = _DeferredFailingMusicResolver();
+      final resolver = _DeferredFailingMusicResolver(candidates: [candidate]);
       await tester.pumpWidget(
         _app(resolver: resolver, playlistStore: playlists),
       );
@@ -3484,7 +3668,8 @@ class _FakePlaylistStore extends PlaylistStore {
         if (seen.add(entry.trackId) &&
             (validIds == null ||
                 validIds.contains(entry.trackId) ||
-                entry.onlineTrack != null)) {
+                entry.onlineTrack != null ||
+                entry.song != null)) {
           unique.add(entry);
         }
       }

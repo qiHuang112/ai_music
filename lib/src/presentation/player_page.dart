@@ -6,11 +6,13 @@ import 'package:audio_service/audio_service.dart';
 import 'package:flutter/material.dart';
 
 import '../application/music_controller.dart';
+import '../data/song_comments.dart';
 import '../domain/music_models.dart';
 import 'app_localizations.dart';
 import 'playlist_actions.dart';
 import 'swipe_to_skip.dart';
 import 'song_source_page.dart';
+import 'song_comments_page.dart';
 
 class PlayerPage extends StatefulWidget {
   const PlayerPage({super.key, required this.controller});
@@ -62,14 +64,6 @@ class _PlayerPageState extends State<PlayerPage> {
             title: Text(strings.nowPlaying),
             actions: [
               if (currentTrack != null) ...[
-                if (controller.canSwitchSongSource(currentTrack))
-                  IconButton(
-                    key: const Key('player-switch-source'),
-                    tooltip: strings.isZh ? '切换来源' : 'Choose source',
-                    onPressed: () =>
-                        showSongSourcePicker(context, controller, currentTrack),
-                    icon: const Icon(Icons.swap_horiz),
-                  ),
                 IconButton(
                   tooltip: controller.isFavorite(currentTrack)
                       ? strings.removeFromFavorites
@@ -152,12 +146,50 @@ class _PlayerPageState extends State<PlayerPage> {
                             playing: state.playing,
                           ),
                           const SizedBox(height: 12),
-                          TextButton.icon(
-                            key: const ValueKey('player-queue'),
-                            onPressed: () =>
-                                showPlaybackQueue(context, controller),
-                            icon: const Icon(Icons.queue_music_rounded),
-                            label: Text(strings.isZh ? '当前队列' : 'Play queue'),
+                          Wrap(
+                            alignment: WrapAlignment.center,
+                            spacing: 12,
+                            children: [
+                              if (currentTrack != null &&
+                                  controller.canSwitchSongSource(currentTrack))
+                                TextButton.icon(
+                                  key: const Key('player-switch-source'),
+                                  onPressed: () => showSongSourcePicker(
+                                    context,
+                                    controller,
+                                    currentTrack,
+                                  ),
+                                  icon: const Icon(Icons.swap_horiz),
+                                  label: Text(
+                                    strings.isZh ? '切换来源' : 'Choose source',
+                                  ),
+                                ),
+                              if (currentTrack != null)
+                                TextButton.icon(
+                                  key: const ValueKey('player-comments'),
+                                  onPressed: () => Navigator.of(context).push(
+                                    MaterialPageRoute<void>(
+                                      builder: (_) => SongCommentsPage(
+                                        query: SongCommentQuery.fromTrack(
+                                          currentTrack,
+                                          original: controller
+                                              .originalSongForTrack(
+                                                currentTrack,
+                                              ),
+                                          candidate: controller
+                                              .selectedSongSource(currentTrack),
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                                  icon: const Icon(
+                                    Icons.chat_bubble_outline_rounded,
+                                  ),
+                                  label: Text(
+                                    strings.isZh ? '歌曲热评' : 'Song comments',
+                                  ),
+                                ),
+                            ],
                           ),
                         ],
                       ),
@@ -502,9 +534,10 @@ class _PlaybackControls extends StatelessWidget {
           icon: const Icon(Icons.skip_next),
         ),
         IconButton(
-          tooltip: strings.stop,
-          onPressed: controller.stop,
-          icon: const Icon(Icons.stop),
+          key: const ValueKey('player-queue'),
+          tooltip: strings.isZh ? '当前队列' : 'Play queue',
+          onPressed: () => showPlaybackQueue(context, controller),
+          icon: const Icon(Icons.queue_music_rounded),
         ),
       ],
     );

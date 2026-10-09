@@ -56,9 +56,12 @@ void main() {
       );
       await tester.tap(find.text('open'));
       await tester.pumpAndSettle();
-      expect(controller.searches, [MusicDataSource.auto]);
+      expect(controller.searches, [MusicDataSource.flac]);
       expect(find.text('稻香'), findsOneWidget);
       expect(find.textContaining('kuwo'), findsOneWidget);
+      await tester.tap(find.text('全部'));
+      await tester.pumpAndSettle();
+      expect(controller.searches.last, MusicDataSource.auto);
       await tester.tap(find.text('FLAC'));
       await tester.pumpAndSettle();
       expect(controller.searches.last, MusicDataSource.flac);
@@ -97,7 +100,7 @@ void main() {
       await tester.tap(find.text('歌曲来源（布谷YY）'));
       await tester.pumpAndSettle();
       expect(find.byType(SongSourcePage), findsOneWidget);
-      expect(controller.searches, [MusicDataSource.auto]);
+      expect(controller.searches, [MusicDataSource.flac]);
       await tester.tap(find.byTooltip('刷新来源'));
       await tester.pumpAndSettle();
       expect(controller.refreshes, [false, true]);
@@ -1453,6 +1456,7 @@ class _Matcher extends ScreenshotMatcher {
   Future<ScreenshotMatchResult> match(
     ScreenshotSongDraft draft, {
     bool failOnSourceErrorWhenEmpty = false,
+    MusicDataSource? source,
   }) {
     calls++;
     return respond(draft);

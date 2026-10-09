@@ -5,6 +5,7 @@ import '../data/music_playlists.dart';
 import '../data/resolver_models.dart';
 import '../data/saved_online_track.dart';
 import '../data/playlist_song.dart';
+import '../data/song_match_identity.dart';
 import 'dart:convert';
 import 'package:crypto/crypto.dart';
 import '../domain/music_models.dart';
@@ -355,6 +356,79 @@ class LibraryUseCase {
         existing?.trackIds.toSet() ?? {},
       ),
     );
+  });
+
+  /// Replace only the original metadata this request read, across every saved
+  /// reference. A later edit wins; refreshing metadata never deletes audio.
+  Future<LibrarySnapshot> updateOriginalSongMetadata({
+    required PlaylistSong old,
+    required PlaylistSong updated,
+    required LibrarySnapshot current,
+  }) => _enqueuePlaylistMutation(() async {
+    final base = _currentSnapshot(current);
+    if (old.key != updated.key) {
+      throw ArgumentError('Original song metadata must retain its key');
+    }
+    if (updated.title.trim().isEmpty ||
+        updated.metadataVersion < old.metadataVersion) {
+      return base;
+    }
+    bool matchesOld(PlaylistSong song) =>
+        song.key == old.key &&
+        song.title == old.title &&
+        song.artist == old.artist &&
+        song.metadataVersion == old.metadataVersion &&
+        song.durationSeconds == old.durationSeconds &&
+        song.coverUrl == old.coverUrl;
+    final hasChanges =
+        old.title != updated.title ||
+        old.artist != updated.artist ||
+        old.coverUrl != updated.coverUrl ||
+        old.durationSeconds != updated.durationSeconds ||
+        old.metadataVersion != updated.metadataVersion;
+    if (!hasChanges) return base;
+    final previousIdentity = SongMatchIdentity(old.title, old.artist);
+    final nextIdentity = SongMatchIdentity(updated.title, updated.artist);
+    final recordingChanged =
+        previousIdentity.title != nextIdentity.title ||
+        previousIdentity.version != nextIdentity.version ||
+        previousIdentity.artistKey != nextIdentity.artistKey;
+    var changed = false;
+    PlaylistTrackEntry updateEntry(PlaylistTrackEntry entry) {
+      if (entry.song == null || !matchesOld(entry.song!)) return entry;
+      changed = true;
+      final candidate = entry.onlineTrack?.candidate;
+      final clearAutomaticSource =
+          !entry.manualSource &&
+          (recordingChanged ||
+              (candidate != null &&
+                  _clearlyContradictsOriginalSong(candidate, updated)));
+      return PlaylistTrackEntry(
+        trackId: entry.trackId,
+        addedAt: entry.addedAt,
+        song: updated,
+        onlineTrack: clearAutomaticSource ? null : entry.onlineTrack,
+        manualSource: entry.manualSource,
+      );
+    }
+
+    List<PlaylistTrackEntry> update(List<PlaylistTrackEntry> entries) =>
+        entries.map(updateEntry).toList(growable: false);
+    final library = base.playlistLibrary.copyWith(
+      favoriteEntries: update(base.playlistLibrary.favoriteEntries),
+      playlists: [
+        for (final playlist in base.playlistLibrary.playlists)
+          playlist.copyWith(entries: update(playlist.entries)),
+      ],
+    );
+    if (!changed) return base;
+    await playlistStore.write(
+      library,
+      validTrackIds: libraryController.validTrackIds(base.cachedTracks),
+    );
+    final snapshot = _snapshot(base.cachedRecords, base.cachedTracks, library);
+    _latestSnapshot = snapshot;
+    return snapshot;
   });
 
   /// A song keeps its logical ID even when the chosen audio resource changes.
@@ -821,6 +895,9 @@ class LibraryUseCase {
             artist: song.artist,
             album: '',
             artworkUri: artworkUriFromText(song.coverUrl),
+            duration: song.durationSeconds > 0
+                ? Duration(seconds: song.durationSeconds)
+                : null,
           );
         }
         continue;
@@ -906,6 +983,50 @@ class LibraryUseCase {
     _playlistMutationTail = run.then<void>((_) {}, onError: (_) {});
     return run;
   }
+}
+
+bool _clearlyContradictsOriginalSong(
+  MusicSearchCandidate candidate,
+  PlaylistSong song,
+) {
+  final expected = SongMatchIdentity(song.title, song.artist);
+  final found = SongMatchIdentity(candidate.name, candidate.artist);
+  // Unknown descriptive suffixes (such as 慢摇氛围版) stay in the strict
+  // matching title. Their absence is uncertainty, not a different core song.
+  String coreTitle(String title) => SongMatchIdentity(
+    withoutSongContext(title).replaceAll(RegExp(r'[（(][^（）()]*[）)]'), ''),
+    '',
+  ).title;
+  final expectedTitle = coreTitle(song.title);
+  final foundTitle = coreTitle(candidate.name);
+  if (expectedTitle.isNotEmpty &&
+      foundTitle.isNotEmpty &&
+      expectedTitle != foundTitle) {
+    return true;
+  }
+  if (expected.artists.isNotEmpty &&
+      found.artists.isNotEmpty &&
+      expected.artists.intersection(found.artists).isEmpty) {
+    return true;
+  }
+  Set<String> versions(String title, SongMatchIdentity identity) => {
+    ...identity.version.split('|').where((part) => part.isNotEmpty),
+    for (final annotation in RegExp(r'[（(]([^（）()]*)[）)]').allMatches(title))
+      if (annotation[1]!.trim().toLowerCase() != 'version' &&
+          RegExp(
+            r'版\s*$|\bversion\s*$',
+            caseSensitive: false,
+          ).hasMatch(annotation[1]!) &&
+          SongMatchIdentity('song (${annotation[1]})', '').version.isEmpty)
+        'description:${normalizeSongText(annotation[1]!)}',
+  };
+  final expectedVersions = versions(song.title, expected);
+  // A missing artist credit or version label stays a reviewable fallback.
+  // Only a version explicitly present in the candidate can contradict it.
+  return versions(
+    candidate.name,
+    found,
+  ).any((version) => !expectedVersions.contains(version));
 }
 
 PlaylistTrackEntry? _entryForTrack(PlaylistLibrary library, String trackId) => [

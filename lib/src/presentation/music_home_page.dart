@@ -2796,6 +2796,10 @@ class _TrackTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final strings = AppStringsScope.of(context);
+    final needsSourceReview =
+        !isSelecting &&
+        !isReorderEditing &&
+        controller.songSourceNeedsReview(track);
     return SongCacheProgressRow(
       controller: controller,
       track: track,
@@ -2857,11 +2861,42 @@ class _TrackTile extends StatelessWidget {
                     : faded,
               ),
             ),
-            subtitle: Text(
-              _trackSubtitle(track),
-              style: cached ? null : TextStyle(color: faded),
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
+            subtitle: Wrap(
+              spacing: 6,
+              crossAxisAlignment: WrapCrossAlignment.center,
+              children: [
+                Text(
+                  _trackSubtitle(track),
+                  style: cached ? null : TextStyle(color: faded),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+                if (needsSourceReview)
+                  Tooltip(
+                    message: strings.isZh
+                        ? '切换来源核对歌曲'
+                        : 'Choose source to check this match',
+                    child: TextButton(
+                      key: ValueKey('song-match-review-${track.id}'),
+                      style: TextButton.styleFrom(
+                        minimumSize: Size.zero,
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 6,
+                          vertical: 2,
+                        ),
+                        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                        foregroundColor: colors.onTertiaryContainer,
+                        backgroundColor: colors.tertiaryContainer.withValues(
+                          alpha: .55,
+                        ),
+                        textStyle: Theme.of(context).textTheme.labelSmall,
+                      ),
+                      onPressed: () =>
+                          showSongSourcePicker(context, controller, track),
+                      child: Text(strings.isZh ? '需核对' : 'Check match'),
+                    ),
+                  ),
+              ],
             ),
             trailing: isReorderEditing
                 ? dragHandle
