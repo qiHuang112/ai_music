@@ -1,4 +1,5 @@
 import 'package:ai_music/src/data/playlist_song.dart';
+import 'package:ai_music/src/data/online_playlists.dart';
 import 'package:ai_music/src/presentation/song_source_page.dart';
 import 'package:ai_music/src/data/listening_stats_store.dart';
 import 'package:ai_music/src/presentation/listening_stats_page.dart';
@@ -1141,6 +1142,199 @@ void main() {
       expect(find.byKey(const ValueKey('search-history-晴天')), findsNothing);
     },
   );
+
+  testWidgets('switching search kind submits current keywords immediately', (
+    tester,
+  ) async {
+    final resolver = _FakeMusicResolver(
+      candidates: [_candidate(name: '周杰伦歌曲', artist: '周杰伦')],
+    );
+    final playlists = _SearchPlaylistRepository();
+    final history = _MemorySearchHistoryStore();
+    await tester.pumpWidget(
+      _app(
+        resolver: resolver,
+        playlistRepository: playlists,
+        searchHistoryStore: history,
+      ),
+    );
+    await tester.pumpAndSettle();
+    final toggle = find.byKey(const ValueKey('search-mode-toggle'));
+    await tester.tap(toggle);
+    await tester.pumpAndSettle();
+    expect(playlists.queries, isEmpty);
+    await tester.enterText(find.byType(TextField).first, ' 周杰伦 ');
+    await tester.tap(toggle);
+    await tester.pumpAndSettle();
+    expect(resolver.lastQuery, '周杰伦');
+    expect(resolver.searchCount, 1);
+    expect(find.text('周杰伦歌曲'), findsOneWidget);
+    await tester.tap(toggle);
+    await tester.pumpAndSettle();
+    expect(playlists.queries, ['周杰伦', '周杰伦']);
+    expect(find.text('周杰伦歌单'), findsNWidgets(2));
+    expect(find.text('周杰伦歌曲'), findsNothing);
+    expect(history.entries(SearchHistoryKind.song), ['周杰伦']);
+    expect(history.entries(SearchHistoryKind.playlist), ['周杰伦']);
+    await tester.tap(toggle);
+    await tester.pumpAndSettle();
+    expect(find.text('周杰伦歌曲'), findsOneWidget);
+    expect(find.text('周杰伦歌单'), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('long playlist title wraps and management actions stay compact', (
+    tester,
+  ) async {
+    await tester.binding.setSurfaceSize(const Size(320, 700));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    const name = '华语经典珍藏歌单：一路走来的那些难忘旋律与回忆';
+    final fixture = _homeLibraryFixture();
+    fixture.playlistStore.library = fixture.playlistStore.library.copyWith(
+      playlists: [
+        fixture.playlistStore.library.playlists.first.copyWith(
+          name: name,
+          onlineOriginKey: 'qq:long-title',
+        ),
+      ],
+    );
+    await tester.pumpWidget(
+      _app(
+        cacheStore: fixture.cacheStore,
+        playlistStore: fixture.playlistStore,
+        textScaler: const TextScaler.linear(2),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('home-playlist-road')));
+    await tester.pumpAndSettle();
+    final title = find.byKey(const ValueKey('playlist-detail-title'));
+    final text = tester.widget<Text>(title);
+    expect(text.data, name);
+    expect(text.maxLines, isNull);
+    expect(text.overflow, isNull);
+    expect(text.softWrap, isTrue);
+    expect(tester.getSize(title).height, greaterThan(60));
+    expect(find.byKey(const ValueKey('my-playlist-sync')), findsOneWidget);
+    expect(find.byTooltip('重命名歌单'), findsNothing);
+    expect(find.byTooltip('删除歌单'), findsNothing);
+    await tester.tap(find.byKey(const ValueKey('playlist-actions-menu')));
+    await tester.pumpAndSettle();
+    expect(find.text('调整顺序'), findsOneWidget);
+    expect(find.text('重命名歌单'), findsOneWidget);
+    await tester.tap(find.text('删除歌单'));
+    await tester.pumpAndSettle();
+    expect(find.text('删除歌单？'), findsOneWidget);
+    await tester.tap(find.text('取消'));
+    await tester.pumpAndSettle();
+    expect(fixture.playlistStore.library.playlists.single.name, name);
+    expect(tester.takeException(), isNull);
+  });
+
+  for (final largeText in [false, true]) {
+    testWidgets(
+      'playlist scroll snaps title into one line and expands on reverse largeText=$largeText',
+      (tester) async {
+        await tester.binding.setSurfaceSize(const Size(320, 700));
+        addTearDown(() => tester.binding.setSurfaceSize(null));
+        const name = '华语经典珍藏歌单：一路走来的那些难忘旋律与回忆';
+        final fixture = _homeLibraryFixture();
+        final stamp = DateTime(2026, 10, 10);
+        fixture.playlistStore.library = fixture.playlistStore.library.copyWith(
+          playlists: [
+            fixture.playlistStore.library.playlists.first.copyWith(
+              name: name,
+              onlineOriginKey: 'qq:immersive',
+              entries: [
+                for (var i = 0; i < 40; i++)
+                  PlaylistTrackEntry(
+                    trackId: 'immersive-$i',
+                    addedAt: stamp,
+                    song: PlaylistSong(
+                      key: 'qq:$i',
+                      title: '测试歌曲 $i',
+                      artist: '测试歌手',
+                    ),
+                  ),
+              ],
+            ),
+          ],
+        );
+        final handler = _WidgetAudioHandler();
+        final resolver = _FakeMusicResolver();
+        await tester.pumpWidget(
+          _app(
+            cacheStore: fixture.cacheStore,
+            playlistStore: fixture.playlistStore,
+            audioHandler: handler,
+            resolver: resolver,
+            textScaler: TextScaler.linear(largeText ? 2 : 1),
+          ),
+        );
+        await tester.pumpAndSettle();
+        handler.emit(const MediaItem(id: 'now', title: '正在播放', artist: '歌手'));
+        await tester.pumpAndSettle();
+        await tester.tap(find.byKey(const ValueKey('home-playlist-road')));
+        await tester.pumpAndSettle();
+        final expanded = find.byKey(const ValueKey('playlist-detail-title'));
+        final compact = find.byKey(const ValueKey('playlist-compact-title'));
+        final scroll = find.byType(CustomScrollView).last;
+        final first = find.text('测试歌曲 0');
+        final before = tester.getTopLeft(first).dy;
+        expect(expanded, findsOneWidget);
+        expect(compact, findsNothing);
+        final searchesBeforeScroll = resolver.searchCount;
+        await _dragPlaylistWithFrame(tester, scroll, const Offset(0, -45));
+        await tester.pumpAndSettle();
+        expect(compact, findsOneWidget);
+        expect(tester.widget<Text>(compact).maxLines, 1);
+        expect(expanded, findsNothing);
+        expect(tester.getTopLeft(first).dy, lessThan(before - 30));
+        expect(
+          find.byKey(const ValueKey('my-playlist-sync')).hitTestable(),
+          findsOneWidget,
+        );
+        expect(
+          find.byKey(const ValueKey('mini-player-card')).hitTestable(),
+          findsOneWidget,
+        );
+        await _dragPlaylistWithFrame(tester, scroll, const Offset(0, 20));
+        await tester.pump(const Duration(milliseconds: 40));
+        await _dragPlaylistWithFrame(tester, scroll, const Offset(0, -20));
+        await tester.pumpAndSettle();
+        expect(compact, findsOneWidget);
+        expect(expanded, findsNothing);
+        await tester.drag(scroll, const Offset(0, -400));
+        await tester.pumpAndSettle();
+        expect(compact, findsOneWidget);
+        expect(
+          find.byKey(const ValueKey('playlist-actions-menu')).hitTestable(),
+          findsOneWidget,
+        );
+        final visibleSong = find.textContaining('测试歌曲 ').hitTestable().first;
+        final visibleLabel = tester.widget<Text>(visibleSong).data!;
+        final beforeSelection = tester.getTopLeft(visibleSong).dy;
+        await tester.longPress(visibleSong);
+        await tester.pumpAndSettle();
+        expect(
+          tester.getTopLeft(find.text(visibleLabel)).dy,
+          closeTo(beforeSelection, 1),
+        );
+        await tester.tap(find.byTooltip('取消'));
+        await tester.pumpAndSettle();
+        expect(
+          tester.getTopLeft(find.text(visibleLabel)).dy,
+          closeTo(beforeSelection, 1),
+        );
+        await _dragPlaylistWithFrame(tester, scroll, const Offset(0, 150));
+        await tester.pumpAndSettle();
+        expect(expanded, findsOneWidget);
+        expect(compact, findsNothing);
+        expect(resolver.searchCount, searchesBeforeScroll);
+        expect(tester.takeException(), isNull);
+      },
+    );
+  }
 
   testWidgets('history card submits search and returns to results after back', (
     tester,
@@ -2825,7 +3019,7 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.byTooltip('排序'), findsNothing);
-    expect(find.byTooltip('调整顺序'), findsOneWidget);
+    expect(find.byKey(const ValueKey('playlist-actions-menu')), findsOneWidget);
     expect(find.text('调整顺序'), findsNothing);
     expect(
       tester.getTopLeft(find.text('Alpha')).dy,
@@ -2892,10 +3086,10 @@ void main() {
       lessThan(tester.getTopLeft(find.text('Beta')).dy),
     );
     expect(find.byTooltip('排序'), findsNothing);
-    expect(find.byTooltip('调整顺序'), findsOneWidget);
+    expect(find.byKey(const ValueKey('playlist-actions-menu')), findsOneWidget);
     expect(find.text('调整顺序'), findsNothing);
     expect(
-      tester.getCenter(find.byKey(const ValueKey('adjust-order-action'))).dx,
+      tester.getCenter(find.byKey(const ValueKey('playlist-actions-menu'))).dx,
       greaterThan(tester.getCenter(find.text('Road')).dx),
     );
 
@@ -2964,13 +3158,13 @@ void main() {
     await tester.tap(find.text('Road'));
     await tester.pumpAndSettle();
 
-    expect(find.byTooltip('调整顺序'), findsOneWidget);
+    expect(find.byKey(const ValueKey('playlist-actions-menu')), findsOneWidget);
     expect(find.text('调整顺序'), findsNothing);
     expect(find.byTooltip('排序'), findsNothing);
     expect(find.byTooltip('拖拽排序'), findsNothing);
     expect(find.byTooltip('更多'), findsWidgets);
 
-    await tester.tap(find.byKey(const ValueKey('adjust-order-action')));
+    await _tapAdjustOrder(tester);
     await tester.pumpAndSettle();
 
     expect(find.byTooltip('拖拽排序'), findsNWidgets(2));
@@ -3050,7 +3244,7 @@ void main() {
 
     expect(find.text('Mini Alpha'), findsOneWidget);
 
-    await tester.tap(find.byKey(const ValueKey('adjust-order-action')));
+    await _tapAdjustOrder(tester);
     await tester.pumpAndSettle();
 
     expect(find.text('Mini Alpha'), findsNothing);
@@ -3109,7 +3303,7 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.text('Road'));
     await tester.pumpAndSettle();
-    await tester.tap(find.byKey(const ValueKey('adjust-order-action')));
+    await _tapAdjustOrder(tester);
     await tester.pumpAndSettle();
 
     final writesBeforeDrag = playlistStore.writeCount;
@@ -3191,7 +3385,7 @@ void main() {
     await tester.enterText(find.byType(TextField), 'Alpha');
     await tester.pumpAndSettle();
 
-    await tester.tap(find.byKey(const ValueKey('adjust-order-action')));
+    await _tapAdjustOrder(tester);
     await tester.pumpAndSettle();
 
     expect(find.text('清除搜索后可调整顺序'), findsOneWidget);
@@ -3251,7 +3445,7 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.text('Road'));
     await tester.pumpAndSettle();
-    await tester.tap(find.byKey(const ValueKey('adjust-order-action')));
+    await _tapAdjustOrder(tester);
     await tester.pumpAndSettle();
     await tester.drag(find.byTooltip('拖拽排序').first, const Offset(0, 220));
     await tester.pumpAndSettle();
@@ -3352,6 +3546,28 @@ void main() {
   });
 }
 
+Future<void> _dragPlaylistWithFrame(
+  WidgetTester tester,
+  Finder scroll,
+  Offset delta,
+) async {
+  final gesture = await tester.startGesture(tester.getCenter(scroll));
+  await gesture.moveBy(Offset(0, delta.dy.sign * 20));
+  await tester.pump(const Duration(milliseconds: 16));
+  await gesture.moveBy(delta);
+  await tester.pump(const Duration(milliseconds: 16));
+  await gesture.up();
+}
+
+Future<void> _tapAdjustOrder(WidgetTester tester) async {
+  final action = find.byKey(const ValueKey('adjust-order-action'));
+  if (action.evaluate().isEmpty) {
+    await tester.tap(find.byKey(const ValueKey('playlist-actions-menu')));
+    await tester.pumpAndSettle();
+  }
+  await tester.tap(action);
+}
+
 Widget _app({
   MusicController? playbackController,
   _FakeMusicResolver? resolver,
@@ -3363,6 +3579,7 @@ Widget _app({
   LanLibraryGateway? lanGateway,
   LanSyncUseCase? lanSyncUseCase,
   SearchHistoryStore? searchHistoryStore,
+  OnlinePlaylistRepository? playlistRepository,
   TextScaler? textScaler,
 }) {
   final controller =
@@ -3398,6 +3615,7 @@ Widget _app({
         home: MusicHomePage(
           controller: controller,
           searchHistoryStore: searchHistoryStore ?? _MemorySearchHistoryStore(),
+          playlistRepository: playlistRepository,
         ),
       );
     },
@@ -3972,5 +4190,29 @@ class _QueueUiController extends MusicController {
     final done = Completer<void>();
     requests.add(done);
     return done.future;
+  }
+}
+
+class _SearchPlaylistRepository extends OnlinePlaylistRepository {
+  final queries = <String>[];
+  @override
+  Future<OnlinePlaylistSearchPage> search(
+    OnlinePlaylistSource source,
+    String query, {
+    int page = 1,
+  }) async {
+    queries.add(query);
+    return OnlinePlaylistSearchPage(
+      items: [
+        OnlinePlaylist(
+          source: source,
+          id: 'result',
+          name: '$query歌单',
+          creator: '歌单作者',
+          trackCount: 2,
+        ),
+      ],
+      hasMore: false,
+    );
   }
 }

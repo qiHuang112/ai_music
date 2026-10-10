@@ -4,15 +4,21 @@
 
 用户要求后续不手工打包或上传 Release，改由 GitHub Actions 自动完成。`main` 每次推送触发 `.github/workflows/android-release.yml`：固定 Flutter 3.44.2/Java 17，执行分析、Flutter 与 Python 测试，构建现有签名的 arm64 release，校验包名/ABI/证书/成品版本，上传 APK、SHA-256 和 `latest.json`。先创建草稿并回读核对上传文件，再一次发布并设为 latest；失败保留旧 latest。串行发布，同提交已交付则跳过，已被后续 main 取代的构建不发布。保留历次 Release 和 APK，无需每次手工测试 release 实机或安装。
 
-版本号从源码版本名、历史 GitHub Release 标签及启用 CI 前的最高归档10198分配，读取成品校验 arm64 +2000 偏移。后续本地 debug/特殊 LAN 构建分配版本时也须参考 GitHub 最新版本，不只参考旧 Mac 归档。若本地交付版本超过10198及现有 GitHub Release，下一次 CI 前同步提高 `tool/github_android_release.py` 的 `LOCAL_VERSION_FLOOR`（或源码 build number），避免碰撞。
+版本号从源码版本名、历史 GitHub Release 标签及本机试用版本floor10208分配，读取成品校验 arm64 +2000 偏移。后续本地 debug/特殊 LAN 构建分配版本时也须参考 GitHub 最新版本，不只参考旧 Mac 归档。若本地交付版本超过10208及现有 GitHub Release，下一次 CI 前同步提高 `tool/github_android_release.py` 的 `LOCAL_VERSION_FLOOR`（或源码 build number），避免碰撞。
 
 一次性配置：本机登录 GitHub CLI 后运行 `python3 tool/configure_github_android_signing.py`，把本机现有签名保存为该仓库的四项加密 Actions Secrets：`ANDROID_KEYSTORE_BASE64`、`ANDROID_KEY_ALIAS`、`ANDROID_KEY_PASSWORD`、`ANDROID_STORE_PASSWORD`。不生成新签名，不提交签名文件/密码，不写明文到仓库；CI 只在临时目录还原 key，并在结束时清理。Release 发布使用每次工作流自带的 `GITHUB_TOKEN` 与 job 的 `contents: write`，无需长期发布 token。
 
 常规交付仍执行 `python3 tool/push_and_publish_android.py`，现在只推送并触发 CI；成功推送不能等同成功出包。到 [Actions](https://github.com/qiHuang112/ai_music/actions/workflows/android-release.yml) 确认完成，下载入口为 [最新 Release](https://github.com/qiHuang112/ai_music/releases/latest)。同一干净提交重试用 `--publish-only`，由 `gh workflow run` 手动触发。特殊需要 Mac 局域网交付时显式加 `--lan`；旧脚本和历史包保留。
 
-应用默认更新地址改为 `https://github.com/qiHuang112/ai_music`，检测 `releases/latest/download/latest.json`，APK指向具体版本资产。GitHub正常302跳转只接受 HTTPS 的 GitHub 官方资产域，校验下载大小/哈希后继续由 Android 校验版本/现有签名并确认安装。已保存的旧默认 Mac 地址自动迁移，自定义局域网地址保留；局域网接口/不接受重定向行为保持。新版首次从 Release 下载覆盖安装后即可使用互联网自动检测，无需手机与 Mac 同一局域网，也不依赖 Mac 在线。debug 仍不接收 release 更新。
+用户2026-10-10最新流程授权：“走流程”由开发按唯一[开发skill](../.agents/skills/ai-music-developer/SKILL.md)启动临时独立代码／发布审查，修复复核通过后自动提交推送、跟进同提交CI正式发布，并验证局域网镜像元数据及完整APK下载。固定review会话已归档，无需再到该会话要求上架或逐步确认；单独要求review不触发发布。
 
-验证场景：首次自动发布及同提交重跑、失败不切 latest；GitHub 元数据/APK重定向后完整校验安装；错误域/明文跳转/错误仓库包拒绝；旧默认地址迁移/自定义地址保留。
+开发修复试用（用户2026-10-10最新要求）：每次修复完成自动测试后，直接将已校验归档的debug保留数据安装到77，开发者先在该版本实机复测原问题、相关交互和真实服务结果，再交用户验收，无需用户重复要求安装。安装成功／宿主机接口探针不等于实机自测；77不可用或复测失败时继续排查并如实报告，不改装191或要求用户代替自测。正式提交／CI发布及应用内更新流程继续沿用。
+
+应用默认优先使用 `http://192.168.31.167:8788`，后台最多用2秒探测有效局域网元数据；不可达、无包或返回无效信息时自动使用 GitHub 的 `releases/latest/download/latest.json`。界面只显示更新结果和下载进度，不显示探测、切换或中间失败。局域网下载失效后可自动转 GitHub，但必须是同版本、同大小、同 SHA-256 的包；用户取消后不得再回退下载。GitHub 正常302跳转仅接受 HTTPS 官方资产域，完整性、版本与现有签名校验保持。用户保存的自定义地址保留；debug仍不接收release更新。
+
+Mac局域网服务每60秒在后台检查 GitHub 最新 Release，将 CI 产物校验大小、哈希、包名、ABI、版本及现有受信任release签名后镜像到永久归档，先保存完整APK再原子更新局域网latest；失败保留旧包，禁止降版或同版改字节。不在Mac重复编译，不影响云端发布。服务由 `tool/deploy_macos_update_server.py` 部署并登录自启。首次或临时同步可运行 `tool/mirror_github_android_release.py --root ... --aapt ... --apksigner ...`。
+
+验证场景：首次自动发布及同提交重跑、失败不切 latest；GitHub 元数据/APK重定向后完整校验安装；错误域/明文跳转/错误仓库包拒绝；局域网优先、超时静默回退、取消后不回退、已保存自定义地址保留。
 
 以下为原局域网部署与交付历史；与上述最新决定冲突时以上述 CI 流程为准。
 
@@ -108,3 +114,5 @@ python3 tool/push_and_publish_android.py --publish-only
 ```
 
 推送失败不构建；构建失败、源码/远端变化或证书不符不切latest。局域网验证失败会报错，需检查服务。签名配置仅在本机被Git忽略的android/key.properties（0600）或AI_MUSIC_*环境变量中，不提交密码/私钥。服务地址为http://192.168.31.167:8788，Mac需开机且手机在同一局域网；APP检测后用户确认系统安装。默认不再由Codex通过ADB安装手机。
+
+2026-10-10流程审查补修：后台／手动镜像可并行下载，但最终写归档与切latest使用共享文件锁，锁内重读当前版本及哈希；旧下载晚完成不能降版，同版不同字节不能覆盖。

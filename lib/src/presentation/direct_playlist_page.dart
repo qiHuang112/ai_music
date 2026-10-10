@@ -1,3 +1,5 @@
+import 'playlist_sliver_header.dart';
+import 'mini_player.dart';
 import 'music_thumbnail.dart';
 import 'app_theme.dart';
 import 'package:flutter/material.dart';
@@ -32,10 +34,13 @@ class _DirectPlaylistPageState extends State<DirectPlaylistPage> {
   int _loaded = 0;
   int _total = 0;
   int _request = 0;
+  int? _playingIndex;
+  int _playRequest = 0;
   bool get zh => AppStringsScope.of(context).isZh;
   @override
   void initState() {
     super.initState();
+    _destination = widget.controller.playlistForOnlineOrigin(widget.playlist);
     _load();
   }
 
@@ -117,6 +122,30 @@ class _DirectPlaylistPageState extends State<DirectPlaylistPage> {
     }
   }
 
+  Future<void> _play(int index) async {
+    final request = ++_playRequest;
+    setState(() {
+      _playingIndex = index;
+      _error = null;
+    });
+    try {
+      await widget.controller.playOnlinePlaylistSong(
+        widget.playlist,
+        _detail!.songs[index],
+      );
+    } catch (_) {
+      if (mounted && request == _playRequest) {
+        setState(
+          () => _error = zh ? '播放失败，请重试或切换来源' : 'Playback failed. Retry.',
+        );
+      }
+    } finally {
+      if (mounted && request == _playRequest) {
+        setState(() => _playingIndex = null);
+      }
+    }
+  }
+
   Future<void> _chooseTarget() async {
     final target = await showModalBottomSheet<MusicPlaylist>(
       context: context,
@@ -145,42 +174,34 @@ class _DirectPlaylistPageState extends State<DirectPlaylistPage> {
   @override
   Widget build(BuildContext context) {
     final detail = _detail;
+    final actions = <Widget>[
+      if (detail != null) ...[
+        Text(zh ? '已选 ${_selected.length} 首' : '${_selected.length} selected'),
+        Checkbox(
+          key: const Key('direct-playlist-select-all'),
+          value:
+              detail.songs.isNotEmpty &&
+              _selected.length == detail.songs.length,
+          onChanged: _saving || _destination != null
+              ? null
+              : (value) => setState(() {
+                  _selected.clear();
+                  if (value == true) {
+                    _selected.addAll(Iterable.generate(detail.songs.length));
+                  }
+                }),
+        ),
+      ],
+    ];
     return PopScope(
       canPop: !_saving,
       child: Scaffold(
-        appBar: AppBar(
-          title: Text(
-            widget.playlist.name,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-          ),
-          actions: [
-            if (detail != null) ...[
-              Text(
-                zh
-                    ? '已选 ${_selected.length} 首'
-                    : '${_selected.length} selected',
-              ),
-              Checkbox(
-                key: const Key('direct-playlist-select-all'),
-                value:
-                    detail.songs.isNotEmpty &&
-                    _selected.length == detail.songs.length,
-                onChanged: _saving || _destination != null
-                    ? null
-                    : (value) => setState(() {
-                        _selected.clear();
-                        if (value == true) {
-                          _selected.addAll(
-                            Iterable.generate(detail.songs.length),
-                          );
-                        }
-                      }),
-              ),
-            ],
-          ],
-        ),
+        appBar: _loading || detail == null
+            ? AppBar(title: Text(zh ? '歌单详情' : 'Playlist'), actions: actions)
+            : null,
+        bottomNavigationBar: MiniPlayer(controller: widget.controller),
         body: SafeArea(
+          top: _loading || detail == null,
           child: _loading
               ? Center(
                   child: Column(
@@ -211,52 +232,82 @@ class _DirectPlaylistPageState extends State<DirectPlaylistPage> {
                 )
               : Column(
                   children: [
-                    ListTile(
-                      leading: MusicThumbnail(
-                        uri: Uri.tryParse(widget.playlist.coverUrl),
-                        label: widget.playlist.name,
-                        size: 48,
-                      ),
-                      title: Text(widget.playlist.source.label),
-                      subtitle: Text(
-                        '${widget.playlist.creator} · ${detail.songs.length} ${zh ? '首' : 'songs'}',
-                      ),
-                    ),
-                    if (_error != null)
-                      Padding(
-                        padding: const EdgeInsets.all(12),
-                        child: Text(_error!),
-                      ),
-                    if (_saving) const LinearProgressIndicator(),
                     Expanded(
-                      child: ListView.builder(
-                        itemCount: detail.songs.length,
-                        itemBuilder: (context, i) {
-                          final song = detail.songs[i];
-                          return CheckboxListTile(
-                            key: ValueKey('direct-song-$i'),
-                            title: Text(
-                              song.title,
-                              maxLines: 2,
-                              overflow: TextOverflow.ellipsis,
+                      child: PlaylistScrollView(
+                        slivers: [
+                          PlaylistSliverHeader(
+                            title: widget.playlist.name,
+                            actions: actions,
+                          ),
+                          SliverToBoxAdapter(
+                            child: Column(
+                              children: [
+                                ListTile(
+                                  leading: MusicThumbnail(
+                                    uri: Uri.tryParse(widget.playlist.coverUrl),
+                                    label: widget.playlist.name,
+                                    size: 48,
+                                  ),
+                                  title: Text(widget.playlist.source.label),
+                                  subtitle: Text(
+                                    '${widget.playlist.creator} · ${detail.songs.length} ${zh ? '首' : 'songs'}',
+                                  ),
+                                ),
+                                if (_error != null)
+                                  Padding(
+                                    padding: const EdgeInsets.all(12),
+                                    child: Text(_error!),
+                                  ),
+                                if (_saving) const LinearProgressIndicator(),
+                              ],
                             ),
-                            subtitle: Text(
-                              song.artist,
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                            ),
-                            value: _selected.contains(i),
-                            onChanged: _saving || _destination != null
-                                ? null
-                                : (value) => setState(() {
-                                    if (value == true) {
-                                      _selected.add(i);
-                                    } else {
-                                      _selected.remove(i);
-                                    }
-                                  }),
-                          );
-                        },
+                          ),
+                          SliverList.builder(
+                            itemCount: detail.songs.length,
+                            itemBuilder: (context, i) {
+                              final song = detail.songs[i];
+                              return CheckboxListTile(
+                                key: ValueKey('direct-song-$i'),
+                                secondary: IconButton(
+                                  key: ValueKey('direct-play-song-$i'),
+                                  tooltip: zh ? '播放' : 'Play',
+                                  onPressed: _playingIndex == i
+                                      ? null
+                                      : () => _play(i),
+                                  icon: _playingIndex == i
+                                      ? const SizedBox(
+                                          width: 20,
+                                          height: 20,
+                                          child: CircularProgressIndicator(
+                                            strokeWidth: 2,
+                                          ),
+                                        )
+                                      : const Icon(Icons.play_arrow_rounded),
+                                ),
+                                title: Text(
+                                  song.title,
+                                  maxLines: 2,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                                subtitle: Text(
+                                  song.artist,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                                value: _selected.contains(i),
+                                onChanged: _saving || _destination != null
+                                    ? null
+                                    : (value) => setState(() {
+                                        if (value == true) {
+                                          _selected.add(i);
+                                        } else {
+                                          _selected.remove(i);
+                                        }
+                                      }),
+                              );
+                            },
+                          ),
+                        ],
                       ),
                     ),
                     Padding(
@@ -267,15 +318,25 @@ class _DirectPlaylistPageState extends State<DirectPlaylistPage> {
                         12,
                       ),
                       child: _destination != null
-                          ? SizedBox(
-                              width: double.infinity,
-                              child: FilledButton.icon(
-                                key: const Key('direct-open-playlist'),
-                                onPressed: () =>
-                                    widget.onOpenPlaylist(_destination!),
-                                icon: const Icon(Icons.open_in_new),
-                                label: Text(zh ? '打开歌单' : 'Open playlist'),
-                              ),
+                          ? Row(
+                              children: [
+                                Expanded(
+                                  child: FilledButton.icon(
+                                    key: const Key('direct-open-playlist'),
+                                    onPressed: _saving
+                                        ? null
+                                        : () => widget.onOpenPlaylist(
+                                            widget.controller
+                                                    .playlistForOnlineOrigin(
+                                                      widget.playlist,
+                                                    ) ??
+                                                _destination!,
+                                          ),
+                                    icon: const Icon(Icons.open_in_new),
+                                    label: Text(zh ? '打开歌单' : 'Open playlist'),
+                                  ),
+                                ),
+                              ],
                             )
                           : Row(
                               children: [

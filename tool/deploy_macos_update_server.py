@@ -25,19 +25,31 @@ def deploy(root: Path, port: int):
     if occupied.returncode == 0 and existing.returncode != 0:
         raise RuntimeError(f'Port {port} belongs to another server; it was not stopped')
     tools = Path(__file__).resolve().parent
-    for name in ['lan_update_server.py', 'android_release_archive.py']:
+    sdk = Path(os.environ.get('ANDROID_HOME', str(Path.home() / 'Library/Android/sdk')))
+    build_tools = sorted((sdk / 'build-tools').glob('*'))
+    android_tools = next((item for item in reversed(build_tools)
+                          if (item / 'aapt').exists() and (item / 'apksigner').exists()), None)
+    if android_tools is None:
+        raise RuntimeError('Android verification tools are required for the CI mirror')
+    for name in ['lan_update_server.py', 'android_release_archive.py',
+                 'mirror_github_android_release.py', 'publish_android_release.py']:
         shutil.copyfile(tools / name, service / name)
     agent = Path.home() / 'Library' / 'LaunchAgents' / f'{label}.plist'
     agent.parent.mkdir(parents=True, exist_ok=True)
     configuration = {
         'Label': label,
-        'ProgramArguments': [shutil.which('python3') or sys.executable, str(service / 'lan_update_server.py'), '--root', str(root), '--port', str(port)],
+        'ProgramArguments': [shutil.which('python3') or sys.executable, str(service / 'lan_update_server.py'),
+                             '--root', str(root), '--port', str(port), '--mirror-github',
+                             '--aapt', str(android_tools / 'aapt'), '--apksigner', str(android_tools / 'apksigner')],
         'RunAtLoad': True, 'KeepAlive': True, 'ThrottleInterval': 10,
         'WorkingDirectory': str(service),
         'EnvironmentVariables': {'PYTHONUNBUFFERED': '1'},
         'StandardOutPath': str(logs / 'server.log'),
         'StandardErrorPath': str(logs / 'error.log'),
     }
+    java = os.environ.get('JAVA_HOME', str(Path.home() / 'Library/Java/JavaVirtualMachines/openjdk-22.0.1/Contents/Home'))
+    if Path(java).is_dir():
+        configuration['EnvironmentVariables']['JAVA_HOME'] = java
     if existing.returncode == 0:
         subprocess.run(['launchctl', 'bootout', target], check=True)
     temporary = agent.with_suffix('.plist.part')

@@ -1,3 +1,4 @@
+import 'playlist_sliver_header.dart';
 import 'music_thumbnail.dart';
 import 'app_theme.dart';
 import 'dart:async';
@@ -26,7 +27,12 @@ class OnlinePlaylistSearchPanel extends StatelessWidget {
   final ValueChanged<MusicPlaylist> onOpenPlaylist;
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context) => AnimatedBuilder(
+    animation: controller,
+    builder: (context, _) => _buildResults(context),
+  );
+
+  Widget _buildResults(BuildContext context) {
     final zh = AppStringsScope.of(context).isZh;
     final items = search.items;
     return Column(
@@ -81,6 +87,8 @@ class OnlinePlaylistSearchPanel extends StatelessWidget {
                       );
                     }
                     final item = items[index];
+                    final owned =
+                        controller.playlistForOnlineOrigin(item) != null;
                     return ListTile(
                       key: ValueKey(item.key),
                       leading: _PlaylistCover(url: item.coverUrl),
@@ -90,12 +98,23 @@ class OnlinePlaylistSearchPanel extends StatelessWidget {
                         overflow: TextOverflow.ellipsis,
                       ),
                       subtitle: Text(
-                        '${item.source.label} · ${item.creator}\n${item.trackCount} ${zh ? '首' : 'songs'}',
+                        '${owned ? (zh ? '已在我的歌单 · ' : 'In my library · ') : ''}${item.source.label} · ${item.creator}\n${item.trackCount} ${zh ? '首' : 'songs'}',
+                        key: owned
+                            ? ValueKey('online-playlist-owned-${item.key}')
+                            : null,
                         maxLines: 2,
                         overflow: TextOverflow.ellipsis,
                       ),
                       isThreeLine: true,
-                      trailing: const Icon(Icons.chevron_right),
+                      trailing: owned
+                          ? TextButton(
+                              key: ValueKey('online-open-playlist-${item.key}'),
+                              onPressed: () => onOpenPlaylist(
+                                controller.playlistForOnlineOrigin(item)!,
+                              ),
+                              child: Text(zh ? '打开歌单' : 'Open playlist'),
+                            )
+                          : const Icon(Icons.chevron_right),
                       onTap: () => Navigator.of(context).push(
                         MaterialPageRoute<void>(
                           builder: (_) => DirectPlaylistPage(
@@ -217,51 +236,48 @@ class _OnlinePlaylistPageState extends State<OnlinePlaylistPage> {
               _task.choices.containsKey(i) && !_task.savedRows.containsKey(i),
         )
         .length;
+    final actions = <Widget>[
+      if (detail != null) ...[
+        Text(
+          zh
+              ? '已选 ${_task.selected.length} 首'
+              : '${_task.selected.length} selected',
+          style: Theme.of(context).textTheme.labelMedium,
+        ),
+        Tooltip(
+          message: zh ? '全选' : 'Select all',
+          child: Checkbox(
+            key: const Key('playlist-select-all'),
+            value:
+                _task.selected.length == detail.songs.length &&
+                detail.songs.isNotEmpty,
+            onChanged: _task.saving || detail.songs.isEmpty
+                ? null
+                : (value) {
+                    setState(() {
+                      if (value == true) {
+                        _task.selected.addAll(
+                          Iterable.generate(detail.songs.length),
+                        );
+                      } else {
+                        _task.selected.clear();
+                      }
+                    });
+                    _task.changed();
+                    unawaited(_task.syncReady());
+                  },
+          ),
+        ),
+      ],
+    ];
     return PopScope(
       canPop: !_task.saving || _task.autoSyncEnabled,
       child: Scaffold(
-        appBar: AppBar(
-          title: Text(
-            widget.playlist.name,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-          ),
-          actions: [
-            if (detail != null) ...[
-              Text(
-                zh
-                    ? '已选 ${_task.selected.length} 首'
-                    : '${_task.selected.length} selected',
-                style: Theme.of(context).textTheme.labelMedium,
-              ),
-              Tooltip(
-                message: zh ? '全选' : 'Select all',
-                child: Checkbox(
-                  key: const Key('playlist-select-all'),
-                  value:
-                      _task.selected.length == detail.songs.length &&
-                      detail.songs.isNotEmpty,
-                  onChanged: _task.saving || detail.songs.isEmpty
-                      ? null
-                      : (value) {
-                          setState(() {
-                            if (value == true) {
-                              _task.selected.addAll(
-                                Iterable.generate(detail.songs.length),
-                              );
-                            } else {
-                              _task.selected.clear();
-                            }
-                          });
-                          _task.changed();
-                          unawaited(_task.syncReady());
-                        },
-                ),
-              ),
-            ],
-          ],
-        ),
+        appBar: _task.loading || _task.loadFailed
+            ? AppBar(title: Text(zh ? '歌单详情' : 'Playlist'), actions: actions)
+            : null,
         body: SafeArea(
+          top: _task.loading || _task.loadFailed,
           child: _task.loading
               ? Center(
                   child: Column(
@@ -294,63 +310,84 @@ class _OnlinePlaylistPageState extends State<OnlinePlaylistPage> {
                 )
               : Column(
                   children: [
-                    ListTile(
-                      leading: _PlaylistCover(url: widget.playlist.coverUrl),
-                      title: Text(widget.playlist.source.label),
-                      subtitle: Text(
-                        '${widget.playlist.creator} · ${detail!.total} ${zh ? '首' : 'songs'}',
-                      ),
-                    ),
-                    if (_notice != null) _Message(text: _notice!),
-                    if (_task.autoSyncError)
-                      _Message(
-                        text: _task.destination == null
-                            ? (zh
-                                  ? '新建歌单失败，匹配结果已保留，请重试。'
-                                  : 'Could not create playlist. Matches are retained; retry.')
-                            : (zh
-                                  ? '自动同步失败，匹配结果已保留，请重试同步。'
-                                  : 'Auto sync failed. Matches are retained; retry.'),
-                      ),
-                    if (_busy) ...[
-                      LinearProgressIndicator(
-                        value: _task.saving || _task.matchTotal == 0
-                            ? null
-                            : _task.completed / _task.matchTotal,
-                      ),
-                      Wrap(
-                        alignment: WrapAlignment.center,
-                        crossAxisAlignment: WrapCrossAlignment.center,
-                        children: [
-                          Text(
-                            _task.saving
-                                ? (zh ? '正在保存…' : 'Saving…')
-                                : (zh
-                                      ? '正在匹配 ${_task.completed} / ${_task.matchTotal}'
-                                      : 'Matching ${_task.completed} / ${_task.matchTotal}'),
-                          ),
-                          if (_task.matching)
-                            TextButton(
-                              onPressed: _cancel,
-                              child: Text(zh ? '暂停' : 'Pause'),
-                            ),
-                        ],
-                      ),
-                    ],
                     Expanded(
-                      child: detail.songs.isEmpty
-                          ? Center(
-                              child: Text(
-                                zh
-                                    ? '没有可导入的歌曲'
-                                    : 'No songs available to import',
+                      child: PlaylistScrollView(
+                        slivers: [
+                          PlaylistSliverHeader(
+                            title: widget.playlist.name,
+                            actions: actions,
+                          ),
+                          SliverToBoxAdapter(
+                            child: Column(
+                              children: [
+                                ListTile(
+                                  leading: _PlaylistCover(
+                                    url: widget.playlist.coverUrl,
+                                  ),
+                                  title: Text(widget.playlist.source.label),
+                                  subtitle: Text(
+                                    '${widget.playlist.creator} · ${detail!.total} ${zh ? '首' : 'songs'}',
+                                  ),
+                                ),
+                                if (_notice != null) _Message(text: _notice!),
+                                if (_task.autoSyncError)
+                                  _Message(
+                                    text: _task.destination == null
+                                        ? (zh
+                                              ? '新建歌单失败，匹配结果已保留，请重试。'
+                                              : 'Could not create playlist. Matches are retained; retry.')
+                                        : (zh
+                                              ? '自动同步失败，匹配结果已保留，请重试同步。'
+                                              : 'Auto sync failed. Matches are retained; retry.'),
+                                  ),
+                                if (_busy) ...[
+                                  LinearProgressIndicator(
+                                    value: _task.saving || _task.matchTotal == 0
+                                        ? null
+                                        : _task.completed / _task.matchTotal,
+                                  ),
+                                  Wrap(
+                                    alignment: WrapAlignment.center,
+                                    crossAxisAlignment:
+                                        WrapCrossAlignment.center,
+                                    children: [
+                                      Text(
+                                        _task.saving
+                                            ? (zh ? '正在保存…' : 'Saving…')
+                                            : (zh
+                                                  ? '正在匹配 ${_task.completed} / ${_task.matchTotal}'
+                                                  : 'Matching ${_task.completed} / ${_task.matchTotal}'),
+                                      ),
+                                      if (_task.matching)
+                                        TextButton(
+                                          onPressed: _cancel,
+                                          child: Text(zh ? '暂停' : 'Pause'),
+                                        ),
+                                    ],
+                                  ),
+                                ],
+                              ],
+                            ),
+                          ),
+                          if (detail.songs.isEmpty)
+                            SliverFillRemaining(
+                              hasScrollBody: false,
+                              child: Center(
+                                child: Text(
+                                  zh
+                                      ? '没有可导入的歌曲'
+                                      : 'No songs available to import',
+                                ),
                               ),
                             )
-                          : ListView.builder(
+                          else
+                            SliverList.builder(
                               itemCount: detail.songs.length,
                               itemBuilder: (context, index) =>
                                   _songRow(index, detail.songs[index]),
                             ),
+                        ],
+                      ),
                     ),
                     Padding(
                       padding: const EdgeInsets.fromLTRB(16, 8, 16, 12),

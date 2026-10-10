@@ -1,3 +1,8 @@
+import 'package:ai_music/src/presentation/playlist_sync_button.dart';
+import 'package:ai_music/src/application/online_playlist_search.dart';
+import 'package:audio_service/audio_service.dart';
+import 'package:ai_music/src/presentation/playback_queue.dart';
+import 'package:ai_music/src/presentation/player_page.dart';
 import 'package:ai_music/src/presentation/app_theme.dart';
 import 'package:ai_music/src/data/song_search_cache.dart';
 import 'dart:async';
@@ -133,7 +138,13 @@ void main() {
             child: child!,
           ),
           home: DirectPlaylistPage(
-            playlist: _playlist,
+            playlist: OnlinePlaylist(
+              source: _playlist.source,
+              id: _playlist.id,
+              name: '夜晚独处时慢慢聆听的华语经典珍藏歌单',
+              creator: _playlist.creator,
+              trackCount: _playlist.trackCount,
+            ),
             repository: _Repository(),
             controller: controller,
             onOpenPlaylist: (_) {},
@@ -142,7 +153,32 @@ void main() {
       );
       await tester.pumpAndSettle();
       expect(find.text('First'), findsOneWidget);
+      final title = tester.widget<Text>(
+        find.byKey(const ValueKey('playlist-detail-title')),
+      );
+      expect(title.data, '夜晚独处时慢慢聆听的华语经典珍藏歌单');
+      expect(title.maxLines, isNull);
+      expect(title.softWrap, isTrue);
       expect(matchCalls, 0);
+      await tester.tap(find.byKey(const ValueKey('direct-play-song-1')));
+      await tester.pumpAndSettle();
+      expect(controller.previewSongs.map((s) => s.title), ['Second']);
+      expect(find.byKey(const ValueKey('mini-player-card')), findsOneWidget);
+      expect(find.byType(MiniPlaybackProgress), findsOneWidget);
+      await tester.tap(
+        find.descendant(
+          of: find.byKey(const ValueKey('mini-player-card')),
+          matching: find.text('Second'),
+        ),
+      );
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 350));
+      expect(find.byType(PlayerPage), findsOneWidget);
+      await tester.pageBack();
+      await tester.pumpAndSettle();
+      expect(store.library.playlists, isEmpty);
+      expect(matchCalls, 0);
+      expect(tester.takeException(), isNull);
       await tester.tap(find.byKey(const Key('direct-new-playlist')));
       await tester.pumpAndSettle();
       expect(store.library.playlists.single.entries.length, 2);
@@ -155,6 +191,192 @@ void main() {
       expect(matchCalls, 2);
       expect(find.byKey(const Key('direct-open-playlist')), findsOneWidget);
       await _unmount(tester, controller);
+    },
+  );
+
+  testWidgets(
+    'source playlist collapses its heading while keeping import controls visible',
+    (tester) async {
+      await tester.binding.setSurfaceSize(const Size(320, 700));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+      final controller = _Controller(_Store());
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: MusicAppTheme.create(Brightness.light),
+          home: DirectPlaylistPage(
+            playlist: _playlist,
+            repository: _LongRepository(),
+            controller: controller,
+            onOpenPlaylist: (_) {},
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(
+        find.byKey(const ValueKey('playlist-detail-title')),
+        findsOneWidget,
+      );
+      final scroll = find.byType(CustomScrollView);
+      await tester.drag(scroll, const Offset(0, -320));
+      await tester.pumpAndSettle();
+      expect(
+        find.byKey(const ValueKey('playlist-compact-title')),
+        findsOneWidget,
+      );
+      expect(
+        find.byKey(const Key('direct-new-playlist')).hitTestable(),
+        findsOneWidget,
+      );
+      expect(
+        find.byKey(const Key('direct-playlist-select-all')).hitTestable(),
+        findsOneWidget,
+      );
+      await tester.drag(scroll, const Offset(0, 100));
+      await tester.pumpAndSettle();
+      expect(
+        find.byKey(const ValueKey('playlist-detail-title')),
+        findsOneWidget,
+      );
+      expect(tester.takeException(), isNull);
+      await _unmount(tester, controller);
+    },
+  );
+
+  test(
+    'sync retains original artwork when the source has no new cover',
+    () async {
+      final store = _Store();
+      final repository = _SyncRepository();
+      final controller = _Controller(store, repository: repository);
+      const origin = OnlinePlaylist(
+        source: OnlinePlaylistSource.netease,
+        id: '1',
+        name: '睡前歌单',
+        creator: '',
+        trackCount: 2,
+        coverUrl: 'https://example.test/cover.jpg',
+      );
+      try {
+        final saved = (await controller.addPlaylistDirectly(origin, _songs))!;
+        repository.songs = const [
+          OnlinePlaylistSong(id: '1', title: 'Updated', artist: 'Artist'),
+        ];
+        await controller.syncOnlinePlaylist(saved);
+        final synced = store.library.playlists.single;
+        expect(synced.entries.first.song!.title, 'Updated');
+        expect(
+          synced.entries.map((e) => e.song!.coverUrl),
+          everyElement(origin.coverUrl),
+        );
+        // A later known cover should still replace the retained one.
+        await controller.addPlaylistDirectly(
+          const OnlinePlaylist(
+            source: OnlinePlaylistSource.netease,
+            id: '1',
+            name: '睡前歌单',
+            creator: '',
+            trackCount: 2,
+            coverUrl: 'https://example.test/new.jpg',
+          ),
+          _songs,
+          target: synced,
+          updateMetadata: true,
+        );
+        expect(
+          store.library.playlists.single.entries.map((e) => e.song!.coverUrl),
+          everyElement('https://example.test/new.jpg'),
+        );
+      } finally {
+        controller.dispose();
+        await controller.audioHandler.dispose();
+      }
+    },
+  );
+
+  testWidgets(
+    'saved search playlist is marked and sync preserves removed local songs',
+    (tester) async {
+      final store = _Store();
+      final repository = _SyncRepository();
+      final controller = _Controller(store, repository: repository);
+      MusicPlaylist? opened;
+      final search = OnlinePlaylistSearch(repository);
+      await search.search('睡前');
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: OnlinePlaylistSearchPanel(
+              search: search,
+              controller: controller,
+              onOpenPlaylist: (playlist) => opened = playlist,
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(
+        find.byKey(ValueKey('online-playlist-owned-${_playlist.key}')),
+        findsNothing,
+      );
+      final saved = (await controller.addPlaylistDirectly(_playlist, _songs))!;
+      await tester.pumpAndSettle();
+      expect(
+        find.byKey(ValueKey('online-playlist-owned-${_playlist.key}')),
+        findsOneWidget,
+      );
+      await tester.tap(find.byKey(ValueKey(_playlist.key)));
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('direct-new-playlist')), findsNothing);
+      expect(find.byKey(const Key('direct-open-playlist')), findsOneWidget);
+      expect(find.byKey(const Key('direct-sync-playlist')), findsNothing);
+      await tester.pageBack();
+      await tester.pumpAndSettle();
+      await tester.tap(
+        find.byKey(ValueKey('online-open-playlist-${_playlist.key}')),
+      );
+      expect(opened?.id, saved.id);
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            appBar: AppBar(
+              actions: [
+                PlaylistSyncButton(controller: controller, playlist: saved),
+              ],
+            ),
+            body: const Text('My playlist'),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      final firstId = saved.entries.first.trackId;
+      repository.songs = const [
+        OnlinePlaylistSong(
+          id: '1',
+          title: 'First updated',
+          artist: 'Artist updated',
+        ),
+        OnlinePlaylistSong(id: '3', title: 'Third', artist: 'Artist'),
+      ];
+      await tester.tap(find.byKey(const ValueKey('my-playlist-sync')));
+      await tester.pumpAndSettle();
+      expect(store.library.playlists, hasLength(1));
+      final synced = store.library.playlists.single;
+      expect(synced.id, saved.id);
+      expect(synced.entries.map((e) => e.song!.title), [
+        'First updated',
+        'Second',
+        'Third',
+      ]);
+      expect(synced.entries.first.trackId, firstId);
+      expect(repository.loads, 2);
+      repository.fail = true;
+      await tester.tap(find.byKey(const ValueKey('my-playlist-sync')));
+      await tester.pumpAndSettle();
+      expect(find.text('同步失败，请重试'), findsOneWidget);
+      expect(store.library.playlists.single.entries, hasLength(3));
+      expect(tester.takeException(), isNull);
+      await _unmount(tester, controller);
+      search.dispose();
     },
   );
 
@@ -1233,11 +1455,11 @@ void main() {
       expect(find.textContaining('QQ 音乐 ·'), findsOneWidget);
       await tester.tap(find.byKey(const ValueKey('search-mode-toggle')));
       await tester.pumpAndSettle();
-      expect(find.text('睡前歌单'), findsNWidgets(2));
+      expect(find.text('睡前歌单'), findsNothing);
       expect(
         repo.searchCalls,
         2,
-      ); // Switching alone does not replace the results.
+      ); // Switching submits a song search without another playlist search.
       await tester.tap(find.byKey(const ValueKey('search-mode-toggle')));
       await tester.pumpAndSettle();
 
@@ -1493,14 +1715,35 @@ class _Resolver implements MusicResolver {
 }
 
 class _Controller extends MusicController {
-  _Controller(_Store store, {_Matcher? matcher})
-    : matcher = matcher ?? _Matcher((draft) async => _match(draft.title)),
-      super(
-        audioHandler: MusicAudioHandler(),
-        playlistStore: store,
-        songSearchCache: SongSearchCache.memory(),
-      );
+  _Controller(
+    _Store store, {
+    _Matcher? matcher,
+    OnlinePlaylistRepository? repository,
+  }) : matcher = matcher ?? _Matcher((draft) async => _match(draft.title)),
+       super(
+         audioHandler: MusicAudioHandler(),
+         playlistStore: store,
+         playlistMetadataRepository: repository,
+         songSearchCache: SongSearchCache.memory(),
+       );
   final _Matcher matcher;
+  final previewSongs = <OnlinePlaylistSong>[];
+  @override
+  Future<void> playOnlinePlaylistSong(
+    OnlinePlaylist origin,
+    OnlinePlaylistSong song,
+  ) async {
+    previewSongs.add(song);
+    audioHandler.mediaItem.add(
+      MediaItem(
+        id: 'preview-${song.id}',
+        title: song.title,
+        artist: song.artist,
+        duration: Duration(seconds: song.durationSeconds),
+      ),
+    );
+  }
+
   int countQueries = 0;
   @override
   int cachedCountForPlaylist(MusicPlaylist playlist) {
@@ -1653,4 +1896,35 @@ class _CountedCache extends ListBase<CachedTrack> {
   @override
   void operator []=(int index, CachedTrack value) =>
       throw UnsupportedError('read-only');
+}
+
+class _SyncRepository extends _Repository {
+  List<OnlinePlaylistSong> songs = _songs;
+  int loads = 0;
+  bool fail = false;
+  @override
+  Future<OnlinePlaylistDetail> load(
+    OnlinePlaylist playlist, {
+    bool Function()? isCanceled,
+    void Function(int, int)? onProgress,
+  }) async {
+    loads++;
+    if (fail) throw StateError('offline');
+    return OnlinePlaylistDetail(songs: songs, total: songs.length);
+  }
+}
+
+class _LongRepository extends _Repository {
+  @override
+  Future<OnlinePlaylistDetail> load(
+    OnlinePlaylist playlist, {
+    bool Function()? isCanceled,
+    void Function(int, int)? onProgress,
+  }) async => OnlinePlaylistDetail(
+    songs: [
+      for (var i = 0; i < 40; i++)
+        OnlinePlaylistSong(id: '$i', title: '歌曲 $i', artist: '歌手'),
+    ],
+    total: 40,
+  );
 }

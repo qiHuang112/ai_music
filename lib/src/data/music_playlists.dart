@@ -74,6 +74,7 @@ class MusicPlaylist {
     required this.id,
     required this.name,
     this.lanFolderKey = '',
+    this.onlineOriginKey = '',
     this.hasBeenOpened = false,
     List<String> trackIds = const [],
     List<PlaylistTrackEntry>? entries,
@@ -84,6 +85,7 @@ class MusicPlaylist {
   final String id;
   final String name;
   final String lanFolderKey;
+  final String onlineOriginKey;
   final bool hasBeenOpened;
   bool get isBuiltIn => id.startsWith('builtin-chart-');
   final List<PlaylistTrackEntry> entries;
@@ -98,6 +100,7 @@ class MusicPlaylist {
     String? id,
     String? name,
     String? lanFolderKey,
+    String? onlineOriginKey,
     bool? hasBeenOpened,
     bool clearLanFolderKey = false,
     List<String>? trackIds,
@@ -109,6 +112,7 @@ class MusicPlaylist {
     return MusicPlaylist(
       id: id ?? this.id,
       name: name ?? this.name,
+      onlineOriginKey: onlineOriginKey ?? this.onlineOriginKey,
       lanFolderKey: clearLanFolderKey
           ? ''
           : (lanFolderKey ?? this.lanFolderKey),
@@ -127,6 +131,7 @@ class MusicPlaylist {
     return {
       'id': id,
       'name': name,
+      if (onlineOriginKey.isNotEmpty) 'onlineOriginKey': onlineOriginKey,
       if (lanFolderKey.isNotEmpty) 'lanFolderKey': lanFolderKey,
       'hasBeenOpened': hasBeenOpened,
       'tracks': [for (final entry in entries) entry.toJson()],
@@ -150,6 +155,7 @@ class MusicPlaylist {
     return MusicPlaylist(
       id: id,
       name: name,
+      onlineOriginKey: json['onlineOriginKey']?.toString() ?? '',
       lanFolderKey: json['lanFolderKey']?.toString().trim() ?? '',
       // Existing playlists predate first-opening tracking and must not show
       // a new first-entry progress bar after an app update.

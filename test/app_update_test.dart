@@ -295,12 +295,184 @@ void main() {
     expect(updates.error, contains('无法连接'));
   });
 
+  test('default update uses LAN immediately without a GitHub probe', () async {
+    final client = _UpdateClient([
+      _Reply(200, bytes: utf8.encode(jsonEncode(manifest))),
+      _Reply(200, bytes: bytes),
+    ]);
+    final local = AppUpdateController(
+      bridge: bridge,
+      supported: true,
+      cacheRoot: () async => root,
+      configFile: () async => File('${root.path}/default.json'),
+      clientFactory: () => client,
+    );
+    addTearDown(local.dispose);
+    await local.check(force: true);
+    expect(local.hasUpdate, isTrue);
+    expect(local.error, isNull);
+    expect(
+      client.uris.single.toString(),
+      '$defaultUpdateUrl/api/v1/update/android',
+    );
+    await local.downloadAndInstall();
+    expect(client.uris.last.toString(), '$defaultUpdateUrl/releases/app.apk');
+    expect(bridge.installs, 1);
+  });
+
+  test('LAN timeout falls back silently within the bounded probe', () async {
+    final client = _HangingLanClient([
+      _Reply(
+        200,
+        bytes: utf8.encode(
+          jsonEncode({
+            ...manifest,
+            'url': '$githubUpdateUrl/releases/download/v1/app.apk',
+          }),
+        ),
+      ),
+    ]);
+    final local = AppUpdateController(
+      bridge: bridge,
+      supported: true,
+      configFile: () async => File('${root.path}/default.json'),
+      clientFactory: () => client,
+    );
+    addTearDown(local.dispose);
+    final errors = <String>[];
+    local.addListener(() {
+      if (local.error != null) errors.add(local.error!);
+    });
+    await local.check(force: true).timeout(const Duration(seconds: 5));
+    expect(local.hasUpdate, isTrue);
+    expect(client.uris.map((u) => u.host), ['192.168.31.167', 'github.com']);
+    expect(errors, isEmpty);
+  });
+
+  for (final changed in [false, true]) {
+    test(
+      'failed LAN download falls back only to identical GitHub bytes changed=$changed',
+      () async {
+        final client = _UpdateClient([
+          _Reply(200, bytes: utf8.encode(jsonEncode(manifest))),
+          _Reply(503),
+          _Reply(
+            200,
+            bytes: utf8.encode(
+              jsonEncode({
+                ...manifest,
+                'url': '$githubUpdateUrl/releases/download/v1/app.apk',
+                if (changed) 'sha256': 'a' * 64,
+              }),
+            ),
+          ),
+          if (!changed) _Reply(200, bytes: bytes),
+        ]);
+        final local = AppUpdateController(
+          bridge: bridge,
+          supported: true,
+          cacheRoot: () async => root,
+          configFile: () async => File('${root.path}/default.json'),
+          clientFactory: () => client,
+        );
+        addTearDown(local.dispose);
+        final visibleErrors = <String>[];
+        local.addListener(() {
+          if (local.error != null) visibleErrors.add(local.error!);
+        });
+        await local.check(force: true);
+        await local.downloadAndInstall();
+        if (changed) {
+          expect(bridge.installs, 0);
+          expect(local.error, contains('重新检测更新'));
+          expect(local.downloadedApk, isNull);
+        } else {
+          expect(bridge.installs, 1);
+          expect(await bridge.file!.readAsBytes(), bytes);
+          expect(visibleErrors, isEmpty);
+        }
+      },
+    );
+  }
+
+  test('cancelling a LAN download prevents GitHub fallback', () async {
+    final client = _UpdateClient([
+      _Reply(200, bytes: utf8.encode(jsonEncode(manifest))),
+      _Reply(200, bytes: bytes.sublist(1)),
+    ]);
+    final local = AppUpdateController(
+      bridge: bridge,
+      supported: true,
+      cacheRoot: () async => root,
+      configFile: () async => File('${root.path}/default.json'),
+      clientFactory: () => client,
+    );
+    addTearDown(local.dispose);
+    await local.check(force: true);
+    local.addListener(() {
+      if (local.downloading && local.received > 0) local.cancelDownload();
+    });
+    await local.downloadAndInstall();
+    expect(client.uris.length, 2);
+    expect(bridge.installs, 0);
+    expect(local.error, isNull);
+    expect(local.downloadedApk, isNull);
+  });
+
+  for (final status in [204, 503, 302]) {
+    test(
+      'LAN $status silently falls back to GitHub metadata and verified download',
+      () async {
+        final client = _UpdateClient([
+          _Reply(status, location: 'https://other.invalid/metadata'),
+          _Reply(
+            200,
+            bytes: utf8.encode(
+              jsonEncode({
+                ...manifest,
+                'url': '$githubUpdateUrl/releases/download/v1/app.apk',
+              }),
+            ),
+          ),
+          _Reply(
+            302,
+            location: 'https://release-assets.githubusercontent.com/app.apk',
+          ),
+          _Reply(200, bytes: bytes),
+        ]);
+        final local = AppUpdateController(
+          bridge: bridge,
+          supported: true,
+          cacheRoot: () async => root,
+          configFile: () async => File('${root.path}/default.json'),
+          clientFactory: () => client,
+        );
+        addTearDown(local.dispose);
+        final visibleErrors = <String>[];
+        local.addListener(() {
+          if (local.error != null) visibleErrors.add(local.error!);
+        });
+        await local.check(force: true);
+        expect(local.hasUpdate, isTrue);
+        expect(local.serverUrl, defaultUpdateUrl);
+        expect(visibleErrors, isEmpty);
+        expect(client.uris.map((u) => u.host).take(2), [
+          '192.168.31.167',
+          'github.com',
+        ]);
+        await local.downloadAndInstall();
+        expect(bridge.installs, 1);
+        expect(await bridge.file!.readAsBytes(), bytes);
+      },
+    );
+  }
+
   test(
     'GitHub metadata and APK redirects produce verified install bytes',
     () async {
       final githubManifest = {
         ...manifest,
-        'url': '$defaultUpdateUrl/releases/download/v1.0.3-101/app.apk',
+        'url': '$githubUpdateUrl/releases/download/v1.0.3-101/app.apk',
       };
       final client = _UpdateClient([
         _Reply(
@@ -315,6 +487,9 @@ void main() {
         ),
         _Reply(200, bytes: bytes),
       ]);
+      await File(
+        '${root.path}/github.json',
+      ).writeAsString(jsonEncode({'serverUrl': githubUpdateUrl}));
       final github = AppUpdateController(
         bridge: bridge,
         supported: true,
@@ -327,7 +502,7 @@ void main() {
       expect(github.hasUpdate, isTrue);
       expect(
         client.uris.first.toString(),
-        '$defaultUpdateUrl/releases/latest/download/latest.json',
+        '$githubUpdateUrl/releases/latest/download/latest.json',
       );
       await github.downloadAndInstall();
       expect(bridge.installs, 1);
@@ -343,6 +518,9 @@ void main() {
   ]) {
     test('GitHub rejects unsafe redirect $location', () async {
       final client = _UpdateClient([_Reply(302, location: location)]);
+      await File(
+        '${root.path}/github.json',
+      ).writeAsString(jsonEncode({'serverUrl': githubUpdateUrl}));
       final github = AppUpdateController(
         bridge: bridge,
         supported: true,
@@ -367,7 +545,7 @@ void main() {
         expect(
           () => AppRelease.parse(
             {...manifest, 'url': url},
-            AppUpdateController.normalizeServer(defaultUpdateUrl),
+            AppUpdateController.normalizeServer(githubUpdateUrl),
             updates.current!,
           ),
           throwsFormatException,
@@ -376,26 +554,24 @@ void main() {
     },
   );
 
-  test(
-    'previous built-in LAN address migrates but custom server persists',
-    () async {
-      for (final saved in [legacyUpdateUrl, 'http://192.168.1.5:8788']) {
-        final config = File('${root.path}/migration.json');
-        await config.writeAsString(jsonEncode({'serverUrl': saved}));
-        final migrated = AppUpdateController(
-          bridge: bridge,
-          supported: true,
-          configFile: () async => config,
-        );
-        await migrated.initialize();
-        expect(
-          migrated.serverUrl,
-          saved == legacyUpdateUrl ? defaultUpdateUrl : '$saved/',
-        );
-        migrated.dispose();
-      }
-    },
-  );
+  test('saved built-in and custom addresses persist', () async {
+    for (final saved in [
+      defaultUpdateUrl,
+      githubUpdateUrl,
+      'http://192.168.1.5:8788',
+    ]) {
+      final config = File('${root.path}/migration.json');
+      await config.writeAsString(jsonEncode({'serverUrl': saved}));
+      final migrated = AppUpdateController(
+        bridge: bridge,
+        supported: true,
+        configFile: () async => config,
+      );
+      await migrated.initialize();
+      expect(migrated.serverUrl, '$saved/');
+      migrated.dispose();
+    }
+  });
 }
 
 class _UpdateClient extends Fake implements HttpClient {
@@ -412,6 +588,18 @@ class _UpdateClient extends Fake implements HttpClient {
 
   @override
   void close({bool force = false}) {}
+}
+
+class _HangingLanClient extends _UpdateClient {
+  _HangingLanClient(super.replies);
+  @override
+  Future<HttpClientRequest> getUrl(Uri url) {
+    if (url.host == '192.168.31.167') {
+      uris.add(url);
+      return Completer<HttpClientRequest>().future;
+    }
+    return super.getUrl(url);
+  }
 }
 
 class _UpdateRequest extends Fake implements HttpClientRequest {

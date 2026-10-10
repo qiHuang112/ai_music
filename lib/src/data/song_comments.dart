@@ -22,12 +22,14 @@ class SongCommentQuery {
     this.album = '',
     this.durationSeconds = 0,
     this.platformIds = const {},
+    this.lyricsHint = '',
   });
 
   factory SongCommentQuery.fromTrack(
     Track track, {
     PlaylistSong? original,
     MusicSearchCandidate? candidate,
+    Iterable<LyricLine> lyrics = const [],
   }) {
     final ids = <SongCommentPlatform, String>{};
     final key = original?.key.split(':');
@@ -60,6 +62,7 @@ class SongCommentQuery {
           ? original.durationSeconds
           : track.duration?.inSeconds ?? 0,
       platformIds: ids,
+      lyricsHint: _lyricsSearchHint(track, lyrics),
     );
   }
 
@@ -68,6 +71,8 @@ class SongCommentQuery {
   final String album;
   final int durationSeconds;
   final Map<SongCommentPlatform, String> platformIds;
+  // Optional search clue, not part of the recording identity/cache key.
+  final String lyricsHint;
   String get searchText => '$title $artist'.trim();
 
   Uri searchUrl(SongCommentPlatform platform) =>
@@ -421,24 +426,141 @@ class SongCommentsRepository {
         // detail endpoint must not bypass the same strict search verification.
       }
     }
+    // Keep the normal path small and stop at the first verified recording.
+    // All search attempts share one deadline, rather than adding a timeout
+    // for every fallback. Existing verified IDs/cache still take precedence.
+    final timer = Stopwatch()..start();
+    if (platform == SongCommentPlatform.qq) {
+      // The legacy search service takes ~3 seconds even for an exact query.
+      // Suggestions are much faster, but only official song details can
+      // verify their recording/version/duration. Reserve time for fallback.
+      final budget = requestTimeout ~/ 4;
+      try {
+        final quick = await _findQuickQqSong(
+          query,
+          timeout: budget < const Duration(milliseconds: 1500)
+              ? budget
+              : const Duration(milliseconds: 1500),
+        );
+        if (quick != null) return quick;
+      } catch (_) {
+        // Suggestions are optional. Keep the strict legacy search available.
+      }
+    }
+    Future<({List<CommentSong> songs, bool hasMore})> search(
+      String text,
+      int limit,
+    ) => _searchSongs(
+      text,
+      platform,
+      limit: limit,
+      timeout: requestTimeout - timer.elapsed,
+    );
+    final first = await search(query.searchText, 20);
+    final exact = selectCommentSong(query, first.songs);
+    if (exact != null || platform != SongCommentPlatform.netease) return exact;
+    if (query.lyricsHint.trim().isNotEmpty) {
+      try {
+        final byLyrics = await search(query.lyricsHint, 20);
+        final match = selectCommentSong(query, byLyrics.songs);
+        if (match != null) return match;
+      } catch (_) {
+        // An optional lyric clue must not prevent the original query's
+        // bounded fallback when there is still time left.
+      }
+    }
+    if (!first.hasMore) return null;
+    // NetEase can rank the original behind short versions/covers (9420 at
+    // position 57). Only widen a failed lookup, keeping strict verification.
+    return selectCommentSong(
+      query,
+      (await search(query.searchText, 100)).songs,
+    );
+  }
+
+  Future<CommentSong?> _findQuickQqSong(
+    SongCommentQuery query, {
+    required Duration timeout,
+  }) async {
+    final timer = Stopwatch()..start();
+    Duration remaining() {
+      final value = timeout - timer.elapsed;
+      if (value <= Duration.zero) {
+        throw TimeoutException('QQ quick lookup');
+      }
+      return value;
+    }
+
+    final response = await _request(
+      SongCommentPlatform.qq,
+      (http, headers) => http.get(
+        Uri.https('c.y.qq.com', '/splcloud/fcgi-bin/smartbox_new.fcg', {
+          'format': 'json',
+          'key': query.searchText,
+        }),
+        headers: headers,
+      ),
+      timeout: remaining(),
+    );
+    final root = _decode(response.body, SongCommentPlatform.qq);
+    final rows = _map(_map(root['data'])['song'])['itemlist'];
+    if (rows is! List) throw const FormatException('Missing QQ suggestions');
+    final seen = <String>{};
+    var checked = 0;
+    for (final value in rows.take(10)) {
+      final row = _map(value);
+      final hint = CommentSong(
+        id: _text(row['id']),
+        title: _text(row['name']),
+        artist: _text(row['singer']),
+      );
+      if (!seen.add(hint.id) || selectCommentSong(query, [hint]) == null) {
+        continue;
+      }
+      if (checked++ >= 2) break;
+      try {
+        final details = await _songDetails(
+          hint.id,
+          SongCommentPlatform.qq,
+          timeout: remaining(),
+        );
+        final exact = selectCommentSong(query, details);
+        if (exact != null) return exact;
+      } catch (_) {
+        // A suggestion must never bypass the authoritative recording check.
+      }
+    }
+    return null;
+  }
+
+  Future<({List<CommentSong> songs, bool hasMore})> _searchSongs(
+    String text,
+    SongCommentPlatform platform, {
+    required int limit,
+    required Duration timeout,
+  }) async {
+    if (timeout <= Duration.zero) {
+      throw TimeoutException('Song search deadline');
+    }
     final response = await _request(
       platform,
       (http, headers) => platform == SongCommentPlatform.netease
           ? http.postForm(Uri.https('music.163.com', '/api/search/get'), {
-              's': query.searchText,
+              's': text,
               'type': '1',
-              'limit': '20',
+              'limit': '$limit',
               'offset': '0',
             }, headers: headers)
           : http.get(
               Uri.https('c.y.qq.com', '/soso/fcgi-bin/client_search_cp', {
                 'format': 'json',
-                'w': query.searchText,
-                'n': '20',
+                'w': text,
+                'n': '$limit',
                 'p': '1',
               }),
               headers: headers,
             ),
+      timeout: timeout,
     );
     final root = _decode(response.body, platform);
     final rows = platform == SongCommentPlatform.netease
@@ -447,15 +569,18 @@ class SongCommentsRepository {
     if (rows is! List) {
       throw const FormatException('Missing song search results');
     }
-    return selectCommentSong(query, [
-      for (final row in rows) _song(_map(row), platform),
-    ]);
+    final total = _int(_map(root['result'])['songCount']);
+    return (
+      songs: [for (final row in rows.take(limit)) _song(_map(row), platform)],
+      hasMore: rows.length >= limit && (total <= 0 || total > limit),
+    );
   }
 
   Future<List<CommentSong>> _songDetails(
     String id,
-    SongCommentPlatform platform,
-  ) async {
+    SongCommentPlatform platform, {
+    Duration? timeout,
+  }) async {
     final response = await _request(
       platform,
       (http, headers) => http.get(
@@ -480,6 +605,7 @@ class SongCommentsRepository {
               }),
         headers: headers,
       ),
+      timeout: timeout,
     );
     final root = _decode(response.body, platform);
     if (platform == SongCommentPlatform.netease) {
@@ -499,8 +625,9 @@ class SongCommentsRepository {
       MusicResolverHttp,
       Map<String, String>,
     )
-    request,
-  ) async {
+    request, {
+    Duration? timeout,
+  }) async {
     final ownedClient = _http == null ? HttpClient() : null;
     try {
       final response =
@@ -509,7 +636,7 @@ class SongCommentsRepository {
             'Referer': platform == SongCommentPlatform.qq
                 ? 'https://y.qq.com/'
                 : 'https://music.163.com/',
-          }).timeout(requestTimeout);
+          }).timeout(timeout ?? requestTimeout);
       if (response.statusCode != 200) {
         throw HttpException('HTTP ${response.statusCode}');
       }
@@ -782,9 +909,37 @@ String _normalize(String value) => value.toLowerCase().replaceAll(
   RegExp(r'[\s\p{P}\p{S}]', unicode: true),
   '',
 );
+// Verified cross-platform names for the same artist. Do not strip band-name
+// suffixes in general: unrelated artists must still fail identity checks.
+const _artistAliases = {'回春丹乐队': '回春丹'};
+String _lyricsSearchHint(Track track, Iterable<LyricLine> lyrics) {
+  final credits = RegExp(
+    r'^(作词|作曲|编曲|制作人|制作公司|演唱|歌手|专辑|发行|歌词|词|曲|混音|录音|母带|OP|SP|lyrics|composer|lyricist)\s*[:：]',
+    caseSensitive: false,
+  );
+  final labels = {
+    _normalize(track.title),
+    _normalize(track.artist),
+    _normalize('${track.title}${track.artist}'),
+    _normalize('${track.artist}${track.title}'),
+  };
+  final lines = lyrics
+      .map((line) => line.text.trim())
+      .where(
+        (text) =>
+            text.isNotEmpty &&
+            !credits.hasMatch(text) &&
+            !labels.contains(_normalize(text)),
+      )
+      .take(3)
+      .join(' ');
+  return String.fromCharCodes(lines.runes.take(48));
+}
+
 Set<String> _artists(String text) => text
     .split(RegExp(r'\s*[/、,&;；]\s*'))
     .map(_normalize)
+    .map((artist) => _artistAliases[artist] ?? artist)
     .where((s) => s.isNotEmpty)
     .toSet();
 SongCommentPlatform? _platform(String value) => switch (value.toLowerCase()) {

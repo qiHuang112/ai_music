@@ -167,21 +167,24 @@ class _PlayerPageState extends State<PlayerPage> {
                               if (currentTrack != null)
                                 TextButton.icon(
                                   key: const ValueKey('player-comments'),
-                                  onPressed: () => Navigator.of(context).push(
-                                    MaterialPageRoute<void>(
-                                      builder: (_) => SongCommentsPage(
-                                        query: SongCommentQuery.fromTrack(
-                                          currentTrack,
-                                          original: controller
-                                              .originalSongForTrack(
-                                                currentTrack,
-                                              ),
-                                          candidate: controller
-                                              .selectedSongSource(currentTrack),
-                                        ),
+                                  onPressed: () {
+                                    final query = SongCommentQuery.fromTrack(
+                                      currentTrack,
+                                      original: controller.originalSongForTrack(
+                                        currentTrack,
                                       ),
-                                    ),
-                                  ),
+                                      candidate: controller.selectedSongSource(
+                                        currentTrack,
+                                      ),
+                                      lyrics: controller.currentLyrics,
+                                    );
+                                    Navigator.of(context).push(
+                                      MaterialPageRoute<void>(
+                                        builder: (_) =>
+                                            SongCommentsPage(query: query),
+                                      ),
+                                    );
+                                  },
                                   icon: const Icon(
                                     Icons.chat_bubble_outline_rounded,
                                   ),

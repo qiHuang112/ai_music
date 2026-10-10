@@ -12,10 +12,10 @@ import github_android_release as release
 
 class GitHubReleaseTest(unittest.TestCase):
     def test_version_exceeds_local_deliveries_and_incomplete_drafts(self):
-        releases = [{'tag_name': 'unrelated'}, {'tag_name': 'v1.0.3-10200', 'draft': True}]
+        releases = [{'tag_name': 'unrelated'}, {'tag_name': 'v1.0.3-10300', 'draft': True}]
         plan = release.choose_version('version: 1.0.4+8171\n', releases)
-        self.assertEqual(plan, {'name': '1.0.4', 'number': 8201, 'code': 10201, 'tag': 'v1.0.4-10201'})
-        self.assertEqual(release.choose_version('version: 1.0.3+8171\n', [])['code'], 10199)
+        self.assertEqual(plan, {'name': '1.0.4', 'number': 8301, 'code': 10301, 'tag': 'v1.0.4-10301'})
+        self.assertEqual(release.choose_version('version: 1.0.3+8171\n', [])['code'], 10209)
 
     def test_superseded_commit_does_not_build(self):
         with tempfile.TemporaryDirectory() as temporary, \

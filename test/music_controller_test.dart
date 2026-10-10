@@ -2849,6 +2849,185 @@ void main() {
       }
     },
   );
+  for (final failure in ['search', 'resolve', 'load']) {
+    test('failed preview $failure retains current source controls', () async {
+      const origin = OnlinePlaylist(
+        source: OnlinePlaylistSource.qq,
+        id: 'review',
+        name: 'Review',
+        creator: '',
+        trackCount: 2,
+      );
+      const first = OnlinePlaylistSong(
+        id: '1',
+        title: 'First',
+        artist: 'Artist',
+      );
+      const second = OnlinePlaylistSong(
+        id: '2',
+        title: 'Second',
+        artist: 'Artist',
+      );
+      final handler = _DelayedSecondLoadHandler()..releaseSecondLoad.complete();
+      final resolver = _FailingPreviewResolver();
+      final controller = MusicController(
+        songSearchCache: SongSearchCache.memory(),
+        audioHandler: handler,
+        resolver: resolver,
+        playlistStore: _MemoryPlaylistStore(),
+        cacheStore: _FakeCacheStore(cached: []),
+        settingsStore: _FakeSettingsStore(),
+        metadataRepository: _StaticMetadataRepository(),
+        downloadHistoryStore: MemoryDownloadHistory(),
+        connectivityChanges: const Stream.empty(),
+      );
+      try {
+        await controller.initialize();
+        await controller.playOnlinePlaylistSong(origin, first);
+        final playing = controller.currentTrack!;
+        if (failure == 'search') {
+          resolver.gate = Completer<List<MusicSearchCandidate>>()..complete([]);
+        } else if (failure == 'resolve') {
+          resolver.failResolve = true;
+          resolver.gate = Completer<List<MusicSearchCandidate>>()
+            ..complete([_candidate(id: 'unresolved', name: 'Second')]);
+        } else {
+          handler.failSecondLoad = true;
+        }
+        await expectLater(
+          controller.playOnlinePlaylistSong(origin, second),
+          throwsA(anything),
+        );
+        expect(controller.currentTrack!.id, playing.id);
+        expect(controller.canSwitchSongSource(playing), true);
+        expect(controller.originalSongForTrack(playing)?.title, first.title);
+        expect(handler.loadedIds, [playing.id]);
+        // A real source change must still reload A rather than the failed B.
+        resolver.gate = null;
+        resolver.failResolve = false;
+        await controller.chooseSongSource(
+          playing,
+          _candidate(id: 'replacement', name: 'First'),
+        );
+        expect(controller.currentTrack!.id, playing.id);
+        expect(handler.loadedIds, [playing.id]);
+      } finally {
+        controller.dispose();
+        await handler.dispose();
+      }
+    });
+  }
+
+  for (final failures in [(true, true), (false, true), (true, false)]) {
+    test('overlapping preview load/search failures $failures', () async {
+      const origin = OnlinePlaylist(
+        source: OnlinePlaylistSource.qq,
+        id: 'overlap',
+        name: 'Overlap',
+        creator: '',
+        trackCount: 3,
+      );
+      const songs = [
+        OnlinePlaylistSong(id: 'a', title: 'Alpha', artist: 'Artist'),
+        OnlinePlaylistSong(id: 'b', title: 'Beta', artist: 'Artist'),
+        OnlinePlaylistSong(id: 'c', title: 'Gamma', artist: 'Artist'),
+      ];
+      final handler = _DelayedSecondLoadHandler()..failSecondLoad = failures.$1;
+      final resolver = _LazySongResolver();
+      final controller = MusicController(
+        songSearchCache: SongSearchCache.memory(),
+        audioHandler: handler,
+        resolver: resolver,
+        playlistStore: _MemoryPlaylistStore(),
+        cacheStore: _FakeCacheStore(cached: []),
+        settingsStore: _FakeSettingsStore(),
+        metadataRepository: _StaticMetadataRepository(),
+        downloadHistoryStore: MemoryDownloadHistory(),
+        connectivityChanges: const Stream.empty(),
+      );
+      try {
+        await controller.initialize();
+        await controller.playOnlinePlaylistSong(origin, songs[0]);
+        final second = controller.playOnlinePlaylistSong(origin, songs[1]);
+        final secondResult = failures.$1
+            ? expectLater(second, throwsStateError)
+            : second;
+        await handler.secondLoadStarted.future;
+        if (failures.$2) {
+          resolver.gate = Completer<List<MusicSearchCandidate>>()..complete([]);
+        }
+        final third = controller.playOnlinePlaylistSong(origin, songs[2]);
+        final thirdResult = failures.$2
+            ? expectLater(third, throwsStateError)
+            : third;
+        if (failures.$2) await thirdResult;
+        handler.releaseSecondLoad.complete();
+        await Future.wait([secondResult, thirdResult]);
+        final expected = songs[!failures.$2 ? 2 : (!failures.$1 ? 1 : 0)];
+        final playing = controller.currentTrack!;
+        expect(playing.id, handler.mediaItem.value!.id);
+        expect(playing.title, expected.title);
+        expect(controller.canSwitchSongSource(playing), true);
+        expect(controller.originalSongForTrack(playing)?.title, expected.title);
+        resolver.gate = null;
+        await controller.chooseSongSource(
+          playing,
+          _candidate(id: 'replacement', name: expected.title),
+        );
+        expect(controller.currentTrack?.id, playing.id);
+        expect(handler.loadedIds, [playing.id]);
+      } finally {
+        if (!handler.releaseSecondLoad.isCompleted) {
+          handler.releaseSecondLoad.complete();
+        }
+        controller.dispose();
+        await handler.dispose();
+      }
+    });
+  }
+
+  test(
+    'online playlist preview plays only clicked song without saving a playlist',
+    () async {
+      final handler = _SpyAudioHandler();
+      final resolver = _LazySongResolver();
+      final store = _MemoryPlaylistStore();
+      final controller = MusicController(
+        songSearchCache: SongSearchCache.memory(),
+        audioHandler: handler,
+        resolver: resolver,
+        playlistStore: store,
+        cacheStore: _FakeCacheStore(cached: []),
+        settingsStore: _FakeSettingsStore(),
+        metadataRepository: _StaticMetadataRepository(),
+        downloadHistoryStore: MemoryDownloadHistory(),
+        connectivityChanges: const Stream.empty(),
+      );
+      try {
+        await controller.initialize();
+        await controller.playOnlinePlaylistSong(origin, originSongs[1]);
+        expect(handler.loadedItems, hasLength(1));
+        expect(handler.loadedItems.single.mediaItem.title, '第二首');
+        expect(resolver.searchCalls, 1);
+        expect(resolver.resolveIds, hasLength(1));
+        expect(controller.customPlaylists, isEmpty);
+        expect(store.library.playlists, isEmpty);
+        expect(
+          controller.originalSongForTrack(controller.currentTrack!)?.title,
+          '第二首',
+        );
+        await Future<void>.delayed(const Duration(milliseconds: 100));
+        expect(resolver.searchCalls, 1);
+        expect(resolver.resolveIds, hasLength(1));
+        expect(controller.downloadQueue.tasks, isEmpty);
+        expect(controller.canSwitchSongSource(controller.currentTrack!), true);
+      } finally {
+        controller.dispose();
+        await handler.dispose();
+      }
+    },
+  );
+
   test(
     'direct add saves original songs before background lookup without downloading',
     () async {
@@ -2883,9 +3062,22 @@ void main() {
         final duplicate = await controller.addPlaylistDirectly(
           origin,
           originSongs,
-          target: playlist,
         );
         expect(duplicate!.entries.length, 3);
+        expect(duplicate.id, playlist.id);
+        expect(controller.customPlaylists, hasLength(1));
+        final persisted = MusicPlaylist.fromJson(duplicate.toJson())!;
+        expect(persisted.onlineOriginKey, '${origin.source.name}:${origin.id}');
+        expect(
+          persisted.copyWith(name: 'renamed').onlineOriginKey,
+          persisted.onlineOriginKey,
+        );
+        final concurrent = await Future.wait([
+          controller.addPlaylistDirectly(origin, originSongs),
+          controller.addPlaylistDirectly(origin, originSongs),
+        ]);
+        expect(concurrent.map((p) => p!.id).toSet(), {playlist.id});
+        expect(controller.customPlaylists, hasLength(1));
         await controller.toggleFavorite(
           controller.tracksForPlaylist(playlist).first,
         );
@@ -6505,6 +6697,15 @@ class _LazySongResolver extends _DelayedMusicResolver {
       resolveIds.add(candidate.id);
       throw StateError('Source unavailable');
     }
+    return super.resolve(candidate);
+  }
+}
+
+class _FailingPreviewResolver extends _LazySongResolver {
+  bool failResolve = false;
+  @override
+  Future<ResolvedMusic> resolve(MusicSearchCandidate candidate) {
+    if (failResolve) throw StateError('Preview source unavailable');
     return super.resolve(candidate);
   }
 }

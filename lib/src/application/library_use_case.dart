@@ -300,6 +300,8 @@ class LibraryUseCase {
     String name,
     List<PlaylistSong> songs, {
     MusicPlaylist? target,
+    String onlineOriginKey = '',
+    bool updateOriginalMetadata = false,
     required LibrarySnapshot current,
   }) => _enqueuePlaylistMutation(() async {
     if (target?.isBuiltIn == true) throw StateError('不能向榜单添加歌曲');
@@ -307,8 +309,27 @@ class LibraryUseCase {
     if (name.trim().isEmpty || songs.isEmpty) {
       return MusicPlaylistResult(snapshot: base);
     }
-    final existing = target == null
+    final songKeys = songs.map((s) => s.key).toSet();
+    final byOrigin = onlineOriginKey.isEmpty
         ? null
+        : base.customPlaylists
+              .where((p) => p.onlineOriginKey == onlineOriginKey)
+              .firstOrNull;
+    final existing = target == null
+        ? byOrigin ??
+              base.customPlaylists
+                  .where(
+                    (p) =>
+                        onlineOriginKey.isNotEmpty &&
+                        p.onlineOriginKey.isEmpty &&
+                        p.name == name.trim() &&
+                        p.entries.isNotEmpty &&
+                        p.entries.every(
+                          (e) =>
+                              e.song != null && songKeys.contains(e.song!.key),
+                        ),
+                  )
+                  .firstOrNull
         : base.customPlaylists.where((p) => p.id == target.id).firstOrNull;
     if (target != null && existing == null) {
       throw StateError('The destination playlist was deleted');
@@ -319,8 +340,41 @@ class LibraryUseCase {
       for (final e in existing?.entries ?? <PlaylistTrackEntry>[])
         if (e.song != null) e.song!.key,
     };
+    final previousSongs = {
+      for (final entry in existing?.entries ?? <PlaylistTrackEntry>[])
+        if (entry.song != null) entry.song!.key: entry.song!,
+    };
+    final incoming = {
+      for (final song in songs)
+        song.key: song.coverUrl.isNotEmpty
+            ? song
+            : PlaylistSong(
+                key: song.key,
+                title: song.title,
+                artist: song.artist,
+                coverUrl: previousSongs[song.key]?.coverUrl ?? '',
+                durationSeconds: song.durationSeconds,
+                metadataVersion: song.metadataVersion,
+              ),
+    };
     final entries = [
-      ...?existing?.entries,
+      for (final entry in existing?.entries ?? <PlaylistTrackEntry>[])
+        if ((target == null || updateOriginalMetadata) &&
+            incoming[entry.song?.key] != null)
+          PlaylistTrackEntry(
+            trackId: entry.trackId,
+            addedAt: entry.addedAt,
+            song: incoming[entry.song?.key]!,
+            manualSource: entry.manualSource,
+            onlineTrack:
+                entry.manualSource ||
+                    (incoming[entry.song?.key]!.title == entry.song?.title &&
+                        incoming[entry.song?.key]!.artist == entry.song?.artist)
+                ? entry.onlineTrack
+                : null,
+          )
+        else
+          entry,
       for (final song in songs)
         if (keys.add(song.key))
           PlaylistTrackEntry(
@@ -331,10 +385,17 @@ class LibraryUseCase {
           ),
     ];
     final playlist =
-        existing?.copyWith(entries: entries, updatedAt: now) ??
+        existing?.copyWith(
+          entries: entries,
+          updatedAt: now,
+          onlineOriginKey: target == null
+              ? onlineOriginKey
+              : existing.onlineOriginKey,
+        ) ??
         MusicPlaylist(
           id: playlistId,
           name: name.trim(),
+          onlineOriginKey: onlineOriginKey,
           entries: entries,
           createdAt: now,
           updatedAt: now,

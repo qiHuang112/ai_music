@@ -3,6 +3,7 @@
 import argparse
 import html
 import json
+import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import unquote, urlsplit
@@ -112,14 +113,34 @@ def main():
     parser.add_argument("--root", required=True, type=Path)
     parser.add_argument("--host", default="0.0.0.0")
     parser.add_argument("--port", default=8788, type=int)
+    parser.add_argument('--mirror-github', action='store_true')
+    parser.add_argument('--aapt')
+    parser.add_argument('--apksigner')
     args = parser.parse_args()
+    if args.mirror_github and (not args.aapt or not args.apksigner):
+        parser.error('--mirror-github requires --aapt and --apksigner')
     server = create_server(args.root, args.host, args.port)
+    stopped = threading.Event()
+    if args.mirror_github:
+        from mirror_github_android_release import mirror
+
+        def mirror_releases():
+            while not stopped.is_set():
+                try:
+                    release = mirror(args.root, args.aapt, args.apksigner)
+                    print(f"LAN mirror ready: {release['versionCode']}", flush=True)
+                except Exception as error:
+                    print(f'LAN mirror retry: {error}', flush=True)
+                stopped.wait(60)
+
+        threading.Thread(target=mirror_releases, daemon=True).start()
     print(f"Android release updates: http://{args.host}:{server.server_port}", flush=True)
     try:
         server.serve_forever()
     except KeyboardInterrupt:
         pass
     finally:
+        stopped.set()
         server.server_close()
 
 

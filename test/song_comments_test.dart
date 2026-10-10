@@ -13,6 +13,481 @@ const song = CommentSong(id: '42', title: '不再犹豫', artist: 'Beyond');
 
 void main() {
   test(
+    'QQ quick lookup verifies details and skips slow search, then caches',
+    () async {
+      final http = _Http(
+        (uri, _) async {
+          expect(uri.host, 'u.y.qq.com');
+          if (_qqRequest(uri)['method'] == 'get_song_detail_yqq') {
+            expect(_qqParams(uri)['song_id'], 42);
+            return _qqDetails();
+          }
+          expect(_qqParams(uri)['BizId'], '42');
+          return _qqComments(rows: [_qqComment('quick', '', 1)]);
+        },
+        quickReply: (uri) async {
+          expect(uri.queryParameters['key'], query.searchText);
+          return _qqSuggestions();
+        },
+      );
+      final repo = _repo(http);
+      final result = await repo.load(query, SongCommentPlatform.qq);
+      expect(result.status, SongCommentsStatus.ready);
+      expect(result.comments.single.id, 'quick');
+      expect(http.calls, hasLength(3));
+      expect(http.calls.any((u) => u.path.contains('client_search_cp')), false);
+      expect((await repo.load(query, SongCommentPlatform.qq)).fromCache, true);
+      expect(http.calls, hasLength(3));
+    },
+  );
+
+  for (final mismatch in ['artist', 'version', 'duration']) {
+    test('QQ quick hint cannot bypass $mismatch verification', () async {
+      final http = _Http(
+        (uri, _) async {
+          if (uri.path.contains('client_search_cp')) return _qqSearch();
+          if (_qqRequest(uri)['method'] == 'get_song_detail_yqq') {
+            return _qqDetails(
+              id: 99,
+              artist: mismatch == 'artist' ? '其他歌手' : 'Beyond',
+              title: mismatch == 'version' ? '不再犹豫 (Live)' : '不再犹豫',
+              duration: mismatch == 'duration' ? 100 : 255,
+            );
+          }
+          expect(_qqParams(uri)['BizId'], '42');
+          return _qqComments();
+        },
+        quickReply: (_) async => _qqSuggestions([
+          {'id': '99', 'name': '不再犹豫', 'singer': 'Beyond'},
+        ]),
+      );
+      final result = await _repo(http).load(
+        const SongCommentQuery(
+          title: '不再犹豫',
+          artist: 'Beyond',
+          durationSeconds: 255,
+        ),
+        SongCommentPlatform.qq,
+      );
+      expect(result.status, SongCommentsStatus.ready);
+      expect(result.song!.id, '42');
+      expect(
+        http.calls.where((u) => u.path.contains('client_search_cp')),
+        hasLength(1),
+      );
+    });
+  }
+
+  test('QQ quick lookup checks at most two distinct matching hints', () async {
+    final http = _Http(
+      (uri, _) async {
+        if (uri.path.contains('client_search_cp')) return _qqSearch();
+        if (_qqRequest(uri)['method'] == 'get_song_detail_yqq') {
+          return _qqDetails(title: '不再犹豫 (Live)');
+        }
+        return _qqComments();
+      },
+      quickReply: (_) async => _qqSuggestions([
+        for (final id in ['99', '99', '100', '101'])
+          {'id': id, 'name': '不再犹豫', 'singer': 'Beyond'},
+      ]),
+    );
+    final result = await _repo(http).load(query, SongCommentPlatform.qq);
+    expect(result.status, SongCommentsStatus.ready);
+    final details = http.calls.where(
+      (u) =>
+          u.host == 'u.y.qq.com' &&
+          _qqRequest(u)['method'] == 'get_song_detail_yqq',
+    );
+    expect(details.map((u) => _qqParams(u)['song_id']), [99, 100]);
+  });
+
+  test(
+    'QQ hung quick lookup reserves time for the strict legacy fallback',
+    () async {
+      final http = _Http(
+        (uri, _) async =>
+            uri.path.contains('client_search_cp') ? _qqSearch() : _qqComments(),
+        quickReply: (_) => Completer<Map<String, Object?>>().future,
+      );
+      final repo = SongCommentsRepository(
+        httpClient: http,
+        rootProvider: () async => throw UnsupportedError('memory'),
+        requestTimeout: const Duration(milliseconds: 200),
+      );
+      final result = await repo
+          .load(query, SongCommentPlatform.qq)
+          .timeout(const Duration(seconds: 1));
+      expect(result.status, SongCommentsStatus.ready);
+      expect(http.calls, hasLength(3));
+    },
+  );
+
+  test(
+    '9420 finds the original recording beyond the first 20 results',
+    () async {
+      final rows = [
+        {
+          'id': 3391243991,
+          'name': '9420',
+          'duration': 157178,
+          'artists': [
+            {'name': '麦小兜'},
+          ],
+          'album': {'name': '9420'},
+        },
+        for (var i = 1; i < 56; i++)
+          {
+            'id': 1000 + i,
+            'name': i.isEven ? '9420' : '9420 (Live)',
+            'duration': 229156,
+            'artists': [
+              {'name': i.isEven ? '其他歌手' : '麦小兜'},
+            ],
+            'album': {'name': '9420'},
+          },
+        {
+          'id': 515143305,
+          'name': '9420',
+          'duration': 229156,
+          'artists': [
+            {'name': '麦小兜'},
+          ],
+          'album': {'name': '9420'},
+        },
+      ];
+      final http = _Http((uri, form) async {
+        if (uri.path == '/api/search/get') {
+          expect(form!['s'], '9420 麦小兜');
+          final limit = int.parse(form['limit']!);
+          return {
+            'code': 200,
+            'result': {'songs': rows.take(limit).toList(), 'songCount': 150},
+          };
+        }
+        expect(uri.path, '/api/v1/resource/hotcomments/R_SO_4_515143305');
+        return _comments();
+      });
+      final repo = _repo(http);
+      const original = SongCommentQuery(
+        title: '9420',
+        artist: '麦小兜',
+        album: '9420',
+        durationSeconds: 229,
+        platformIds: {SongCommentPlatform.qq: '205000888'},
+      );
+      final result = await repo.load(original, SongCommentPlatform.netease);
+      expect(result.status, SongCommentsStatus.ready);
+      expect(result.song!.id, '515143305');
+      expect(result.comments, hasLength(1));
+      expect(http.calls, hasLength(3));
+      expect(
+        (await repo.load(original, SongCommentPlatform.netease)).fromCache,
+        isTrue,
+      );
+      expect(http.calls, hasLength(3));
+    },
+  );
+
+  test(
+    'expanded NetEase search stays bounded and rejects other recordings',
+    () async {
+      final httpSearchLimits = ['20', '100'];
+      final http = _Http((uri, form) async {
+        expect(uri.path, '/api/search/get');
+        expect(form!['limit'], httpSearchLimits.removeAt(0));
+        return {
+          'code': 200,
+          'result': {
+            'songs': [
+              for (var i = 0; i < 100; i++)
+                {
+                  'id': 1000 + i,
+                  'name': i % 3 == 0 ? '9420 (Live)' : '9420',
+                  'duration': i % 3 == 1 ? 157178 : 229156,
+                  'artists': [
+                    {'name': i % 3 == 2 ? '其他歌手' : '麦小兜'},
+                  ],
+                },
+              // Even if a service ignores its requested limit, do not expand
+              // beyond the documented bound or weaken recording checks.
+              {
+                'id': 515143305,
+                'name': '9420',
+                'duration': 229156,
+                'artists': [
+                  {'name': '麦小兜'},
+                ],
+              },
+            ],
+          },
+        };
+      });
+      final result = await _repo(http).load(
+        const SongCommentQuery(
+          title: '9420',
+          artist: '麦小兜',
+          durationSeconds: 229,
+        ),
+        SongCommentPlatform.netease,
+      );
+      expect(result.status, SongCommentsStatus.noMatch);
+      expect(http.calls, hasLength(2));
+    },
+  );
+
+  test('9420 uses an existing lyric clue before widening search', () async {
+    final searches = <String>[];
+    final http = _Http((uri, form) async {
+      if (uri.path != '/api/search/get') {
+        expect(uri.path, '/api/v1/resource/hotcomments/R_SO_4_515143305');
+        return _comments();
+      }
+      expect(form!['limit'], '20');
+      searches.add(form['s']!);
+      return {
+        'code': 200,
+        'result': {
+          'songCount': 150,
+          'songs': [
+            {
+              'id': 3391243991,
+              'name': '9420',
+              'duration': 157178,
+              'artists': [
+                {'name': '麦小兜'},
+              ],
+            },
+            if (searches.length == 2)
+              {
+                'id': 515143305,
+                'name': '9420',
+                'duration': 229156,
+                'artists': [
+                  {'name': '麦小兜'},
+                ],
+              },
+          ],
+        },
+      };
+    });
+    final result = await _repo(http).load(
+      const SongCommentQuery(
+        title: '9420',
+        artist: '麦小兜',
+        durationSeconds: 229,
+        lyricsHint: '手牵手一起走在幸福的大街 微风缓缓的吹来你我相依偎 爱的目光如此的热烈',
+      ),
+      SongCommentPlatform.netease,
+    );
+    expect(result.status, SongCommentsStatus.ready);
+    expect(result.song!.id, '515143305');
+    expect(searches, ['9420 麦小兜', '手牵手一起走在幸福的大街 微风缓缓的吹来你我相依偎 爱的目光如此的热烈']);
+    expect(http.calls, hasLength(3));
+  });
+
+  test(
+    'lyric hints omit credits and do not change recording cache identity',
+    () {
+      const track = Track(
+        id: '9420',
+        title: '9420',
+        artist: '麦小兜',
+        album: '9420',
+      );
+      final withLyrics = SongCommentQuery.fromTrack(
+        track,
+        lyrics: const [
+          LyricLine(time: Duration.zero, text: '9420 -麦小兜'),
+          LyricLine(time: Duration(seconds: 5), text: '词：可泽'),
+          LyricLine(time: Duration(seconds: 10), text: '曲：可泽'),
+          LyricLine(time: Duration(seconds: 15), text: '编曲：杨栋梁'),
+          LyricLine(time: Duration(seconds: 20), text: '制作公司：Hikoon Music'),
+          LyricLine(time: Duration(seconds: 25), text: '手牵手一起走在幸福的大街'),
+          LyricLine(time: Duration(seconds: 28), text: '微风缓缓的吹来你我相依偎'),
+          LyricLine(time: Duration(seconds: 31), text: '爱的目光如此的热烈'),
+          LyricLine(time: Duration(seconds: 36), text: '这份爱就像是在燃烧的火堆'),
+        ],
+      );
+      expect(withLyrics.lyricsHint, '手牵手一起走在幸福的大街 微风缓缓的吹来你我相依偎 爱的目光如此的热烈');
+      expect(
+        withLyrics.key(SongCommentPlatform.netease),
+        SongCommentQuery.fromTrack(track).key(SongCommentPlatform.netease),
+      );
+    },
+  );
+
+  test(
+    'search fallbacks share a deadline and do not multiply timeout waits',
+    () async {
+      final http = _Http((uri, form) async {
+        if (form!['s'] == '歌词线索') {
+          return Completer<Map<String, dynamic>>().future;
+        }
+        await Future<void>.delayed(const Duration(milliseconds: 50));
+        return {
+          'code': 200,
+          'result': {
+            'songCount': 150,
+            'songs': [
+              for (var i = 0; i < 20; i++)
+                {
+                  'id': 1000 + i,
+                  'name': '不再犹豫 (Live)',
+                  'artists': [
+                    {'name': 'Beyond'},
+                  ],
+                },
+            ],
+          },
+        };
+      });
+      final repo = SongCommentsRepository(
+        httpClient: http,
+        rootProvider: () async => throw UnsupportedError('memory only'),
+        requestTimeout: const Duration(milliseconds: 200),
+      );
+      final result = await repo
+          .load(
+            const SongCommentQuery(
+              title: '不再犹豫',
+              artist: 'Beyond',
+              lyricsHint: '歌词线索',
+            ),
+            SongCommentPlatform.netease,
+          )
+          .timeout(const Duration(seconds: 2));
+      expect(result.status, SongCommentsStatus.unavailable);
+      expect(
+        http.calls,
+        hasLength(2),
+        reason: 'No further request after the shared deadline',
+      );
+    },
+  );
+
+  test(
+    'Fresh Flowers resolves the verified Hui Chun Dan artist alias',
+    () async {
+      final http = _Http((uri, form) async {
+        if (uri.path == '/api/search/get') {
+          expect(form!['s'], '鲜花 回春丹乐队');
+          return {
+            'code': 200,
+            'result': {
+              'songs': [
+                {
+                  'id': 2088079571,
+                  'name': '鲜花 (Live)',
+                  'duration': 465472,
+                  'artists': [
+                    {'name': '回春丹'},
+                  ],
+                  'album': {'name': '乐队的夏天3 第9期'},
+                },
+                {
+                  'id': 2086327879,
+                  'name': '鲜花',
+                  'duration': 341377,
+                  'artists': [
+                    {'name': '回春丹'},
+                  ],
+                  'album': {'name': '鲜花'},
+                },
+              ],
+            },
+          };
+        }
+        expect(uri.path, '/api/v1/resource/hotcomments/R_SO_4_2086327879');
+        return _comments();
+      });
+      final result = await _repo(http).load(
+        const SongCommentQuery(
+          title: '鲜花',
+          artist: '回春丹乐队',
+          album: '鲜花',
+          durationSeconds: 341,
+        ),
+        SongCommentPlatform.netease,
+      );
+      expect(result.status, SongCommentsStatus.ready);
+      expect(result.song!.id, '2086327879');
+      expect(result.comments, hasLength(1));
+      expect(http.calls, hasLength(2));
+    },
+  );
+
+  test(
+    'verified artist alias works in both directions and keeps collaborators',
+    () {
+      const track = CommentSong(
+        id: '2611541866',
+        title: '鲜花 (Live)',
+        artist: '那英 / 回春丹乐队',
+        durationSeconds: 464,
+      );
+      expect(
+        selectCommentSong(
+          const SongCommentQuery(
+            title: '鲜花 (Live)',
+            artist: '回春丹 / 那英',
+            durationSeconds: 464,
+          ),
+          [track],
+        ),
+        same(track),
+      );
+      expect(
+        selectCommentSong(
+          const SongCommentQuery(title: '鲜花 (Live)', artist: '回春丹'),
+          [track],
+        ),
+        isNull,
+      );
+    },
+  );
+
+  test(
+    'artist alias does not relax recording version or unrelated band names',
+    () {
+      const flowers = SongCommentQuery(
+        title: '鲜花',
+        artist: '回春丹乐队',
+        durationSeconds: 341,
+      );
+      expect(
+        selectCommentSong(flowers, [
+          const CommentSong(
+            id: '1',
+            title: '鲜花 (Live)',
+            artist: '回春丹',
+            durationSeconds: 341,
+          ),
+          const CommentSong(
+            id: '2',
+            title: '鲜花',
+            artist: '回春丹',
+            durationSeconds: 465,
+          ),
+          const CommentSong(
+            id: '3',
+            title: '鲜花',
+            artist: '回春丹乐队翻唱',
+            durationSeconds: 341,
+          ),
+        ]),
+        isNull,
+      );
+      expect(
+        selectCommentSong(const SongCommentQuery(title: '鲜花', artist: '未知乐队'), [
+          const CommentSong(id: '4', title: '鲜花', artist: '未知'),
+        ]),
+        isNull,
+      );
+    },
+  );
+
+  test(
     'original song duration survives storage while legacy entries stay compatible',
     () {
       final original = PlaylistSong.fromJson({
@@ -271,7 +746,13 @@ void main() {
                   ? SongCommentsStatus.noMatch
                   : SongCommentsStatus.ready,
             );
-            expect(http.calls, hasLength(wrongArtist ? 2 : 3));
+            expect(
+              http.calls,
+              hasLength(
+                (wrongArtist ? 2 : 3) +
+                    (platform == SongCommentPlatform.qq ? 1 : 0),
+              ),
+            );
             if (!wrongArtist) expect(result.song?.id, '42');
           },
         );
@@ -325,7 +806,7 @@ void main() {
       final result = await repo.load(original, SongCommentPlatform.qq);
       expect(result.status, SongCommentsStatus.noMatch);
       expect(result.comments, isEmpty);
-      expect(http.calls, hasLength(1));
+      expect(http.calls, hasLength(2));
     },
   );
 
@@ -727,7 +1208,7 @@ void main() {
     });
     final result = await _repo(http).load(query, SongCommentPlatform.qq);
     expect(result.status, SongCommentsStatus.ready);
-    expect(http.calls.length, 2);
+    expect(http.calls.length, 3);
   });
 
   test('unmatched songs never request comments', () async {
@@ -896,10 +1377,10 @@ void main() {
       expect(second.comments.single.id, 'c');
       expect(second.hasMore, false);
       expect(second.nextCursor, isNull);
-      expect(http.calls, hasLength(3));
+      expect(http.calls, hasLength(4));
       final invalid = await repo.load(query, SongCommentPlatform.qq, page: 2);
       expect(invalid.status, SongCommentsStatus.unavailable);
-      expect(http.calls, hasLength(3));
+      expect(http.calls, hasLength(4));
     },
   );
 
@@ -944,7 +1425,7 @@ void main() {
     final results = await Future.wait([first, joined]);
     expect(results.every((r) => r.comments.single.id == 'id-a'), true);
     expect(other.comments.single.id, 'id-b');
-    expect(http.calls, hasLength(4));
+    expect(http.calls, hasLength(5));
     expect(
       (await repo.load(
         query,
@@ -954,7 +1435,7 @@ void main() {
       )).fromCache,
       true,
     );
-    expect(http.calls, hasLength(4));
+    expect(http.calls, hasLength(5));
   });
 
   test('empty pages and nonadvancing QQ cursors stop pagination', () async {
@@ -1367,6 +1848,37 @@ Map<String, Object?> _qqSearch() => {
     },
   },
 };
+Map<String, Object?> _qqSuggestions([
+  List<Map<String, Object?>> rows = const [
+    {'id': '42', 'name': '不再犹豫', 'singer': 'Beyond'},
+  ],
+]) => {
+  'code': 0,
+  'data': {
+    'song': {'itemlist': rows},
+  },
+};
+Map<String, Object?> _qqDetails({
+  int id = 42,
+  String title = '不再犹豫',
+  String artist = 'Beyond',
+  int duration = 255,
+}) => {
+  'code': 0,
+  'request': {
+    'code': 0,
+    'data': {
+      'track_info': {
+        'id': id,
+        'title': title,
+        'singer': [
+          {'name': artist},
+        ],
+        'interval': duration,
+      },
+    },
+  },
+};
 MusicSearchCandidate _candidate(
   MusicDataSource source,
   String platform,
@@ -1390,14 +1902,19 @@ MusicSearchCandidate _candidate(
 );
 
 class _Http implements MusicResolverHttp {
-  _Http(this.reply);
+  _Http(this.reply, {this.quickReply});
   final Future<Map<String, Object?>> Function(Uri, Map<String, String>?) reply;
+  final Future<Map<String, Object?>> Function(Uri)? quickReply;
   final calls = <Uri>[];
   Future<ResolverHttpResponse> _send(Uri uri, Map<String, String>? form) async {
     calls.add(uri);
     return ResolverHttpResponse(
       statusCode: 200,
-      body: jsonEncode(await reply(uri, form)),
+      body: jsonEncode(
+        uri.path.endsWith('/smartbox_new.fcg')
+            ? await (quickReply?.call(uri) ?? Future.value(_qqSuggestions([])))
+            : await reply(uri, form),
+      ),
       finalUrl: uri,
     );
   }

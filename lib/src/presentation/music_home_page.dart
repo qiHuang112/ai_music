@@ -1,3 +1,6 @@
+import 'playlist_sliver_header.dart';
+import 'playlist_sync_button.dart';
+import 'mini_player.dart';
 import 'date_groups.dart';
 import 'dart:async';
 
@@ -21,19 +24,16 @@ import 'app_localizations.dart';
 import 'discover_charts.dart';
 import 'download_manager_page.dart';
 import 'list_search.dart';
-import 'player_page.dart';
 import 'playlist_actions.dart';
 import 'playlist_download_progress.dart';
 import 'settings_page.dart';
 import 'screenshot_import_page.dart';
-import 'swipe_to_skip.dart';
 import 'song_source_page.dart';
 import 'app_update_page.dart';
 import 'song_cache_progress.dart';
 import 'playlist_source_progress.dart';
 import 'app_theme.dart';
 import 'listening_stats_page.dart';
-import 'playback_queue.dart';
 import 'music_thumbnail.dart';
 
 class MusicHomePage extends StatefulWidget {
@@ -189,10 +189,7 @@ class _MusicHomePageState extends State<MusicHomePage>
                     controller: _searchController,
                     focusNode: _searchFocusNode,
                     playlistMode: _playlistMode,
-                    onToggleMode: () => setState(() {
-                      _playlistMode = !_playlistMode;
-                      _historyEditMode = false;
-                    }),
+                    onToggleMode: _toggleSearchMode,
                     isSearching: _playlistMode
                         ? _playlistSearch.isLoading
                         : controller.isSearching,
@@ -271,7 +268,7 @@ class _MusicHomePageState extends State<MusicHomePage>
             ),
             bottomNavigationBar: _searchFocusNode.hasFocus
                 ? null
-                : _MiniPlayer(controller: controller),
+                : MiniPlayer(controller: controller),
           ),
         );
       },
@@ -284,6 +281,19 @@ class _MusicHomePageState extends State<MusicHomePage>
             controller.candidates.isNotEmpty ||
             controller.errorMessage != null ||
             controller.errorDetail != null);
+  }
+
+  void _toggleSearchMode() {
+    setState(() {
+      _playlistMode = !_playlistMode;
+      _historyEditMode = false;
+    });
+    if (_playlistMode) {
+      controller.clearSearch();
+    } else {
+      _playlistSearch.clear();
+    }
+    _submitSearch(_searchController.text);
   }
 
   void _submitSearch(String query) {
@@ -1263,7 +1273,7 @@ class _LibraryPage extends StatelessWidget {
             ],
           ),
           body: SafeArea(child: _LibraryLanding(controller: controller)),
-          bottomNavigationBar: _MiniPlayer(controller: controller),
+          bottomNavigationBar: MiniPlayer(controller: controller),
         );
       },
     );
@@ -1332,7 +1342,7 @@ class _LibraryLanding extends StatelessWidget {
               MaterialPageRoute<void>(
                 builder: (_) => ListeningStatsPage(
                   controller: controller,
-                  bottomPlayer: _MiniPlayer(controller: controller),
+                  bottomPlayer: MiniPlayer(controller: controller),
                   onOpenPlaylist: (playlist) =>
                       _openList(context, _LibraryListSpec.custom(playlist)),
                 ),
@@ -1898,6 +1908,237 @@ class _PlaylistDetailPageState extends State<_PlaylistDetailPage> {
             (rawList.isFavorite &&
                 effectiveSortMode == _LibrarySortMode.custom);
         final canReorder = _isReorderEditing && !hasActiveFilter && !selecting;
+        final immersive = list.playlist != null && !_isReorderEditing;
+        final appBar = _isReorderEditing
+            ? _reorderEditAppBar(context, list)
+            : selecting
+            ? _selectionAppBar(context, list, selectedTracks)
+            : AppBar(
+                title: Text(
+                  list.playlist != null
+                      ? (strings.isZh ? '歌单详情' : 'Playlist')
+                      : list.title,
+                ),
+                actions: [
+                  if (list.isLocal)
+                    DateFilterButton(
+                      dates: rawList.tracks.map((t) => t.cachedAt),
+                      value: _dateFilter,
+                      zh: strings.isZh,
+                      onChanged: (value) => setState(() {
+                        _dateFilter = value;
+                        _collapsedDates.clear();
+                        _selectedTrackIds.clear();
+                      }),
+                    ),
+                  if (canAdjustOrder && !list.canManage)
+                    IconButton(
+                      key: const ValueKey('adjust-order-action'),
+                      tooltip: strings.adjustOrder,
+                      onPressed: hasActiveFilter
+                          ? () => _showClearSearchToAdjustOrder(context)
+                          : () => _startReorderEditing(sortedTracks),
+                      icon: const Icon(Icons.drag_indicator),
+                    ),
+                  if (widget.onRefresh != null)
+                    IconButton(
+                      tooltip: strings.refresh,
+                      onPressed: widget.refreshing ? null : widget.onRefresh,
+                      icon: const Icon(Icons.refresh),
+                    ),
+                  if (!list.canManage && !list.isBuiltIn)
+                    _LibrarySortButton(
+                      mode: _sortMode,
+                      timeLabel: list.isLocal
+                          ? strings.sortByDownloadTime
+                          : strings.sortByAddedTime,
+                      showCustomOrder: list.isFavorite,
+                      onChanged: (mode) => _changeSortMode(mode),
+                    ),
+                  if (list.canManage &&
+                      list.playlist != null &&
+                      list.playlist!.onlineOriginKey.isNotEmpty)
+                    PlaylistSyncButton(
+                      controller: controller,
+                      playlist: list.playlist!,
+                    ),
+                  if (list.canManage && list.playlist != null)
+                    PopupMenuButton<_PlaylistAction>(
+                      key: const ValueKey('playlist-actions-menu'),
+                      tooltip: strings.isZh ? '歌单操作' : 'Playlist actions',
+                      icon: const Icon(Icons.more_horiz_rounded),
+                      onSelected: (action) {
+                        switch (action) {
+                          case _PlaylistAction.reorder:
+                            if (hasActiveFilter) {
+                              _showClearSearchToAdjustOrder(context);
+                            } else {
+                              _startReorderEditing(sortedTracks);
+                            }
+                          case _PlaylistAction.rename:
+                            _rename(context, list.playlist!);
+                          case _PlaylistAction.delete:
+                            _delete(context, list.playlist!);
+                        }
+                      },
+                      itemBuilder: (context) => [
+                        if (canAdjustOrder)
+                          PopupMenuItem(
+                            key: const ValueKey('adjust-order-action'),
+                            value: _PlaylistAction.reorder,
+                            child: ListTile(
+                              contentPadding: EdgeInsets.zero,
+                              leading: const Icon(Icons.reorder_rounded),
+                              title: Text(strings.adjustOrder),
+                            ),
+                          ),
+                        PopupMenuItem(
+                          value: _PlaylistAction.rename,
+                          child: ListTile(
+                            contentPadding: EdgeInsets.zero,
+                            leading: const Icon(Icons.edit_outlined),
+                            title: Text(strings.renamePlaylist),
+                          ),
+                        ),
+                        PopupMenuItem(
+                          value: _PlaylistAction.delete,
+                          child: ListTile(
+                            contentPadding: EdgeInsets.zero,
+                            leading: const Icon(Icons.delete_outline),
+                            title: Text(strings.deletePlaylist),
+                          ),
+                        ),
+                      ],
+                    ),
+                ],
+              );
+        final headerChildren = <Widget>[
+          if (widget.refreshing) const LinearProgressIndicator(),
+          if (widget.refreshError != null)
+            ListTile(
+              dense: true,
+              leading: const Icon(Icons.error_outline),
+              title: Text(widget.refreshError!),
+              subtitle: Text(
+                strings.isZh ? '暂时显示上次保存的榜单' : 'Showing the last saved chart',
+              ),
+            ),
+          if (widget.chartUpdatedAt case final updatedAt?)
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 4),
+              child: Text(
+                strings.chartUpdated(updatedAt),
+                style: Theme.of(context).textTheme.bodySmall,
+              ),
+            ),
+          if (!_isReorderEditing)
+            ListSearchField(
+              controller: _searchController,
+              focusNode: _searchFocusNode,
+              onChanged: (value) => setState(() {
+                _query = value;
+                _collapsedDates.clear();
+              }),
+              emptySuffix:
+                  (list.canManage || list.isBuiltIn) &&
+                      list.playlist != null &&
+                      sortedTracks.isNotEmpty &&
+                      !_searchFocusNode.hasFocus
+                  ? Padding(
+                      padding: const EdgeInsets.only(right: 4),
+                      child: IconButton(
+                        key: const ValueKey('download-all-playlist'),
+                        tooltip:
+                            controller.isPlaylistDownloading(list.playlist!)
+                            ? strings.downloadingPlaylist
+                            : strings.downloadAllPlaylist,
+                        onPressed:
+                            controller.isPlaylistDownloading(list.playlist!)
+                            ? null
+                            : () => _downloadAllPlaylist(list.playlist!),
+                        icon: controller.isPlaylistDownloading(list.playlist!)
+                            ? const SizedBox.square(
+                                dimension: 20,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                ),
+                              )
+                            : const Icon(Icons.download_for_offline_outlined),
+                      ),
+                    )
+                  : null,
+            ),
+          if (list.canManage && list.playlist != null)
+            PlaylistSourceProgress(
+              controller: controller,
+              playlistId: list.playlist!.id,
+            ),
+          if (list.canManage && list.playlist != null)
+            _OnlinePlaylistSyncProgress(
+              controller: controller,
+              playlistId: list.playlist!.id,
+              onOpenTask: _openOnlineSyncTask,
+            ),
+          if (list.playlist != null &&
+              controller.playlistDownloadProgress(list.playlist!) != null)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+              child: PlaylistDownloadProgressView(
+                controller: controller,
+                playlist: list.playlist!,
+              ),
+            ),
+        ];
+        final headerSlivers = immersive
+            ? <Widget>[
+                PlaylistSliverHeader(
+                  title: list.title,
+                  actions: appBar.actions ?? const [],
+                  leading: appBar.leading,
+                  toolbarTitle: selecting ? appBar.title : null,
+                ),
+                SliverToBoxAdapter(child: Column(children: headerChildren)),
+              ]
+            : null;
+        final trackList = controller.isLoadingCache
+            ? (immersive
+                  ? PlaylistScrollView(
+                      slivers: [
+                        ...headerSlivers!,
+                        const SliverFillRemaining(
+                          child: Center(child: CircularProgressIndicator()),
+                        ),
+                      ],
+                    )
+                  : const Center(child: CircularProgressIndicator()))
+            : _TrackList(
+                key: ValueKey(_dateFilter),
+                controller: controller,
+                list: list,
+                hasActiveFilter: hasActiveFilter,
+                expandDatesInitially:
+                    _dateFilter != null || _query.trim().isNotEmpty,
+                collapsedDates: _collapsedDates,
+                onToggleDate: (day) => setState(() {
+                  if (!_collapsedDates.remove(day)) {
+                    _collapsedDates.add(day);
+                  }
+                }),
+                groupByDate:
+                    list.isLocal && effectiveSortMode == _LibrarySortMode.time,
+                isSelecting: selecting,
+                isReorderEditing: _isReorderEditing,
+                selectedTrackIds: _selectedTrackIds.toSet(),
+                canReorder: canReorder,
+                preparingTrackId: _preparingTrackId,
+                onPlayTrack: (track, index, tracks) =>
+                    unawaited(_playFromList(track, index, tracks)),
+                onStartSelection: _startSelection,
+                onToggleSelection: _toggleSelection,
+                onReorder: (oldIndex, newIndex) =>
+                    _reorderDraft(oldIndex, newIndex),
+                headerSlivers: headerSlivers,
+              );
         return PopScope(
           canPop: !_isReorderEditing,
           onPopInvokedWithResult: (didPop, _) {
@@ -1906,196 +2147,21 @@ class _PlaylistDetailPageState extends State<_PlaylistDetailPage> {
             }
           },
           child: Scaffold(
-            appBar: _isReorderEditing
-                ? _reorderEditAppBar(context, list)
-                : selecting
-                ? _selectionAppBar(context, list, selectedTracks)
-                : AppBar(
-                    title: Text(list.title),
-                    actions: [
-                      if (list.isLocal)
-                        DateFilterButton(
-                          dates: rawList.tracks.map((t) => t.cachedAt),
-                          value: _dateFilter,
-                          zh: strings.isZh,
-                          onChanged: (value) => setState(() {
-                            _dateFilter = value;
-                            _collapsedDates.clear();
-                            _selectedTrackIds.clear();
-                          }),
-                        ),
-                      if (canAdjustOrder)
-                        IconButton(
-                          key: const ValueKey('adjust-order-action'),
-                          tooltip: strings.adjustOrder,
-                          onPressed: hasActiveFilter
-                              ? () => _showClearSearchToAdjustOrder(context)
-                              : () => _startReorderEditing(sortedTracks),
-                          icon: const Icon(Icons.drag_indicator),
-                        ),
-                      if (widget.onRefresh != null)
-                        IconButton(
-                          tooltip: strings.refresh,
-                          onPressed: widget.refreshing
-                              ? null
-                              : widget.onRefresh,
-                          icon: const Icon(Icons.refresh),
-                        ),
-                      if (!list.canManage && !list.isBuiltIn)
-                        _LibrarySortButton(
-                          mode: _sortMode,
-                          timeLabel: list.isLocal
-                              ? strings.sortByDownloadTime
-                              : strings.sortByAddedTime,
-                          showCustomOrder: list.isFavorite,
-                          onChanged: (mode) => _changeSortMode(mode),
-                        ),
-                      if (list.canManage && list.playlist != null) ...[
-                        IconButton(
-                          tooltip: strings.renamePlaylist,
-                          onPressed: () => _rename(context, list.playlist!),
-                          icon: const Icon(Icons.edit),
-                        ),
-                        IconButton(
-                          tooltip: strings.deletePlaylist,
-                          onPressed: () => _delete(context, list.playlist!),
-                          icon: const Icon(Icons.delete_outline),
-                        ),
-                      ],
-                    ],
-                  ),
+            appBar: immersive ? null : appBar,
             body: SafeArea(
-              child: Column(
-                children: [
-                  if (widget.refreshing) const LinearProgressIndicator(),
-                  if (widget.refreshError != null)
-                    ListTile(
-                      dense: true,
-                      leading: const Icon(Icons.error_outline),
-                      title: Text(widget.refreshError!),
-                      subtitle: Text(
-                        strings.isZh
-                            ? '暂时显示上次保存的榜单'
-                            : 'Showing the last saved chart',
-                      ),
+              top: !immersive,
+              child: immersive
+                  ? trackList
+                  : Column(
+                      children: [
+                        ...headerChildren,
+                        Expanded(child: trackList),
+                      ],
                     ),
-                  if (widget.chartUpdatedAt case final updatedAt?)
-                    Padding(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 20,
-                        vertical: 4,
-                      ),
-                      child: Text(
-                        strings.chartUpdated(updatedAt),
-                        style: Theme.of(context).textTheme.bodySmall,
-                      ),
-                    ),
-                  if (!_isReorderEditing)
-                    ListSearchField(
-                      controller: _searchController,
-                      focusNode: _searchFocusNode,
-                      onChanged: (value) => setState(() {
-                        _query = value;
-                        _collapsedDates.clear();
-                      }),
-                      emptySuffix:
-                          (list.canManage || list.isBuiltIn) &&
-                              list.playlist != null &&
-                              sortedTracks.isNotEmpty &&
-                              !_searchFocusNode.hasFocus
-                          ? Padding(
-                              padding: const EdgeInsets.only(right: 4),
-                              child: IconButton(
-                                key: const ValueKey('download-all-playlist'),
-                                tooltip:
-                                    controller.isPlaylistDownloading(
-                                      list.playlist!,
-                                    )
-                                    ? strings.downloadingPlaylist
-                                    : strings.downloadAllPlaylist,
-                                onPressed:
-                                    controller.isPlaylistDownloading(
-                                      list.playlist!,
-                                    )
-                                    ? null
-                                    : () =>
-                                          _downloadAllPlaylist(list.playlist!),
-                                icon:
-                                    controller.isPlaylistDownloading(
-                                      list.playlist!,
-                                    )
-                                    ? const SizedBox.square(
-                                        dimension: 20,
-                                        child: CircularProgressIndicator(
-                                          strokeWidth: 2,
-                                        ),
-                                      )
-                                    : const Icon(
-                                        Icons.download_for_offline_outlined,
-                                      ),
-                              ),
-                            )
-                          : null,
-                    ),
-                  if (list.canManage && list.playlist != null)
-                    PlaylistSourceProgress(
-                      controller: controller,
-                      playlistId: list.playlist!.id,
-                    ),
-                  if (list.canManage && list.playlist != null)
-                    _OnlinePlaylistSyncProgress(
-                      controller: controller,
-                      playlistId: list.playlist!.id,
-                      onOpenTask: _openOnlineSyncTask,
-                    ),
-                  if (list.playlist != null &&
-                      controller.playlistDownloadProgress(list.playlist!) !=
-                          null)
-                    Padding(
-                      padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
-                      child: PlaylistDownloadProgressView(
-                        controller: controller,
-                        playlist: list.playlist!,
-                      ),
-                    ),
-                  Expanded(
-                    child: controller.isLoadingCache
-                        ? const Center(child: CircularProgressIndicator())
-                        : _TrackList(
-                            key: ValueKey(_dateFilter),
-                            controller: controller,
-                            list: list,
-                            hasActiveFilter: hasActiveFilter,
-                            expandDatesInitially:
-                                _dateFilter != null || _query.trim().isNotEmpty,
-                            collapsedDates: _collapsedDates,
-                            onToggleDate: (day) => setState(() {
-                              if (!_collapsedDates.remove(day)) {
-                                _collapsedDates.add(day);
-                              }
-                            }),
-                            groupByDate:
-                                list.isLocal &&
-                                effectiveSortMode == _LibrarySortMode.time,
-                            isSelecting: selecting,
-                            isReorderEditing: _isReorderEditing,
-                            selectedTrackIds: _selectedTrackIds.toSet(),
-                            canReorder: canReorder,
-                            preparingTrackId: _preparingTrackId,
-                            onPlayTrack: (track, index, tracks) =>
-                                unawaited(_playFromList(track, index, tracks)),
-                            onStartSelection: _startSelection,
-                            onToggleSelection: _toggleSelection,
-                            onReorder: (oldIndex, newIndex) =>
-                                _reorderDraft(oldIndex, newIndex),
-                          ),
-                  ),
-                ],
-              ),
             ),
             bottomNavigationBar: _isReorderEditing
                 ? null
-                : _MiniPlayer(controller: controller),
+                : MiniPlayer(controller: controller),
           ),
         );
       },
@@ -2166,7 +2232,7 @@ class _PlaylistDetailPageState extends State<_PlaylistDetailPage> {
       );
   }
 
-  PreferredSizeWidget _selectionAppBar(
+  AppBar _selectionAppBar(
     BuildContext context,
     _ResolvedLibraryList list,
     List<Track> selectedTracks,
@@ -2215,10 +2281,7 @@ class _PlaylistDetailPageState extends State<_PlaylistDetailPage> {
     );
   }
 
-  PreferredSizeWidget _reorderEditAppBar(
-    BuildContext context,
-    _ResolvedLibraryList list,
-  ) {
+  AppBar _reorderEditAppBar(BuildContext context, _ResolvedLibraryList list) {
     final strings = AppStringsScope.of(context);
     return AppBar(
       leading: IconButton(
@@ -2603,6 +2666,7 @@ String _trackSortKey(Track track) {
 class _TrackList extends StatelessWidget {
   const _TrackList({
     super.key,
+    this.headerSlivers,
     required this.controller,
     required this.list,
     required this.hasActiveFilter,
@@ -2621,6 +2685,7 @@ class _TrackList extends StatelessWidget {
     required this.onReorder,
   });
 
+  final List<Widget>? headerSlivers;
   final MusicController controller;
   final _ResolvedLibraryList list;
   final bool hasActiveFilter;
@@ -2648,6 +2713,21 @@ class _TrackList extends StatelessWidget {
   Widget _buildList(BuildContext context, String? activeId) {
     final tracks = list.tracks;
     final strings = AppStringsScope.of(context);
+    if (tracks.isEmpty && headerSlivers != null) {
+      return PlaylistScrollView(
+        slivers: [
+          ...headerSlivers!,
+          SliverFillRemaining(
+            hasScrollBody: false,
+            child: _EmptyPlaylist(
+              title: hasActiveFilter
+                  ? strings.noMatchingTracks
+                  : strings.noSongsInPlaylist,
+            ),
+          ),
+        ],
+      );
+    }
     if (tracks.isEmpty) {
       if (hasActiveFilter) {
         return _EmptyPlaylist(title: strings.noMatchingTracks);
@@ -2719,6 +2799,24 @@ class _TrackList extends StatelessWidget {
         onPlayTrack: onPlayTrack,
         onStartSelection: onStartSelection,
         onToggleSelection: onToggleSelection,
+      );
+    }
+
+    if (headerSlivers != null) {
+      return PlaylistScrollView(
+        key: PageStorageKey('playlist-scroll-${list.playlist!.id}'),
+        keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
+        slivers: [
+          ...headerSlivers!,
+          SliverPadding(
+            padding: const EdgeInsets.fromLTRB(12, 8, 12, 96),
+            sliver: SliverList.separated(
+              itemCount: tracks.length,
+              itemBuilder: tile,
+              separatorBuilder: (_, _) => const Divider(height: 1),
+            ),
+          ),
+        ],
       );
     }
 
@@ -3017,6 +3115,8 @@ enum _TrackAction {
   addToPlaylist,
 }
 
+enum _PlaylistAction { reorder, rename, delete }
+
 enum _ReorderExitAction { keepEditing, discard, save }
 
 Future<_ReorderExitAction?> _confirmDiscardReorderChanges(
@@ -3074,199 +3174,6 @@ Future<bool?> _confirmDeleteLocalTracks(
       );
     },
   );
-}
-
-class _MiniPlayer extends StatelessWidget {
-  const _MiniPlayer({required this.controller});
-
-  final MusicController controller;
-
-  @override
-  Widget build(BuildContext context) {
-    return StreamBuilder<MediaItem?>(
-      stream: controller.mediaItemStream,
-      initialData: controller.audioHandler.mediaItem.value,
-      builder: (context, mediaSnapshot) {
-        final item = mediaSnapshot.data;
-        if (item == null) {
-          return const SizedBox.shrink();
-        }
-        return StreamBuilder<PlaybackState>(
-          stream: controller.playbackStateStream,
-          initialData: controller.audioHandler.playbackState.value,
-          builder: (context, stateSnapshot) {
-            final state = stateSnapshot.data ?? PlaybackState();
-            final strings = AppStringsScope.of(context);
-            final colors = Theme.of(context).colorScheme;
-            const radius = BorderRadius.all(
-              Radius.circular(MusicUi.miniPlayerRadius),
-            );
-            return SafeArea(
-              top: false,
-              child: Padding(
-                padding: MusicUi.miniPlayerInsets,
-                child: DecoratedBox(
-                  decoration: BoxDecoration(
-                    borderRadius: radius,
-                    boxShadow: [
-                      BoxShadow(
-                        color: colors.primary.withValues(alpha: .10),
-                        blurRadius: 20,
-                        offset: const Offset(0, 5),
-                      ),
-                    ],
-                  ),
-                  child: Material(
-                    key: const ValueKey('mini-player-card'),
-                    color: colors.surfaceContainerLow,
-                    shape: RoundedRectangleBorder(
-                      borderRadius: radius,
-                      side: BorderSide(color: colors.outlineVariant),
-                    ),
-                    clipBehavior: Clip.antiAlias,
-                    child: Ink(
-                      decoration: BoxDecoration(
-                        gradient: LinearGradient(
-                          colors: [
-                            colors.surfaceContainerLow,
-                            colors.secondaryContainer,
-                          ],
-                          begin: AlignmentDirectional.topStart,
-                          end: AlignmentDirectional.bottomEnd,
-                        ),
-                      ),
-                      child: SwipeToSkip(
-                        key: const ValueKey('mini-player-swipe-area'),
-                        onNext: controller.next,
-                        onPrevious: controller.previous,
-                        child: InkWell(
-                          onTap: () => _openPlayer(context),
-                          child: Column(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Padding(
-                                padding: const EdgeInsets.fromLTRB(
-                                  12,
-                                  10,
-                                  8,
-                                  8,
-                                ),
-                                child: Row(
-                                  children: [
-                                    MusicThumbnail(
-                                      uri: item.artUri,
-                                      size: 48,
-                                      radius: 14,
-                                    ),
-                                    const SizedBox(width: 10),
-                                    Expanded(
-                                      child: Column(
-                                        mainAxisSize: MainAxisSize.min,
-                                        crossAxisAlignment:
-                                            CrossAxisAlignment.start,
-                                        children: [
-                                          Text(
-                                            item.title,
-                                            maxLines: 1,
-                                            overflow: TextOverflow.ellipsis,
-                                            style: Theme.of(
-                                              context,
-                                            ).textTheme.titleSmall,
-                                          ),
-                                          Text(
-                                            item.artist ?? '',
-                                            maxLines: 1,
-                                            overflow: TextOverflow.ellipsis,
-                                            style: Theme.of(
-                                              context,
-                                            ).textTheme.bodySmall,
-                                          ),
-                                        ],
-                                      ),
-                                    ),
-                                    SizedBox.square(
-                                      dimension: 48,
-                                      child: Center(
-                                        child: IconButton.filled(
-                                          key: const ValueKey(
-                                            'mini-player-play',
-                                          ),
-                                          tooltip: state.playing
-                                              ? strings.pause
-                                              : strings.play,
-                                          style: IconButton.styleFrom(
-                                            backgroundColor:
-                                                colors.primaryContainer,
-                                            foregroundColor:
-                                                colors.onPrimaryContainer,
-                                            minimumSize: const Size.square(44),
-                                            padding: const EdgeInsets.all(10),
-                                          ),
-                                          onPressed: controller.togglePlayPause,
-                                          icon: Icon(
-                                            state.playing
-                                                ? Icons.pause_rounded
-                                                : Icons.play_arrow_rounded,
-                                          ),
-                                        ),
-                                      ),
-                                    ),
-                                    IconButton(
-                                      tooltip: strings.next,
-                                      onPressed: controller.next,
-                                      icon: const Icon(Icons.skip_next_rounded),
-                                    ),
-                                    IconButton(
-                                      key: const ValueKey('mini-player-queue'),
-                                      tooltip: strings.isZh
-                                          ? '当前队列'
-                                          : 'Play queue',
-                                      onPressed: () => showPlaybackQueue(
-                                        context,
-                                        controller,
-                                      ),
-                                      icon: const Icon(
-                                        Icons.queue_music_rounded,
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                              Padding(
-                                padding: const EdgeInsets.fromLTRB(
-                                  70,
-                                  0,
-                                  16,
-                                  12,
-                                ),
-                                child: MiniPlaybackProgress(
-                                  controller: controller,
-                                  item: item,
-                                  state: state,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ),
-                    ),
-                  ),
-                ),
-              ),
-            );
-          },
-        );
-      },
-    );
-  }
-
-  Future<void> _openPlayer(BuildContext context) {
-    return Navigator.of(context).push<void>(
-      MaterialPageRoute(
-        builder: (context) => PlayerPage(controller: controller),
-      ),
-    );
-  }
 }
 
 class _EmptyLibrary extends StatelessWidget {

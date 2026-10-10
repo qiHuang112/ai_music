@@ -9,8 +9,8 @@ import 'package:path_provider/path_provider.dart';
 import '../data/json_file_store.dart';
 import '../platform/app_storage.dart';
 
-const defaultUpdateUrl = 'https://github.com/qiHuang112/ai_music';
-const legacyUpdateUrl = 'http://192.168.31.167:8788';
+const defaultUpdateUrl = 'http://192.168.31.167:8788';
+const githubUpdateUrl = 'https://github.com/qiHuang112/ai_music';
 
 bool _isGitHubUpdateServer(Uri uri) =>
     uri.scheme == 'https' &&
@@ -187,6 +187,7 @@ class AppUpdateController extends ChangeNotifier {
   final HttpClient Function() _clientFactory;
   InstalledAppVersion? current;
   AppRelease? latest;
+  Uri? _releaseServer;
   String serverUrl = defaultUpdateUrl;
   String? error;
   String? installNotice;
@@ -225,10 +226,7 @@ class AppUpdateController extends ChangeNotifier {
         final json = jsonDecode(await file.readAsString());
         if (json is Map && json['serverUrl'] is String) {
           final saved = normalizeServer(json['serverUrl'] as String);
-          // Migrate the previous built-in LAN address; preserve custom servers.
-          serverUrl = saved == normalizeServer(legacyUpdateUrl)
-              ? defaultUpdateUrl
-              : saved.toString();
+          serverUrl = saved.toString();
         }
       }
     } catch (_) {
@@ -290,42 +288,38 @@ class AppUpdateController extends ChangeNotifier {
     checked = false;
     error = null;
     _changed();
-    final client = _clientFactory()
-      ..connectionTimeout = const Duration(seconds: 8);
     try {
-      final server = normalizeServer(serverUrl);
-      final response = await _openUpdateRequest(
-        client,
-        server.resolve(
-          _isGitHubUpdateServer(server)
-              ? 'releases/latest/download/latest.json'
-              : '/api/v1/update/android',
-        ),
-        server,
-        const Duration(seconds: 8),
-      );
-      if (response.statusCode == 204) {
-        if (generation == _generation) {
-          _invalidateRelease();
+      final preferred = normalizeServer(serverUrl);
+      final lanFirst = preferred == normalizeServer(defaultUpdateUrl);
+      final servers = [
+        preferred,
+        if (lanFirst) normalizeServer(githubUpdateUrl),
+      ];
+      for (var index = 0; index < servers.length; index++) {
+        final server = servers[index];
+        final last = index == servers.length - 1;
+        try {
+          final release = await _fetchRelease(
+            server,
+            lanFirst && index == 0
+                ? const Duration(seconds: 2)
+                : const Duration(seconds: 8),
+          );
+          if (generation != _generation || _disposed) return;
+          if (release == null && !last) continue;
+          if (release == null) {
+            _invalidateRelease();
+          } else {
+            if (latest?.sha256Hex != release.sha256Hex) downloadedApk = null;
+            latest = release;
+            _releaseServer = server;
+          }
           checked = true;
+          break;
+        } catch (_) {
+          if (generation != _generation || _disposed) return;
+          if (last) rethrow;
         }
-        return;
-      }
-      if (response.statusCode != 200) {
-        throw HttpException('HTTP ${response.statusCode}');
-      }
-      final bytes = <int>[];
-      await for (final chunk in response.timeout(const Duration(seconds: 8))) {
-        bytes.addAll(chunk);
-        if (bytes.length > 64 * 1024) throw const FormatException('更新信息过大');
-      }
-      final json = jsonDecode(utf8.decode(bytes));
-      if (json is! Map<String, dynamic>) throw const FormatException('更新信息无效');
-      final release = AppRelease.parse(json, server, current!);
-      if (generation == _generation) {
-        if (latest?.sha256Hex != release.sha256Hex) downloadedApk = null;
-        latest = release;
-        checked = true;
       }
     } on FormatException catch (e) {
       if (generation == _generation) {
@@ -338,14 +332,52 @@ class AppUpdateController extends ChangeNotifier {
         error = '无法连接更新服务，请检查网络后重试';
       }
     } finally {
-      client.close(force: true);
       checking = false;
       _changed();
     }
   }
 
+  Future<AppRelease?> _fetchRelease(Uri server, Duration timeout) async {
+    final client = _clientFactory()..connectionTimeout = timeout;
+    try {
+      return await _readRelease(client, server, timeout).timeout(timeout);
+    } finally {
+      client.close(force: true);
+    }
+  }
+
+  Future<AppRelease?> _readRelease(
+    HttpClient client,
+    Uri server,
+    Duration timeout,
+  ) async {
+    final response = await _openUpdateRequest(
+      client,
+      server.resolve(
+        _isGitHubUpdateServer(server)
+            ? 'releases/latest/download/latest.json'
+            : '/api/v1/update/android',
+      ),
+      server,
+      timeout,
+    );
+    if (response.statusCode == 204) return null;
+    if (response.statusCode != 200) {
+      throw HttpException('HTTP ${response.statusCode}');
+    }
+    final bytes = <int>[];
+    await for (final chunk in response.timeout(timeout)) {
+      bytes.addAll(chunk);
+      if (bytes.length > 64 * 1024) throw const FormatException('更新信息过大');
+    }
+    final json = jsonDecode(utf8.decode(bytes));
+    if (json is! Map<String, dynamic>) throw const FormatException('更新信息无效');
+    return AppRelease.parse(json, server, current!);
+  }
+
   void _invalidateRelease() {
     latest = null;
+    _releaseServer = null;
     downloadedApk = null;
     installNotice = null;
     received = 0;
@@ -373,9 +405,6 @@ class AppUpdateController extends ChangeNotifier {
     error = null;
     installNotice = null;
     _changed();
-    final client = _clientFactory()
-      ..connectionTimeout = const Duration(seconds: 8);
-    _downloadClient = client;
     File? part;
     try {
       final dir = Directory('${(await _cacheRoot()).path}/ai_music_updates');
@@ -383,47 +412,88 @@ class AppUpdateController extends ChangeNotifier {
       final destination = File(
         '${dir.path}/${release.code}-${release.sha256Hex.substring(0, 12)}.apk',
       );
-      part = File('${destination.path}.part');
-      final response = await _openUpdateRequest(
-        client,
-        release.url,
-        normalizeServer(serverUrl),
-        const Duration(seconds: 15),
-      );
-      if (response.statusCode != 200) {
-        throw HttpException('HTTP ${response.statusCode}');
-      }
-      final sink = part.openWrite();
-      try {
-        await for (final chunk in response.timeout(
-          const Duration(seconds: 30),
-        )) {
-          if (generation != _generation || _disposed) {
-            throw const HttpException('Canceled');
+      final partial = File('${destination.path}.part');
+      part = partial;
+      final server = _releaseServer ?? normalizeServer(serverUrl);
+      final servers = [
+        server,
+        if (server == normalizeServer(defaultUpdateUrl))
+          normalizeServer(githubUpdateUrl),
+      ];
+      for (var index = 0; index < servers.length; index++) {
+        if (generation != _generation || _disposed) return;
+        final source = servers[index];
+        final client = _clientFactory()
+          ..connectionTimeout = const Duration(seconds: 8);
+        _downloadClient = client;
+        try {
+          var downloadRelease = release;
+          if (index > 0) {
+            final fallback = await _readRelease(
+              client,
+              source,
+              const Duration(seconds: 8),
+            ).timeout(const Duration(seconds: 8));
+            if (fallback == null ||
+                fallback.code != release.code ||
+                fallback.sha256Hex != release.sha256Hex ||
+                fallback.size != release.size) {
+              throw const FormatException('更新包已变化，请重新检测更新');
+            }
+            downloadRelease = fallback;
           }
-          received += chunk.length;
-          if (received > release.size) throw const FormatException('更新包大小不符');
-          sink.add(chunk);
+          if (generation != _generation || _disposed) return;
+          received = 0;
           _changed();
+          final response = await _openUpdateRequest(
+            client,
+            downloadRelease.url,
+            source,
+            const Duration(seconds: 15),
+          );
+          if (response.statusCode != 200) {
+            throw HttpException('HTTP ${response.statusCode}');
+          }
+          final sink = partial.openWrite();
+          try {
+            await for (final chunk in response.timeout(
+              const Duration(seconds: 30),
+            )) {
+              if (generation != _generation || _disposed) {
+                throw const HttpException('Canceled');
+              }
+              received += chunk.length;
+              if (received > release.size) {
+                throw const FormatException('更新包大小不符');
+              }
+              sink.add(chunk);
+              _changed();
+            }
+          } finally {
+            await sink.close();
+          }
+          final hash = (await sha256.bind(partial.openRead()).first).toString();
+          if (received != release.size || hash != release.sha256Hex) {
+            throw const FormatException('更新包校验失败，请重新下载');
+          }
+          if (generation != _generation || _disposed) return;
+          downloadedApk = await partial.rename(destination.path);
+          part = null;
+          break;
+        } catch (_) {
+          if (generation != _generation || _disposed) return;
+          if (index == servers.length - 1) rethrow;
+        } finally {
+          client.close(force: true);
+          _downloadClient = null;
         }
-      } finally {
-        await sink.close();
       }
-      final hash = (await sha256.bind(part.openRead()).first).toString();
-      if (received != release.size || hash != release.sha256Hex) {
-        throw const FormatException('更新包校验失败，请重新下载');
-      }
-      if (generation != _generation || _disposed) return;
-      downloadedApk = await part.rename(destination.path);
-      part = null;
       // Only completed, verified packages may reach the Android installer.
     } catch (e) {
       if (generation == _generation) {
         error = e is FormatException ? e.message : '更新包下载失败，请重试';
       }
     } finally {
-      client.close(force: true);
-      _downloadClient = null;
       if (part != null && await part.exists()) await part.delete();
       downloading = false;
       _changed();
