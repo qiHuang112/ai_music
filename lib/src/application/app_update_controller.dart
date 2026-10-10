@@ -9,7 +9,51 @@ import 'package:path_provider/path_provider.dart';
 import '../data/json_file_store.dart';
 import '../platform/app_storage.dart';
 
-const defaultUpdateUrl = 'http://192.168.31.167:8788';
+const defaultUpdateUrl = 'https://github.com/qiHuang112/ai_music';
+const legacyUpdateUrl = 'http://192.168.31.167:8788';
+
+bool _isGitHubUpdateServer(Uri uri) =>
+    uri.scheme == 'https' &&
+    uri.host == 'github.com' &&
+    uri.port == 443 &&
+    uri.path == '/qiHuang112/ai_music/';
+
+bool _isGitHubAsset(Uri uri) =>
+    uri.scheme == 'https' &&
+    uri.port == 443 &&
+    uri.userInfo.isEmpty &&
+    !uri.hasFragment &&
+    const {
+      'github.com',
+      'release-assets.githubusercontent.com',
+      'objects.githubusercontent.com',
+    }.contains(uri.host);
+
+Future<HttpClientResponse> _openUpdateRequest(
+  HttpClient client,
+  Uri uri,
+  Uri server,
+  Duration timeout,
+) async {
+  for (var redirects = 0; ; redirects++) {
+    final request = await client.getUrl(uri).timeout(timeout);
+    request.followRedirects = false;
+    final response = await request.close().timeout(timeout);
+    if (!const {301, 302, 303, 307, 308}.contains(response.statusCode)) {
+      return response;
+    }
+    final location = response.headers.value(HttpHeaders.locationHeader);
+    final next = location == null ? null : uri.resolve(location);
+    if (!_isGitHubUpdateServer(server) ||
+        redirects >= 5 ||
+        next == null ||
+        !_isGitHubAsset(next)) {
+      throw const HttpException('更新服务重定向无效');
+    }
+    await response.drain<void>().timeout(timeout);
+    uri = next;
+  }
+}
 
 class InstalledAppVersion {
   const InstalledAppVersion({
@@ -70,7 +114,12 @@ class AppRelease {
         !RegExp(r'^[a-fA-F0-9]{64}$').hasMatch(hash) ||
         date == null ||
         path.isEmpty ||
-        uri.origin != server.origin ||
+        (_isGitHubUpdateServer(server)
+            ? (uri.origin != server.origin ||
+                  !uri.path.startsWith(
+                    '/qiHuang112/ai_music/releases/download/',
+                  ))
+            : uri.origin != server.origin) ||
         !uri.path.endsWith('.apk') ||
         uri.userInfo.isNotEmpty ||
         uri.hasFragment) {
@@ -125,14 +174,17 @@ class AppUpdateController extends ChangeNotifier {
     bool? supported,
     Future<Directory> Function()? cacheRoot,
     Future<File> Function()? configFile,
+    HttpClient Function()? clientFactory,
   }) : supported = supported ?? Platform.isAndroid,
        _bridge = bridge ?? NativeAndroidUpdateBridge(),
        _cacheRoot = cacheRoot ?? getTemporaryDirectory,
-       _configFile = configFile ?? _defaultConfig;
+       _configFile = configFile ?? _defaultConfig,
+       _clientFactory = clientFactory ?? HttpClient.new;
   final bool supported;
   final AndroidUpdateBridge _bridge;
   final Future<Directory> Function() _cacheRoot;
   final Future<File> Function() _configFile;
+  final HttpClient Function() _clientFactory;
   InstalledAppVersion? current;
   AppRelease? latest;
   String serverUrl = defaultUpdateUrl;
@@ -172,7 +224,11 @@ class AppUpdateController extends ChangeNotifier {
       if (await file.exists()) {
         final json = jsonDecode(await file.readAsString());
         if (json is Map && json['serverUrl'] is String) {
-          serverUrl = normalizeServer(json['serverUrl'] as String).toString();
+          final saved = normalizeServer(json['serverUrl'] as String);
+          // Migrate the previous built-in LAN address; preserve custom servers.
+          serverUrl = saved == normalizeServer(legacyUpdateUrl)
+              ? defaultUpdateUrl
+              : saved.toString();
         }
       }
     } catch (_) {
@@ -189,10 +245,17 @@ class AppUpdateController extends ChangeNotifier {
         uri.userInfo.isNotEmpty ||
         uri.hasQuery ||
         uri.hasFragment ||
-        !['', '/'].contains(uri.path)) {
-      throw const FormatException('请输入更新服务地址，如 http://192.168.31.167:8788');
+        (!['', '/'].contains(uri.path) &&
+            !_isGitHubUpdateServer(
+              uri.replace(
+                path: uri.path.endsWith('/') ? uri.path : '${uri.path}/',
+              ),
+            ))) {
+      throw const FormatException('请输入 GitHub 更新地址或局域网服务地址');
     }
-    return uri.replace(path: '/');
+    return uri.replace(
+      path: uri.path.endsWith('/') ? uri.path : '${uri.path}/',
+    );
   }
 
   Future<void> saveServer(String value) async {
@@ -227,14 +290,18 @@ class AppUpdateController extends ChangeNotifier {
     checked = false;
     error = null;
     _changed();
-    final client = HttpClient()..connectionTimeout = const Duration(seconds: 5);
+    final client = _clientFactory()
+      ..connectionTimeout = const Duration(seconds: 8);
     try {
       final server = normalizeServer(serverUrl);
-      final request = await client
-          .getUrl(server.resolve('/api/v1/update/android'))
-          .timeout(const Duration(seconds: 8));
-      request.followRedirects = false;
-      final response = await request.close().timeout(
+      final response = await _openUpdateRequest(
+        client,
+        server.resolve(
+          _isGitHubUpdateServer(server)
+              ? 'releases/latest/download/latest.json'
+              : '/api/v1/update/android',
+        ),
+        server,
         const Duration(seconds: 8),
       );
       if (response.statusCode == 204) {
@@ -268,7 +335,7 @@ class AppUpdateController extends ChangeNotifier {
     } catch (_) {
       if (generation == _generation) {
         _invalidateRelease();
-        error = '无法连接局域网更新服务，请确认连接家庭网络且服务器已开启';
+        error = '无法连接更新服务，请检查网络后重试';
       }
     } finally {
       client.close(force: true);
@@ -306,7 +373,8 @@ class AppUpdateController extends ChangeNotifier {
     error = null;
     installNotice = null;
     _changed();
-    final client = HttpClient()..connectionTimeout = const Duration(seconds: 8);
+    final client = _clientFactory()
+      ..connectionTimeout = const Duration(seconds: 8);
     _downloadClient = client;
     File? part;
     try {
@@ -316,11 +384,10 @@ class AppUpdateController extends ChangeNotifier {
         '${dir.path}/${release.code}-${release.sha256Hex.substring(0, 12)}.apk',
       );
       part = File('${destination.path}.part');
-      final request = await client
-          .getUrl(release.url)
-          .timeout(const Duration(seconds: 10));
-      request.followRedirects = false;
-      final response = await request.close().timeout(
+      final response = await _openUpdateRequest(
+        client,
+        release.url,
+        normalizeServer(serverUrl),
         const Duration(seconds: 15),
       );
       if (response.statusCode != 200) {

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Push main successfully, then build and publish its signed Android release."""
+"""Push main to trigger GitHub CI; retain explicit local LAN delivery support."""
 import argparse
 import fcntl
 import hashlib
@@ -102,10 +102,32 @@ def push_and_publish(root=ARCHIVE, server=SERVER, publish_only=False):
         return result
 
 
+def push_for_ci(publish_only=False):
+    # CI reads committed remote bytes, so unrelated developer edits need not
+    # block pushing this commit. Local LAN builds still require a clean tree.
+    if git('branch', '--show-current') != 'main':
+        raise RuntimeError('Publish only from main')
+    commit = git('rev-parse', 'HEAD')
+    if not publish_only:
+        subprocess.run(['git', 'push', 'origin', 'main'], cwd=PROJECT, check=True)
+    if git('ls-remote', 'origin', 'refs/heads/main').split()[0] != commit:
+        raise RuntimeError('Remote main differs from HEAD')
+    if publish_only:
+        subprocess.run(['gh', 'workflow', 'run', 'android-release.yml', '--ref', 'main',
+                        '--repo', 'qiHuang112/ai_music'], cwd=PROJECT, check=True)
+    print(f'Pushed {commit[:7]}; GitHub Actions handles signed release publication')
+    print('https://github.com/qiHuang112/ai_music/actions/workflows/android-release.yml')
+    return commit
+
+
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--publish-only', action='store_true', help='Retry publication of an already pushed, clean HEAD')
+    parser.add_argument('--lan', action='store_true', help='Explicitly build on this Mac and publish to the legacy LAN service')
     parser.add_argument('--root', type=Path, default=ARCHIVE)
     parser.add_argument('--server', default=SERVER)
     args = parser.parse_args()
-    push_and_publish(args.root, args.server.rstrip('/'), args.publish_only)
+    if args.lan:
+        push_and_publish(args.root, args.server.rstrip('/'), args.publish_only)
+    else:
+        push_for_ci(args.publish_only)

@@ -1,4 +1,22 @@
-# Android 局域网更新（2026-10-04）
+# Android 自动发布与更新
+
+## GitHub CI 自动发布（2026-10-10最新决定）
+
+用户要求后续不手工打包或上传 Release，改由 GitHub Actions 自动完成。`main` 每次推送触发 `.github/workflows/android-release.yml`：固定 Flutter 3.44.2/Java 17，执行分析、Flutter 与 Python 测试，构建现有签名的 arm64 release，校验包名/ABI/证书/成品版本，上传 APK、SHA-256 和 `latest.json`。先创建草稿并回读核对上传文件，再一次发布并设为 latest；失败保留旧 latest。串行发布，同提交已交付则跳过，已被后续 main 取代的构建不发布。保留历次 Release 和 APK，无需每次手工测试 release 实机或安装。
+
+版本号从源码版本名、历史 GitHub Release 标签及启用 CI 前的最高归档10196分配，读取成品校验 arm64 +2000 偏移。后续本地 debug/特殊 LAN 构建分配版本时也须参考 GitHub 最新版本，不只参考旧 Mac 归档。若本地交付版本超过10196及现有 GitHub Release，下一次 CI 前同步提高 `tool/github_android_release.py` 的 `LOCAL_VERSION_FLOOR`（或源码 build number），避免碰撞。
+
+一次性配置：本机登录 GitHub CLI 后运行 `python3 tool/configure_github_android_signing.py`，把本机现有签名保存为该仓库的四项加密 Actions Secrets：`ANDROID_KEYSTORE_BASE64`、`ANDROID_KEY_ALIAS`、`ANDROID_KEY_PASSWORD`、`ANDROID_STORE_PASSWORD`。不生成新签名，不提交签名文件/密码，不写明文到仓库；CI 只在临时目录还原 key，并在结束时清理。Release 发布使用每次工作流自带的 `GITHUB_TOKEN` 与 job 的 `contents: write`，无需长期发布 token。
+
+常规交付仍执行 `python3 tool/push_and_publish_android.py`，现在只推送并触发 CI；成功推送不能等同成功出包。到 [Actions](https://github.com/qiHuang112/ai_music/actions/workflows/android-release.yml) 确认完成，下载入口为 [最新 Release](https://github.com/qiHuang112/ai_music/releases/latest)。同一干净提交重试用 `--publish-only`，由 `gh workflow run` 手动触发。特殊需要 Mac 局域网交付时显式加 `--lan`；旧脚本和历史包保留。
+
+应用默认更新地址改为 `https://github.com/qiHuang112/ai_music`，检测 `releases/latest/download/latest.json`，APK指向具体版本资产。GitHub正常302跳转只接受 HTTPS 的 GitHub 官方资产域，校验下载大小/哈希后继续由 Android 校验版本/现有签名并确认安装。已保存的旧默认 Mac 地址自动迁移，自定义局域网地址保留；局域网接口/不接受重定向行为保持。新版首次从 Release 下载覆盖安装后即可使用互联网自动检测，无需手机与 Mac 同一局域网，也不依赖 Mac 在线。debug 仍不接收 release 更新。
+
+验证场景：首次自动发布及同提交重跑、失败不切 latest；GitHub 元数据/APK重定向后完整校验安装；错误域/明文跳转/错误仓库包拒绝；旧默认地址迁移/自定义地址保留。
+
+以下为原局域网部署与交付历史；与上述最新决定冲突时以上述 CI 流程为准。
+
+## 原局域网更新（2026-10-04）
 
 用户确认只做 Android，不做 iOS/鸿蒙更新。设置显示真实安装版本和当前包构建时间，提供手动检测；启动和进入设置自动检测，发现新版时设置入口和更新行显示红点，安装新版后消失。用户2026-10-05最新约定：每次提交并推送成功后自动构建签名release并发布到Mac局域网，用户从APP更新。默认不再ADB安装。debug仅显示版本，不提示release安装；正式更新通道适用于已安装release的设备。
 

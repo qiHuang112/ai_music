@@ -42,6 +42,15 @@ class DeliveryTest(unittest.TestCase):
             self.assertEqual(run.call_count, 1)
             publish.assert_not_called()
 
+    def test_ci_push_failure_never_dispatches_or_builds(self):
+        with patch.object(delivery, 'git', side_effect=['main', 'abc']), \
+             patch.object(delivery.subprocess, 'run', side_effect=subprocess.CalledProcessError(1, 'push')) as run, \
+             patch.object(delivery, 'publish') as publish:
+            with self.assertRaises(subprocess.CalledProcessError):
+                delivery.push_for_ci()
+            self.assertEqual(run.call_count, 1)
+            publish.assert_not_called()
+
     def test_remote_mismatch_never_builds(self):
         with patch.object(delivery, 'require_clean', return_value='abc'), \
              patch.object(delivery, 'git', return_value='other refs/heads/main'), \
