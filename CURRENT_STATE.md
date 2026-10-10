@@ -2,7 +2,7 @@
 
 本文件只记录当前基线和记录入口；具体开发、自测、用户验收与独立 review 记录按日期存放在 [工作日志](docs/worklog/README.md)。代码状态以当前 Git 记录为准，不在日志中反复标注暂存、提交或推送状态。
 
-- 2026-10-10用户要求取消手动打包/上传，改为main推送触发GitHub Actions签名发布；CI、签名Secrets配置助手、GitHub更新默认地址与旧默认LAN迁移已实现。相关更新18项、工作区全量742项、Python80项及分析通过；一次性GitHub CLI授权/Secrets配置和首次云端发布尚待完成，不代表已出包。见[Android更新](docs/android-updates.md)和[当日记录](docs/worklog/2026-10-10.md)。
+- 2026-10-10用户要求取消手动打包/上传，改为main推送触发GitHub Actions签名发布；CI、签名Secrets配置助手、GitHub更新默认地址与旧默认LAN迁移已实现。一次性GitHub CLI授权及四项加密Secrets配置完成，首轮云端分析／Flutter测试／Python80项通过；SDK工具不在PATH的问题已修复并重跑，首个Release尚待云端完成。版本floor已覆盖开发预留debug10198。见[Android更新](docs/android-updates.md)和[当日记录](docs/worklog/2026-10-10.md)。
 
 - 2026-10-09固定reviewer已独立审查当前全部增量：备用源恢复覆盖暂停、Auto匹配缓存保留停用源两项P2已修复并关闭；原失败探针2/2、最终全量735项／分析／差异检查通过，未发现剩余可复现阻断。审查未提交发布或安装；10193不含本次修复。见[当日独立记录](docs/worklog/2026-10-09.md)。
 

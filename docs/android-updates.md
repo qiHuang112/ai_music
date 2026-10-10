@@ -4,7 +4,7 @@
 
 用户要求后续不手工打包或上传 Release，改由 GitHub Actions 自动完成。`main` 每次推送触发 `.github/workflows/android-release.yml`：固定 Flutter 3.44.2/Java 17，执行分析、Flutter 与 Python 测试，构建现有签名的 arm64 release，校验包名/ABI/证书/成品版本，上传 APK、SHA-256 和 `latest.json`。先创建草稿并回读核对上传文件，再一次发布并设为 latest；失败保留旧 latest。串行发布，同提交已交付则跳过，已被后续 main 取代的构建不发布。保留历次 Release 和 APK，无需每次手工测试 release 实机或安装。
 
-版本号从源码版本名、历史 GitHub Release 标签及启用 CI 前的最高归档10196分配，读取成品校验 arm64 +2000 偏移。后续本地 debug/特殊 LAN 构建分配版本时也须参考 GitHub 最新版本，不只参考旧 Mac 归档。若本地交付版本超过10196及现有 GitHub Release，下一次 CI 前同步提高 `tool/github_android_release.py` 的 `LOCAL_VERSION_FLOOR`（或源码 build number），避免碰撞。
+版本号从源码版本名、历史 GitHub Release 标签及启用 CI 前的最高归档10198分配，读取成品校验 arm64 +2000 偏移。后续本地 debug/特殊 LAN 构建分配版本时也须参考 GitHub 最新版本，不只参考旧 Mac 归档。若本地交付版本超过10198及现有 GitHub Release，下一次 CI 前同步提高 `tool/github_android_release.py` 的 `LOCAL_VERSION_FLOOR`（或源码 build number），避免碰撞。
 
 一次性配置：本机登录 GitHub CLI 后运行 `python3 tool/configure_github_android_signing.py`，把本机现有签名保存为该仓库的四项加密 Actions Secrets：`ANDROID_KEYSTORE_BASE64`、`ANDROID_KEY_ALIAS`、`ANDROID_KEY_PASSWORD`、`ANDROID_STORE_PASSWORD`。不生成新签名，不提交签名文件/密码，不写明文到仓库；CI 只在临时目录还原 key，并在结束时清理。Release 发布使用每次工作流自带的 `GITHUB_TOKEN` 与 job 的 `contents: write`，无需长期发布 token。
 

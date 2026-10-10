@@ -15,7 +15,7 @@ class GitHubReleaseTest(unittest.TestCase):
         releases = [{'tag_name': 'unrelated'}, {'tag_name': 'v1.0.3-10200', 'draft': True}]
         plan = release.choose_version('version: 1.0.4+8171\n', releases)
         self.assertEqual(plan, {'name': '1.0.4', 'number': 8201, 'code': 10201, 'tag': 'v1.0.4-10201'})
-        self.assertEqual(release.choose_version('version: 1.0.3+8171\n', [])['code'], 10197)
+        self.assertEqual(release.choose_version('version: 1.0.3+8171\n', [])['code'], 10199)
 
     def test_superseded_commit_does_not_build(self):
         with tempfile.TemporaryDirectory() as temporary, \
