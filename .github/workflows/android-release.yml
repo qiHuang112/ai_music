@@ -32,6 +32,11 @@ jobs:
         with:
           distribution: temurin
           java-version: '17'
+          cache: gradle
+          cache-dependency-path: |
+            android/**/*.gradle.kts
+            android/gradle/wrapper/gradle-wrapper.properties
+            pubspec.lock
       - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2
         if: steps.plan.outputs.skip != 'true'
         with:
@@ -60,7 +65,13 @@ jobs:
             echo 'Android SDK command-line tools are missing' >&2
             exit 1
           fi
-          "${android_sdk_managers[0]}" 'platforms;android-36' 'build-tools;35.0.0' 'ndk;27.0.11718014'
+          # Answer the required SDK/NDK license prompts in this unattended job.
+          # Ignore yes's SIGPIPE after sdkmanager has consumed its input; keep
+          # sdkmanager's own exit status and restore pipefail for later commands.
+          set +o pipefail
+          yes | "${android_sdk_managers[0]}" --sdk_root="$ANDROID_HOME" \
+            'platforms;android-36' 'build-tools;35.0.0' 'ndk;27.0.11718014'
+          set -o pipefail
       - name: Build signed arm64 APK
         if: steps.plan.outputs.skip != 'true'
         env:
