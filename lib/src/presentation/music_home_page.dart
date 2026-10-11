@@ -163,6 +163,7 @@ class _MusicHomePageState extends State<MusicHomePage>
             }
           },
           child: Scaffold(
+            extendBody: true,
             appBar: AppBar(
               title: Text(strings.homeLibraryTitle),
               titleTextStyle: Theme.of(context).textTheme.headlineSmall,
@@ -194,6 +195,7 @@ class _MusicHomePageState extends State<MusicHomePage>
               ],
             ),
             body: SafeArea(
+              bottom: false,
               child: Column(
                 children: [
                   _SearchHeader(
@@ -881,7 +883,9 @@ class _OnlineSearchPanel extends StatelessWidget {
             if (candidates.isNotEmpty)
               Expanded(
                 child: ListView.separated(
-                  padding: EdgeInsets.zero,
+                  padding: EdgeInsets.only(
+                    bottom: MediaQuery.paddingOf(context).bottom,
+                  ),
                   itemCount: candidates.length,
                   separatorBuilder: (_, _) => const Divider(height: 1),
                   itemBuilder: (context, index) {
@@ -991,7 +995,10 @@ class _SearchBody extends StatelessWidget {
       return const _SearchEmptyPrompt();
     }
     return ListView(
-      padding: const EdgeInsets.fromLTRB(20, 0, 20, 24),
+      padding: MusicUi.scrollInsets(
+        context,
+        base: const EdgeInsets.fromLTRB(20, 0, 20, 24),
+      ),
       children: [
         _HomeLibrarySection(
           controller: controller,
@@ -1304,6 +1311,7 @@ class _LibraryPage extends StatelessWidget {
       builder: (context, _) {
         final strings = AppStringsScope.of(context);
         return Scaffold(
+          extendBody: true,
           appBar: AppBar(
             title: Text(strings.isZh ? '音乐库' : 'Music library'),
             actions: [
@@ -1319,7 +1327,10 @@ class _LibraryPage extends StatelessWidget {
               ),
             ],
           ),
-          body: SafeArea(child: _LibraryLanding(controller: controller)),
+          body: SafeArea(
+            bottom: false,
+            child: _LibraryLanding(controller: controller),
+          ),
           bottomNavigationBar: MiniPlayer(controller: controller),
         );
       },
@@ -1342,11 +1353,14 @@ class _LibraryLanding extends StatelessWidget {
     final playlists = _playlistsWithActiveSyncFirst(controller);
     final strings = AppStringsScope.of(context);
     return ListView(
-      padding: const EdgeInsets.fromLTRB(
-        MusicUi.pagePadding,
-        12,
-        MusicUi.pagePadding,
-        24,
+      padding: MusicUi.scrollInsets(
+        context,
+        base: const EdgeInsets.fromLTRB(
+          MusicUi.pagePadding,
+          12,
+          MusicUi.pagePadding,
+          24,
+        ),
       ),
       children: [
         if (controller.isLoadingCache) ...[
@@ -2194,9 +2208,11 @@ class _PlaylistDetailPageState extends State<_PlaylistDetailPage> {
             }
           },
           child: Scaffold(
+            extendBody: true,
             appBar: immersive ? null : appBar,
             body: SafeArea(
               top: !immersive,
+              bottom: false,
               child: immersive
                   ? trackList
                   : Column(
@@ -2791,7 +2807,10 @@ class _TrackList extends StatelessWidget {
     if (canReorder) {
       return ReorderableListView.builder(
         buildDefaultDragHandles: false,
-        padding: const EdgeInsets.fromLTRB(12, 8, 12, 96),
+        padding: MusicUi.scrollInsets(
+          context,
+          base: const EdgeInsets.fromLTRB(12, 8, 12, 16),
+        ),
         itemCount: tracks.length,
         // flutter_ohos does not support onReorderItem yet.
         // ignore: deprecated_member_use
@@ -2856,7 +2875,10 @@ class _TrackList extends StatelessWidget {
         slivers: [
           ...headerSlivers!,
           SliverPadding(
-            padding: const EdgeInsets.fromLTRB(12, 8, 12, 96),
+            padding: MusicUi.scrollInsets(
+              context,
+              base: const EdgeInsets.fromLTRB(12, 8, 12, 16),
+            ),
             sliver: SliverList.separated(
               itemCount: tracks.length,
               itemBuilder: tile,
@@ -2891,12 +2913,17 @@ class _TrackList extends StatelessWidget {
                 ),
               ),
             ),
-          const SliverToBoxAdapter(child: SizedBox(height: 96)),
+          SliverToBoxAdapter(
+            child: SizedBox(height: MusicUi.scrollInsets(context).bottom),
+          ),
         ],
       );
     }
     return ListView.separated(
-      padding: const EdgeInsets.fromLTRB(12, 8, 12, 96),
+      padding: MusicUi.scrollInsets(
+        context,
+        base: const EdgeInsets.fromLTRB(12, 8, 12, 16),
+      ),
       itemCount: tracks.length,
       separatorBuilder: (_, _) => const Divider(height: 1),
       itemBuilder: tile,

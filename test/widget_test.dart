@@ -326,6 +326,24 @@ void main() {
   ) async {
     final handler = _WidgetAudioHandler();
     final stats = ListeningStatsStore.memory();
+    await stats.load();
+    final today = DateUtils.dateOnly(DateTime.now());
+    for (final sample in [(0, 30), (6, 60), (7, 120)]) {
+      final at = DateTime(today.year, today.month, today.day - sample.$1, 12);
+      stats.addInterval(
+        'day-${sample.$1}',
+        const ListeningContext(
+          ListeningSong(
+            id: 'sample',
+            trackId: 'sample',
+            title: 'Sample',
+            artist: 'Artist',
+          ),
+        ),
+        at,
+        at.add(Duration(seconds: sample.$2)),
+      );
+    }
     final controller = _QueueUiController(handler, stats: stats);
     try {
       await tester.pumpWidget(_app(playbackController: controller));
@@ -337,6 +355,23 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.byType(ListeningStatsPage), findsOneWidget);
       expect(find.byKey(const Key('listening-total-time')), findsOneWidget);
+      final week = find.widgetWithText(ChoiceChip, '近7天');
+      expect(tester.widget<ChoiceChip>(week).selected, isTrue);
+      expect(
+        tester.widget<Text>(find.byKey(const Key('listening-total-time'))).data,
+        '1分30秒',
+      );
+      await tester.tap(find.widgetWithText(ChoiceChip, '今天'));
+      await tester.pumpAndSettle();
+      expect(
+        tester.widget<Text>(find.byKey(const Key('listening-total-time'))).data,
+        '30秒',
+      );
+      await tester.pageBack();
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('library-listening-stats')));
+      await tester.pumpAndSettle();
+      expect(tester.widget<ChoiceChip>(week).selected, isTrue);
     } finally {
       await tester.pumpWidget(const SizedBox.shrink());
       controller.dispose();
@@ -1547,6 +1582,20 @@ void main() {
         expect(expanded, findsOneWidget);
         expect(compact, findsNothing);
         expect(resolver.searchCount, searchesBeforeScroll);
+        // The body paints behind glass, but the final row can scroll clear of it.
+        await tester.drag(scroll, const Offset(0, -10000));
+        await tester.pumpAndSettle();
+        final lastSong = find.text('测试歌曲 39');
+        final player = find.byKey(const ValueKey('mini-player-card'));
+        expect(lastSong.hitTestable(), findsOneWidget);
+        expect(
+          tester.getBottomLeft(lastSong).dy,
+          lessThan(tester.getTopLeft(player).dy),
+        );
+        expect(
+          tester.getBottomLeft(scroll).dy,
+          greaterThan(tester.getTopLeft(player).dy),
+        );
         expect(tester.takeException(), isNull);
       },
     );

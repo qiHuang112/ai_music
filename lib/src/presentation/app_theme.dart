@@ -57,6 +57,12 @@ abstract final class MusicUi {
   static const miniPlayerInsets = EdgeInsets.fromLTRB(12, 8, 12, 10);
   static const pageInsets = EdgeInsets.fromLTRB(20, 16, 20, 24);
   static const horizontalInsets = EdgeInsets.symmetric(horizontal: pagePadding);
+  static EdgeInsets scrollInsets(
+    BuildContext context, {
+    EdgeInsets base = pageInsets,
+  }) =>
+      base.copyWith(bottom: base.bottom + MediaQuery.paddingOf(context).bottom);
+
   static bool compactActions(BuildContext context) =>
       MediaQuery.sizeOf(context).width < 420 ||
       MediaQuery.textScalerOf(context).scale(14) > 18;

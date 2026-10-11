@@ -65,9 +65,12 @@ class OnlinePlaylistSearchPanel extends StatelessWidget {
                   ),
                 )
               : ListView.builder(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 8,
-                    vertical: 8,
+                  padding: MusicUi.scrollInsets(
+                    context,
+                    base: const EdgeInsets.symmetric(
+                      horizontal: 8,
+                      vertical: 8,
+                    ),
                   ),
                   itemCount: items.length + 1,
                   itemBuilder: (context, index) {

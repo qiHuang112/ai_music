@@ -1,5 +1,6 @@
 import 'playlist_sliver_header.dart';
 import 'mini_player.dart';
+import 'app_theme.dart';
 import 'music_thumbnail.dart';
 import 'package:flutter/material.dart';
 import '../application/music_controller.dart';
@@ -241,12 +242,14 @@ class _DirectPlaylistPageState extends State<DirectPlaylistPage> {
     return PopScope(
       canPop: !_saving,
       child: Scaffold(
+        extendBody: true,
         appBar: _loading || detail == null
             ? AppBar(title: Text(zh ? '歌单详情' : 'Playlist'), actions: actions)
             : null,
         bottomNavigationBar: MiniPlayer(controller: widget.controller),
         body: SafeArea(
           top: _loading || detail == null,
+          bottom: false,
           child: _loading
               ? Center(
                   child: Column(
@@ -338,6 +341,13 @@ class _DirectPlaylistPageState extends State<DirectPlaylistPage> {
                           ),
                         );
                       },
+                    ),
+                    SliverToBoxAdapter(
+                      child: Builder(
+                        builder: (context) => SizedBox(
+                          height: MusicUi.scrollInsets(context).bottom,
+                        ),
+                      ),
                     ),
                   ],
                 ),

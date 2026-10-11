@@ -8,6 +8,7 @@ import '../data/music_playlists.dart';
 import '../domain/music_models.dart';
 import 'app_localizations.dart';
 import 'list_search.dart';
+import 'music_thumbnail.dart';
 import 'playlist_download_progress.dart';
 
 enum _DownloadSortMode { initial, downloadedAt }
@@ -88,6 +89,10 @@ class _DownloadManagerPageState extends State<DownloadManagerPage> {
       context: context,
       isScrollControlled: true,
       showDragHandle: true,
+      constraints: BoxConstraints(
+        maxHeight: MediaQuery.sizeOf(context).height * .85,
+        maxWidth: 640,
+      ),
       builder: (context) => SafeArea(
         child: SingleChildScrollView(
           padding: const EdgeInsets.fromLTRB(12, 0, 12, 24),
@@ -361,44 +366,83 @@ class _DownloadManagerPageState extends State<DownloadManagerPage> {
     MusicController controller,
     MusicPlaylist playlist,
     AppStrings strings,
-  ) => Card(
-    key: ValueKey('manager-playlist-${playlist.id}'),
-    child: ListTile(
-      onTap: () => widget.onOpenPlaylist(playlist),
-      title: Text(playlist.name),
-      subtitle: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            strings.playlistDownloadCounts(
-              playlist.entries.length,
-              controller.cachedCountForPlaylist(playlist),
-            ),
+  ) {
+    final theme = Theme.of(context);
+    final colors = theme.colorScheme;
+    final originCover = playlist.entries
+        .map((entry) => entry.song?.coverUrl ?? '')
+        .where((url) => url.isNotEmpty)
+        .firstOrNull;
+    final artwork =
+        (originCover == null ? null : Uri.tryParse(originCover)) ??
+        controller
+            .tracksForPlaylist(playlist)
+            .where((track) => track.artworkUri != null)
+            .firstOrNull
+            ?.artworkUri;
+    final downloading = controller.isPlaylistDownloading(playlist);
+    return Card(
+      key: ValueKey('manager-playlist-${playlist.id}'),
+      color: colors.surfaceContainerLowest,
+      margin: const EdgeInsets.only(bottom: 10),
+      child: ListTile(
+        contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        horizontalTitleGap: 12,
+        onTap: () => widget.onOpenPlaylist(playlist),
+        leading: MusicThumbnail(
+          uri: artwork,
+          label: playlist.name,
+          size: 56,
+          radius: 14,
+        ),
+        title: Text(
+          playlist.name,
+          maxLines: 2,
+          overflow: TextOverflow.ellipsis,
+          style: theme.textTheme.titleSmall,
+        ),
+        subtitle: Padding(
+          padding: const EdgeInsets.only(top: 5),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                strings.playlistDownloadCounts(
+                  playlist.entries.length,
+                  controller.cachedCountForPlaylist(playlist),
+                ),
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: colors.onSurfaceVariant,
+                ),
+              ),
+              if (controller.playlistDownloadProgress(playlist) != null) ...[
+                const SizedBox(height: 8),
+                PlaylistDownloadProgressView(
+                  controller: controller,
+                  playlist: playlist,
+                ),
+              ],
+            ],
           ),
-          if (controller.playlistDownloadProgress(playlist) != null) ...[
-            const SizedBox(height: 8),
-            PlaylistDownloadProgressView(
-              controller: controller,
-              playlist: playlist,
-            ),
-          ],
-        ],
+        ),
+        trailing: IconButton.filledTonal(
+          key: ValueKey('manager-download-${playlist.id}'),
+          tooltip: strings.downloadAllPlaylist,
+          onPressed: downloading ? null : () => _downloadPlaylist(playlist),
+          style: IconButton.styleFrom(
+            backgroundColor: colors.secondaryContainer.withValues(alpha: .55),
+            foregroundColor: colors.primary,
+          ),
+          icon: downloading
+              ? const SizedBox.square(
+                  dimension: 20,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                )
+              : const Icon(Icons.download_rounded, size: 21),
+        ),
       ),
-      trailing: IconButton(
-        key: ValueKey('manager-download-${playlist.id}'),
-        tooltip: strings.downloadAllPlaylist,
-        onPressed: controller.isPlaylistDownloading(playlist)
-            ? null
-            : () => _downloadPlaylist(playlist),
-        icon: controller.isPlaylistDownloading(playlist)
-            ? const SizedBox.square(
-                dimension: 20,
-                child: CircularProgressIndicator(strokeWidth: 2),
-              )
-            : const Icon(Icons.download_for_offline_outlined),
-      ),
-    ),
-  );
+    );
+  }
 
   List<Widget> _taskSlivers(
     MusicController controller,
@@ -592,90 +636,172 @@ class _LanSyncCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final strings = AppStringsScope.of(context);
     final result = controller.lastLanSyncResult;
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(14),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              strings.lanSyncSection,
-              style: Theme.of(context).textTheme.titleMedium,
+    final theme = Theme.of(context);
+    final colors = theme.colorScheme;
+    Widget status(IconData icon, Widget content, {bool error = false}) =>
+        Container(
+          width: double.infinity,
+          margin: const EdgeInsets.only(top: 16),
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            color: error
+                ? colors.errorContainer.withValues(alpha: .45)
+                : colors.secondaryContainer.withValues(alpha: .35),
+            borderRadius: BorderRadius.circular(16),
+          ),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Icon(
+                icon,
+                size: 20,
+                color: error ? colors.error : colors.primary,
+              ),
+              const SizedBox(width: 10),
+              Expanded(child: content),
+            ],
+          ),
+        );
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(12, 0, 12, 4),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: colors.secondaryContainer,
+                  borderRadius: BorderRadius.circular(16),
+                ),
+                child: Icon(
+                  Icons.devices_rounded,
+                  color: colors.primary,
+                  size: 26,
+                ),
+              ),
+              const SizedBox(width: 14),
+              Expanded(
+                child: Text(
+                  strings.lanSyncSection,
+                  style: theme.textTheme.titleLarge,
+                ),
+              ),
+              IconButton(
+                tooltip: strings.isZh ? '关闭' : 'Close',
+                onPressed: () => Navigator.pop(context),
+                icon: const Icon(Icons.close_rounded),
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
+          Text(
+            strings.isZh
+                ? '从同一网络的设备同步歌曲和歌单。'
+                : 'Sync songs and playlists from a device on the same network.',
+            style: theme.textTheme.bodyMedium?.copyWith(
+              color: colors.onSurfaceVariant,
             ),
-            const SizedBox(height: 4),
-            Text(
-              controller.lanLibraryUrl,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-            ),
-            const SizedBox(height: 10),
-            FilledButton.icon(
-              onPressed: controller.isLanSyncing
-                  ? null
-                  : controller.syncLanLibrary,
-              icon: controller.isLanSyncing
-                  ? const SizedBox.square(
-                      dimension: 16,
-                      child: CircularProgressIndicator(strokeWidth: 2),
-                    )
-                  : const Icon(Icons.sync),
-              label: Text(strings.scanAndSync),
-            ),
-            if (controller.isLanSyncing)
-              Padding(
-                padding: const EdgeInsets.only(top: 10),
+          ),
+          const SizedBox(height: 20),
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Icon(
+                Icons.dns_outlined,
+                size: 20,
+                color: colors.onSurfaceVariant,
+              ),
+              const SizedBox(width: 10),
+              Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    LinearProgressIndicator(
-                      value: controller.lanSyncTotal > 0
-                          ? controller.lanSyncCompleted /
-                                controller.lanSyncTotal
-                          : null,
-                    ),
-                    const SizedBox(height: 6),
                     Text(
-                      strings.lanSyncProgress(
-                        controller.lanSyncCompleted,
-                        controller.lanSyncTotal,
-                        controller.lanSyncCurrentTitle,
+                      strings.isZh ? '设备地址' : 'Device address',
+                      style: theme.textTheme.labelMedium,
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      controller.lanLibraryUrl,
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: colors.onSurfaceVariant,
                       ),
                     ),
                   ],
                 ),
               ),
-            if (result != null)
-              Padding(
-                padding: const EdgeInsets.only(top: 10),
-                child: Text(
-                  strings.lanSyncSummary(
-                    result.added,
-                    result.updated,
-                    result.skipped,
-                    result.failed,
-                    playlistsCreated: result.playlistsCreated,
-                    playlistsUpdated: result.playlistsUpdated,
+            ],
+          ),
+          const SizedBox(height: 24),
+          SizedBox(
+            width: double.infinity,
+            child: FilledButton.icon(
+              onPressed: controller.isLanSyncing
+                  ? null
+                  : controller.syncLanLibrary,
+              icon: const Icon(Icons.sync_rounded, size: 20),
+              label: Text(
+                controller.isLanSyncing
+                    ? (strings.isZh ? '正在同步' : 'Syncing')
+                    : strings.scanAndSync,
+              ),
+            ),
+          ),
+          if (controller.isLanSyncing)
+            status(
+              Icons.sync_rounded,
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    strings.lanSyncProgress(
+                      controller.lanSyncCompleted,
+                      controller.lanSyncTotal,
+                      controller.lanSyncCurrentTitle,
+                    ),
                   ),
+                  const SizedBox(height: 12),
+                  ClipRRect(
+                    borderRadius: BorderRadius.circular(4),
+                    child: LinearProgressIndicator(
+                      value: controller.lanSyncTotal > 0
+                          ? controller.lanSyncCompleted /
+                                controller.lanSyncTotal
+                          : null,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          if (result != null)
+            status(
+              Icons.check_circle_outline_rounded,
+              Text(
+                strings.lanSyncSummary(
+                  result.added,
+                  result.updated,
+                  result.skipped,
+                  result.failed,
+                  playlistsCreated: result.playlistsCreated,
+                  playlistsUpdated: result.playlistsUpdated,
                 ),
               ),
-            if (result?.playlistError != null)
-              Padding(
-                padding: const EdgeInsets.only(top: 10),
-                child: Text(
-                  strings.lanPlaylistMergeFailed,
-                  style: TextStyle(color: Theme.of(context).colorScheme.error),
-                ),
-              ),
-            if (controller.lanSyncError != null)
-              Padding(
-                padding: const EdgeInsets.only(top: 10),
-                child: Text(
-                  controller.lanSyncError!,
-                  style: TextStyle(color: Theme.of(context).colorScheme.error),
-                ),
-              ),
-          ],
-        ),
+            ),
+          if (result?.playlistError != null)
+            status(
+              Icons.info_outline_rounded,
+              Text(strings.lanPlaylistMergeFailed),
+              error: true,
+            ),
+          if (controller.lanSyncError != null)
+            status(
+              Icons.error_outline_rounded,
+              Text(controller.lanSyncError!),
+              error: true,
+            ),
+        ],
       ),
     );
   }

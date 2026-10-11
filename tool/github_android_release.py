@@ -15,7 +15,7 @@ from publish_android_release import publish
 PROJECT = Path(__file__).resolve().parent.parent
 CERT = 'f05004de4b5fa23bdd1beee45c4e7c227852129930bcd3bb1cfcff2048464843'
 # Covers archived packages plus developer's allocated debug trial 10226.
-LOCAL_VERSION_FLOOR = 10226
+LOCAL_VERSION_FLOOR = 10228
 
 
 def gh(*args):

@@ -411,14 +411,18 @@ class MusicAudioHandler extends BaseAudioHandler
     final enabled =
         shuffleMode == AudioServiceShuffleMode.all ||
         shuffleMode == AudioServiceShuffleMode.group;
+    final startingRandom = enabled && !_shuffleModeEnabled;
     _shuffleModeEnabled = enabled;
     if (!enabled) _indexTracker.pendingShuffleRedirectIndex = null;
     if (enabled) {
-      _shuffleSkipPlanner.updateQueue(
-        _items.map((item) => item.mediaItem.id).toList(),
-      );
+      final ids = _items.map((item) => item.mediaItem.id).toList();
+      if (startingRandom) {
+        _shuffleSkipPlanner.reset(ids);
+      } else {
+        _shuffleSkipPlanner.updateQueue(ids);
+      }
     }
-    // 手动下一首需要走 Dart 层的稳定随机顺序和短听排除策略；
+    // 手动下一首走 Dart 层的随机抽取和短听排除策略；
     // 不启用 just_audio 内建 shuffle，避免真机下一首被播放器内部顺序接管。
     await _player.setShuffleModeEnabled(false);
     playbackState.add(

@@ -11,6 +11,40 @@ void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
   test(
+    'entering random restarts skipped choices, reapplying it preserves them',
+    () async {
+      final original = JustAudioPlatform.instance;
+      final platform = _TestJustAudioPlatform();
+      JustAudioPlatform.instance = platform;
+      final planner = ShuffleSkipPlanner(seed: 19);
+      final handler = MusicAudioHandler(shuffleSkipPlanner: planner);
+      try {
+        await handler.loadQueue([
+          for (final id in ['a', 'b', 'c'])
+            PlayableAudio(
+              mediaItem: MediaItem(id: id, title: id),
+              source: AudioSource.uri(Uri.parse('https://example.com/$id.mp3')),
+            ),
+        ], playWhenReady: false);
+        await handler.setShuffleMode(AudioServiceShuffleMode.all);
+        planner.nextAfter('b', position: const Duration(seconds: 2));
+        final planned = planner.peekNextAfter('a');
+        await handler.setShuffleMode(AudioServiceShuffleMode.all);
+        expect(planner.earlySkippedIds, contains('b'));
+        expect(planner.peekNextAfter('a'), planned);
+        await handler.setShuffleMode(AudioServiceShuffleMode.none);
+        await handler.setShuffleMode(AudioServiceShuffleMode.all);
+        expect(planner.earlySkippedIds, isEmpty);
+        expect(handler.currentQueueIndex, 0);
+        expect(handler.queue.value.map((item) => item.id), ['a', 'b', 'c']);
+      } finally {
+        await handler.dispose();
+        JustAudioPlatform.instance = original;
+      }
+    },
+  );
+
+  test(
     'android controls include favorite and a fifth playback mode action',
     () async {
       final handler = MusicAudioHandler();

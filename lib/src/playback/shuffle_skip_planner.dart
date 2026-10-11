@@ -12,16 +12,14 @@ class ShuffleSkipPlanner {
   final Duration earlySkipThreshold;
   final Random _random;
   List<String> _queueIds = const [];
-  List<String> _order = const [];
+  final Map<String, String> _plannedNext = {};
   final Set<String> _earlySkippedIds = <String>{};
 
-  List<String> get order => List.unmodifiable(_order);
   Set<String> get earlySkippedIds => Set.unmodifiable(_earlySkippedIds);
 
   void reset(List<String> ids) {
     _queueIds = List<String>.of(ids);
-    _order = List<String>.of(ids);
-    _shuffle(_order);
+    _plannedNext.clear();
     _earlySkippedIds.clear();
   }
 
@@ -43,45 +41,42 @@ class ShuffleSkipPlanner {
   String? peekNextAfter(String currentId) => _nextAllowedAfter(currentId);
 
   String? _nextAfter(String currentId, {required bool markEarlySkip}) {
-    if (_order.length <= 1 || !_order.contains(currentId)) {
+    if (_queueIds.length <= 1 || !_queueIds.contains(currentId)) {
       return null;
     }
     if (markEarlySkip) {
       _earlySkippedIds.add(currentId);
     }
-    if (_earlySkippedIds.length >= _order.length) {
+    if (_earlySkippedIds.length >= _queueIds.length) {
       _earlySkippedIds.clear();
     }
 
-    var next = _nextAllowedAfter(currentId);
-    if (next != null) {
-      return next;
+    if (_eligible(currentId).isEmpty) {
+      _earlySkippedIds.clear();
     }
-
-    // 如果剩余候选都被本轮短跳过，释放这一轮，继续沿用同一个随机顺序。
-    _earlySkippedIds.clear();
-    return _nextAllowedAfter(currentId);
+    final next = _nextAllowedAfter(currentId);
+    // A peek reserves the next draw for preloading. Consume it exactly once,
+    // so returning to this song draws again rather than repeating a fixed loop.
+    _plannedNext.remove(currentId);
+    return next;
   }
 
   String? _nextAllowedAfter(String currentId) {
-    final currentIndex = _order.indexOf(currentId);
-    for (var offset = 1; offset < _order.length; offset += 1) {
-      final candidate = _order[(currentIndex + offset) % _order.length];
-      if (candidate != currentId && !_earlySkippedIds.contains(candidate)) {
-        return candidate;
-      }
+    if (!_queueIds.contains(currentId)) return null;
+    var eligible = _eligible(currentId);
+    if (eligible.isEmpty) {
+      // Predict the same release that the next actual skip will perform.
+      eligible = _queueIds.where((id) => id != currentId).toList();
     }
-    return null;
+    if (eligible.isEmpty) return null;
+    final planned = _plannedNext[currentId];
+    if (planned != null && eligible.contains(planned)) return planned;
+    return _plannedNext[currentId] = eligible[_random.nextInt(eligible.length)];
   }
 
-  void _shuffle(List<String> values) {
-    for (var i = values.length - 1; i > 0; i -= 1) {
-      final j = _random.nextInt(i + 1);
-      final value = values[i];
-      values[i] = values[j];
-      values[j] = value;
-    }
-  }
+  List<String> _eligible(String currentId) => _queueIds
+      .where((id) => id != currentId && !_earlySkippedIds.contains(id))
+      .toList();
 }
 
 bool _sameIds(List<String> a, List<String> b) {
