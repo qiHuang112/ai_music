@@ -1104,11 +1104,11 @@ void main() {
       addTearDown(tester.view.resetPhysicalSize);
       addTearDown(tester.view.resetDevicePixelRatio);
       late Directory root;
-      late PlaylistUsageStore usage;
+      late _ObservedPlaylistUsageStore usage;
       await tester.runAsync(() async {
         root = await Directory.systemTemp.createTemp('sort-widget-');
         var now = DateTime(2026, 10, 11);
-        usage = PlaylistUsageStore(
+        usage = _ObservedPlaylistUsageStore(
           rootProvider: () async => root,
           now: () => now,
         );
@@ -1151,18 +1151,22 @@ void main() {
         tester.getTopLeft(tile('recent')).dy,
         lessThan(tester.getTopLeft(tile('frequent')).dy),
       );
-      await tester.tap(find.byKey(const ValueKey('home-playlist-sort')));
-      await tester.pumpAndSettle();
+      Future<void> toggleSort() async {
+        usage.lastSortChange = null;
+        // Real file IO must finish outside the widget test's fake clock.
+        await tester.runAsync(() async {
+          await tester.tap(find.byKey(const ValueKey('home-playlist-sort')));
+          expect(usage.lastSortChange, isNotNull);
+          await usage.lastSortChange;
+        });
+        await tester.pumpAndSettle();
+      }
+
+      await toggleSort();
       expect(
         find.byType(CheckedPopupMenuItem<PlaylistSortOrder>),
         findsNothing,
       );
-      for (var i = 0; i < 12; i++) {
-        await tester.runAsync(
-          () => Future<void>.delayed(const Duration(milliseconds: 5)),
-        );
-        await tester.pump();
-      }
       expect(
         tester.getTopLeft(tile('frequent')).dy,
         lessThan(tester.getTopLeft(tile('recent')).dy),
@@ -1170,14 +1174,7 @@ void main() {
       final restored = PlaylistUsageStore(rootProvider: () async => root);
       await tester.runAsync(restored.load);
       expect(restored.sortOrder, PlaylistSortOrder.visitCount);
-      await tester.tap(find.byKey(const ValueKey('home-playlist-sort')));
-      await tester.pumpAndSettle();
-      for (var i = 0; i < 12; i++) {
-        await tester.runAsync(
-          () => Future<void>.delayed(const Duration(milliseconds: 5)),
-        );
-        await tester.pump();
-      }
+      await toggleSort();
       expect(
         tester.getTopLeft(tile('recent')).dy,
         lessThan(tester.getTopLeft(tile('frequent')).dy),
@@ -4046,6 +4043,16 @@ Widget _app({
       );
     },
   );
+}
+
+class _ObservedPlaylistUsageStore extends PlaylistUsageStore {
+  _ObservedPlaylistUsageStore({required super.rootProvider, super.now});
+
+  Future<void>? lastSortChange;
+
+  @override
+  Future<void> setSortOrder(PlaylistSortOrder value) =>
+      lastSortChange = super.setSortOrder(value);
 }
 
 class _MemorySearchHistoryStore extends SearchHistoryStore {
