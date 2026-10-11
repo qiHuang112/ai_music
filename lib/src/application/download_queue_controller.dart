@@ -1,3 +1,4 @@
+import '../data/operation_log.dart';
 import '../data/music_cache.dart';
 import '../data/music_resolver.dart';
 
@@ -198,6 +199,7 @@ class DownloadQueueController {
   }
 
   void upsert(DownloadTask task) {
+    OperationLog.event('download.task', task.toJson());
     tasks = [
       for (final item in tasks)
         if (item.id != task.id) item,
@@ -211,6 +213,9 @@ class DownloadQueueController {
     var next = update(previous);
     if (previous.canCancel && !next.canCancel) {
       next = next.copyWith(finishedAt: _now());
+    }
+    if (previous.status != next.status) {
+      OperationLog.event('download.task', next.toJson());
     }
     tasks = [
       for (final task in tasks)

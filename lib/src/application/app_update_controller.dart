@@ -1,3 +1,4 @@
+import '../data/operation_log.dart';
 import '../domain/app_brand.dart';
 import 'dart:async';
 import 'dart:convert';
@@ -221,16 +222,10 @@ class AppUpdateController extends ChangeNotifier {
     if (!supported) return;
     try {
       current = await _bridge.info();
-      final file = await _configFile();
-      if (await file.exists()) {
-        final json = jsonDecode(await file.readAsString());
-        if (json is Map && json['serverUrl'] is String) {
-          final saved = normalizeServer(json['serverUrl'] as String);
-          serverUrl = saved.toString();
-        }
-      }
+      // Transport is managed by the app. Legacy user addresses no longer
+      // override the silent built-in LAN/GitHub selection.
     } catch (_) {
-      error = '无法读取版本或更新设置，请重新打开应用';
+      error = '无法读取当前版本，请重新打开应用';
     }
     _changed();
   }
@@ -256,6 +251,7 @@ class AppUpdateController extends ChangeNotifier {
     );
   }
 
+  @visibleForTesting
   Future<void> saveServer(String value) async {
     if (downloading || installing || checking) throw StateError('请先完成或取消当前更新');
     final uri = normalizeServer(value);
@@ -273,6 +269,7 @@ class AppUpdateController extends ChangeNotifier {
   }
 
   Future<void> check({bool force = false}) async {
+    OperationLog.event('update.check', {'force': force});
     await initialize();
     if (!releaseChannel || checking || downloading || installing || _disposed) {
       return;
@@ -391,6 +388,7 @@ class AppUpdateController extends ChangeNotifier {
   }
 
   Future<void> downloadAndInstall() async {
+    OperationLog.event('update.download_install');
     if (!hasUpdate || downloading || installing || _disposed) return;
     if (downloadedApk != null && await downloadedApk!.exists()) {
       await installDownloaded();
@@ -504,6 +502,7 @@ class AppUpdateController extends ChangeNotifier {
   }
 
   Future<void> installDownloaded() async {
+    OperationLog.event('update.install');
     final file = downloadedApk;
     if (file == null || latest == null || installing || !hasUpdate) return;
     installing = true;

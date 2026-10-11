@@ -4,32 +4,82 @@ import 'dart:io';
 
 import 'buguyy_resolver.dart';
 import 'resolver_models.dart';
+import 'music_source_policy.dart';
+import 'provider_request_scheduler.dart';
 
 enum AutoSourceOperation { search, resolve, media }
 
 /// Lives with the app's resolver, never persisted. Once opened, a circuit stays
 /// open until a new app process creates its resolver, including late successes.
 class AutoSourceHealth {
-  AutoSourceHealth({this.failureThreshold = 3, this.maxConcurrentPerSource = 2})
-    : assert(failureThreshold > 0),
-      assert(maxConcurrentPerSource > 0);
+  AutoSourceHealth({
+    this.failureThreshold = 3,
+    this.maxConcurrentPerSource = 2,
+    this.catalog = MusicSourceCatalog.standard,
+    bool Function(MusicDataSource)? isAuthorized,
+  }) : assert(failureThreshold > 0),
+       assert(maxConcurrentPerSource > 0),
+       _isAuthorized = isAuthorized ?? ((_) => false),
+       _states = {
+         for (final policy in catalog.policies) policy.source: _SourceState(),
+       };
 
   final int failureThreshold;
   final int maxConcurrentPerSource;
-  final _states = <MusicDataSource, _SourceState>{
-    MusicDataSource.flac: _SourceState(),
-    MusicDataSource.buguyy: _SourceState(),
-  };
+  final MusicSourceCatalog catalog;
+  final bool Function(MusicDataSource) _isAuthorized;
+  final Map<MusicDataSource, _SourceState> _states;
 
-  List<MusicDataSource> get availableSources =>
-      List.unmodifiable(_states.keys.where(isAvailable));
+  MusicSourceAvailability availability(MusicDataSource source) {
+    final policy = catalog.policyFor(source);
+    if (policy == null) return MusicSourceAvailability.unknown;
+    if (!policy.canRequest(authorized: _isAuthorized(source))) {
+      return MusicSourceAvailability.authorizationRequired;
+    }
+    final state = _states[source]!;
+    if (state.checking) return MusicSourceAvailability.checking;
+    if (state.quotaExhausted) return MusicSourceAvailability.quotaExhausted;
+    if (state.lastFailure != null) return MusicSourceAvailability.unavailable;
+    return state.succeeded
+        ? MusicSourceAvailability.available
+        : MusicSourceAvailability.unknown;
+  }
+
+  void reset(MusicDataSource source, {bool checking = false}) {
+    final state = _states[source];
+    if (state == null) return;
+    state.generation++;
+    state.disabled = false;
+    state.reason = null;
+    state.lastFailure = null;
+    state.quotaExhausted = false;
+    state.succeeded = false;
+    state.checking = checking;
+    state.failures.clear();
+    while (state.waiters.isNotEmpty) {
+      state.waiters.removeFirst().complete();
+    }
+  }
+
+  void finishCheck(MusicDataSource source) {
+    _states[source]?.checking = false;
+  }
+
+  List<MusicDataSource> get availableSources => List.unmodifiable(
+    catalog.autoSources(isAuthorized: _isAuthorized).where(isAvailable),
+  );
 
   bool isAvailable(MusicDataSource source) =>
-      _states[source] != null && !_states[source]!.disabled;
+      _states[source] != null &&
+      catalog
+          .policyFor(source)!
+          .canRequest(authorized: _isAuthorized(source)) &&
+      !_states[source]!.disabled;
 
   String? degradationReason(MusicDataSource source) {
     if (_states[source]?.disabled != true) return null;
-    return '${source.label} 连续 $failureThreshold 次请求失败，本次运行已暂停自动请求此来源';
+    return _states[source]!.reason ??
+        '${source.label} 连续 $failureThreshold 次请求失败，本次运行已暂停自动请求此来源';
   }
 
   void recordSuccess(
@@ -38,6 +88,10 @@ class AutoSourceHealth {
   }) {
     final state = _states[source];
     if (state == null || state.disabled) return;
+    state.succeeded = true;
+    state.checking = false;
+    state.lastFailure = null;
+    state.quotaExhausted = false;
     state.failures[operation] = 0;
   }
 
@@ -47,12 +101,25 @@ class AutoSourceHealth {
     AutoSourceOperation operation = AutoSourceOperation.search,
   }) {
     final state = _states[source];
-    if (state == null || state.disabled || !isSourceServiceFailure(error)) {
+    if (state == null || state.disabled) {
       return;
     }
-    final failures = (state.failures[operation] ?? 0) + 1;
-    state.failures[operation] = failures;
-    if (failures < failureThreshold) return;
+    if (error is SourceAccessException && error.source == source) {
+      state.lastFailure = error;
+      state.quotaExhausted = RegExp(
+        '限额|额度|quota|allowance|daily limit',
+        caseSensitive: false,
+      ).hasMatch(error.message);
+      state.checking = false;
+      state.reason = '$error；本次运行已暂停自动请求此来源';
+    } else {
+      if (!isSourceServiceFailure(error)) return;
+      state.lastFailure = error;
+      state.checking = false;
+      final failures = (state.failures[operation] ?? 0) + 1;
+      state.failures[operation] = failures;
+      if (failures < failureThreshold) return;
+    }
     state.disabled = true;
     // Wake queued work so it can fail over immediately without waiting for the
     // last outstanding request to finish its network timeout.
@@ -70,8 +137,23 @@ class AutoSourceHealth {
   }) async {
     final state = _states[source];
     if (state == null) throw ArgumentError.value(source, 'source');
+    final generation = state.generation;
+    if (!catalog
+        .policyFor(source)!
+        .canRequest(authorized: _isAuthorized(source))) {
+      throw StateError('${source.label}需要授权后才能请求');
+    }
+    final limit = Zone.current[providerBackgroundKey] == true
+        ? catalog
+              .policyFor(source)!
+              .maxBackgroundOperations
+              .clamp(1, maxConcurrentPerSource)
+        : maxConcurrentPerSource;
     if (automatic) {
       while (true) {
+        if (generation != state.generation) {
+          throw StateError('Source request cancelled after network change');
+        }
         if (isCancelled?.call() == true) {
           if (state.active < maxConcurrentPerSource &&
               state.waiters.isNotEmpty) {
@@ -79,13 +161,13 @@ class AutoSourceHealth {
           }
           throw StateError('Source request cancelled');
         }
-        if (state.disabled) {
+        if (!isAvailable(source)) {
           throw AutoSourceUnavailableException(
             source,
-            degradationReason(source)!,
+            degradationReason(source) ?? '${source.label}需要授权后才能请求',
           );
         }
-        if (state.active < maxConcurrentPerSource) break;
+        if (state.active < limit) break;
         final waiter = Completer<void>();
         state.waiters.add(waiter);
         await waiter.future;
@@ -93,20 +175,25 @@ class AutoSourceHealth {
       state.active += 1;
     }
     try {
-      final result = await action();
-      if (isCancelled?.call() != true) {
+      final result = await runZoned(
+        action,
+        zoneValues: {providerAutomaticKey: automatic},
+      );
+      if (isCancelled?.call() != true && generation == state.generation) {
         recordSuccess(source, operation: operation);
       }
       return result;
     } catch (error) {
-      if (isCancelled?.call() != true) {
+      if (isCancelled?.call() != true && generation == state.generation) {
         recordFailure(source, error, operation: operation);
       }
       rethrow;
     } finally {
       if (automatic) {
         state.active -= 1;
-        if (state.waiters.isNotEmpty) state.waiters.removeFirst().complete();
+        while (state.waiters.isNotEmpty) {
+          state.waiters.removeFirst().complete();
+        }
       }
     }
   }
@@ -154,5 +241,11 @@ class _SourceState {
   final failures = <AutoSourceOperation, int>{};
   int active = 0;
   bool disabled = false;
+  String? reason;
+  int generation = 0;
+  bool checking = false;
+  bool succeeded = false;
+  bool quotaExhausted = false;
+  Object? lastFailure;
   final waiters = Queue<Completer<void>>();
 }

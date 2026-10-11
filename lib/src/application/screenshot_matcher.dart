@@ -59,6 +59,7 @@ class ScreenshotMatcher {
   final Map<String, Future<void>> _networkTails = {};
   final Map<String, DateTime> _lastNetworkStarts = {};
   final Map<String, DateTime> _blockedUntil = {};
+  int _availabilityRevision = 0;
 
   ScreenshotMatchResult rankCached(
     ScreenshotSongDraft draft,
@@ -97,6 +98,13 @@ class ScreenshotMatcher {
       return rank(candidates);
     }
     final staged = resolver as StagedScreenshotSearchResolver;
+    final scopes = resolver;
+    final primarySource = scopes is ScreenshotSearchSourceScopes
+        ? (scopes as ScreenshotSearchSourceScopes).screenshotPrimarySource
+        : MusicDataSource.buguyy;
+    final fallbackSource = scopes is ScreenshotSearchSourceScopes
+        ? (scopes as ScreenshotSearchSourceScopes).screenshotFallbackSource
+        : MusicDataSource.flac;
 
     final query = ScreenshotMatchPolicy._withoutContext(draft.title).trim();
     final key = query.toLowerCase();
@@ -107,7 +115,7 @@ class ScreenshotMatcher {
         key: key,
         cache: _primaryCache,
         inFlight: _primaryInFlight,
-        source: MusicDataSource.buguyy.storageValue,
+        source: primarySource.storageValue,
         action: () => staged.searchScreenshotPrimary(query),
       );
     } catch (error) {
@@ -127,7 +135,7 @@ class ScreenshotMatcher {
         key: '$key\u001f${draft.artist.trim().toLowerCase()}',
         cache: _fallbackCache,
         inFlight: _fallbackInFlight,
-        source: MusicDataSource.flac.storageValue,
+        source: fallbackSource.storageValue,
         action: () => staged.searchScreenshotFallback(query, draft.artist),
       );
     } catch (_) {
@@ -158,7 +166,7 @@ class ScreenshotMatcher {
               key: fragment,
               cache: _primaryCache,
               inFlight: _primaryInFlight,
-              source: MusicDataSource.buguyy.storageValue,
+              source: primarySource.storageValue,
               action: () => staged.searchScreenshotPrimary(fragment),
             ),
           );
@@ -186,6 +194,14 @@ class ScreenshotMatcher {
     bool automatic = true,
   }) async {
     final health = resolver;
+    int revision() => resolver is SourceAvailabilityResolver
+        ? (resolver as SourceAvailabilityResolver).sourceAvailabilityRevision
+        : 0;
+    final initialRevision = revision();
+    if (_availabilityRevision != initialRevision) {
+      _availabilityRevision = initialRevision;
+      _blockedUntil.clear();
+    }
     final originalKey = key;
     String scope() => automatic && health is AutoSourceHealthResolver
         ? (health as AutoSourceHealthResolver).availableAutoSources
@@ -193,7 +209,7 @@ class ScreenshotMatcher {
               .join(',')
         : '';
     final initialScope = scope();
-    if (automatic) key = '$key|health:$initialScope';
+    if (automatic) key = '$key|health:$initialScope|network:$initialRevision';
     List<MusicSearchCandidate> available(List<MusicSearchCandidate> found) =>
         automatic && health is AutoSourceHealthResolver
         ? found
@@ -246,7 +262,7 @@ class ScreenshotMatcher {
       if (found.isNotEmpty) cache[key] = found;
       return current(Future.value(found));
     } catch (error) {
-      if (_isSourceProtection(error)) {
+      if (_isSourceProtection(error) && initialRevision == revision()) {
         _blockedUntil[source] = _now().add(const Duration(minutes: 15));
       }
       rethrow;

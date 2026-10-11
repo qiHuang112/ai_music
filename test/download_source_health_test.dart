@@ -9,6 +9,97 @@ import 'package:ai_music/src/data/music_resolver.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
+  for (final manual in [false, true]) {
+    test(
+      'YY transfer failure stays one task and falls back only in Auto manual=$manual',
+      () async {
+        final resolver = _FallbackResolver();
+        final cache = _CacheStore()
+          ..failureFor = (music) => music.source == MusicDataSource.buguyy
+              ? const HttpException('HTTP 503')
+              : null;
+        final queue = DownloadQueueController();
+        final result = await _useCase(resolver, cache, queue: queue)
+            .downloadCandidate(
+              _candidate,
+              sourceMode: manual
+                  ? MusicDataSource.buguyy
+                  : MusicDataSource.auto,
+              quality: MusicQualityLevel.medium,
+              onStatus: (_) {},
+              onChanged: () {},
+            );
+        expect(queue.recentTasks, hasLength(1));
+        if (manual) {
+          expect(result.failure, isA<HttpException>());
+          expect(resolver.alternates, 0);
+          expect(cache.sources, [MusicDataSource.buguyy]);
+        } else {
+          expect(result.cached?.music.source, MusicDataSource.flac);
+          expect(queue.recentTasks.single.status, DownloadTaskStatus.completed);
+          expect(cache.sources, [MusicDataSource.buguyy, MusicDataSource.flac]);
+          expect(resolver.excluded, {MusicDataSource.buguyy});
+          expect(resolver.alternateQuality, MusicQualityLevel.medium);
+          expect(resolver.failures, hasLength(1));
+          expect(resolver.successes, [MusicDataSource.flac]);
+        }
+      },
+    );
+  }
+
+  test('both transfers fail once without retrying a provider', () async {
+    final resolver = _FallbackResolver();
+    final cache = _CacheStore()..failure = const HttpException('HTTP 503');
+    final result = await _useCase(resolver, cache).downloadCandidate(
+      _candidate,
+      sourceMode: MusicDataSource.auto,
+      onStatus: (_) {},
+      onChanged: () {},
+    );
+    expect(result.cached, isNull);
+    expect(cache.sources, [MusicDataSource.buguyy, MusicDataSource.flac]);
+    expect(resolver.failures, hasLength(2));
+    expect(resolver.excluded, {MusicDataSource.buguyy});
+    expect(resolver.alternates, 1);
+  });
+
+  test('cancel during fallback never starts another transfer', () async {
+    final resolver = _FallbackResolver()..alternateGate = Completer<void>();
+    final cache = _CacheStore()..failure = const HttpException('HTTP 503');
+    final queue = DownloadQueueController();
+    final useCase = _useCase(resolver, cache, queue: queue);
+    final pending = useCase.downloadCandidate(
+      _candidate,
+      sourceMode: MusicDataSource.auto,
+      onStatus: (_) {},
+      onChanged: () {},
+    );
+    await resolver.alternateStarted.future;
+    useCase.cancelDownload(queue.taskIdForCandidate(_candidate));
+    expect(resolver.cancelled!(), isTrue);
+    resolver.alternateGate!.complete();
+    final result = await pending;
+    expect(result.statusMessage?.code, MusicUiMessageCode.downloadCanceled);
+    expect(cache.sources, [MusicDataSource.buguyy]);
+    expect(queue.recentTasks.single.status, DownloadTaskStatus.canceled);
+  });
+
+  test('disk errors do not trigger online fallback', () async {
+    final resolver = _FallbackResolver();
+    final result =
+        await _useCase(
+          resolver,
+          _CacheStore()..failure = const FileSystemException('disk full'),
+        ).downloadCandidate(
+          _candidate,
+          sourceMode: MusicDataSource.auto,
+          onStatus: (_) {},
+          onChanged: () {},
+        );
+    expect(result.failure, isA<FileSystemException>());
+    expect(resolver.alternates, 0);
+  });
+
   test(
     'download forwards source policy and requested quality to health resolver',
     () async {
@@ -233,6 +324,8 @@ class _HealthResolver implements MusicResolver, AutoSourceHealthResolver {
 
 class _CacheStore extends CachedTrackStore {
   Object? failure;
+  Object? Function(ResolvedMusic)? failureFor;
+  final sources = <MusicDataSource>[];
   bool fromCache = false;
   int calls = 0;
   Completer<void>? gate;
@@ -245,9 +338,12 @@ class _CacheStore extends CachedTrackStore {
     DownloadCancelToken? cancelToken,
   }) async {
     calls++;
+    sources.add(result.source);
     if (!started.isCompleted) started.complete();
     await gate?.future;
     if (failure != null) throw failure!;
+    final error = failureFor?.call(result);
+    if (error != null) throw error;
     return CachedTrack(
       cacheId: 'song-cache',
       music: result,
@@ -255,5 +351,54 @@ class _CacheStore extends CachedTrackStore {
       sizeBytes: 4096,
       fromCache: fromCache,
     );
+  }
+}
+
+class _FallbackResolver extends _HealthResolver
+    implements AutoFallbackMusicResolver {
+  int alternates = 0;
+  Set<MusicDataSource>? excluded;
+  MusicQualityLevel? alternateQuality;
+  bool Function()? cancelled;
+  Completer<void>? alternateGate;
+  final alternateStarted = Completer<void>();
+
+  @override
+  Future<ResolvedMusic> resolveForSourceMode(
+    MusicSearchCandidate candidate,
+    MusicDataSource mode, {
+    MusicQualityLevel? quality,
+  }) async {
+    await super.resolveForSourceMode(candidate, mode, quality: quality);
+    return const ResolvedMusic(
+      query: 'Song',
+      source: MusicDataSource.buguyy,
+      platform: 'buguyy',
+      id: 'song',
+      name: 'Song',
+      artist: 'Artist',
+      album: '',
+      url: 'https://audio.test/yy.mp3',
+      quality: MusicQuality(format: 'mp3'),
+    );
+  }
+
+  @override
+  Future<ResolvedMusic> resolveAlternative(
+    MusicSearchCandidate candidate, {
+    required Set<MusicDataSource> excludedSources,
+    MusicQualityLevel? quality,
+    bool Function()? isCancelled,
+  }) async {
+    alternates++;
+    excluded = Set.of(excludedSources);
+    alternateQuality = quality;
+    cancelled = isCancelled;
+    if (!alternateStarted.isCompleted) alternateStarted.complete();
+    await alternateGate?.future;
+    if (excludedSources.contains(MusicDataSource.flac)) {
+      throw StateError('No alternate');
+    }
+    return _resolved;
   }
 }

@@ -1,4 +1,6 @@
+import 'dart:async';
 import 'dart:convert';
+import 'provider_request_scheduler.dart';
 import 'dart:math';
 
 import 'resolver_models.dart';
@@ -21,6 +23,7 @@ class ChallengeClient {
   final String apiBaseUrl;
   final String challengeBaseUrl;
   String _flacCookie;
+  Future<String>? _refreshing;
 
   Future<Map<String, dynamic>> postFlacApi(
     String act,
@@ -33,7 +36,9 @@ class ChallengeClient {
       if (!looksLikeChallengeError(error)) {
         rethrow;
       }
-      final refreshed = await refreshCookie();
+      final refreshed = _flacCookie != cookie && _flacCookie.isNotEmpty
+          ? _flacCookie
+          : await refreshCookie();
       return _postFlacApi(refreshed, act, form);
     }
   }
@@ -46,10 +51,16 @@ class ChallengeClient {
     return _flacCookie;
   }
 
-  Future<String> refreshCookie() async {
-    final fresh = await _generateFlacCookie();
-    _flacCookie = fresh.cookie;
-    return _flacCookie;
+  Future<String> refreshCookie() {
+    return _refreshing ??= runZoned<Future<String>>(() async {
+      try {
+        final fresh = await _generateFlacCookie();
+        _flacCookie = fresh.cookie;
+        return _flacCookie;
+      } finally {
+        _refreshing = null;
+      }
+    }, zoneValues: {providerCancellationKey: null});
   }
 
   Future<_CookieResult> _generateFlacCookie() async {

@@ -16,6 +16,7 @@ import 'online_playlist_page.dart';
 import '../application/music_controller.dart';
 import '../application/music_ui_message.dart';
 import '../data/music_playlists.dart';
+import '../data/playlist_usage_store.dart';
 import '../data/music_charts.dart';
 import '../data/music_resolver.dart';
 import '../data/search_history_store.dart';
@@ -65,6 +66,7 @@ class _MusicHomePageState extends State<MusicHomePage>
   bool _showPlaylistResults = false;
   bool _historyEditMode = false;
   bool _keyboardVisible = false;
+  bool _leftApp = false;
   DateTime? _lastEmptyBackAt;
   MusicUiMessage? _lastStatusSnackMessage;
   String? _preparingCandidateKey;
@@ -113,6 +115,15 @@ class _MusicHomePageState extends State<MusicHomePage>
       _searchFocusNode.unfocus();
     }
     _keyboardVisible = visible;
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.paused) _leftApp = true;
+    if (state == AppLifecycleState.resumed && _leftApp) {
+      _leftApp = false;
+      unawaited(controller.refreshSourceAvailability(networkChanged: true));
+    }
   }
 
   void _openMatchedPlaylist(MusicPlaylist playlist) {
@@ -1042,7 +1053,7 @@ class _HomeLibrarySection extends StatelessWidget {
 
   Widget _buildContent(BuildContext context) {
     final strings = AppStringsScope.of(context);
-    final playlists = _playlistsWithActiveSyncFirst(controller);
+    final playlists = controller.frequentlyUsedPlaylists;
     final theme = Theme.of(context);
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -1069,6 +1080,42 @@ class _HomeLibrarySection extends StatelessWidget {
                   fontSize: 19,
                   fontWeight: FontWeight.w600,
                 ),
+              ),
+            ),
+            TextButton(
+              key: const ValueKey('home-playlist-sort'),
+              onPressed: () => controller.setPlaylistSortOrder(
+                controller.playlistSortOrder == PlaylistSortOrder.recentlyOpened
+                    ? PlaylistSortOrder.visitCount
+                    : PlaylistSortOrder.recentlyOpened,
+              ),
+              style: TextButton.styleFrom(
+                padding: const EdgeInsets.symmetric(horizontal: 8),
+              ),
+              child: Tooltip(
+                message:
+                    controller.playlistSortOrder ==
+                        PlaylistSortOrder.recentlyOpened
+                    ? (strings.isZh
+                          ? '切换为访问次数（近30天）'
+                          : 'Switch to visits (30 days)')
+                    : (strings.isZh ? '切换为最近打开' : 'Switch to recently opened'),
+                child: MediaQuery.textScalerOf(context).scale(14) > 18
+                    ? const Icon(Icons.swap_vert_rounded, size: 22)
+                    : Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Text(
+                            controller.playlistSortOrder ==
+                                    PlaylistSortOrder.recentlyOpened
+                                ? (strings.isZh ? '最近打开' : 'Recent')
+                                : (strings.isZh ? '访问次数' : 'Visits'),
+                            style: theme.textTheme.labelLarge,
+                          ),
+                          const SizedBox(width: 2),
+                          const Icon(Icons.swap_vert_rounded, size: 18),
+                        ],
+                      ),
               ),
             ),
             TextButton(
@@ -3279,6 +3326,7 @@ String _candidateSubtitle(MusicSearchCandidate candidate) {
   final parts = [
     if (candidate.artist.isNotEmpty) candidate.artist,
     if (candidate.album.isNotEmpty) candidate.album,
+    if (candidate.source == MusicDataSource.twentyFourBit) '有限额下载',
     if (_qualityAndSize(candidate).isNotEmpty) _qualityAndSize(candidate),
   ];
   return parts.join(' - ');
@@ -3310,6 +3358,7 @@ String _sourceMarker(MusicSearchCandidate candidate) {
   return switch (candidate.source) {
     MusicDataSource.buguyy => '布谷',
     MusicDataSource.flac => 'FLAC',
+    MusicDataSource.twentyFourBit => '24bit',
     MusicDataSource.auto => 'AUTO',
     MusicDataSource.lan => 'LAN',
   };

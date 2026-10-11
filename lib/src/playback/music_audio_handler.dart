@@ -1,3 +1,4 @@
+import '../data/operation_log.dart';
 import 'dart:async';
 
 import 'package:audio_service/audio_service.dart';
@@ -288,6 +289,7 @@ class MusicAudioHandler extends BaseAudioHandler
 
   @override
   Future<void> play() {
+    OperationLog.event('playback.play', {'trackId': mediaItem.value?.id});
     unawaited(
       _player.play().catchError((Object error, StackTrace stack) {
         playbackState.add(
@@ -304,15 +306,24 @@ class MusicAudioHandler extends BaseAudioHandler
 
   @override
   Future<void> pause() {
+    OperationLog.event('playback.pause', {'trackId': mediaItem.value?.id});
     recordPlaybackIntent();
     return _player.pause();
   }
 
   @override
-  Future<void> seek(Duration position) => _player.seek(position);
+  Future<void> seek(Duration position) {
+    OperationLog.event('playback.seek', {
+      'positionMs': position.inMilliseconds,
+    });
+    return _player.seek(position);
+  }
 
   @override
   Future<void> skipToQueueItem(int index) async {
+    OperationLog.event('playback.queue_select', {
+      'trackId': mediaItem.value?.id,
+    });
     recordPlaybackIntent();
     if (index < 0 || index >= _items.length) {
       return;
@@ -327,6 +338,7 @@ class MusicAudioHandler extends BaseAudioHandler
 
   @override
   Future<void> skipToNext() async {
+    OperationLog.event('playback.next', {'trackId': mediaItem.value?.id});
     recordPlaybackIntent();
     if (_shuffleModeEnabled && _items.length > 1) {
       final index = _player.playbackEvent.currentIndex;
@@ -364,6 +376,7 @@ class MusicAudioHandler extends BaseAudioHandler
 
   @override
   Future<void> skipToPrevious() async {
+    OperationLog.event('playback.previous', {'trackId': mediaItem.value?.id});
     recordPlaybackIntent();
     final previousIndex = _manualAdjacentIndex(-1);
     if (previousIndex == null) return;
@@ -463,6 +476,7 @@ class MusicAudioHandler extends BaseAudioHandler
 
   @override
   Future<void> stop() async {
+    OperationLog.event('playback.stop', {'trackId': mediaItem.value?.id});
     recordPlaybackIntent();
     _indexTracker.pendingShuffleRedirectIndex = null;
     await _player.stop();

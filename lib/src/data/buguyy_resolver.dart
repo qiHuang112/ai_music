@@ -6,6 +6,7 @@ import 'dart:io';
 import 'dart:math';
 
 import 'candidate_scorer.dart';
+import 'provider_request_scheduler.dart';
 import 'challenge_client.dart';
 import 'lyrics_normalizer.dart';
 import 'resolver_candidate_mapper.dart';
@@ -62,19 +63,22 @@ class BuguyyResolver {
 
   Future<List<MusicSearchCandidate>> search(String query) async {
     final keywords = _scorer.buildKeywords(query);
-    final batches = await Future.wait(
-      keywords.map((keyword) => _searchKeyword(query, keyword)),
-    );
     final seen = <String>{};
     final candidates = <MusicSearchCandidate>[];
-
-    for (final candidate in batches.expand((batch) => batch)) {
-      final key = candidate.id.isNotEmpty
-          ? candidate.id
-          : '${candidate.name}\t${candidate.artist}';
-      if (seen.add(key)) {
-        candidates.add(candidate);
+    for (final keyword in keywords) {
+      if ((Zone.current[providerCancellationKey] as bool Function()?)?.call() ==
+          true) {
+        break;
       }
+      final batch = await _searchKeyword(query, keyword);
+      for (final candidate in batch) {
+        final key = candidate.id.isNotEmpty
+            ? candidate.id
+            : '${candidate.name}\t${candidate.artist}';
+        if (seen.add(key)) candidates.add(candidate);
+      }
+      candidates.sort((a, b) => b.score.compareTo(a.score));
+      if (!_scorer.needsDeepSearch(candidates.firstOrNull, query)) break;
     }
 
     candidates.sort((a, b) => b.score.compareTo(a.score));
@@ -217,7 +221,11 @@ class BuguyyResolver {
         'referer': '$baseUrl/',
         'user-agent': ChallengeClient.userAgent,
       },
-      maxAttempts: _maxNetworkAttempts,
+      // Auto has another provider available: fail over after the first broken
+      // transport instead of holding the user through three identical attempts.
+      maxAttempts: Zone.current[providerAutomaticKey] == true
+          ? 1
+          : _maxNetworkAttempts,
       retryDelay: _retryDelay,
     );
     final decoded = _decodeJson(response, label: 'buguyy');

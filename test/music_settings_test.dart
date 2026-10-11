@@ -30,7 +30,7 @@ void main() {
     }
   });
 
-  test('settings store defaults to FLAC source', () async {
+  test('settings store defaults to Auto source', () async {
     final root = await Directory.systemTemp.createTemp(
       'ai_music_settings_default_',
     );
@@ -39,7 +39,7 @@ void main() {
     try {
       final settings = await store.loadSettings();
 
-      expect(settings.source, MusicDataSource.flac);
+      expect(settings.source, MusicDataSource.auto);
       expect(settings.language, AppLanguage.zh);
       expect(settings.theme, AppThemePreference.dark);
       expect(settings.lanLibraryUrl, defaultLanLibraryUrl);
@@ -95,9 +95,15 @@ void main() {
       final file = File('${root.path}/settings.json');
       final store = MusicSettingsStore(rootProvider: () async => root);
       try {
-        for (final json in ['{}', '{"source":"retired"}', '{"source":"lan"}']) {
+        for (final json in [
+          '{}',
+          '{"source":"retired"}',
+          '{"source":"lan"}',
+          '{"source":"24bit"}',
+          '24bit',
+        ]) {
           await file.writeAsString(json);
-          expect((await store.loadSettings()).source, MusicDataSource.flac);
+          expect((await store.loadSettings()).source, MusicDataSource.auto);
         }
         for (final source in [
           MusicDataSource.auto,

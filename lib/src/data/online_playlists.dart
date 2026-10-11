@@ -1,3 +1,4 @@
+import 'operation_log.dart';
 import 'dart:convert';
 import 'dart:math' as math;
 
@@ -79,6 +80,11 @@ class OnlinePlaylistRepository {
     String query, {
     int page = 1,
   }) async {
+    OperationLog.event('playlist.search', {
+      'source': source.name,
+      'query': query,
+      'page': page,
+    });
     if (query.trim().isEmpty) {
       return const OnlinePlaylistSearchPage(items: [], hasMore: false);
     }
@@ -189,6 +195,11 @@ class OnlinePlaylistRepository {
     bool Function()? isCanceled,
     void Function(int loaded, int total)? onProgress,
   }) async {
+    OperationLog.event('playlist.load', {
+      'source': playlist.source.name,
+      'id': playlist.id,
+      'title': playlist.name,
+    });
     void checkCanceled() {
       if (isCanceled?.call() ?? false) throw StateError('Canceled');
     }

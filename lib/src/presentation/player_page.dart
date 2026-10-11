@@ -49,7 +49,11 @@ class _PlayerPageState extends State<PlayerPage> {
   @override
   void initState() {
     super.initState();
-    controller.loadMetadataForCurrentTrack();
+    // Loading can notify the app-level listener synchronously. Let the route
+    // finish mounting before updating metadata, and skip a route already closed.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) controller.loadMetadataForCurrentTrack();
+    });
   }
 
   @override

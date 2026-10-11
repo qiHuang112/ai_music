@@ -1,4 +1,5 @@
 import 'package:ai_music/src/data/playlist_song.dart';
+import 'package:ai_music/src/data/playlist_usage_store.dart';
 import 'package:ai_music/src/data/online_playlists.dart';
 import 'package:ai_music/src/presentation/song_source_page.dart';
 import 'package:ai_music/src/data/listening_stats_store.dart';
@@ -9,6 +10,7 @@ import 'package:ai_music/src/data/song_search_cache.dart';
 import 'package:ai_music/src/application/download_queue_controller.dart';
 import 'package:ai_music/src/presentation/date_groups.dart';
 import 'memory_download_history.dart';
+import 'package:connectivity_plus/connectivity_plus.dart';
 import 'dart:async';
 import 'dart:io';
 
@@ -23,6 +25,8 @@ import 'package:ai_music/src/data/music_resolver.dart';
 import 'package:ai_music/src/data/music_settings.dart';
 import 'package:ai_music/src/data/saved_online_track.dart';
 import 'package:ai_music/src/data/search_history_store.dart';
+import 'package:ai_music/src/application/diagnostics_upload_controller.dart';
+import 'package:ai_music/src/presentation/settings_page.dart';
 import 'package:ai_music/src/domain/music_models.dart';
 import 'package:ai_music/src/presentation/app_localizations.dart';
 import 'package:ai_music/src/presentation/music_home_page.dart';
@@ -33,6 +37,127 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
+  testWidgets('log upload is visible only after finding the LAN service', (
+    tester,
+  ) async {
+    final client = _WidgetDiagnosticsClient();
+    final stats = ListeningStatsStore.memory();
+    final upload = DiagnosticsUploadController(
+      stats: stats,
+      captureListening: () {},
+      version: () async => null,
+      client: client,
+    );
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(body: DiagnosticsUploadSetting(controller: upload)),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('上传日志'), findsNothing);
+    client.found = true;
+    await upload.probe();
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('upload-diagnostics')), findsOneWidget);
+    client.found = false;
+    await upload.probe();
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('upload-diagnostics')), findsNothing);
+    await tester.pumpWidget(const SizedBox.shrink());
+    upload.dispose();
+    stats.dispose();
+  });
+  testWidgets('limited provider is an explanation rather than a source radio', (
+    tester,
+  ) async {
+    final settings = _FakeSettingsStore();
+    await tester.pumpWidget(_app(settings: settings));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byTooltip('设置'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('音乐源'));
+    await tester.pumpAndSettle();
+    final radios = tester.widgetList<RadioListTile<MusicDataSource>>(
+      find.byType(RadioListTile<MusicDataSource>),
+    );
+    expect(radios.map((r) => r.value), [
+      MusicDataSource.auto,
+      MusicDataSource.flac,
+      MusicDataSource.buguyy,
+    ]);
+    expect(settings.settings.source, MusicDataSource.auto);
+    expect(find.text('24bit · 有限额下载'), findsOneWidget);
+    final info = tester.widget<ListTile>(
+      find.ancestor(
+        of: find.text('24bit · 有限额下载'),
+        matching: find.byType(ListTile),
+      ),
+    );
+    expect(info.onTap, isNull);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('song source picker cannot pin the limited fallback', (
+    tester,
+  ) async {
+    final handler = _WidgetAudioHandler();
+    final controller = MusicController(
+      audioHandler: handler,
+      resolver: _KnownStatusMusicResolver(
+        candidates: [
+          _candidate(
+            name: '晴天',
+            artist: '周杰伦',
+            source: MusicDataSource.twentyFourBit,
+          ),
+        ],
+      ),
+      cacheStore: _FakeCacheStore(),
+      playlistStore: _FakePlaylistStore(),
+      settingsStore: _FakeSettingsStore(),
+      metadataRepository: _FakeMetadataRepository(),
+      songSearchCache: SongSearchCache.memory(),
+      downloadHistoryStore: MemoryDownloadHistory(),
+      listeningStatsStore: ListeningStatsStore.memory(),
+      connectivityChanges: const Stream.empty(),
+    );
+    try {
+      await tester.pumpWidget(
+        MaterialApp(
+          home: AppStringsScope(
+            language: AppLanguage.zh,
+            child: SongSourcePage(
+              controller: controller,
+              track: const Track(
+                id: 'song',
+                title: '晴天',
+                artist: '周杰伦',
+                album: '',
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(find.byType(ChoiceChip), findsNWidgets(3));
+      expect(find.widgetWithText(ChoiceChip, '24bit'), findsNothing);
+      expect(find.byKey(const ValueKey('song-source-0')), findsNothing);
+      expect(find.textContaining('备用来源仅在常规来源'), findsOneWidget);
+      expect(find.text('待检查'), findsNothing);
+      expect(find.text('需要授权'), findsNothing);
+      expect(find.textContaining('额度已耗尽'), findsOneWidget);
+      await controller.refreshSourceAvailability(networkChanged: true);
+      await tester.pumpAndSettle();
+      expect(find.textContaining('额度已耗尽'), findsNothing);
+      expect(find.textContaining('24bit · 有限额下载 · 可用'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    } finally {
+      await tester.pumpWidget(const SizedBox.shrink());
+      controller.dispose();
+      unawaited(handler.dispose());
+    }
+  });
+
   for (final largeText in [false, true]) {
     testWidgets(
       'playlist uncertain source is actionable without background search largeText=$largeText',
@@ -971,6 +1096,100 @@ void main() {
     }
   });
 
+  testWidgets(
+    'home playlist sort switches, persists and fits a narrow screen',
+    (tester) async {
+      tester.view.physicalSize = const Size(320, 760);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      late Directory root;
+      late PlaylistUsageStore usage;
+      await tester.runAsync(() async {
+        root = await Directory.systemTemp.createTemp('sort-widget-');
+        var now = DateTime(2026, 10, 11);
+        usage = PlaylistUsageStore(
+          rootProvider: () async => root,
+          now: () => now,
+        );
+        await usage.record('frequent', played: false);
+        await usage.record('frequent', played: false);
+        now = now.add(const Duration(hours: 1));
+        await usage.record('recent', played: false);
+      });
+      addTearDown(() => root.delete(recursive: true));
+      final lists = _FakePlaylistStore()
+        ..library = PlaylistLibrary(
+          playlists: [
+            for (final id in ['frequent', 'recent'])
+              MusicPlaylist(
+                id: id,
+                name: id,
+                createdAt: DateTime(2026),
+                updatedAt: DateTime(2026),
+              ),
+          ],
+        );
+      final controller = MusicController(
+        audioHandler: _WidgetAudioHandler(),
+        connectivityChanges: const Stream<List<ConnectivityResult>>.empty(),
+        checkConnectivity: () async => [ConnectivityResult.mobile],
+        resolver: _FakeMusicResolver(),
+        cacheStore: _FakeCacheStore(),
+        playlistStore: lists,
+        playlistUsageStore: usage,
+        settingsStore: _FakeSettingsStore(),
+        metadataRepository: _FakeMetadataRepository(),
+        songSearchCache: SongSearchCache.memory(),
+        downloadHistoryStore: MemoryDownloadHistory(),
+      );
+      addTearDown(controller.dispose);
+      await tester.pumpWidget(_app(playbackController: controller));
+      await tester.pumpAndSettle();
+      Finder tile(String id) => find.byKey(ValueKey('home-playlist-$id'));
+      expect(
+        tester.getTopLeft(tile('recent')).dy,
+        lessThan(tester.getTopLeft(tile('frequent')).dy),
+      );
+      await tester.tap(find.byKey(const ValueKey('home-playlist-sort')));
+      await tester.pumpAndSettle();
+      expect(
+        find.byType(CheckedPopupMenuItem<PlaylistSortOrder>),
+        findsNothing,
+      );
+      for (var i = 0; i < 12; i++) {
+        await tester.runAsync(
+          () => Future<void>.delayed(const Duration(milliseconds: 5)),
+        );
+        await tester.pump();
+      }
+      expect(
+        tester.getTopLeft(tile('frequent')).dy,
+        lessThan(tester.getTopLeft(tile('recent')).dy),
+      );
+      final restored = PlaylistUsageStore(rootProvider: () async => root);
+      await tester.runAsync(restored.load);
+      expect(restored.sortOrder, PlaylistSortOrder.visitCount);
+      await tester.tap(find.byKey(const ValueKey('home-playlist-sort')));
+      await tester.pumpAndSettle();
+      for (var i = 0; i < 12; i++) {
+        await tester.runAsync(
+          () => Future<void>.delayed(const Duration(milliseconds: 5)),
+        );
+        await tester.pump();
+      }
+      expect(
+        tester.getTopLeft(tile('recent')).dy,
+        lessThan(tester.getTopLeft(tile('frequent')).dy),
+      );
+      final restoredRecent = PlaylistUsageStore(rootProvider: () async => root);
+      await tester.runAsync(restoredRecent.load);
+      expect(restoredRecent.sortOrder, PlaylistSortOrder.recentlyOpened);
+      expect(tester.takeException(), isNull);
+      await tester.pumpWidget(const SizedBox.shrink());
+    },
+  );
+
   testWidgets('home defaults to favorite and custom playlist summaries', (
     tester,
   ) async {
@@ -1398,7 +1617,7 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(resolver.lastQuery, '周杰伦');
-    expect(resolver.lastSource, MusicDataSource.flac);
+    expect(resolver.lastSource, MusicDataSource.auto);
     expect(find.text('稻香 0'), findsOneWidget);
     expect(find.text('FLAC'), findsWidgets);
     expect(find.textContaining('BuguYY'), findsNothing);
@@ -1695,9 +1914,12 @@ void main() {
     await tester.tap(find.byTooltip('下载'));
     await tester.pumpAndSettle();
 
+    expect(find.text('稻香'), findsOneWidget);
+    await tester.tap(find.byKey(const ValueKey('manager-tab-tasks')));
+    await tester.pumpAndSettle();
     expect(find.text('没有正在下载的任务'), findsOneWidget);
-    expect(find.text('稻香'), findsAtLeastNWidgets(2));
-    expect(find.textContaining('已完成'), findsOneWidget);
+    expect(find.text('稻香'), findsOneWidget);
+    expect(find.textContaining('已完成'), findsAtLeastNWidgets(1));
   });
 
   testWidgets(
@@ -1841,6 +2063,9 @@ void main() {
       await tester.tap(find.byTooltip('下载'));
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 500));
+      await tester.tap(find.byKey(const ValueKey('manager-tab-tasks')));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 500));
       expect(find.text('今天 · 下载 1 首'), findsOneWidget);
       await tester.tap(find.text('今天 · 下载 1 首'));
       await tester.pump();
@@ -1975,6 +2200,196 @@ void main() {
     expect(find.text('Alpha'), findsOneWidget);
     expect(find.text('Beta'), findsNothing);
   });
+
+  testWidgets(
+    'download manager keeps search and sections reachable through long lists',
+    (tester) async {
+      final cache = _FakeCacheStore(
+        cached: [
+          for (var i = 0; i < 160; i++)
+            CachedTrack(
+              cacheId: cacheIdForResolved(
+                _resolvedMusic(id: '$i', name: 'Song $i'),
+              ),
+              music: _resolvedMusic(id: '$i', name: 'Song $i'),
+              filePath: '/tmp/$i.mp3',
+              sizeBytes: 4,
+              fromCache: true,
+              cachedAt: DateTime.now(),
+            ),
+        ],
+      );
+      final store = _FakePlaylistStore()
+        ..library = PlaylistLibrary(
+          playlists: [
+            for (var i = 0; i < 35; i++)
+              MusicPlaylist(
+                id: 'list-$i',
+                name: 'Road $i',
+                entries: const [],
+                createdAt: DateTime(2026),
+                updatedAt: DateTime(2026),
+              ),
+          ],
+        );
+      await tester.pumpWidget(_app(cacheStore: cache, playlistStore: store));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byTooltip('下载'));
+      await tester.pumpAndSettle();
+      final search = find.byKey(const Key('manager-search'));
+      final top = tester.getTopLeft(search);
+      await tester.drag(find.byType(CustomScrollView), const Offset(0, -2000));
+      await tester.pumpAndSettle();
+      expect(tester.getTopLeft(search), top);
+      expect(search.hitTestable(), findsOneWidget);
+      await tester.enterText(find.byType(TextField).last, 'Song 159');
+      await tester.pumpAndSettle();
+      expect(
+        find.descendant(
+          of: find.byType(CustomScrollView),
+          matching: find.text('Song 159'),
+        ),
+        findsOneWidget,
+      );
+      expect(find.text('1 首歌曲'), findsOneWidget);
+      await tester.tap(find.byKey(const ValueKey('manager-tab-playlists')));
+      await tester.pumpAndSettle();
+      expect(find.text('没有符合条件的歌单'), findsOneWidget);
+      await tester.enterText(find.byType(TextField).last, 'Road 34');
+      await tester.pumpAndSettle();
+      expect(
+        find.byKey(const ValueKey('manager-playlist-list-34')),
+        findsOneWidget,
+      );
+      expect(
+        find.byKey(const ValueKey('manager-download-list-34')),
+        findsOneWidget,
+      );
+      expect(store.writeCount, 0);
+      await tester.enterText(find.byType(TextField).last, '');
+      tester.binding.focusManager.primaryFocus?.unfocus();
+      await tester.pumpAndSettle();
+      await tester.drag(find.byType(CustomScrollView), const Offset(0, -1200));
+      await tester.pumpAndSettle();
+      final offset = tester
+          .widget<CustomScrollView>(find.byType(CustomScrollView))
+          .controller!
+          .offset;
+      await tester.tap(find.byKey(const ValueKey('manager-tab-cached')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('manager-tab-playlists')));
+      await tester.pumpAndSettle();
+      expect(
+        tester
+            .widget<CustomScrollView>(find.byType(CustomScrollView))
+            .controller!
+            .offset,
+        closeTo(offset, 1),
+      );
+      expect(search.hitTestable(), findsOneWidget);
+      await tester.tap(find.byKey(const Key('manager-lan-sync')));
+      await tester.pumpAndSettle();
+      expect(find.text('扫描并同步'), findsOneWidget);
+      await tester.binding.handlePopRoute();
+      await tester.pumpAndSettle();
+      expect(store.writeCount, 0);
+      expect(tester.takeException(), isNull);
+    },
+  );
+
+  testWidgets(
+    'download manager finds failed tasks by error and preserves task controls',
+    (tester) async {
+      final controller = MusicController(
+        songSearchCache: SongSearchCache.memory(),
+        audioHandler: MusicAudioHandler(),
+        resolver: _FakeMusicResolver(),
+        cacheStore: _FakeCacheStore(),
+        playlistStore: _FakePlaylistStore(),
+        settingsStore: _FakeSettingsStore(),
+        metadataRepository: _FakeMetadataRepository(),
+        downloadHistoryStore: MemoryDownloadHistory(),
+      );
+      controller.downloadQueue.tasks = [
+        DownloadTask(
+          id: 'failed',
+          title: 'Failed song',
+          subtitle: 'Singer',
+          status: DownloadTaskStatus.failed,
+          error: '429 limited',
+          finishedAt: DateTime.now(),
+        ),
+        DownloadTask(
+          id: 'done',
+          title: 'Done song',
+          subtitle: '',
+          status: DownloadTaskStatus.completed,
+          finishedAt: DateTime.now(),
+        ),
+      ];
+      controller.downloadQueue.start(
+        'active',
+        _candidate(name: 'Active song', artist: 'Singer'),
+      );
+      await tester.pumpWidget(_app(playbackController: controller));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 500));
+      await tester.tap(find.byTooltip('下载'));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 500));
+      await tester.tap(find.byKey(const ValueKey('manager-tab-tasks')));
+      await tester.pump(const Duration(milliseconds: 500));
+      await tester.tap(find.byKey(const ValueKey('manager-task-failed')));
+      await tester.pump(const Duration(milliseconds: 500));
+      await tester.enterText(find.byType(TextField).last, '429');
+      await tester.pump(const Duration(milliseconds: 500));
+      expect(find.text('Failed song'), findsOneWidget);
+      expect(find.text('Done song'), findsNothing);
+      expect(find.text('Active song'), findsNothing);
+      await tester.tap(find.byTooltip('清除'));
+      await tester.pump(const Duration(milliseconds: 500));
+      expect(
+        controller.downloadTasks.map((t) => t.id),
+        isNot(contains('failed')),
+      );
+      await tester.enterText(find.byType(TextField).last, '');
+      await tester.tap(find.byKey(const ValueKey('manager-task-active')));
+      await tester.pump(const Duration(milliseconds: 500));
+      expect(find.text('Active song'), findsOneWidget);
+      expect(find.text('Done song'), findsNothing);
+      await tester.tap(find.byTooltip('取消'));
+      await tester.pump(const Duration(milliseconds: 500));
+      expect(
+        controller.downloadTasks.singleWhere((t) => t.id == 'active').status,
+        DownloadTaskStatus.canceled,
+      );
+      expect(tester.takeException(), isNull);
+    },
+  );
+
+  testWidgets(
+    'download manager fits narrow large text with keyboard and LAN panel',
+    (tester) async {
+      await tester.binding.setSurfaceSize(const Size(320, 640));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+      await tester.pumpWidget(_app(textScaler: TextScaler.linear(2)));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byTooltip('下载'));
+      await tester.pumpAndSettle();
+      await tester.showKeyboard(find.byType(TextField).last);
+      await tester.enterText(find.byType(TextField).last, 'missing');
+      await tester.pumpAndSettle();
+      for (final section in ['tasks', 'playlists', 'cached']) {
+        await tester.tap(find.byKey(ValueKey('manager-tab-$section')));
+        await tester.pumpAndSettle();
+        expect(tester.takeException(), isNull);
+      }
+      await tester.tap(find.byKey(const Key('manager-lan-sync')));
+      await tester.pumpAndSettle();
+      expect(find.text('扫描并同步'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    },
+  );
 
   testWidgets('settings pages persist language theme and music source', (
     tester,
@@ -2296,6 +2711,9 @@ void main() {
       await tester.pumpAndSettle();
       await tester.tap(find.byTooltip('下载'));
       await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('manager-tab-playlists')));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 500));
       expect(find.text('歌曲 1 首 · 已下载 1 首'), findsOneWidget);
       expect(
         find.byKey(const ValueKey('playlist-progress-road')),
@@ -2355,6 +2773,9 @@ void main() {
 
     await tester.tap(find.byTooltip('下载'));
     await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('manager-tab-playlists')));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 500));
     expect(find.text('歌曲 1 首 · 已下载 1 首'), findsOneWidget);
     await tester.tap(find.byKey(const ValueKey('manager-download-road')));
     await tester.pumpAndSettle();
@@ -2372,6 +2793,9 @@ void main() {
 
     await tester.tap(find.byTooltip('下载'));
     await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('manager-tab-playlists')));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 500));
     await tester.tap(find.text('Road'));
     await tester.pumpAndSettle();
 
@@ -2394,6 +2818,8 @@ void main() {
     await tester.tap(find.byTooltip('下载'));
     await tester.pumpAndSettle();
 
+    await tester.tap(find.byKey(const Key('manager-lan-sync')));
+    await tester.pumpAndSettle();
     expect(find.text('扫描并同步'), findsOneWidget);
     await tester.ensureVisible(find.text('扫描并同步'));
     await tester.pumpAndSettle();
@@ -4214,5 +4640,30 @@ class _SearchPlaylistRepository extends OnlinePlaylistRepository {
       ],
       hasMore: false,
     );
+  }
+}
+
+class _WidgetDiagnosticsClient extends DiagnosticsClient {
+  bool found = false;
+  @override
+  Future<bool> probe() async => found;
+}
+
+class _KnownStatusMusicResolver extends _FakeMusicResolver
+    implements SourceAvailabilityResolver {
+  _KnownStatusMusicResolver({super.candidates});
+  bool quota = true;
+  @override
+  int get sourceAvailabilityRevision => quota ? 0 : 1;
+  @override
+  MusicSourceAvailability sourceAvailability(MusicDataSource source) =>
+      source == MusicDataSource.twentyFourBit
+      ? (quota
+            ? MusicSourceAvailability.quotaExhausted
+            : MusicSourceAvailability.available)
+      : MusicSourceAvailability.unknown;
+  @override
+  Future<void> recheckSourceAvailability({bool networkChanged = false}) async {
+    quota = false;
   }
 }

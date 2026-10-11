@@ -5,6 +5,29 @@ import 'package:ai_music/src/data/resolver_http_client.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
+  test('sequential requests reuse the same HTTP connection', () async {
+    final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+    final ports = <int>[];
+    final subscription = server.listen((request) async {
+      ports.add(request.connectionInfo!.remotePort);
+      request.response.write('{}');
+      await request.response.close();
+    });
+    final client = HttpMusicResolverClient();
+    try {
+      final uri = Uri.parse(
+        'http://${server.address.host}:${server.port}/reuse',
+      );
+      await client.get(uri);
+      await client.get(uri);
+      expect(ports, hasLength(2));
+      expect(ports[0], ports[1]);
+    } finally {
+      client.close();
+      await subscription.cancel();
+      await server.close(force: true);
+    }
+  });
   test('HTTP resolver retries transient connection failures', () async {
     var requests = 0;
     final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);

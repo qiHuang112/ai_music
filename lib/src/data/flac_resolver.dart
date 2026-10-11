@@ -23,70 +23,88 @@ class FlacResolver {
   final List<String> platforms;
   final String prefer;
 
-  Future<List<MusicSearchCandidate>> search(String query) async {
+  Future<List<MusicSearchCandidate>> search(
+    String query, {
+    void Function(List<MusicSearchCandidate>)? onBatch,
+    bool Function()? isCancelled,
+    String? initialKeyword,
+    bool Function(MusicSearchCandidate)? matchesTarget,
+  }) async {
     final rawKeyword = query.trim();
-    final rawJobs = platforms.map(
-      (platform) => _searchPage(query, platform, rawKeyword, 1),
-    );
-    var candidates = (await Future.wait(
-      rawJobs,
-    )).expand((batch) => batch).toList();
-    candidates.sort((a, b) => b.score.compareTo(a.score));
-
-    if (candidates.isNotEmpty &&
-        !_scorer.needsDeepSearch(candidates.first, query)) {
-      return candidates.take(40).toList(growable: false);
+    final tokens = rawKeyword.split(RegExp(r'\s+'));
+    // This endpoint treats the whole keyword as one substring. For a Chinese
+    // artist/title pair, searching the title first finds candidates; the scorer
+    // still validates them against the original artist and title.
+    final titleFirst =
+        onBatch != null &&
+        tokens.length == 2 &&
+        tokens.every((token) => RegExp(r'[\u4e00-\u9fff]').hasMatch(token));
+    final firstKeyword =
+        initialKeyword ?? (titleFirst ? tokens.last : rawKeyword);
+    final candidates = <MusicSearchCandidate>[];
+    final needsDeepSearch = <MusicSearchCandidate, bool>{};
+    List<MusicSearchCandidate> ranked() {
+      candidates.sort((a, b) => b.score.compareTo(a.score));
+      final seen = <String>{};
+      return candidates
+          .where((c) => seen.add('${c.platform}\t${c.id}'))
+          .take(40)
+          .toList(growable: false);
     }
 
+    bool done() =>
+        isCancelled?.call() == true ||
+        ranked().any(
+          (candidate) =>
+              matchesTarget?.call(candidate) ??
+              !needsDeepSearch.putIfAbsent(
+                candidate,
+                () => _scorer.needsDeepSearch(candidate, query),
+              ),
+        ) ||
+        (onBatch != null &&
+            tokens.length == 1 &&
+            matchesTarget == null &&
+            ranked().length >= 40);
+    Future<int> page(String platform, String keyword, int number) async {
+      if (isCancelled?.call() == true) return 0;
+      final batch = await _searchPage(query, platform, keyword, number);
+      if (isCancelled?.call() == true) return 0;
+      candidates.addAll(batch);
+      onBatch?.call(ranked());
+      return batch.length;
+    }
+
+    await Future.wait([
+      for (final platform in platforms) page(platform, firstKeyword, 1),
+    ]);
+    await Future<void>.delayed(Duration.zero);
+    if (done()) return ranked();
     final keywords = _scorer
         .buildKeywords(query)
-        .where((keyword) => keyword != rawKeyword)
+        .where((keyword) => keyword != firstKeyword)
         .toList(growable: false);
-    final pageOneJobs = <Future<List<MusicSearchCandidate>>>[];
-    for (final platform in platforms) {
-      for (final keyword in keywords) {
-        pageOneJobs.add(_searchPage(query, platform, keyword, 1));
+    for (final keyword in keywords) {
+      if (done()) break;
+      await Future.wait([
+        for (final platform in platforms) page(platform, keyword, 1),
+      ]);
+    }
+    final promising = ranked()
+        .map((c) => '${c.platform}\t${c.keyword}')
+        .toSet()
+        .take(2)
+        .toList();
+    for (var number = 2; number <= pages && !done(); number++) {
+      final counts = await Future.wait([
+        for (final key in promising)
+          page(key.split('\t')[0], key.split('\t')[1], number),
+      ]);
+      if (counts.every((count) => count == 0)) {
+        break;
       }
     }
-    if (pageOneJobs.isNotEmpty) {
-      candidates = [
-        ...candidates,
-        ...(await Future.wait(pageOneJobs)).expand((batch) => batch),
-      ]..sort((a, b) => b.score.compareTo(a.score));
-    }
-
-    final bestPageOne = candidates.isEmpty ? null : candidates.first;
-    if (pages > 1 && _scorer.needsDeepSearch(bestPageOne, query)) {
-      final promising = candidates
-          .take(5)
-          .map((candidate) => '${candidate.platform}\t${candidate.keyword}')
-          .toSet();
-      final deepJobs = <Future<List<MusicSearchCandidate>>>[];
-      for (final key in promising) {
-        final parts = key.split('\t');
-        if (parts.length != 2) {
-          continue;
-        }
-        for (var page = 2; page <= pages; page += 1) {
-          deepJobs.add(_searchPage(query, parts[0], parts[1], page));
-        }
-      }
-      if (deepJobs.isNotEmpty) {
-        candidates = [
-          ...candidates,
-          ...(await Future.wait(deepJobs)).expand((batch) => batch),
-        ]..sort((a, b) => b.score.compareTo(a.score));
-      }
-    }
-
-    final seen = <String>{};
-    return candidates
-        .where((candidate) {
-          final key = '${candidate.platform}\t${candidate.id}';
-          return seen.add(key);
-        })
-        .take(40)
-        .toList(growable: false);
+    return ranked();
   }
 
   Future<List<MusicSearchCandidate>> searchFirstPages(

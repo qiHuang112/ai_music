@@ -1,6 +1,8 @@
 import 'package:audio_service/audio_service.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'dart:ui';
+import 'src/data/operation_log.dart';
 
 import 'src/application/music_controller.dart';
 import 'src/domain/app_brand.dart';
@@ -17,6 +19,24 @@ const _disableAudioService = bool.fromEnvironment(
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  OperationLog.instance = OperationLog();
+  OperationLog.event('app.start');
+  final previousFlutterError = FlutterError.onError;
+  FlutterError.onError = (details) {
+    OperationLog.event('app.flutter_error', {
+      'error': details.exceptionAsString(),
+      'stack': details.stack?.toString(),
+    });
+    previousFlutterError?.call(details);
+  };
+  final previousPlatformError = PlatformDispatcher.instance.onError;
+  PlatformDispatcher.instance.onError = (error, stack) {
+    OperationLog.event('app.async_error', {
+      'error': error.toString(),
+      'stack': stack.toString(),
+    });
+    return previousPlatformError?.call(error, stack) ?? false;
+  };
   final audioHandler = await _createAudioHandler();
   await audioHandler.configure();
   runApp(AiMusicApp(controller: MusicController(audioHandler: audioHandler)));

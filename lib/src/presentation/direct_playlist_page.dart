@@ -1,7 +1,6 @@
 import 'playlist_sliver_header.dart';
 import 'mini_player.dart';
 import 'music_thumbnail.dart';
-import 'app_theme.dart';
 import 'package:flutter/material.dart';
 import '../application/music_controller.dart';
 import '../data/music_playlists.dart';
@@ -24,10 +23,11 @@ class DirectPlaylistPage extends StatefulWidget {
   State<DirectPlaylistPage> createState() => _DirectPlaylistPageState();
 }
 
+enum _PlaylistAction { add, join, open }
+
 class _DirectPlaylistPageState extends State<DirectPlaylistPage> {
   OnlinePlaylistDetail? _detail;
   MusicPlaylist? _destination;
-  final _selected = <int>{};
   bool _loading = true;
   bool _saving = false;
   String? _error;
@@ -66,7 +66,6 @@ class _DirectPlaylistPageState extends State<DirectPlaylistPage> {
       if (!mounted || request != _request) return;
       setState(() {
         _detail = result;
-        _selected.addAll(Iterable.generate(result.songs.length));
         _loading = false;
       });
       if (result.unavailable > 0) {
@@ -93,24 +92,28 @@ class _DirectPlaylistPageState extends State<DirectPlaylistPage> {
   }
 
   Future<void> _add(MusicPlaylist? target) async {
-    if (_saving || _selected.isEmpty) return;
+    if (_saving || _detail == null || _detail!.songs.isEmpty) return;
     setState(() {
       _saving = true;
       _error = null;
     });
-    final indexes = _selected.toList()..sort();
     try {
       final result = await widget.controller.addPlaylistDirectly(
         widget.playlist,
-        [for (final i in indexes) _detail!.songs[i]],
+        _detail!.songs,
         target: target,
       );
       if (result == null) throw StateError('No playlist saved');
       if (mounted) {
         setState(() {
-          _destination = result;
+          _destination = widget.controller.playlistForOnlineOrigin(
+            widget.playlist,
+          );
           _saving = false;
         });
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(zh ? '已加入我的歌单' : 'Added to your playlists')),
+        );
       }
     } catch (_) {
       if (mounted) {
@@ -132,6 +135,7 @@ class _DirectPlaylistPageState extends State<DirectPlaylistPage> {
       await widget.controller.playOnlinePlaylistSong(
         widget.playlist,
         _detail!.songs[index],
+        queueSongs: _detail!.songs,
       );
     } catch (_) {
       if (mounted && request == _playRequest) {
@@ -175,23 +179,64 @@ class _DirectPlaylistPageState extends State<DirectPlaylistPage> {
   Widget build(BuildContext context) {
     final detail = _detail;
     final actions = <Widget>[
-      if (detail != null) ...[
-        Text(zh ? '已选 ${_selected.length} 首' : '${_selected.length} selected'),
-        Checkbox(
-          key: const Key('direct-playlist-select-all'),
-          value:
-              detail.songs.isNotEmpty &&
-              _selected.length == detail.songs.length,
-          onChanged: _saving || _destination != null
-              ? null
-              : (value) => setState(() {
-                  _selected.clear();
-                  if (value == true) {
-                    _selected.addAll(Iterable.generate(detail.songs.length));
-                  }
-                }),
+      if (detail != null)
+        PopupMenuButton<_PlaylistAction>(
+          key: const Key('direct-playlist-actions'),
+          tooltip: zh ? '歌单操作' : 'Playlist actions',
+          enabled: !_saving,
+          icon: _saving
+              ? const SizedBox.square(
+                  dimension: 20,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                )
+              : const Icon(Icons.more_vert_rounded),
+          onSelected: (action) {
+            switch (action) {
+              case _PlaylistAction.add:
+                _add(null);
+              case _PlaylistAction.join:
+                _chooseTarget();
+              case _PlaylistAction.open:
+                widget.onOpenPlaylist(
+                  widget.controller.playlistForOnlineOrigin(widget.playlist) ??
+                      _destination!,
+                );
+            }
+          },
+          itemBuilder: (_) => [
+            if (_destination != null)
+              PopupMenuItem(
+                key: const Key('direct-open-playlist'),
+                value: _PlaylistAction.open,
+                child: ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  leading: const Icon(Icons.open_in_new_rounded),
+                  title: Text(zh ? '打开歌单' : 'Open playlist'),
+                ),
+              )
+            else
+              PopupMenuItem(
+                key: const Key('direct-new-playlist'),
+                value: _PlaylistAction.add,
+                enabled: detail.songs.isNotEmpty,
+                child: ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  leading: const Icon(Icons.playlist_add_rounded),
+                  title: Text(zh ? '添加到我的歌单' : 'Save playlist'),
+                ),
+              ),
+            PopupMenuItem(
+              key: const Key('direct-add-playlist'),
+              value: _PlaylistAction.join,
+              enabled: detail.songs.isNotEmpty,
+              child: ListTile(
+                contentPadding: EdgeInsets.zero,
+                leading: const Icon(Icons.queue_music_rounded),
+                title: Text(zh ? '加入已有歌单' : 'Add to existing playlist'),
+              ),
+            ),
+          ],
         ),
-      ],
     ];
     return PopScope(
       canPop: !_saving,
@@ -230,140 +275,69 @@ class _DirectPlaylistPageState extends State<DirectPlaylistPage> {
                     ],
                   ),
                 )
-              : Column(
-                  children: [
-                    Expanded(
-                      child: PlaylistScrollView(
-                        slivers: [
-                          PlaylistSliverHeader(
-                            title: widget.playlist.name,
-                            actions: actions,
-                          ),
-                          SliverToBoxAdapter(
-                            child: Column(
-                              children: [
-                                ListTile(
-                                  leading: MusicThumbnail(
-                                    uri: Uri.tryParse(widget.playlist.coverUrl),
-                                    label: widget.playlist.name,
-                                    size: 48,
-                                  ),
-                                  title: Text(widget.playlist.source.label),
-                                  subtitle: Text(
-                                    '${widget.playlist.creator} · ${detail.songs.length} ${zh ? '首' : 'songs'}',
-                                  ),
-                                ),
-                                if (_error != null)
-                                  Padding(
-                                    padding: const EdgeInsets.all(12),
-                                    child: Text(_error!),
-                                  ),
-                                if (_saving) const LinearProgressIndicator(),
-                              ],
+              : PlaylistScrollView(
+                  slivers: [
+                    PlaylistSliverHeader(
+                      title: widget.playlist.name,
+                      actions: actions,
+                    ),
+                    SliverToBoxAdapter(
+                      child: Column(
+                        children: [
+                          ListTile(
+                            leading: MusicThumbnail(
+                              uri: Uri.tryParse(widget.playlist.coverUrl),
+                              label: widget.playlist.name,
+                              size: 48,
+                            ),
+                            title: Text(widget.playlist.source.label),
+                            subtitle: Text(
+                              '${widget.playlist.creator} · ${detail.songs.length} ${zh ? '首' : 'songs'}',
                             ),
                           ),
-                          SliverList.builder(
-                            itemCount: detail.songs.length,
-                            itemBuilder: (context, i) {
-                              final song = detail.songs[i];
-                              return CheckboxListTile(
-                                key: ValueKey('direct-song-$i'),
-                                secondary: IconButton(
-                                  key: ValueKey('direct-play-song-$i'),
-                                  tooltip: zh ? '播放' : 'Play',
-                                  onPressed: _playingIndex == i
-                                      ? null
-                                      : () => _play(i),
-                                  icon: _playingIndex == i
-                                      ? const SizedBox(
-                                          width: 20,
-                                          height: 20,
-                                          child: CircularProgressIndicator(
-                                            strokeWidth: 2,
-                                          ),
-                                        )
-                                      : const Icon(Icons.play_arrow_rounded),
-                                ),
-                                title: Text(
-                                  song.title,
-                                  maxLines: 2,
-                                  overflow: TextOverflow.ellipsis,
-                                ),
-                                subtitle: Text(
-                                  song.artist,
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                ),
-                                value: _selected.contains(i),
-                                onChanged: _saving || _destination != null
-                                    ? null
-                                    : (value) => setState(() {
-                                        if (value == true) {
-                                          _selected.add(i);
-                                        } else {
-                                          _selected.remove(i);
-                                        }
-                                      }),
-                              );
-                            },
-                          ),
+                          if (_error != null)
+                            Padding(
+                              padding: const EdgeInsets.all(12),
+                              child: Text(_error!),
+                            ),
+                          if (_saving) const LinearProgressIndicator(),
                         ],
                       ),
                     ),
-                    Padding(
-                      padding: const EdgeInsets.fromLTRB(
-                        MusicUi.pagePadding,
-                        8,
-                        MusicUi.pagePadding,
-                        12,
-                      ),
-                      child: _destination != null
-                          ? Row(
-                              children: [
-                                Expanded(
-                                  child: FilledButton.icon(
-                                    key: const Key('direct-open-playlist'),
-                                    onPressed: _saving
-                                        ? null
-                                        : () => widget.onOpenPlaylist(
-                                            widget.controller
-                                                    .playlistForOnlineOrigin(
-                                                      widget.playlist,
-                                                    ) ??
-                                                _destination!,
-                                          ),
-                                    icon: const Icon(Icons.open_in_new),
-                                    label: Text(zh ? '打开歌单' : 'Open playlist'),
-                                  ),
-                                ),
-                              ],
-                            )
-                          : Row(
-                              children: [
-                                Expanded(
-                                  child: FilledButton.icon(
-                                    key: const Key('direct-new-playlist'),
-                                    onPressed: _saving || _selected.isEmpty
-                                        ? null
-                                        : () => _add(null),
-                                    icon: const Icon(Icons.playlist_add),
-                                    label: Text(zh ? '新建歌单' : 'New playlist'),
-                                  ),
-                                ),
-                                const SizedBox(width: 8),
-                                Expanded(
-                                  child: OutlinedButton(
-                                    key: const Key('direct-add-playlist'),
-                                    onPressed: _saving || _selected.isEmpty
-                                        ? null
-                                        : _chooseTarget,
-                                    child: Text(
-                                      zh ? '加入歌单' : 'Add to playlist',
+                    SliverList.builder(
+                      itemCount: detail.songs.length,
+                      itemBuilder: (context, i) {
+                        final song = detail.songs[i];
+                        return ListTile(
+                          key: ValueKey('direct-song-$i'),
+                          onTap: _playingIndex == i ? null : () => _play(i),
+                          leading: IconButton(
+                            key: ValueKey('direct-play-song-$i'),
+                            tooltip: zh ? '播放' : 'Play',
+                            onPressed: _playingIndex == i
+                                ? null
+                                : () => _play(i),
+                            icon: _playingIndex == i
+                                ? const SizedBox.square(
+                                    dimension: 20,
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 2,
                                     ),
-                                  ),
-                                ),
-                              ],
-                            ),
+                                  )
+                                : const Icon(Icons.play_arrow_rounded),
+                          ),
+                          title: Text(
+                            song.title,
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                          subtitle: Text(
+                            song.artist,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        );
+                      },
                     ),
                   ],
                 ),

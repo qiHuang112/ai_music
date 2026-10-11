@@ -7,6 +7,7 @@ import '../data/music_resolver.dart';
 import '../data/music_settings.dart';
 import 'app_localizations.dart';
 import 'app_update_page.dart';
+import '../application/diagnostics_upload_controller.dart';
 
 class SettingsPage extends StatelessWidget {
   const SettingsPage({super.key, required this.controller});
@@ -30,6 +31,9 @@ class SettingsPage extends StatelessWidget {
                   children: [
                     if (controller.appUpdates.supported)
                       AppUpdateSetting(updates: controller.appUpdates),
+                    DiagnosticsUploadSetting(
+                      controller: controller.diagnostics,
+                    ),
                     ListTile(
                       leading: const Icon(Icons.language),
                       title: Text(strings.language),
@@ -711,16 +715,31 @@ class SourceSettingsPage extends StatelessWidget {
                     title: Text(strings.autoSource),
                     subtitle: Text(strings.autoSourceDescription),
                   ),
-                  RadioListTile<MusicDataSource>(
-                    value: MusicDataSource.buguyy,
-                    title: Text(strings.buguyy),
-                    subtitle: Text(strings.buguyyDescription),
-                  ),
-                  RadioListTile<MusicDataSource>(
-                    value: MusicDataSource.flac,
-                    title: Text(strings.flacSource),
-                    subtitle: Text(strings.flacSourceDescription),
-                  ),
+                  for (final source in controller.selectableSources)
+                    RadioListTile<MusicDataSource>(
+                      value: source,
+                      title: Text(_sourceTitle(strings, source)),
+                      subtitle: Text(_sourceDescription(strings, source)),
+                    ),
+                  for (final policy in controller.sourceCatalog.orderedPolicies)
+                    if (!controller.selectableSources.contains(policy.source))
+                      ListTile(
+                        leading: Icon(
+                          policy.fallbackOnly
+                              ? Icons.auto_awesome_outlined
+                              : Icons.lock_outline,
+                        ),
+                        title: Text(_sourceTitle(strings, policy.source)),
+                        subtitle: Text(
+                          policy.fallbackOnly
+                              ? (strings.isZh
+                                    ? '有每日限额，仅在常规来源都没有可用结果时自动尝试，不支持手动选择。'
+                                    : 'Daily allowance applies. Automatic fallback only when regular sources are unavailable; not selectable manually.')
+                              : (strings.isZh
+                                    ? '需要授权后才能使用。'
+                                    : 'Authorization is required before use.'),
+                        ),
+                      ),
                 ],
               ),
             ),
@@ -731,11 +750,87 @@ class SourceSettingsPage extends StatelessWidget {
   }
 }
 
+String _sourceDescription(AppStrings strings, MusicDataSource source) =>
+    switch (source) {
+      MusicDataSource.flac => strings.flacSourceDescription,
+      MusicDataSource.buguyy => strings.buguyyDescription,
+      _ =>
+        strings.isZh
+            ? '用于搜索、歌单匹配及未缓存歌曲。'
+            : 'For search, playlist matching and uncached songs.',
+    };
+
 String _sourceTitle(AppStrings strings, MusicDataSource source) {
   return switch (source) {
     MusicDataSource.auto => strings.autoSource,
     MusicDataSource.buguyy => strings.buguyy,
     MusicDataSource.flac => strings.flacSource,
+    MusicDataSource.twentyFourBit => strings.twentyFourBitLabel,
     MusicDataSource.lan => 'LAN',
   };
+}
+
+class DiagnosticsUploadSetting extends StatefulWidget {
+  const DiagnosticsUploadSetting({super.key, required this.controller});
+  final DiagnosticsUploadController controller;
+  @override
+  State<DiagnosticsUploadSetting> createState() =>
+      _DiagnosticsUploadSettingState();
+}
+
+class _DiagnosticsUploadSettingState extends State<DiagnosticsUploadSetting> {
+  @override
+  void initState() {
+    super.initState();
+    widget.controller.probe();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final strings = AppStringsScope.of(context);
+    return AnimatedBuilder(
+      animation: widget.controller,
+      builder: (context, _) {
+        final upload = widget.controller;
+        if (!upload.available) return const SizedBox.shrink();
+        return ListTile(
+          key: const Key('upload-diagnostics'),
+          leading: const Icon(Icons.upload_file_outlined),
+          title: Text(strings.isZh ? '上传日志' : 'Upload logs'),
+          subtitle: Text(
+            upload.uploading
+                ? (strings.isZh ? '正在上传…' : 'Uploading…')
+                : upload.reportId != null
+                ? (strings.isZh ? '上传成功' : 'Upload complete')
+                : (strings.isZh
+                      ? '核心操作日志与每日听歌统计'
+                      : 'Operations and daily listening statistics'),
+          ),
+          trailing: upload.uploading
+              ? const SizedBox(
+                  width: 20,
+                  height: 20,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                )
+              : const Icon(Icons.chevron_right),
+          onTap: upload.uploading
+              ? null
+              : () async {
+                  await upload.upload();
+                  if (!context.mounted) return;
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text(
+                        upload.reportId != null
+                            ? (strings.isZh ? '日志已上传' : 'Logs uploaded')
+                            : upload.error ??
+                                  (strings.isZh ? '日志上传失败' : 'Upload failed'),
+                      ),
+                    ),
+                  );
+                },
+        );
+      },
+    );
+  }
 }

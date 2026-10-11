@@ -85,51 +85,6 @@ class _AppUpdatePageState extends State<AppUpdatePage> {
     unawaited(widget.updates.check());
   }
 
-  Future<void> _editServer() async {
-    final zh = AppStringsScope.of(context).isZh;
-    final field = TextEditingController(text: widget.updates.serverUrl);
-    final value = await showDialog<String>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: Text(zh ? '更新服务地址' : 'Update server'),
-        content: TextField(
-          controller: field,
-          keyboardType: TextInputType.url,
-          decoration: const InputDecoration(hintText: defaultUpdateUrl),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: Text(zh ? '取消' : 'Cancel'),
-          ),
-          TextButton(
-            onPressed: () => Navigator.pop(context, field.text),
-            child: Text(zh ? '保存' : 'Save'),
-          ),
-        ],
-      ),
-    );
-    // The dialog field remains attached during its closing animation.
-    await Future<void>.delayed(const Duration(milliseconds: 250));
-    field.dispose();
-    if (value == null) return;
-    try {
-      await widget.updates.saveServer(value);
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(
-              e is FormatException
-                  ? e.message
-                  : (zh ? '保存失败，请重试' : 'Could not save. Retry.'),
-            ),
-          ),
-        );
-      }
-    }
-  }
-
   @override
   Widget build(BuildContext context) => AnimatedBuilder(
     animation: widget.updates,
@@ -243,16 +198,10 @@ class _AppUpdatePageState extends State<AppUpdatePage> {
                 label: Text(zh ? '检测更新' : 'Check for updates'),
               ),
               const SizedBox(height: 24),
-              ListTile(
-                title: Text(zh ? '更新服务' : 'Update server'),
-                subtitle: Text(updates.serverUrl),
-                trailing: const Icon(Icons.edit_outlined),
-                onTap:
-                    updates.checking ||
-                        updates.downloading ||
-                        updates.installing
-                    ? null
-                    : _editServer,
+              const SelectableText(
+                'github.com/qiHuang112/ai_music',
+                key: Key('project-url'),
+                textAlign: TextAlign.center,
               ),
             ],
           ),

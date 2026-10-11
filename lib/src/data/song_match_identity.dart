@@ -90,8 +90,13 @@ Set<String> artistNamesForMatch(String value) => value
       ),
     )
     .map(normalizeSongText)
+    .map((name) => _artistAliases[name] ?? name)
     .where((name) => name.isNotEmpty)
     .toSet();
+
+// Confirmed provider credits for the same band; do not strip generic suffixes
+// from every artist, which could merge unrelated performers.
+const _artistAliases = {'回春丹乐队': '回春丹'};
 
 Set<String> _versionMarkers(String value) {
   final text = normalizeTraditionalForVersion(value).toLowerCase();

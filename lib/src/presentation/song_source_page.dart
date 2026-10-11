@@ -34,13 +34,21 @@ class _SongSourcePageState extends State<SongSourcePage> {
   String? _error;
   bool _loading = false;
   bool _saving = false;
+  bool _limitedFallbackOnly = false;
   int _request = 0;
   late MusicDataSource _source;
   bool get zh => AppStringsScope.of(context).isZh;
   @override
   void initState() {
     super.initState();
-    _source = widget.controller.source;
+    widget.controller.addListener(_sourceStatusChanged);
+    _source =
+        widget.controller.source == MusicDataSource.auto ||
+            widget.controller.selectableSources.contains(
+              widget.controller.source,
+            )
+        ? widget.controller.source
+        : MusicDataSource.auto;
     _query = TextEditingController(
       text:
           widget.controller.originalSongForTrack(widget.track)?.query ??
@@ -51,8 +59,27 @@ class _SongSourcePageState extends State<SongSourcePage> {
 
   @override
   void dispose() {
+    widget.controller.removeListener(_sourceStatusChanged);
     _query.dispose();
     super.dispose();
+  }
+
+  void _sourceStatusChanged() {
+    if (mounted) setState(() {});
+  }
+
+  String _sourceLabel(MusicDataSource source) {
+    if (source == MusicDataSource.auto) return zh ? '自动' : 'Auto';
+    final title = source == MusicDataSource.buguyy ? '布谷YY' : source.label;
+    final status = AppStringsScope.of(
+      context,
+    ).sourceAvailabilityLabel(widget.controller.sourceAvailability(source));
+    return status == null ? title : '$title · $status';
+  }
+
+  Future<void> _refresh() async {
+    await widget.controller.refreshSourceAvailability();
+    if (mounted) await _search(refresh: true);
   }
 
   Future<void> _search({bool refresh = false}) async {
@@ -62,6 +89,7 @@ class _SongSourcePageState extends State<SongSourcePage> {
       _loading = true;
       _error = null;
       _results = [];
+      _limitedFallbackOnly = false;
     });
     try {
       final results = await widget.controller.searchSongSources(
@@ -72,7 +100,12 @@ class _SongSourcePageState extends State<SongSourcePage> {
       );
       if (mounted && request == _request) {
         setState(() {
-          _results = results;
+          _results = results
+              .where(
+                (c) => widget.controller.selectableSources.contains(c.source),
+              )
+              .toList(growable: false);
+          _limitedFallbackOnly = results.isNotEmpty && _results.isEmpty;
           _loading = false;
         });
       }
@@ -115,9 +148,7 @@ class _SongSourcePageState extends State<SongSourcePage> {
         actions: [
           IconButton(
             tooltip: zh ? '刷新来源' : 'Refresh sources',
-            onPressed: _saving || _loading
-                ? null
-                : () => _search(refresh: true),
+            onPressed: _saving || _loading ? null : _refresh,
             icon: const Icon(Icons.refresh),
           ),
         ],
@@ -152,17 +183,10 @@ class _SongSourcePageState extends State<SongSourcePage> {
                   children: [
                     for (final source in [
                       MusicDataSource.auto,
-                      MusicDataSource.buguyy,
-                      MusicDataSource.flac,
+                      ...widget.controller.selectableSources,
                     ])
                       ChoiceChip(
-                        label: Text(
-                          source == MusicDataSource.auto
-                              ? (zh ? '全部' : 'All')
-                              : source == MusicDataSource.buguyy
-                              ? '布谷YY'
-                              : 'FLAC',
-                        ),
+                        label: Text(_sourceLabel(source)),
                         selected: _source == source,
                         onSelected: _saving
                             ? null
@@ -175,6 +199,33 @@ class _SongSourcePageState extends State<SongSourcePage> {
                 ),
               ),
             ),
+            for (final policy
+                in widget.controller.sourceCatalog.orderedPolicies)
+              if (policy.fallbackOnly)
+                if (AppStringsScope.of(context).sourceAvailabilityLabel(
+                      widget.controller.sourceAvailability(policy.source),
+                    )
+                    case final status?)
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(20, 4, 20, 4),
+                    child: Align(
+                      alignment: AlignmentDirectional.centerStart,
+                      child: Text(
+                        '${policy.source.label} · $status',
+                        style: Theme.of(context).textTheme.bodySmall,
+                      ),
+                    ),
+                  ),
+            if (_limitedFallbackOnly)
+              Padding(
+                padding: const EdgeInsets.fromLTRB(20, 8, 20, 0),
+                child: Text(
+                  zh
+                      ? '备用来源仅在常规来源不可用时自动尝试，不支持手动选择。'
+                      : 'Fallback providers are tried automatically when regular sources are unavailable; they cannot be selected manually.',
+                  style: Theme.of(context).textTheme.bodySmall,
+                ),
+              ),
             const SizedBox(height: 8),
             if (_error != null)
               Padding(padding: const EdgeInsets.all(12), child: Text(_error!)),
@@ -183,7 +234,11 @@ class _SongSourcePageState extends State<SongSourcePage> {
               child: !_loading && _results.isEmpty
                   ? Center(
                       child: Text(
-                        zh
+                        _limitedFallbackOnly
+                            ? (zh
+                                  ? '没有可手选的来源，返回播放时会自动尝试备用源。'
+                                  : 'No manually selectable source. Return to playback to try the automatic fallback.')
+                            : zh
                             ? '没有找到歌曲，可修改关键词重新搜索'
                             : 'No songs found. Try another search.',
                       ),

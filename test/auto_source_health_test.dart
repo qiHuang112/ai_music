@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'package:ai_music/src/data/provider_request_scheduler.dart';
 import 'dart:io';
 
 import 'package:ai_music/src/data/auto_source_health.dart';
@@ -9,6 +10,78 @@ void main() {
   const source = MusicDataSource.buguyy;
   const failure = HttpException('HTTP 503');
 
+  test(
+    'explicit access quota opens only its source immediately and wakes queued work',
+    () async {
+      final health = AutoSourceHealth(maxConcurrentPerSource: 1);
+      const restricted = MusicDataSource.twentyFourBit;
+      final gate = Completer<void>();
+      final active = health.run(restricted, () => gate.future, automatic: true);
+      final queued = health.run(
+        restricted,
+        () async => fail('quota request started'),
+        automatic: true,
+      );
+      final checked = expectLater(
+        queued,
+        throwsA(isA<AutoSourceUnavailableException>()),
+      );
+      health.recordFailure(
+        restricted,
+        const SourceAccessException(restricted, '今日访问已达限额'),
+      );
+      await checked;
+      expect(health.isAvailable(restricted), isFalse);
+      expect(health.degradationReason(restricted), contains('今日访问已达限额'));
+      expect(health.isAvailable(MusicDataSource.flac), isTrue);
+      expect(health.isAvailable(MusicDataSource.buguyy), isTrue);
+      gate.complete();
+      await active;
+      expect(health.isAvailable(restricted), isFalse);
+    },
+  );
+
+  test('background searches leave capacity for a foreground query', () async {
+    final health = AutoSourceHealth();
+    final release = Completer<void>();
+    final started = <String>[];
+    final one = runBackgroundProviderWork(
+      () => health.run(source, () async {
+        started.add('bg1');
+        await release.future;
+      }, automatic: true),
+    );
+    final two = runBackgroundProviderWork(
+      () => health.run(source, () async {
+        started.add('bg2');
+      }, automatic: true),
+    );
+    await health.run(source, () async {
+      started.add('user');
+    }, automatic: true);
+    expect(started, ['bg1', 'user']);
+    release.complete();
+    await Future.wait([one, two]);
+    expect(started.last, 'bg2');
+  });
+  test('FLAC background work retains the existing Auto concurrency', () async {
+    final health = AutoSourceHealth();
+    final release = Completer<void>();
+    var started = 0;
+    final jobs = [
+      for (var i = 0; i < 2; i++)
+        runBackgroundProviderWork(
+          () => health.run(MusicDataSource.flac, () async {
+            started++;
+            await release.future;
+          }, automatic: true),
+        ),
+    ];
+    final immediatelyStarted = started;
+    release.complete();
+    await Future.wait(jobs);
+    expect(immediatelyStarted, 2);
+  });
   test('working search cannot hide repeated resolve or media failures', () {
     for (final operation in [
       AutoSourceOperation.resolve,
@@ -35,7 +108,10 @@ void main() {
       health.recordFailure(source, failure);
       expect(health.isAvailable(source), isTrue);
       health.recordFailure(source, failure);
-      expect(health.availableSources, [MusicDataSource.flac]);
+      expect(health.availableSources, [
+        MusicDataSource.flac,
+        MusicDataSource.twentyFourBit,
+      ]);
       expect(health.degradationReason(source), contains('3'));
       expect(AutoSourceHealth().isAvailable(source), isTrue);
     },

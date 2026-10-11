@@ -31,7 +31,7 @@ def deploy(root: Path, port: int):
                           if (item / 'aapt').exists() and (item / 'apksigner').exists()), None)
     if android_tools is None:
         raise RuntimeError('Android verification tools are required for the CI mirror')
-    for name in ['lan_update_server.py', 'android_release_archive.py',
+    for name in ['lan_update_server.py', 'lan_diagnostics.py', 'android_release_archive.py',
                  'mirror_github_android_release.py', 'publish_android_release.py']:
         shutil.copyfile(tools / name, service / name)
     agent = Path.home() / 'Library' / 'LaunchAgents' / f'{label}.plist'

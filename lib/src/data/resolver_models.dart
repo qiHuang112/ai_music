@@ -4,6 +4,7 @@ enum MusicDataSource {
   auto('auto', 'Auto'),
   buguyy('buguyy', 'BuguYY'),
   flac('flac', 'FLAC'),
+  twentyFourBit('24bit', '24bit · 有限额下载'),
   lan('lan', 'LAN');
 
   const MusicDataSource(this.storageValue, this.label);
@@ -230,6 +231,17 @@ abstract interface class QualitySelectableMusicResolver {
   );
 }
 
+/// Tries a different provider for the same recording after an Auto transfer
+/// fails. Concrete manual source selection never invokes this capability.
+abstract interface class AutoFallbackMusicResolver {
+  Future<ResolvedMusic> resolveAlternative(
+    MusicSearchCandidate candidate, {
+    required Set<MusicDataSource> excludedSources,
+    MusicQualityLevel? quality,
+    bool Function()? isCancelled,
+  });
+}
+
 /// Optional process-local health policy. Manual source selection remains usable
 /// even when a source is temporarily excluded from automatic requests.
 abstract interface class AutoSourceHealthResolver {
@@ -278,6 +290,13 @@ abstract interface class StagedScreenshotSearchResolver {
   );
 }
 
+/// Optional source scopes for staged searches. Auto denotes a stage that
+/// manages multiple fallback providers and their individual health itself.
+abstract interface class ScreenshotSearchSourceScopes {
+  MusicDataSource get screenshotPrimarySource;
+  MusicDataSource get screenshotFallbackSource;
+}
+
 class MusicSearchProgress {
   const MusicSearchProgress({
     required this.candidates,
@@ -297,6 +316,14 @@ abstract class ProgressiveMusicResolver {
   );
 }
 
+abstract class CancellableMusicResolver implements ProgressiveMusicResolver {
+  Stream<MusicSearchProgress> searchWithCancellation(
+    String query,
+    MusicDataSource source, {
+    required bool Function() isCancelled,
+  });
+}
+
 class ResolverHttpResponse {
   const ResolverHttpResponse({
     required this.statusCode,
@@ -313,6 +340,17 @@ class ResolverHttpResponse {
   final Map<String, String> headers;
 
   bool get ok => statusCode >= 200 && statusCode < 300;
+}
+
+/// An explicit provider access restriction that retrying cannot resolve.
+class SourceAccessException implements Exception {
+  const SourceAccessException(this.source, this.message);
+
+  final MusicDataSource source;
+  final String message;
+
+  @override
+  String toString() => '${source.label}：$message';
 }
 
 abstract class MusicResolverHttp {

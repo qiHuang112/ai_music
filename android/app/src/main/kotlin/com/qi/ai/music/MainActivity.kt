@@ -14,10 +14,64 @@ import android.os.Build
 import android.provider.Settings
 import android.net.Uri
 import androidx.core.content.FileProvider
+import java.io.ByteArrayOutputStream
+import java.net.HttpURLConnection
+import java.net.URL
+import java.util.concurrent.Executors
+import android.os.Handler
+import android.os.Looper
 
 class MainActivity : AudioServiceActivity() {
+    companion object {
+        private val artworkRequests = Executors.newFixedThreadPool(3)
+    }
+
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "ai_music/artwork")
+            .setMethodCallHandler { call, result ->
+                if (call.method != "load") {
+                    result.notImplemented()
+                    return@setMethodCallHandler
+                }
+                val address = call.argument<String>("url") ?: ""
+                artworkRequests.execute {
+                    try {
+                        val url = URL(address)
+                        require(url.protocol == "https" && url.port == -1 &&
+                            url.userInfo == null && url.host.matches(Regex("p[1-4]\\.music\\.126\\.net"))) {
+                            "Unsupported artwork address"
+                        }
+                        val connection = url.openConnection() as HttpURLConnection
+                        val bytes = try {
+                            connection.instanceFollowRedirects = false
+                            connection.connectTimeout = 5000
+                            connection.readTimeout = 5000
+                            connection.setRequestProperty("User-Agent", "Mozilla/5.0")
+                            connection.setRequestProperty("Referer", "https://music.163.com/")
+                            require(connection.responseCode == 200 &&
+                                connection.contentType?.startsWith("image/") == true) {
+                                "Artwork unavailable"
+                            }
+                            require(connection.contentLength <= 2 * 1024 * 1024) { "Artwork too large" }
+                            connection.inputStream.use { input ->
+                                val output = ByteArrayOutputStream()
+                                val buffer = ByteArray(8192)
+                                while (true) {
+                                    val count = input.read(buffer)
+                                    if (count < 0) break
+                                    require(output.size() + count <= 2 * 1024 * 1024) { "Artwork too large" }
+                                    output.write(buffer, 0, count)
+                                }
+                                output.toByteArray()
+                            }
+                        } finally { connection.disconnect() }
+                        Handler(Looper.getMainLooper()).post { result.success(bytes) }
+                    } catch (error: Exception) {
+                        Handler(Looper.getMainLooper()).post { result.error("artwork_failed", error.message, null) }
+                    }
+                }
+            }
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "ai_music/app_update")
             .setMethodCallHandler { call, result ->
                 try {

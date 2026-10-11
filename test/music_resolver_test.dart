@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
@@ -5,6 +6,474 @@ import 'package:ai_music/src/data/music_resolver.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
+  test(
+    'FLAC checks each candidate for deep search only once per query',
+    () async {
+      final scorer = _CountingDeepSearchScorer();
+      final resolver = FlacResolver(
+        scorer: scorer,
+        pages: 3,
+        platforms: ['kuwo'],
+        challengeClient: ChallengeClient(
+          initialCookie: 'ready',
+          httpClient: _FakeResolverHttp(
+            onPostForm: (uri, form, _) async => _json(uri, {
+              'data': {
+                'list': List.generate(
+                  20,
+                  (i) => {
+                    'id': '${form['keyword']}-${form['page']}-$i',
+                    'name': '其他歌曲$i',
+                    'artist': '其他歌手',
+                  },
+                ),
+              },
+            }),
+          ),
+        ),
+      );
+      final results = await resolver.search('歌手 目标', onBatch: (_) {});
+      expect(results, hasLength(40));
+      expect(scorer.checks.length, greaterThanOrEqualTo(40));
+      expect(scorer.checks.values, everyElement(1));
+      // A new query must not inherit another query's stop decisions.
+      scorer.checks.clear();
+      await resolver.search('歌手 另一首', onBatch: (_) {});
+      expect(scorer.checks, isNotEmpty);
+      expect(scorer.checks.values, everyElement(1));
+    },
+  );
+  for (final automatic in [true, false]) {
+    test(
+      'YY transport budget is one in Auto and preserves manual retry automatic=$automatic',
+      () async {
+        var calls = 0;
+        final resolver = RemoteMusicResolver(
+          initialFlacCookie: 'ready',
+          platforms: ['kuwo'],
+          pages: 1,
+          httpClient: _FakeResolverHttp(
+            onGet: (uri, _) async {
+              calls++;
+              throw const SocketException('connection reset');
+            },
+            onPostForm: (uri, _, _) async => _json(uri, {
+              'data': {'list': []},
+            }),
+          ),
+        );
+        await expectLater(
+          resolver.search(
+            'Song',
+            automatic ? MusicDataSource.auto : MusicDataSource.buguyy,
+          ),
+          throwsA(anything),
+        );
+        expect(calls, automatic ? 1 : 3);
+      },
+    );
+  }
+  for (final query in ['鲜花 回春丹', '回春丹 鲜花']) {
+    test(
+      'Auto keeps looking for exact song beyond 40 weak rows: $query',
+      () async {
+        final keywords = <String>[];
+        final resolver = RemoteMusicResolver(
+          initialFlacCookie: 'ready',
+          httpClient: _FakeResolverHttp(
+            onGet: (uri, _) async => throw const HttpException('HTTP 503'),
+            onPostForm: (uri, form, _) async {
+              keywords.add(form['keyword']!);
+              return _json(uri, {
+                'data': {
+                  'list': form['keyword'] == '鲜花'
+                      ? [
+                          {'id': 'flower', 'name': '鲜花', 'artist': '回春丹'},
+                        ]
+                      : List.generate(
+                          20,
+                          (i) => {
+                            'id': '${form['platform']}-$i',
+                            'name': '其他歌曲$i',
+                            'artist': '回春丹',
+                          },
+                        ),
+                },
+              });
+            },
+          ),
+        );
+        final progress = await resolver
+            .searchProgressively(query, MusicDataSource.auto)
+            .toList();
+        expect(progress.last.error, isNull);
+        expect(
+          progress.last.candidates.where((c) => c.name == '鲜花'),
+          isNotEmpty,
+        );
+        expect(keywords, contains('鲜花'));
+        expect(progress.last.candidates.length, lessThanOrEqualTo(40));
+      },
+    );
+  }
+
+  for (final scenario in ['auto', 'disabled', 'manual']) {
+    final manual = scenario == 'manual';
+    test(
+      'failed YY resolution uses strict FLAC alternate only in Auto scenario=$scenario',
+      () async {
+        var searches = 0;
+        final resolvedIds = <String>[];
+        final resolver = RemoteMusicResolver(
+          initialFlacCookie: 'ready',
+          platforms: ['kuwo'],
+          httpClient: _FakeResolverHttp(
+            onGet: (uri, _) async => throw const HttpException('HTTP 503'),
+            onPostForm: (uri, form, _) async {
+              if (uri.queryParameters['act'] == 'getUrl') {
+                resolvedIds.add(form['songid']!);
+                expect(form['format'], 'mp3');
+                return _json(uri, {
+                  'data': {'url': 'https://audio.test/9420.mp3'},
+                });
+              }
+              searches++;
+              expect(form['keyword'], '9420');
+              return _json(uri, {
+                'data': {
+                  'list': [
+                    for (final row in [
+                      ['cover', '9420', '其他歌手'],
+                      ['live', '9420(Live)', '麦小兜'],
+                      ['exact', '9420', '麦小兜'],
+                    ])
+                      {
+                        'id': row[0],
+                        'name': row[1],
+                        'artist': row[2],
+                        'minfo': [
+                          {'format': 'mp3', 'bitrate': '320'},
+                          {'format': 'flac'},
+                        ],
+                      },
+                  ],
+                },
+              });
+            },
+          ),
+        );
+        if (scenario == 'disabled') {
+          for (var i = 0; i < 3; i++) {
+            resolver.reportSourceFailure(
+              MusicDataSource.buguyy,
+              const HttpException('HTTP 503'),
+            );
+          }
+        }
+        final pending = resolver.resolveForSourceMode(
+          _yy9420,
+          manual ? MusicDataSource.buguyy : MusicDataSource.auto,
+          quality: MusicQualityLevel.medium,
+        );
+        if (manual) {
+          await expectLater(pending, throwsA(isA<HttpException>()));
+          expect(searches, 0);
+        } else {
+          final music = await pending;
+          expect(music.source, MusicDataSource.flac);
+          expect(music.id, 'exact');
+          expect(resolvedIds, ['exact']);
+          expect(searches, 1);
+        }
+      },
+    );
+  }
+
+  test('Auto alternate never resolves a cover or live version', () async {
+    var resolutions = 0;
+    final resolver = RemoteMusicResolver(
+      initialFlacCookie: 'ready',
+      platforms: ['kuwo'],
+      pages: 1,
+      httpClient: _FakeResolverHttp(
+        onPostForm: (uri, _, _) async {
+          if (uri.queryParameters['act'] == 'getUrl') resolutions++;
+          return _json(uri, {
+            'data': {
+              'list': [
+                {'id': 'cover', 'name': '9420', 'artist': '其他歌手'},
+                {'id': 'live', 'name': '9420(Live)', 'artist': '麦小兜'},
+              ],
+            },
+          });
+        },
+      ),
+    );
+    await expectLater(
+      resolver.resolveAlternative(
+        _yy9420,
+        excludedSources: {MusicDataSource.buguyy},
+      ),
+      throwsStateError,
+    );
+    expect(resolutions, 0);
+  });
+
+  test(
+    'known band alias accepts the same recording and keeps live versions distinct',
+    () {
+      const scorer = CandidateScorer();
+      final same = MusicSearchCandidate(
+        query: '鲜花 回春丹',
+        source: MusicDataSource.flac,
+        platform: 'kuwo',
+        keyword: '鲜花',
+        page: 1,
+        id: 'flower',
+        name: '鲜花',
+        artist: '回春丹乐队',
+        album: '',
+        duration: 0,
+        link: '',
+        coverUrl: '',
+        qualities: const [],
+        score: 100,
+        raw: const {},
+      );
+      expect(scorer.needsDeepSearch(same, '鲜花 回春丹'), isFalse);
+    },
+  );
+
+  test('cancel during alternate search prevents resolution', () async {
+    var cancelled = false;
+    var resolutions = 0;
+    final resolver = RemoteMusicResolver(
+      initialFlacCookie: 'ready',
+      platforms: ['kuwo'],
+      httpClient: _FakeResolverHttp(
+        onPostForm: (uri, _, _) async {
+          if (uri.queryParameters['act'] == 'getUrl') resolutions++;
+          cancelled = true;
+          return _json(uri, {
+            'data': {
+              'list': [
+                {
+                  'id': 'exact',
+                  'name': '9420',
+                  'artist': '麦小兜',
+                  'minfo': [
+                    {'format': 'mp3'},
+                  ],
+                },
+              ],
+            },
+          });
+        },
+      ),
+    );
+    await expectLater(
+      resolver.resolveAlternative(
+        _yy9420,
+        excludedSources: {MusicDataSource.buguyy},
+        isCancelled: () => cancelled,
+      ),
+      throwsStateError,
+    );
+    expect(resolutions, 0);
+  });
+
+  test(
+    'cold FLAC initialization is shared by concurrent platform requests',
+    () async {
+      var homes = 0, searches = 0;
+      final home = Completer<void>();
+      final client = ChallengeClient(
+        httpClient: _FakeResolverHttp(
+          onGet: (uri, _) async {
+            homes++;
+            await home.future;
+            return ResolverHttpResponse(
+              statusCode: 200,
+              body: 'home',
+              finalUrl: uri,
+              cookies: [Cookie('session', 'ready')],
+            );
+          },
+          onPostForm: (uri, _, _) async {
+            searches++;
+            return _json(uri, {
+              'data': {'list': []},
+            });
+          },
+        ),
+      );
+      final calls = [
+        client.postFlacApi('search', {'platform': 'kuwo'}),
+        client.postFlacApi('search', {'platform': 'wyy'}),
+      ];
+      await Future<void>.delayed(Duration.zero);
+      expect(homes, 1);
+      home.complete();
+      await Future.wait(calls);
+      expect(searches, 2);
+    },
+  );
+
+  test('failed shared initialization can be retried', () async {
+    var homes = 0;
+    final client = ChallengeClient(
+      httpClient: _FakeResolverHttp(
+        onGet: (uri, _) async {
+          if (++homes == 1) throw const HttpException('HTTP 503');
+          return ResolverHttpResponse(
+            statusCode: 200,
+            body: 'home',
+            finalUrl: uri,
+            cookies: [Cookie('session', 'ready')],
+          );
+        },
+      ),
+    );
+    await expectLater(client.ensureCookie(), throwsA(isA<HttpException>()));
+    expect(await client.ensureCookie(), 'session=ready');
+    expect(homes, 2);
+  });
+
+  test(
+    'interactive FLAC displays the first platform before the slower platform completes',
+    () async {
+      final slow = Completer<void>();
+      final requests = <Map<String, String>>[];
+      final resolver = RemoteMusicResolver(
+        initialFlacCookie: 'ready',
+        httpClient: _FakeResolverHttp(
+          onPostForm: (uri, form, _) async {
+            requests.add(form);
+            if (form['platform'] == 'wyy') await slow.future;
+            return _json(uri, {
+              'data': {
+                'list': [
+                  {'id': form['platform'], 'name': '晴天', 'artist': '周杰伦'},
+                ],
+              },
+            });
+          },
+        ),
+      );
+      final first = Completer<MusicSearchProgress>();
+      final events = <MusicSearchProgress>[];
+      final finished = resolver
+          .searchProgressively('周杰伦 晴天', MusicDataSource.flac)
+          .forEach((p) {
+            events.add(p);
+            if (!first.isCompleted && p.candidates.isNotEmpty) {
+              first.complete(p);
+            }
+          });
+      final partial = await first.future.timeout(const Duration(seconds: 1));
+      expect(partial.isComplete, false);
+      expect(partial.candidates.single.platform, 'kuwo');
+      expect(
+        requests.every((r) => r['keyword'] == '晴天' && r['page'] == '1'),
+        true,
+      );
+      slow.complete();
+      await finished;
+      expect(events.last.isComplete, true);
+      expect(events.last.candidates, hasLength(2));
+      expect(
+        requests,
+        hasLength(2),
+      ); // exact hit stops alternate keywords and pages
+    },
+  );
+
+  test(
+    'cancelling interactive FLAC prevents fallback keywords and pages',
+    () async {
+      var cancelled = false;
+      var requests = 0;
+      final resolver = RemoteMusicResolver(
+        initialFlacCookie: 'ready',
+        platforms: ['kuwo'],
+        httpClient: _FakeResolverHttp(
+          onPostForm: (uri, _, _) async {
+            requests++;
+            return _json(uri, {
+              'data': {
+                'list': [
+                  {'id': 'cover', 'name': '晴天', 'artist': '翻唱'},
+                ],
+              },
+            });
+          },
+        ),
+      );
+      final events = await resolver
+          .searchWithCancellation(
+            '周杰伦 晴天',
+            MusicDataSource.flac,
+            isCancelled: () => cancelled,
+          )
+          .map((p) {
+            cancelled = true;
+            return p;
+          })
+          .toList();
+      expect(events.first.candidates.single.artist, '翻唱');
+      expect(requests, 1);
+      expect(resolver.isSourceAvailableForAuto(MusicDataSource.flac), true);
+    },
+  );
+
+  test(
+    'FLAC deep search stops on empty pages instead of exhausting eight pages',
+    () async {
+      final pages = <int>[];
+      final resolver = RemoteMusicResolver(
+        initialFlacCookie: 'ready',
+        platforms: ['kuwo'],
+        httpClient: _FakeResolverHttp(
+          onPostForm: (uri, form, _) async {
+            final page = int.parse(form['page']!);
+            pages.add(page);
+            return _json(uri, {
+              'data': {
+                'list': page == 1
+                    ? [
+                        {'id': 'cover', 'name': 'other', 'artist': 'cover'},
+                      ]
+                    : [],
+              },
+            });
+          },
+        ),
+      );
+      await resolver.search('晴天', MusicDataSource.flac);
+      expect(pages, [1, 2]);
+    },
+  );
+
+  test('BuguYY exact pair needs only one keyword request', () async {
+    var requests = 0;
+    final resolver = RemoteMusicResolver(
+      httpClient: _FakeResolverHttp(
+        onGet: (uri, _) async {
+          requests++;
+          return _json(uri, {
+            'data': [
+              {'id': '1', 'title': '晴天', 'singer': '周杰伦'},
+            ],
+          });
+        },
+      ),
+    );
+    expect(
+      (await resolver.search('周杰伦 晴天', MusicDataSource.buguyy)).single.name,
+      '晴天',
+    );
+    expect(requests, 1);
+  });
   test(
     'auto failures are shared by search, progressive and playlist lookup',
     () async {
@@ -49,14 +518,27 @@ void main() {
           .toList();
       expect(progress.last.isComplete, isTrue);
       expect(progress.last.error, isNull);
-      await expectLater(
-        resolver.searchScreenshotPrimary('梧桐灯'),
-        throwsA(isA<HttpException>()),
+      expect(
+        (await resolver.searchScreenshotPrimary('梧桐灯')).single.source,
+        MusicDataSource.flac,
       );
+      expect(buguyyCalls, 0);
+      for (var i = 0; i < 3; i++) {
+        await expectLater(
+          resolver.search('梧桐灯', MusicDataSource.buguyy),
+          throwsA(isA<HttpException>()),
+        );
+      }
       expect(buguyyCalls, 3);
-      expect(resolver.availableAutoSources, [MusicDataSource.flac]);
+      expect(resolver.availableAutoSources, [
+        MusicDataSource.flac,
+        MusicDataSource.twentyFourBit,
+      ]);
 
-      expect(await resolver.searchScreenshotPrimary('梧桐灯'), isEmpty);
+      expect(
+        (await resolver.searchScreenshotPrimary('梧桐灯')).single.source,
+        MusicDataSource.flac,
+      );
       expect(
         (await resolver.searchScreenshot('梧桐灯', '许嵩')).single.source,
         MusicDataSource.flac,
@@ -64,7 +546,8 @@ void main() {
       final laterProgress = await resolver
           .searchProgressively('梧桐灯', MusicDataSource.auto)
           .toList();
-      expect(laterProgress, hasLength(1));
+      expect(laterProgress.last.isComplete, isTrue);
+      expect(laterProgress.last.candidates.single.source, MusicDataSource.flac);
       await expectLater(
         resolver.resolveForSourceMode(
           _encryptedBuguyyCandidate(),
@@ -98,7 +581,7 @@ void main() {
   );
 
   test(
-    'auto counts a retried resolver operation once, not each HTTP attempt',
+    'Auto counts transport failure once and degrades after three operations',
     () async {
       var attempts = 0;
       final resolver = RemoteMusicResolver(
@@ -120,7 +603,7 @@ void main() {
         resolver.search('song', MusicDataSource.auto),
         throwsA(isA<StateError>()),
       );
-      expect(attempts, 3);
+      expect(attempts, 1);
       expect(resolver.isSourceAvailableForAuto(MusicDataSource.buguyy), isTrue);
       await expectLater(
         resolver.search('song', MusicDataSource.auto),
@@ -183,7 +666,13 @@ void main() {
       var calls = 0;
       var offline = true;
       final resolver = RemoteMusicResolver(
+        initialFlacCookie: 'ready',
+        platforms: ['kuwo'],
+        pages: 1,
         httpClient: _FakeResolverHttp(
+          onPostForm: (uri, _, _) async => _json(uri, {
+            'data': {'list': []},
+          }),
           onGet: (uri, _) async {
             calls++;
             if (offline) throw const HttpException('HTTP 503');
@@ -223,10 +712,14 @@ void main() {
   );
 
   test(
-    'both unavailable sources finish progressive search without more HTTP',
+    'all unavailable sources finish progressive search without more HTTP',
     () async {
       final resolver = RemoteMusicResolver(httpClient: _FakeResolverHttp());
-      for (final source in [MusicDataSource.flac, MusicDataSource.buguyy]) {
+      for (final source in [
+        MusicDataSource.flac,
+        MusicDataSource.buguyy,
+        MusicDataSource.twentyFourBit,
+      ]) {
         for (var i = 0; i < 3; i++) {
           resolver.reportSourceFailure(source, const HttpException('HTTP 503'));
         }
@@ -240,7 +733,7 @@ void main() {
           .toList();
       expect(progress, hasLength(1));
       expect(progress.single.isComplete, isTrue);
-      expect(progress.single.error.toString(), contains('两个音源'));
+      expect(progress.single.error.toString(), contains('音源'));
     },
   );
 
@@ -428,6 +921,7 @@ void main() {
     () async {
       final requests = <Uri>[];
       final resolver = RemoteMusicResolver(
+        initialFlacCookie: 'ready',
         httpClient: _FakeResolverHttp(
           onGet: (uri, _) async {
             requests.add(uri);
@@ -437,6 +931,9 @@ void main() {
               ],
             });
           },
+          onPostForm: (uri, _, _) async => _json(uri, {
+            'data': {'list': []},
+          }),
         ),
       );
 
@@ -957,7 +1454,7 @@ void main() {
   );
 
   test(
-    'auto searches buguyy and flac then merges concrete candidates',
+    'auto keeps FLAC results without searching lower priority providers',
     () async {
       var buguyyRequests = 0;
       var flacRequests = 0;
@@ -1001,17 +1498,16 @@ void main() {
       );
 
       final candidates = await resolver.search('周杰伦', MusicDataSource.auto);
-      expect(
-        candidates.map((candidate) => candidate.source).toSet(),
-        containsAll([MusicDataSource.buguyy, MusicDataSource.flac]),
-      );
+      expect(candidates.map((candidate) => candidate.source).toSet(), {
+        MusicDataSource.flac,
+      });
       expect(
         candidates
             .firstWhere((candidate) => candidate.source == MusicDataSource.flac)
             .coverUrl,
         'https://img.example.test/qingtian.jpg',
       );
-      expect(buguyyRequests, greaterThan(0));
+      expect(buguyyRequests, 0);
       expect(flacRequests, greaterThan(0));
     },
   );
@@ -1085,6 +1581,15 @@ void main() {
   });
 }
 
+class _CountingDeepSearchScorer extends CandidateScorer {
+  final checks = <MusicSearchCandidate, int>{};
+  @override
+  bool needsDeepSearch(MusicSearchCandidate? best, String query) {
+    if (best != null) checks.update(best, (n) => n + 1, ifAbsent: () => 1);
+    return true;
+  }
+}
+
 MusicSearchCandidate _encryptedBuguyyCandidate() => const MusicSearchCandidate(
   query: '梧桐灯',
   source: MusicDataSource.buguyy,
@@ -1127,6 +1632,24 @@ MusicSearchCandidate _expiredFlacCandidate() => const MusicSearchCandidate(
   qualities: [MusicQuality(format: 'mp3', bitrate: '320')],
   score: 0,
   raw: {'time': 'old-time', 'sign': 'old-sign'},
+);
+
+const _yy9420 = MusicSearchCandidate(
+  query: '麦小兜 9420',
+  source: MusicDataSource.buguyy,
+  platform: 'buguyy',
+  keyword: '9420',
+  page: 1,
+  id: 'yy9420',
+  name: '9420',
+  artist: '麦小兜',
+  album: '',
+  duration: 0,
+  link: '',
+  coverUrl: '',
+  qualities: [MusicQuality(format: 'mp3')],
+  score: 100,
+  raw: {},
 );
 
 class _FakeResolverHttp implements MusicResolverHttp {
@@ -1183,6 +1706,9 @@ class _FakeResolverHttp implements MusicResolverHttp {
     Map<String, String> headers = const {},
   }) {
     final handler = onPostJson;
+    if (handler == null && uri.host == 'www.24bit.net') {
+      return Future.value(_json(uri, {'status': true, 'result': const []}));
+    }
     if (handler == null) {
       fail('Unexpected JSON POST $uri');
     }

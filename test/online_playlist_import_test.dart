@@ -61,10 +61,10 @@ void main() {
       );
       await tester.tap(find.text('open'));
       await tester.pumpAndSettle();
-      expect(controller.searches, [MusicDataSource.flac]);
+      expect(controller.searches, [MusicDataSource.auto]);
       expect(find.text('稻香'), findsOneWidget);
       expect(find.textContaining('kuwo'), findsOneWidget);
-      await tester.tap(find.text('全部'));
+      await tester.tap(find.text('自动'));
       await tester.pumpAndSettle();
       expect(controller.searches.last, MusicDataSource.auto);
       await tester.tap(find.text('FLAC'));
@@ -105,7 +105,7 @@ void main() {
       await tester.tap(find.text('歌曲来源（布谷YY）'));
       await tester.pumpAndSettle();
       expect(find.byType(SongSourcePage), findsOneWidget);
-      expect(controller.searches, [MusicDataSource.flac]);
+      expect(controller.searches, [MusicDataSource.auto]);
       await tester.tap(find.byTooltip('刷新来源'));
       await tester.pumpAndSettle();
       expect(controller.refreshes, [false, true]);
@@ -160,9 +160,16 @@ void main() {
       expect(title.maxLines, isNull);
       expect(title.softWrap, isTrue);
       expect(matchCalls, 0);
-      await tester.tap(find.byKey(const ValueKey('direct-play-song-1')));
+      expect(find.byType(Checkbox), findsNothing);
+      expect(find.byKey(const Key('direct-new-playlist')), findsNothing);
+      expect(find.byKey(const Key('direct-add-playlist')), findsNothing);
+      await tester.tap(find.byKey(const ValueKey('direct-song-1')));
       await tester.pumpAndSettle();
       expect(controller.previewSongs.map((s) => s.title), ['Second']);
+      expect(controller.previewQueues.single.map((s) => s.title), [
+        'First',
+        'Second',
+      ]);
       expect(find.byKey(const ValueKey('mini-player-card')), findsOneWidget);
       expect(find.byType(MiniPlaybackProgress), findsOneWidget);
       await tester.tap(
@@ -179,6 +186,8 @@ void main() {
       expect(store.library.playlists, isEmpty);
       expect(matchCalls, 0);
       expect(tester.takeException(), isNull);
+      await tester.tap(find.byKey(const Key('direct-playlist-actions')));
+      await tester.pumpAndSettle();
       await tester.tap(find.byKey(const Key('direct-new-playlist')));
       await tester.pumpAndSettle();
       expect(store.library.playlists.single.entries.length, 2);
@@ -189,13 +198,17 @@ void main() {
         isTrue,
       );
       expect(matchCalls, 2);
+      expect(find.byKey(const Key('direct-open-playlist')), findsNothing);
+      await tester.tap(find.byKey(const Key('direct-playlist-actions')));
+      await tester.pumpAndSettle();
       expect(find.byKey(const Key('direct-open-playlist')), findsOneWidget);
+      expect(find.byKey(const Key('direct-new-playlist')), findsNothing);
       await _unmount(tester, controller);
     },
   );
 
   testWidgets(
-    'source playlist collapses its heading while keeping import controls visible',
+    'source playlist collapses its heading with actions at the top and no selection or bottom bar',
     (tester) async {
       await tester.binding.setSurfaceSize(const Size(320, 700));
       addTearDown(() => tester.binding.setSurfaceSize(null));
@@ -224,13 +237,24 @@ void main() {
         findsOneWidget,
       );
       expect(
+        find.byKey(const Key('direct-playlist-actions')).hitTestable(),
+        findsOneWidget,
+      );
+      expect(find.byType(Checkbox), findsNothing);
+      expect(find.byKey(const Key('direct-new-playlist')), findsNothing);
+      expect(find.byKey(const Key('direct-add-playlist')), findsNothing);
+      await tester.tap(find.byKey(const Key('direct-playlist-actions')));
+      await tester.pumpAndSettle();
+      expect(
         find.byKey(const Key('direct-new-playlist')).hitTestable(),
         findsOneWidget,
       );
       expect(
-        find.byKey(const Key('direct-playlist-select-all')).hitTestable(),
+        find.byKey(const Key('direct-add-playlist')).hitTestable(),
         findsOneWidget,
       );
+      await tester.binding.handlePopRoute();
+      await tester.pumpAndSettle();
       await tester.drag(scroll, const Offset(0, 100));
       await tester.pumpAndSettle();
       expect(
@@ -327,8 +351,13 @@ void main() {
       await tester.tap(find.byKey(ValueKey(_playlist.key)));
       await tester.pumpAndSettle();
       expect(find.byKey(const Key('direct-new-playlist')), findsNothing);
+      expect(find.byKey(const Key('direct-open-playlist')), findsNothing);
+      await tester.tap(find.byKey(const Key('direct-playlist-actions')));
+      await tester.pumpAndSettle();
       expect(find.byKey(const Key('direct-open-playlist')), findsOneWidget);
       expect(find.byKey(const Key('direct-sync-playlist')), findsNothing);
+      await tester.binding.handlePopRoute();
+      await tester.pumpAndSettle();
       await tester.pageBack();
       await tester.pumpAndSettle();
       await tester.tap(
@@ -727,6 +756,11 @@ void main() {
         ),
       ),
     );
+    await tester.pump();
+    await tester.tap(find.byKey(const ValueKey('manager-tab-playlists')));
+    await tester.pump();
+    expect(controller.countQueries, greaterThan(0));
+    await tester.tap(find.byKey(const ValueKey('manager-tab-tasks')));
     await tester.pump();
     final countsBefore = controller.countQueries;
     controller.downloadQueue.update(id, (task) => task.copyWith(progress: .7));
@@ -1693,7 +1727,7 @@ class _Resolver implements MusicResolver {
   ) async => [
     MusicSearchCandidate(
       query: query,
-      source: source,
+      source: source == MusicDataSource.auto ? MusicDataSource.flac : source,
       platform: 'kuwo',
       keyword: query,
       page: 1,
@@ -1722,18 +1756,22 @@ class _Controller extends MusicController {
   }) : matcher = matcher ?? _Matcher((draft) async => _match(draft.title)),
        super(
          audioHandler: MusicAudioHandler(),
+         resolver: _Resolver(),
          playlistStore: store,
          playlistMetadataRepository: repository,
          songSearchCache: SongSearchCache.memory(),
        );
   final _Matcher matcher;
   final previewSongs = <OnlinePlaylistSong>[];
+  final previewQueues = <List<OnlinePlaylistSong>>[];
   @override
   Future<void> playOnlinePlaylistSong(
     OnlinePlaylist origin,
-    OnlinePlaylistSong song,
-  ) async {
+    OnlinePlaylistSong song, {
+    List<OnlinePlaylistSong>? queueSongs,
+  }) async {
     previewSongs.add(song);
+    previewQueues.add(List.of(queueSongs ?? [song]));
     audioHandler.mediaItem.add(
       MediaItem(
         id: 'preview-${song.id}',

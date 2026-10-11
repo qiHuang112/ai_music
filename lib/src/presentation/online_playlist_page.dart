@@ -139,17 +139,8 @@ class _PlaylistCover extends StatelessWidget {
   final String url;
   @override
   Widget build(BuildContext context) {
-    final uri = Uri.tryParse(url);
     return MusicThumbnail(
-      uri: uri != null && (uri.scheme == 'http' || uri.scheme == 'https')
-          ? uri.replace(scheme: 'https')
-          : null,
-      headers: {
-        'User-Agent': 'Mozilla/5.0',
-        'Referer': uri?.host.endsWith('.music.126.net') == true
-            ? 'https://music.163.com/'
-            : 'https://y.qq.com/',
-      },
+      uri: Uri.tryParse(url),
       icon: Icons.queue_music_rounded,
     );
   }

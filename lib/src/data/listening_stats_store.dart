@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/foundation.dart';
@@ -402,6 +403,36 @@ class ListeningStatsStore extends ChangeNotifier {
     });
     _tail = work.then<void>((_) {}, onError: (_) {});
     return work;
+  }
+
+  /// Original JSON documents retain each day's records and existing schema.
+  Future<Map<String, Object?>> exportJsonFiles() async {
+    await flush();
+    if (error != null) throw StateError('听歌统计保存失败');
+    if (_rootProvider == null) {
+      return {
+        'index.json': {'version': 1, 'startedAt': startedAt?.toIso8601String()},
+        for (final month
+            in _records.values.map((r) => r.day.substring(0, 7)).toSet())
+          '$month.json': [
+            for (final r in _records.values)
+              if (r.day.startsWith(month)) r.toJson(),
+          ],
+      };
+    }
+    final dir = await _directory();
+    final files = <String, Object?>{};
+    if (await dir.exists()) {
+      await for (final file in dir.list(followLinks: false)) {
+        final name = file.uri.pathSegments.last;
+        if (file is File &&
+            (name == 'index.json' ||
+                RegExp(r'^\d{4}-\d{2}\.json$').hasMatch(name))) {
+          files[name] = jsonDecode(await file.readAsString());
+        }
+      }
+    }
+    return files;
   }
 
   Future<void> clear() {

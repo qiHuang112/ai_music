@@ -925,7 +925,25 @@ class LibraryUseCase {
   ) {
     // Index once per snapshot instead of scanning all cached songs per entry.
     final cachedByIdentity = <(Object, String, String), CachedTrack>{};
+    final cachedByRecording = <String, CachedTrack>{};
     for (final record in cachedRecords) {
+      if (record.music.source != MusicDataSource.lan) {
+        final recording = SongMatchIdentity(
+          record.music.name,
+          record.music.artist,
+        );
+        if (recording.title.isNotEmpty && recording.artists.isNotEmpty) {
+          cachedByRecording.update(
+            recording.key,
+            (current) =>
+                cachedTrackPlaybackPreference(record) >
+                    cachedTrackPlaybackPreference(current)
+                ? record
+                : current,
+            ifAbsent: () => record,
+          );
+        }
+      }
       final identity = (
         record.music.source,
         record.music.platform,
@@ -969,7 +987,13 @@ class LibraryUseCase {
             candidate.source,
             candidate.platform,
             candidate.id,
-          )];
+          )] ??
+          (!entry.manualSource
+              ? cachedByRecording[SongMatchIdentity(
+                  candidate.name,
+                  candidate.artist,
+                ).key]
+              : null);
       onlineById[entry.trackId] = Track(
         id: entry.trackId,
         title: candidate.name,

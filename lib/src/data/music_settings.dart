@@ -41,7 +41,7 @@ enum AppThemePreference {
 
 class MusicAppSettings {
   const MusicAppSettings({
-    this.source = MusicDataSource.flac,
+    this.source = MusicDataSource.auto,
     this.language = AppLanguage.zh,
     this.theme = AppThemePreference.dark,
     this.lanLibraryUrl = defaultLanLibraryUrl,
@@ -214,7 +214,7 @@ Future<Object?> _tryDecodeJson(File file, String text) async {
   try {
     return jsonDecode(text);
   } catch (_) {
-    if ({'auto', 'buguyy', 'flac'}.contains(text.trim())) {
+    if ({'auto', 'buguyy', 'flac', '24bit'}.contains(text.trim())) {
       return text;
     }
     await const JsonFileStore().backupCorruptFile(file);
@@ -222,9 +222,12 @@ Future<Object?> _tryDecodeJson(File file, String text) async {
   }
 }
 
-MusicDataSource _restoredSource(String? value) => switch (value) {
-  'auto' => MusicDataSource.auto,
-  'buguyy' => MusicDataSource.buguyy,
-  'flac' => MusicDataSource.flac,
-  _ => MusicDataSource.flac,
-};
+MusicDataSource _restoredSource(String? value) {
+  final source = MusicDataSource.fromStorage(value);
+  return MusicSourceCatalog.standard
+              .policyFor(source)
+              ?.supportsManualSelection ==
+          true
+      ? source
+      : MusicDataSource.auto;
+}

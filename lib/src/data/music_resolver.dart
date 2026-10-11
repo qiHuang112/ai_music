@@ -3,8 +3,10 @@ export 'candidate_scorer.dart'
     show CandidateScorer, isLooseArtistTitleCandidate, isStrictArtistCandidate;
 export 'challenge_client.dart' show ChallengeClient;
 export 'flac_resolver.dart';
+export 'twenty_four_bit_resolver.dart';
 export 'resolver_http_client.dart';
 export 'resolver_models.dart';
+export 'music_source_policy.dart';
 
 import 'dart:async';
 import 'dart:developer' as developer;
@@ -16,17 +18,26 @@ import 'challenge_client.dart';
 import 'flac_resolver.dart';
 import 'lyrics_normalizer.dart';
 import 'resolver_http_client.dart';
+import 'provider_request_scheduler.dart';
 import 'resolver_models.dart';
+import 'music_source_policy.dart';
+import 'operation_log.dart';
 import 'resolver_utils.dart';
+import 'song_match_identity.dart';
+import 'twenty_four_bit_resolver.dart';
 
 class RemoteMusicResolver
     implements
         MusicResolver,
         QualitySelectableMusicResolver,
         AutoSourceHealthResolver,
-        ProgressiveMusicResolver,
+        AutoFallbackMusicResolver,
+        CancellableMusicResolver,
         ScreenshotSearchResolver,
-        StagedScreenshotSearchResolver {
+        StagedScreenshotSearchResolver,
+        ScreenshotSearchSourceScopes,
+        MusicSourcePolicyResolver,
+        SourceAvailabilityResolver {
   RemoteMusicResolver({
     MusicResolverHttp? httpClient,
     String? initialFlacCookie,
@@ -34,8 +45,16 @@ class RemoteMusicResolver
     List<String> platforms = const ['kuwo', 'wyy'],
     String prefer = 'flac',
     bool? useAppleBuguyyEndpoint,
+    this.sourceCatalog = MusicSourceCatalog.standard,
+    bool Function(MusicDataSource)? isSourceAuthorized,
   }) {
-    final http = httpClient ?? HttpMusicResolverClient();
+    _isSourceAuthorized = isSourceAuthorized ?? (_) => false;
+    _sourceHealth = AutoSourceHealth(
+      catalog: sourceCatalog,
+      isAuthorized: _isSourceAuthorized,
+    );
+    final http = httpClient ?? (_ownedHttp = HttpMusicResolverClient());
+    _http = http;
     const scorer = CandidateScorer();
     _buguyy = BuguyyResolver(
       httpClient: http,
@@ -53,11 +72,122 @@ class RemoteMusicResolver
       platforms: platforms,
       prefer: prefer,
     );
+    _twentyFourBit = TwentyFourBitResolver(httpClient: http);
   }
+
+  HttpMusicResolverClient? _ownedHttp;
+  late final MusicResolverHttp _http;
+  void close() => _ownedHttp?.close();
 
   late final BuguyyResolver _buguyy;
   late final FlacResolver _flac;
-  final _sourceHealth = AutoSourceHealth();
+  late final TwentyFourBitResolver _twentyFourBit;
+  late final AutoSourceHealth _sourceHealth;
+  @override
+  final MusicSourceCatalog sourceCatalog;
+  late final bool Function(MusicDataSource) _isSourceAuthorized;
+  @override
+  bool isSourceAuthorized(MusicDataSource source) =>
+      _isSourceAuthorized(source);
+  final _availabilityProbes = <MusicDataSource, Future<void> Function()>{};
+  Future<void>? _availabilityCheck;
+  int _availabilityRevision = 0;
+  @override
+  int get sourceAvailabilityRevision => _availabilityRevision;
+  @override
+  MusicSourceAvailability sourceAvailability(MusicDataSource source) =>
+      _sourceHealth.availability(source);
+
+  void _rememberAvailabilityProbe(
+    MusicDataSource source, {
+    String? query,
+    MusicSearchCandidate? candidate,
+  }) {
+    _availabilityProbes[source] = () async {
+      if (candidate != null) {
+        await switch (source) {
+          MusicDataSource.flac => _flac.resolve(candidate),
+          MusicDataSource.buguyy => _buguyy.resolve(candidate),
+          MusicDataSource.twentyFourBit => _twentyFourBit.resolve(candidate),
+          _ => throw UnsupportedError('No probe adapter for $source'),
+        };
+      } else {
+        await switch (source) {
+          MusicDataSource.flac => _flac.searchFirstPages(
+            query!,
+            stopAfterPage: (_) => true,
+          ),
+          MusicDataSource.buguyy => _buguyy.searchSingleKeyword(query!),
+          MusicDataSource.twentyFourBit => _twentyFourBit.search(query!),
+          _ => throw UnsupportedError('No probe adapter for $source'),
+        };
+      }
+    };
+  }
+
+  @override
+  Future<void> recheckSourceAvailability({bool networkChanged = false}) {
+    if (_availabilityCheck case final pending?) return pending;
+    final targets = [
+      for (final policy in sourceCatalog.policies)
+        if (_availabilityProbes.containsKey(policy.source) &&
+            {
+              MusicSourceAvailability.unavailable,
+              MusicSourceAvailability.quotaExhausted,
+            }.contains(sourceAvailability(policy.source)))
+          policy.source,
+    ];
+    if (!networkChanged && targets.isEmpty) return Future.value();
+    _availabilityRevision++;
+    _autoPriorityCandidates.clear();
+    if (_http is HttpMusicResolverClient) {
+      (_http).resetSourceNetworkState();
+    }
+    for (final policy in sourceCatalog.policies) {
+      if (networkChanged || targets.contains(policy.source)) {
+        _sourceHealth.reset(
+          policy.source,
+          checking: targets.contains(policy.source),
+        );
+      }
+    }
+    final work = Future.wait([
+      for (final source in targets)
+        () async {
+          try {
+            await _sourceHealth.run(
+              source,
+              () => _availabilityProbes[source]!().timeout(
+                const Duration(seconds: 8),
+              ),
+              automatic: false,
+            );
+          } catch (_) {
+            // Status records the outcome; never download audio while probing.
+          } finally {
+            _sourceHealth.finishCheck(source);
+          }
+        }(),
+    ]).then<void>((_) {});
+    _availabilityCheck = work;
+    return work.whenComplete(() => _availabilityCheck = null);
+  }
+
+  // Only results reached through the ordered Auto search can skip rechecking
+  // earlier providers. Persisted candidates from the old mixed strategy cannot.
+  final _autoPriorityCandidates = <String>{};
+
+  String _candidateKey(MusicSearchCandidate candidate) =>
+      '${candidate.source.storageValue}|${candidate.platform}|${candidate.id}';
+
+  void _rememberAutoPriority(List<MusicSearchCandidate> candidates) {
+    for (final candidate in candidates) {
+      _autoPriorityCandidates.add(_candidateKey(candidate));
+    }
+    while (_autoPriorityCandidates.length > 1000) {
+      _autoPriorityCandidates.remove(_autoPriorityCandidates.first);
+    }
+  }
 
   @override
   List<MusicDataSource> get availableAutoSources =>
@@ -108,22 +238,59 @@ class RemoteMusicResolver
   }
 
   @override
+  MusicDataSource get screenshotPrimarySource =>
+      sourceCatalog.autoSources(isAuthorized: isSourceAuthorized).firstOrNull ??
+      MusicDataSource.auto;
+
+  @override
+  MusicDataSource get screenshotFallbackSource => MusicDataSource.auto;
+
+  @override
   Future<List<MusicSearchCandidate>> searchScreenshotPrimary(String title) =>
-      _searchScreenshotSource(
-        title,
-        MusicDataSource.buguyy,
-        _buguyy.searchSingleKeyword,
-      );
+      screenshotPrimarySource == MusicDataSource.auto
+      ? Future.value(const [])
+      : _searchScreenshotProvider(screenshotPrimarySource, title, '');
 
   @override
   Future<List<MusicSearchCandidate>> searchScreenshotFallback(
     String title,
     String artist,
-  ) => _searchScreenshotSource(
-    title,
-    MusicDataSource.flac,
-    (query) => _flac.searchFirstPages(query, stopAfterPage: (_) => true),
-  );
+  ) async {
+    Object? firstFailure;
+    for (final source in availableAutoSources) {
+      if (source == screenshotPrimarySource) continue;
+      try {
+        final found = await _searchScreenshotProvider(source, title, artist);
+        if (found.isNotEmpty) return found;
+      } catch (error) {
+        firstFailure ??= error;
+      }
+    }
+    if (firstFailure != null) throw firstFailure;
+    return const [];
+  }
+
+  Future<List<MusicSearchCandidate>> _searchScreenshotProvider(
+    MusicDataSource source,
+    String title,
+    String artist,
+  ) async {
+    final found = await _searchScreenshotSource(
+      source == MusicDataSource.twentyFourBit ? '$title $artist'.trim() : title,
+      source,
+      (query) => switch (source) {
+        MusicDataSource.flac => _flac.searchFirstPages(
+          query,
+          stopAfterPage: (_) => true,
+        ),
+        MusicDataSource.buguyy => _buguyy.searchSingleKeyword(query),
+        MusicDataSource.twentyFourBit => _twentyFourBit.search(query),
+        _ => throw UnsupportedError('No screenshot adapter for $source'),
+      },
+    );
+    _rememberAutoPriority(found);
+    return found;
+  }
 
   Future<List<MusicSearchCandidate>> _searchScreenshotSource(
     String title,
@@ -133,6 +300,7 @@ class RemoteMusicResolver
     final query = title.trim();
     if (query.isEmpty) return const [];
     if (!isSourceAvailableForAuto(source)) return const [];
+    _rememberAvailabilityProbe(source, query: query);
     try {
       return await _sourceHealth.run(
         source,
@@ -154,6 +322,9 @@ class RemoteMusicResolver
     if (trimmed.isEmpty) {
       return const [];
     }
+    if (source != MusicDataSource.auto && source != MusicDataSource.lan) {
+      _rememberAvailabilityProbe(source, query: trimmed);
+    }
 
     _logResolver(
       '[AI Music][resolver] search query="$trimmed" source=${source.storageValue}',
@@ -170,6 +341,11 @@ class RemoteMusicResolver
         automatic: false,
       ),
       MusicDataSource.auto => await _searchAuto(trimmed),
+      MusicDataSource.twentyFourBit => await _sourceHealth.run(
+        source,
+        () => _twentyFourBit.search(trimmed),
+        automatic: false,
+      ),
       MusicDataSource.lan => throw UnsupportedError(
         'LAN is a cache provenance and cannot be searched online.',
       ),
@@ -186,90 +362,93 @@ class RemoteMusicResolver
   Stream<MusicSearchProgress> searchProgressively(
     String query,
     MusicDataSource source,
-  ) async* {
-    final trimmed = query.trim();
-    if (trimmed.isEmpty) {
-      yield const MusicSearchProgress(candidates: [], isComplete: true);
-      return;
-    }
-    if (source != MusicDataSource.auto) {
-      try {
-        final result = await search(trimmed, source);
-        yield MusicSearchProgress(candidates: result, isComplete: true);
-      } catch (error) {
-        yield MusicSearchProgress(
-          candidates: const [],
-          isComplete: true,
-          error: error,
-        );
-      }
-      return;
-    }
+  ) => searchWithCancellation(query, source, isCancelled: () => false);
 
-    _logResolver(
-      '[AI Music][resolver] search query="$trimmed" source=${source.storageValue}',
-    );
+  @override
+  Stream<MusicSearchProgress> searchWithCancellation(
+    String query,
+    MusicDataSource source, {
+    required bool Function() isCancelled,
+  }) {
+    final trimmed = query.trim();
     final merged = <MusicSearchCandidate>[];
     final errors = <Object>[];
-    final sources = availableAutoSources;
-    if (sources.isEmpty) {
-      yield MusicSearchProgress(
-        candidates: const [],
-        isComplete: true,
-        error: _noAvailableAutoSourceError(),
-      );
-      return;
-    }
     var cancelled = false;
+    bool stopped() => cancelled || isCancelled();
     final stream = StreamController<MusicSearchProgress>(
       onCancel: () => cancelled = true,
     );
-    var remaining = sources.length;
-
-    void handleResult(_AutoSourceResult result) {
-      remaining -= 1;
-      if (cancelled) {
-        if (remaining == 0) unawaited(stream.close());
-        return;
-      }
-      if (result.error != null) {
-        errors.add(result.error!);
-      }
-      if (result.candidates.isNotEmpty) {
-        _appendStableCandidates(merged, result.candidates);
-      }
-      final isComplete = remaining == 0;
-      if (isComplete) {
-        _logResolver(
-          '[AI Music][resolver] search done query="$trimmed" '
-          'source=${source.storageValue} count=${merged.length} '
-          'candidateSources=${merged.map((c) => c.source.storageValue).toSet().join(",")}',
-        );
-      }
+    final sources = source == MusicDataSource.auto
+        ? availableAutoSources
+        : [source];
+    void emit(bool complete) {
+      if (stopped()) return;
       stream.add(
         MusicSearchProgress(
-          candidates: List<MusicSearchCandidate>.unmodifiable(merged),
-          isComplete: isComplete,
-          error: isComplete && merged.isEmpty && errors.isNotEmpty
+          candidates: List.unmodifiable(merged),
+          isComplete: complete,
+          error: complete && merged.isEmpty && errors.isNotEmpty
               ? _combinedAutoError(errors)
               : null,
         ),
       );
-      if (isComplete) {
-        unawaited(stream.close());
-      }
     }
 
-    for (final source in sources) {
-      unawaited(
-        _searchAutoSource(
-          trimmed,
-          source,
-          isCancelled: () => cancelled,
-        ).then(handleResult),
+    void update(List<MusicSearchCandidate> candidates) {
+      if (candidates.isEmpty) return;
+      final keys = {
+        for (final c in candidates) '${c.source}\t${c.platform}\t${c.id}',
+      };
+      merged.removeWhere(
+        (c) => !keys.contains('${c.source}\t${c.platform}\t${c.id}'),
       );
+      _appendStableCandidates(merged, candidates);
     }
-    yield* stream.stream;
+
+    void batch(List<MusicSearchCandidate> candidates) {
+      if (stopped() || candidates.isEmpty) return;
+      if (source == MusicDataSource.auto) _rememberAutoPriority(candidates);
+      update(candidates);
+      emit(false);
+    }
+
+    if (trimmed.isEmpty || sources.isEmpty) {
+      if (sources.isEmpty) errors.add(_noAvailableAutoSourceError());
+      emit(true);
+      unawaited(stream.close());
+      return stream.stream;
+    }
+    unawaited(
+      runZoned(() async {
+        try {
+          for (final concrete in sources) {
+            if (stopped()) return;
+            final result = await _searchAutoSource(
+              trimmed,
+              concrete,
+              isCancelled: stopped,
+              automatic: source == MusicDataSource.auto,
+              onBatch: batch,
+            );
+            if (stopped()) return;
+            if (result.error != null) errors.add(result.error!);
+            if (result.error == null || result.candidates.isNotEmpty) {
+              update(result.candidates);
+            }
+            // Keep usable partial batches if the provider later fails. Do not
+            // consume a limited fallback merely to supplement existing results.
+            if (merged.isNotEmpty) {
+              if (source == MusicDataSource.auto) _rememberAutoPriority(merged);
+              break;
+            }
+          }
+          emit(true);
+        } finally {
+          await stream.close();
+        }
+      }, zoneValues: {providerCancellationKey: stopped}),
+    );
+    return stream.stream;
   }
 
   @override
@@ -287,17 +466,129 @@ class RemoteMusicResolver
     MusicSearchCandidate candidate,
     MusicDataSource mode, {
     MusicQualityLevel? quality,
-  }) => _resolveWithPreference(
-    candidate,
-    quality?.resolverPreference,
-    automatic: mode == MusicDataSource.auto,
-  );
+  }) async {
+    final checkedEarlier = <MusicDataSource>{};
+    final earlierSources = sourceCatalog
+        .sourcesBefore(candidate.source)
+        .toSet();
+    if (mode == MusicDataSource.auto &&
+        earlierSources.isNotEmpty &&
+        !_autoPriorityCandidates.contains(_candidateKey(candidate))) {
+      checkedEarlier.addAll(earlierSources);
+      try {
+        return await resolveAlternative(
+          candidate,
+          excludedSources: {
+            for (final source in availableAutoSources)
+              if (!earlierSources.contains(source)) source,
+          },
+          quality: quality,
+          isCancelled: _requestCancelled,
+        );
+      } catch (_) {
+        if (_requestCancelled()) rethrow;
+      }
+    }
+    try {
+      final resolved = await _resolveWithPreference(
+        candidate,
+        quality?.resolverPreference,
+        automatic: mode == MusicDataSource.auto,
+      );
+      if (mode == MusicDataSource.auto &&
+          (resolved.panLink ||
+              !SongMatchIdentity(
+                candidate.name,
+                candidate.artist,
+              ).sameRecording(
+                SongMatchIdentity(resolved.name, resolved.artist),
+              ))) {
+        throw StateError('未获取到同曲可播放的音频地址');
+      }
+      return resolved;
+    } catch (_) {
+      if (mode != MusicDataSource.auto || _requestCancelled()) rethrow;
+      try {
+        return await resolveAlternative(
+          candidate,
+          excludedSources: {candidate.source, ...checkedEarlier},
+          quality: quality,
+          isCancelled: _requestCancelled,
+        );
+      } catch (_) {
+        // Preserve the useful original error when no verified alternate exists.
+      }
+      rethrow;
+    }
+  }
+
+  @override
+  Future<ResolvedMusic> resolveAlternative(
+    MusicSearchCandidate candidate, {
+    required Set<MusicDataSource> excludedSources,
+    MusicQualityLevel? quality,
+    bool Function()? isCancelled,
+  }) async {
+    bool stopped() => isCancelled?.call() == true || _requestCancelled();
+    final identity = SongMatchIdentity(candidate.name, candidate.artist);
+    bool matches(MusicSearchCandidate item) =>
+        identity.sameRecording(SongMatchIdentity(item.name, item.artist));
+    for (final source in availableAutoSources) {
+      if (stopped()) throw StateError('Source request cancelled');
+      if (excludedSources.contains(source)) continue;
+      try {
+        final query = '${candidate.artist} ${candidate.name}'.trim();
+        final found = await _sourceHealth.run(
+          source,
+          () => switch (source) {
+            MusicDataSource.flac => _flac.search(
+              query,
+              initialKeyword: candidate.name,
+              matchesTarget: matches,
+              isCancelled: stopped,
+            ),
+            MusicDataSource.twentyFourBit => _twentyFourBit.search(
+              query,
+              matchesTarget: matches,
+              isCancelled: stopped,
+            ),
+            _ => _buguyy.search(query),
+          },
+          automatic: true,
+          isCancelled: stopped,
+        );
+        if (stopped()) throw StateError('Source request cancelled');
+        // One attempt per provider; another recording must never be a fallback.
+        final match = found.where(matches).firstOrNull;
+        if (match == null) continue;
+        _rememberAutoPriority([match]);
+        final resolved = await _resolveWithPreference(
+          match,
+          quality?.resolverPreference,
+          automatic: true,
+        );
+        if (stopped()) throw StateError('Source request cancelled');
+        if (!identity.sameRecording(
+              SongMatchIdentity(resolved.name, resolved.artist),
+            ) ||
+            resolved.panLink ||
+            Uri.tryParse(resolved.url)?.scheme != 'https') {
+          continue;
+        }
+        return resolved;
+      } catch (_) {
+        if (stopped()) rethrow;
+      }
+    }
+    throw StateError('未找到可用的同曲备用来源');
+  }
 
   Future<ResolvedMusic> _resolveWithPreference(
     MusicSearchCandidate candidate,
     String? qualityPreference, {
     bool automatic = false,
   }) async {
+    _rememberAvailabilityProbe(candidate.source, candidate: candidate);
     final resolved = await switch (candidate.source) {
       MusicDataSource.buguyy => _resolveBuguyy(
         candidate,
@@ -312,6 +603,15 @@ class RemoteMusicResolver
       ),
       MusicDataSource.auto => throw StateError(
         'Auto candidates must be tagged with their concrete source.',
+      ),
+      MusicDataSource.twentyFourBit => _sourceHealth.run(
+        candidate.source,
+        () => _twentyFourBit.resolve(
+          candidate,
+          qualityPreference: qualityPreference,
+        ),
+        automatic: automatic,
+        operation: AutoSourceOperation.resolve,
       ),
       MusicDataSource.lan => throw UnsupportedError(
         'LAN manifest tracks are already resolved.',
@@ -424,23 +724,17 @@ class RemoteMusicResolver
   Future<List<MusicSearchCandidate>> _searchAuto(String query) async {
     final sources = availableAutoSources;
     if (sources.isEmpty) throw _noAvailableAutoSourceError();
-    final results = await Future.wait([
-      for (final source in sources) _searchAutoSource(query, source),
-    ]);
-    final merged = [for (final result in results) ...result.candidates]
-      ..sort((a, b) {
-        final score = b.score.compareTo(a.score);
-        if (score != 0) return score;
-        // Same recording score: prefer FLAC without reordering better matches.
-        return (a.source == MusicDataSource.flac ? 0 : 1).compareTo(
-          b.source == MusicDataSource.flac ? 0 : 1,
-        );
-      });
-    if (merged.isNotEmpty) return merged.take(80).toList(growable: false);
-    final errors = [
-      for (final result in results)
-        if (result.error != null) result.error!,
-    ];
+    final errors = <Object>[];
+    for (final source in sources) {
+      if (_requestCancelled()) throw StateError('Source request cancelled');
+      final result = await _searchAutoSource(query, source);
+      if (_requestCancelled()) throw StateError('Source request cancelled');
+      if (result.candidates.isNotEmpty) {
+        _rememberAutoPriority(result.candidates);
+        return result.candidates.take(80).toList(growable: false);
+      }
+      if (result.error != null) errors.add(result.error!);
+    }
     if (errors.isNotEmpty) throw _combinedAutoError(errors);
     return const [];
   }
@@ -449,14 +743,29 @@ class RemoteMusicResolver
     String query,
     MusicDataSource source, {
     bool Function()? isCancelled,
+    bool automatic = true,
+    void Function(List<MusicSearchCandidate>)? onBatch,
   }) async {
+    if (isSourceAvailableForAuto(source) || !automatic) {
+      _rememberAvailabilityProbe(source, query: query);
+    }
     try {
       final candidates = await _sourceHealth.run(
         source,
-        () => source == MusicDataSource.flac
-            ? _flac.search(query)
-            : _buguyy.search(query),
-        automatic: true,
+        () => switch (source) {
+          MusicDataSource.flac => _flac.search(
+            query,
+            onBatch: onBatch,
+            isCancelled: isCancelled,
+          ),
+          MusicDataSource.twentyFourBit => _twentyFourBit.search(
+            query,
+            onBatch: onBatch,
+            isCancelled: isCancelled,
+          ),
+          _ => _buguyy.search(query),
+        },
+        automatic: automatic,
         isCancelled: isCancelled,
       );
       _logResolver(
@@ -476,7 +785,7 @@ class RemoteMusicResolver
   }
 
   StateError _noAvailableAutoSourceError() =>
-      StateError('两个音源均多次请求失败，本次运行已暂停自动请求。可在设置中手动选择音源重试，或重新打开应用。');
+      StateError('音源均多次请求失败，本次运行已暂停自动请求。可在设置中手动选择音源重试，或重新打开应用。');
 }
 
 void _appendStableCandidates(
@@ -499,7 +808,13 @@ void _appendStableCandidates(
 StateError _combinedAutoError(List<Object> errors) =>
     StateError(errors.map(formatResolverError).join('; '));
 
+bool _requestCancelled() {
+  final check = Zone.current[providerCancellationKey];
+  return check is bool Function() && check();
+}
+
 void _logResolver(String message) {
+  OperationLog.event('resolver', {'message': message});
   developer.log(message, name: 'ai_music.resolver');
   // ignore: avoid_print
   print(message);

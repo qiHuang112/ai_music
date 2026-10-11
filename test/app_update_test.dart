@@ -81,6 +81,26 @@ void main() {
     await server.close(force: true);
     await root.delete(recursive: true);
   });
+  testWidgets(
+    'update page shows only the project URL without source explanation or LAN settings',
+    (tester) async {
+      await tester.pumpWidget(
+        MaterialApp(home: AppUpdatePage(updates: updates)),
+      );
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('project-url')), findsOneWidget);
+      expect(find.text('github.com/qiHuang112/ai_music'), findsOneWidget);
+      expect(find.textContaining('通过 GitHub'), findsNothing);
+      expect(find.textContaining('GitHub Releases'), findsNothing);
+      expect(find.textContaining('Updates from GitHub'), findsNothing);
+      expect(find.textContaining('192.168.'), findsNothing);
+      expect(find.textContaining('127.0.0.1'), findsNothing);
+      expect(find.text('更新服务'), findsNothing);
+      expect(find.byType(TextField), findsNothing);
+      expect(find.byIcon(Icons.edit), findsNothing);
+      await tester.pumpWidget(const SizedBox.shrink());
+    },
+  );
   test(
     'compares actual build codes, throttles checks and installs only verified bytes',
     () async {
@@ -475,6 +495,7 @@ void main() {
         'url': '$githubUpdateUrl/releases/download/v1.0.3-101/app.apk',
       };
       final client = _UpdateClient([
+        _Reply(503), // automatic LAN probe fails, then GitHub is used
         _Reply(
           302,
           location: 'https://release-assets.githubusercontent.com/metadata',
@@ -501,13 +522,13 @@ void main() {
       await github.check(force: true);
       expect(github.hasUpdate, isTrue);
       expect(
-        client.uris.first.toString(),
+        client.uris[1].toString(),
         '$githubUpdateUrl/releases/latest/download/latest.json',
       );
       await github.downloadAndInstall();
       expect(bridge.installs, 1);
       expect(await bridge.file!.readAsBytes(), bytes);
-      expect(client.uris.length, 4);
+      expect(client.uris.length, 5);
     },
   );
 
@@ -517,7 +538,10 @@ void main() {
     'https://github.com:8443/app.apk',
   ]) {
     test('GitHub rejects unsafe redirect $location', () async {
-      final client = _UpdateClient([_Reply(302, location: location)]);
+      final client = _UpdateClient([
+        _Reply(503),
+        _Reply(302, location: location),
+      ]);
       await File(
         '${root.path}/github.json',
       ).writeAsString(jsonEncode({'serverUrl': githubUpdateUrl}));
@@ -531,7 +555,7 @@ void main() {
       await github.check(force: true);
       expect(github.hasUpdate, isFalse);
       expect(github.error, isNotNull);
-      expect(client.uris.length, 1);
+      expect(client.uris.length, 2);
     });
   }
 
@@ -554,24 +578,27 @@ void main() {
     },
   );
 
-  test('saved built-in and custom addresses persist', () async {
-    for (final saved in [
-      defaultUpdateUrl,
-      githubUpdateUrl,
-      'http://192.168.1.5:8788',
-    ]) {
-      final config = File('${root.path}/migration.json');
-      await config.writeAsString(jsonEncode({'serverUrl': saved}));
-      final migrated = AppUpdateController(
-        bridge: bridge,
-        supported: true,
-        configFile: () async => config,
-      );
-      await migrated.initialize();
-      expect(migrated.serverUrl, '$saved/');
-      migrated.dispose();
-    }
-  });
+  test(
+    'legacy server preferences are ignored; routing stays automatic',
+    () async {
+      for (final saved in [
+        defaultUpdateUrl,
+        githubUpdateUrl,
+        'http://192.168.1.5:8788',
+      ]) {
+        final config = File('${root.path}/migration.json');
+        await config.writeAsString(jsonEncode({'serverUrl': saved}));
+        final migrated = AppUpdateController(
+          bridge: bridge,
+          supported: true,
+          configFile: () async => config,
+        );
+        await migrated.initialize();
+        expect(migrated.serverUrl, defaultUpdateUrl);
+        migrated.dispose();
+      }
+    },
+  );
 }
 
 class _UpdateClient extends Fake implements HttpClient {

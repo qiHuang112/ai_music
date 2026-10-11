@@ -1,3 +1,4 @@
+import 'operation_log.dart';
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
@@ -222,6 +223,13 @@ class SongCommentsRepository {
     int page = 0,
     String? cursor,
   }) async {
+    OperationLog.event('comments.load', {
+      'page': page,
+      'title': query.title,
+      'artist': query.artist,
+      'platform': platform.name,
+      'refresh': refresh,
+    });
     if (page < 0) throw ArgumentError.value(page, 'page');
     await _loadCache();
     final key = query.key(platform);

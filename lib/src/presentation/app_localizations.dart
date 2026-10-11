@@ -1,6 +1,7 @@
 import 'package:flutter/widgets.dart';
 
 import '../data/music_settings.dart';
+import '../data/music_source_policy.dart';
 
 class AppStringsScope extends InheritedWidget {
   const AppStringsScope({
@@ -141,14 +142,27 @@ class AppStrings {
   String get buguyy => isZh ? '布谷歪歪 / BuguYY' : 'BuguYY';
   String get flacSource => isZh ? 'FLAC / flac.music.hi.cn' : 'FLAC';
   String get autoSourceDescription => isZh
-      ? '合并可用音源；某个来源连续失败时，本次使用自动改用其他来源。'
-      : 'Merge available sources and temporarily skip repeatedly failing providers.';
+      ? '按优先顺序自动尝试，常规来源都不可用时才使用有限额备用源。'
+      : 'Try sources in priority order. Limited fallback sources are used only when regular sources are unavailable.';
+  String? sourceAvailabilityLabel(MusicSourceAvailability status) =>
+      switch (status) {
+        MusicSourceAvailability.available => isZh ? '可用' : 'Available',
+        MusicSourceAvailability.quotaExhausted =>
+          isZh ? '额度已耗尽' : 'Allowance exhausted',
+        MusicSourceAvailability.unavailable => isZh ? '暂不可用' : 'Unavailable',
+        _ => null,
+      };
   String get buguyyDescription => isZh
       ? '搜索、歌单匹配及未缓存歌曲使用布谷歪歪。'
       : 'Use BuguYY for search, playlist matching and uncached songs.';
   String get flacSourceDescription => isZh
-      ? '默认来源。搜索、歌单匹配及未缓存歌曲使用 FLAC。'
-      : 'Default source for search, playlist matching and uncached songs.';
+      ? '搜索、歌单匹配及未缓存歌曲只使用 FLAC。'
+      : 'Use only FLAC for search, playlist matching and uncached songs.';
+  String get twentyFourBitLabel =>
+      isZh ? '24bit · 有限额下载' : '24bit · Daily limit';
+  String get twentyFourBitDescription => isZh
+      ? '有每日限额，仅在 FLAC 和布谷 YY 都没有可用结果时自动尝试，不支持手动选择。'
+      : 'Daily allowance applies. Used automatically only after FLAC and BuguYY are unavailable; not selectable manually.';
   String get sourcePreferenceNote => isZh
       ? '已完整缓存的歌曲优先播放本地文件。单首歌曲手动选定的来源会保留，可在歌曲的“切换来源”里修改。'
       : 'Complete cached songs play locally. A manually selected song source stays fixed until you change it in Switch source.';

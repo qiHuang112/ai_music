@@ -5,6 +5,7 @@ import 'dart:io';
 import 'json_file_store.dart';
 import 'saved_online_track.dart';
 import 'playlist_song.dart';
+import 'music_source_policy.dart';
 import '../platform/app_storage.dart';
 
 const favoritePlaylistId = 'favorite';
@@ -61,7 +62,13 @@ class PlaylistTrackEntry {
       trackId: id,
       onlineTrack: onlineTrack,
       song: song,
-      manualSource: json['manualSource'] == true,
+      manualSource:
+          json['manualSource'] == true &&
+          (onlineTrack == null ||
+              MusicSourceCatalog.standard
+                      .policyFor(onlineTrack.candidate.source)
+                      ?.supportsManualSelection ==
+                  true),
       addedAt:
           DateTime.tryParse(json['addedAt']?.toString() ?? '') ??
           fallbackAddedAt,

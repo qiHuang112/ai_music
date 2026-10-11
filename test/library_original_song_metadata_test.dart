@@ -15,6 +15,62 @@ const _songTitle = '不能说的秘密';
 const _songArtist = '周杰伦';
 
 void main() {
+  test(
+    'Auto playlist cache fallback survives a snapshot and respects manual choice and version',
+    () async {
+      final f = await _Fixture.create();
+      final at = DateTime(2026, 10, 11);
+      final music = ResolvedMusic.fromJson({
+        ...f.cache.record.music.toJson(),
+        'source': 'flac',
+        'platform': 'kuwo',
+        'id': 'alternate',
+      });
+      final playlists = PlaylistLibrary(
+        playlists: [
+          MusicPlaylist(
+            id: 'fallback',
+            name: 'Fallback',
+            createdAt: at,
+            updatedAt: at,
+            entries: [
+              PlaylistTrackEntry(
+                trackId: 'auto',
+                addedAt: at,
+                onlineTrack: _auto,
+              ),
+              PlaylistTrackEntry(
+                trackId: 'manual',
+                addedAt: at,
+                onlineTrack: _auto,
+                manualSource: true,
+              ),
+              PlaylistTrackEntry(
+                trackId: 'live',
+                addedAt: at,
+                onlineTrack: _source('不能说的秘密(Live)', '周杰伦'),
+              ),
+            ],
+          ),
+        ],
+      );
+      final snapshot = f.library.applyCachedRecords([
+        f.cache.record.copyWith(music: music),
+      ], playlists);
+      expect(
+        snapshot.onlineTracks.singleWhere((t) => t.id == 'auto').filePath,
+        f.audio.path,
+      );
+      expect(
+        snapshot.onlineTracks.singleWhere((t) => t.id == 'manual').filePath,
+        isEmpty,
+      );
+      expect(
+        snapshot.onlineTracks.singleWhere((t) => t.id == 'live').filePath,
+        isEmpty,
+      );
+    },
+  );
   for (final example in const [
     (
       oldTitle: '鸿门旋律',

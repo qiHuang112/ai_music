@@ -11,12 +11,14 @@ class ListSearchField extends StatelessWidget {
     required this.onChanged,
     this.focusNode,
     this.emptySuffix,
+    this.hintText,
   });
 
   final TextEditingController controller;
   final ValueChanged<String> onChanged;
   final FocusNode? focusNode;
   final Widget? emptySuffix;
+  final String? hintText;
 
   @override
   Widget build(BuildContext context) {
@@ -34,7 +36,7 @@ class ListSearchField extends StatelessWidget {
         textInputAction: TextInputAction.search,
         onChanged: onChanged,
         decoration: InputDecoration(
-          hintText: strings.listSearchHint,
+          hintText: hintText ?? strings.listSearchHint,
           prefixIcon: const Icon(Icons.search),
           suffixIcon: controller.text.isEmpty
               ? emptySuffix

@@ -33,6 +33,280 @@ import 'package:flutter_test/flutter_test.dart';
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
+  for (final ownCache in [false, true]) {
+    test(
+      'manual source overrides Auto cache reuse ownCache=$ownCache',
+      () async {
+        final metadata = _StaticMetadataRepository();
+        final f = await _SourcePreferenceFixture.create(
+          initialSource: MusicDataSource.auto,
+          cached: true,
+          metadataOverride: metadata,
+        );
+        try {
+          final selected = _sourcePreferenceCandidate(MusicDataSource.flac);
+          final music = await f.resolver.resolveAtQuality(
+            selected,
+            MusicQualityLevel.low,
+          );
+          String? ownPath;
+          if (ownCache) {
+            ownPath = '${f.root.path}/own.mp3';
+            await File(ownPath).writeAsBytes(_controllerLanMp3Bytes());
+            f.cache.cached.add(
+              CachedTrack(
+                cacheId: cacheIdForResolved(music),
+                music: music,
+                filePath: ownPath,
+                sizeBytes: _controllerLanMp3Bytes().length,
+                fromCache: true,
+                playbackCache: true,
+              ),
+            );
+            await f.controller.loadCache(repairLegacy: false);
+          }
+          f.resolver.ids.clear();
+          await f.controller.chooseSongSource(f.track, selected);
+          await f.controller.playTrack(f.track, queueTracks: [f.track]);
+          expect(f.resolver.ids, ownCache ? isEmpty : ['flac-song']);
+          expect(
+            f.controller.selectedSongSource(f.track)?.source,
+            MusicDataSource.flac,
+          );
+          if (ownCache) expect(f.controller.currentTrack!.filePath, ownPath);
+          await f.controller.loadMetadataForCurrentTrack();
+          expect(metadata.loadIds.last, cacheIdForResolved(music));
+        } finally {
+          await f.close();
+        }
+      },
+    );
+  }
+
+  test(
+    'manual favorite download ignores another provider cache in Auto',
+    () async {
+      final f = await _SourcePreferenceFixture.create(
+        initialSource: MusicDataSource.auto,
+        cached: true,
+      );
+      try {
+        final old = f.cache.cached.single;
+        f.cache.cached[0] = old.copyWith(
+          music: ResolvedMusic.fromJson({
+            ...old.music.toJson(),
+            'quality': const MusicQuality(format: 'flac').toJson(),
+          }),
+        );
+        await f.controller.loadCache(repairLegacy: false);
+        await f.controller.chooseSongSource(
+          f.track,
+          _sourcePreferenceCandidate(MusicDataSource.flac),
+        );
+        await f.controller.toggleFavorite(f.track);
+        await f.controller.waitForFavoriteDownloads();
+        expect(f.cache.downloadIds, ['flac-song']);
+        expect(
+          f.controller.downloadTasks
+              .where((t) => t.status == DownloadTaskStatus.completed)
+              .single
+              .reusedCache,
+          false,
+        );
+      } finally {
+        await f.close();
+      }
+    },
+  );
+
+  test(
+    'fallback media failure is charged to the resolved provider and recovers',
+    () async {
+      final resolver = _CrossProviderMediaResolver();
+      final handler = _MediaHealthHandler();
+      final f = await _SourcePreferenceFixture.create(
+        initialSource: MusicDataSource.auto,
+        resolverOverride: resolver,
+        handlerOverride: handler,
+      );
+      try {
+        for (var i = 0; i < 2; i++) {
+          resolver.reportSourceFailure(
+            MusicDataSource.flac,
+            const HttpException('Audio HTTP 503'),
+          );
+        }
+        await f.controller.playTrack(f.track, queueTracks: [f.track]);
+        final prepared =
+            (handler.loadedItems.single.source as DeferredStreamingAudioSource)
+                    .initialSource
+                as ResumableAudioSource;
+        prepared.onFailure!(const HttpException('Audio HTTP 503'));
+        expect(resolver.isSourceAvailableForAuto(MusicDataSource.flac), false);
+        expect(resolver.isSourceAvailableForAuto(MusicDataSource.buguyy), true);
+        await _waitForMediaCondition(() => handler.loadCalls == 2);
+        expect(handler.mediaItem.value?.id, f.track.id);
+      } finally {
+        await f.close();
+      }
+    },
+  );
+
+  test(
+    'fallback media success clears only the resolved provider failures',
+    () async {
+      final resolver = _CrossProviderMediaResolver();
+      final handler = _MediaHealthHandler();
+      final f = await _SourcePreferenceFixture.create(
+        initialSource: MusicDataSource.auto,
+        resolverOverride: resolver,
+        handlerOverride: handler,
+      );
+      try {
+        for (final source in [MusicDataSource.flac, MusicDataSource.buguyy]) {
+          for (var i = 0; i < 2; i++) {
+            resolver.reportSourceFailure(
+              source,
+              const HttpException('Audio HTTP 503'),
+            );
+          }
+        }
+        await f.controller.playTrack(f.track, queueTracks: [f.track]);
+        final prepared =
+            (handler.loadedItems.single.source as DeferredStreamingAudioSource)
+                    .initialSource
+                as ResumableAudioSource;
+        prepared.onSuccess!();
+        resolver.reportSourceFailure(
+          MusicDataSource.flac,
+          const HttpException('Audio HTTP 503'),
+        );
+        expect(resolver.isSourceAvailableForAuto(MusicDataSource.flac), true);
+        resolver.reportSourceFailure(
+          MusicDataSource.buguyy,
+          const HttpException('Audio HTTP 503'),
+        );
+        expect(
+          resolver.isSourceAvailableForAuto(MusicDataSource.buguyy),
+          false,
+        );
+      } finally {
+        await f.close();
+      }
+    },
+  );
+
+  test(
+    'limited provider cannot be saved as global or pinned song source',
+    () async {
+      final f = await _SourcePreferenceFixture.create(
+        initialSource: MusicDataSource.auto,
+      );
+      try {
+        await f.controller.saveSource(MusicDataSource.twentyFourBit);
+        expect(f.controller.source, MusicDataSource.auto);
+        await expectLater(
+          f.controller.chooseSongSource(
+            f.track,
+            _sourcePreferenceCandidate(MusicDataSource.twentyFourBit),
+          ),
+          throwsUnsupportedError,
+        );
+        expect(
+          f.controller.selectedSongSource(f.track)!.source,
+          MusicDataSource.buguyy,
+        );
+      } finally {
+        await f.close();
+      }
+    },
+  );
+
+  test(
+    'Auto recognizes an alternate cache while explicit source keeps its own identity',
+    () async {
+      final f = await _SourcePreferenceFixture.create(
+        initialSource: MusicDataSource.auto,
+      );
+      try {
+        final original = _sourcePreferenceCandidate(
+          MusicDataSource.buguyy,
+          id: 'old-song',
+          artist: 'artist',
+        );
+        final alternate = _sourcePreferenceCandidate(
+          MusicDataSource.flac,
+          id: 'alternate',
+        );
+        final music = await f.resolver.resolveAtQuality(
+          alternate,
+          MusicQualityLevel.medium,
+        );
+        f.cache.cached.add(
+          CachedTrack(
+            cacheId: 'alternate',
+            filePath: '${f.root.path}/alternate.mp3',
+            sizeBytes: 4096,
+            music: music,
+            fromCache: true,
+          ),
+        );
+        await f.controller.loadCache(repairLegacy: false);
+        expect(f.controller.isCandidateManuallyDownloaded(original), isTrue);
+        await f.controller.saveSource(MusicDataSource.buguyy);
+        expect(f.controller.isCandidateManuallyDownloaded(original), isFalse);
+      } finally {
+        await f.close();
+      }
+    },
+  );
+
+  for (final sameKey in [false, true]) {
+    test(
+      'pending searches share identical keys and cancel superseded keys same=$sameKey',
+      () async {
+        final resolver = _CancellableSearchProbe();
+        final handler = _SpyAudioHandler();
+        final controller = MusicController(
+          audioHandler: handler,
+          resolver: resolver,
+          cacheStore: _DownloadCacheStore(),
+          playlistStore: _MemoryPlaylistStore(),
+          settingsStore: _FakeSettingsStore(),
+          metadataRepository: _StaticMetadataRepository(),
+          songSearchCache: SongSearchCache.memory(),
+          downloadHistoryStore: MemoryDownloadHistory(),
+          listeningStatsStore: ListeningStatsStore.memory(),
+          connectivityChanges: const Stream.empty(),
+          checkConnectivity: () async => [],
+        );
+        try {
+          final first = controller.search('first');
+          await resolver.started.future;
+          final second = controller.search(sameKey ? 'first' : 'second');
+          await Future<void>.delayed(Duration.zero);
+          expect(resolver.cancelled['first']!(), !sameKey);
+          resolver.release.complete();
+          await Future.wait([first, second]);
+          expect(controller.candidates.single.id, sameKey ? 'first' : 'second');
+          expect(controller.errorDetail, isNull);
+          if (sameKey) {
+            expect(resolver.calls, ['first']);
+          } else {
+            await controller.search('first');
+            expect(
+              resolver.calls.where((q) => q == 'first'),
+              hasLength(2),
+            ); // cancelled partial was not cached
+          }
+        } finally {
+          controller.dispose();
+          await handler.dispose();
+        }
+      },
+    );
+  }
+
   for (final stage in ['search', 'resolve', 'load']) {
     for (final command in [
       'pause',
@@ -2987,7 +3261,7 @@ void main() {
   }
 
   test(
-    'online playlist preview plays only clicked song without saving a playlist',
+    'online playlist preview queues all songs and prepares only the clicked song',
     () async {
       final handler = _SpyAudioHandler();
       final resolver = _LazySongResolver();
@@ -3005,9 +3279,17 @@ void main() {
       );
       try {
         await controller.initialize();
-        await controller.playOnlinePlaylistSong(origin, originSongs[1]);
-        expect(handler.loadedItems, hasLength(1));
-        expect(handler.loadedItems.single.mediaItem.title, '第二首');
+        await controller.playOnlinePlaylistSong(
+          origin,
+          originSongs[1],
+          queueSongs: originSongs,
+        );
+        expect(handler.loadedItems.map((item) => item.mediaItem.title), [
+          '第一首',
+          '第二首',
+          '第三首',
+        ]);
+        expect(handler.mediaItem.value!.title, '第二首');
         expect(resolver.searchCalls, 1);
         expect(resolver.resolveIds, hasLength(1));
         expect(controller.customPlaylists, isEmpty);
@@ -3021,7 +3303,180 @@ void main() {
         expect(resolver.resolveIds, hasLength(1));
         expect(controller.downloadQueue.tasks, isEmpty);
         expect(controller.canSwitchSongSource(controller.currentTrack!), true);
+        handler.playbackState.add(
+          handler.playbackState.value.copyWith(
+            processingState: AudioProcessingState.ready,
+          ),
+        );
+        await Future<void>.delayed(const Duration(milliseconds: 100));
+        expect(resolver.searchCalls, 1);
+        expect(resolver.resolveIds, hasLength(1));
+        for (final item in handler.loadedItems) {
+          final track = Track(
+            id: item.mediaItem.id,
+            title: item.mediaItem.title,
+            artist: item.mediaItem.artist ?? '',
+            album: '',
+            duration: item.mediaItem.duration ?? Duration.zero,
+          );
+          expect(controller.originalSongForTrack(track)?.title, track.title);
+          expect(controller.canSwitchSongSource(track), true);
+        }
+        final thirdId = handler.loadedIds.last;
+        await controller.playQueueItem(thirdId);
+        expect(handler.mediaItem.value!.id, thirdId);
+        expect(handler.loadedItems.map((item) => item.mediaItem.title), [
+          '第一首',
+          '第二首',
+          '第三首',
+        ]);
+        expect(resolver.searchCalls, 2);
+        expect(resolver.resolveIds, hasLength(2));
+        expect(
+          controller.originalSongForTrack(controller.currentTrack!)?.title,
+          '第三首',
+        );
+        expect(store.library.playlists, isEmpty);
+        expect(controller.downloadQueue.tasks, isEmpty);
       } finally {
+        controller.dispose();
+        await handler.dispose();
+      }
+    },
+  );
+
+  test(
+    'failed full preview replacement retains every original queue identity',
+    () async {
+      final handler = _DelayedSecondLoadHandler()
+        ..failSecondLoad = true
+        ..releaseSecondLoad.complete();
+      final resolver = _LazySongResolver();
+      final controller = MusicController(
+        songSearchCache: SongSearchCache.memory(),
+        audioHandler: handler,
+        resolver: resolver,
+        playlistStore: _MemoryPlaylistStore(),
+        cacheStore: _FakeCacheStore(cached: []),
+        settingsStore: _FakeSettingsStore(),
+        metadataRepository: _StaticMetadataRepository(),
+        downloadHistoryStore: MemoryDownloadHistory(),
+        connectivityChanges: const Stream.empty(),
+      );
+      const replacement = OnlinePlaylist(
+        source: OnlinePlaylistSource.qq,
+        id: 'other',
+        name: 'Other',
+        creator: '',
+        trackCount: 3,
+      );
+      try {
+        await controller.initialize();
+        await controller.playOnlinePlaylistSong(
+          origin,
+          originSongs[1],
+          queueSongs: originSongs,
+        );
+        final ids = List.of(handler.loadedIds);
+        await expectLater(
+          controller.playOnlinePlaylistSong(
+            replacement,
+            originSongs[0],
+            queueSongs: originSongs,
+          ),
+          throwsStateError,
+        );
+        expect(handler.loadedIds, ids);
+        expect(controller.currentTrack!.title, '第二首');
+        // Restoring just the current entry would strand the other two songs.
+        await controller.playQueueItem(ids.last);
+        expect(controller.currentTrack!.title, '第三首');
+        expect(
+          controller.originalSongForTrack(controller.currentTrack!)?.title,
+          '第三首',
+        );
+        expect(controller.canSwitchSongSource(controller.currentTrack!), true);
+        expect(handler.loadedIds, ids);
+        await controller.playQueueItem(ids.first);
+        expect(
+          controller.originalSongForTrack(controller.currentTrack!)?.title,
+          '第一首',
+        );
+        expect(handler.loadedIds, ids);
+      } finally {
+        controller.dispose();
+        await handler.dispose();
+      }
+    },
+  );
+
+  test(
+    'pending full preview survives earlier load cleanup and snapshots input',
+    () async {
+      final handler = _DelayedSecondLoadHandler();
+      final resolver = _LazySongResolver();
+      final controller = MusicController(
+        songSearchCache: SongSearchCache.memory(),
+        audioHandler: handler,
+        resolver: resolver,
+        playlistStore: _MemoryPlaylistStore(),
+        cacheStore: _FakeCacheStore(cached: []),
+        settingsStore: _FakeSettingsStore(),
+        metadataRepository: _StaticMetadataRepository(),
+        downloadHistoryStore: MemoryDownloadHistory(),
+        connectivityChanges: const Stream.empty(),
+      );
+      OnlinePlaylist another(String id) => OnlinePlaylist(
+        source: OnlinePlaylistSource.qq,
+        id: id,
+        name: id,
+        creator: '',
+        trackCount: 3,
+      );
+      try {
+        await controller.initialize();
+        await controller.playOnlinePlaylistSong(
+          origin,
+          originSongs[0],
+          queueSongs: originSongs,
+        );
+        final second = controller.playOnlinePlaylistSong(
+          another('second'),
+          originSongs[1],
+          queueSongs: originSongs,
+        );
+        await handler.secondLoadStarted.future;
+        resolver.gate = Completer<List<MusicSearchCandidate>>();
+        final mutableSongs = List.of(originSongs);
+        final third = controller.playOnlinePlaylistSong(
+          another('third'),
+          originSongs[2],
+          queueSongs: mutableSongs,
+        );
+        mutableSongs.clear();
+        while (resolver.searchCalls < 3) {
+          await Future<void>.delayed(Duration.zero);
+        }
+        handler.releaseSecondLoad.complete();
+        await second;
+        resolver.gate!.complete([_candidate(id: 'third-result', name: '第三首')]);
+        await third;
+        expect(handler.mediaItem.value!.title, '第三首');
+        expect(
+          handler.loadedIds,
+          originSongs.map((song) => 'preview-qq:third:${song.id}'),
+        );
+        await controller.playQueueItem(handler.loadedIds.first);
+        expect(
+          controller.originalSongForTrack(controller.currentTrack!)?.title,
+          '第一首',
+        );
+        expect(handler.loadedItems, hasLength(3));
+        expect(controller.customPlaylists, isEmpty);
+      } finally {
+        if (!handler.releaseSecondLoad.isCompleted) {
+          handler.releaseSecondLoad.complete();
+        }
         controller.dispose();
         await handler.dispose();
       }
@@ -5947,6 +6402,37 @@ void main() {
     }
   });
 
+  test(
+    'explicit access restriction does not repeat search or playback resolution',
+    () async {
+      final handler = _SpyAudioHandler();
+      final resolver = _AccessRestrictedResolver();
+      final controller = MusicController(
+        songSearchCache: SongSearchCache.memory(),
+        downloadHistoryStore: MemoryDownloadHistory(),
+        audioHandler: handler,
+        resolver: resolver,
+        cacheStore: _DownloadCacheStore(),
+        playlistStore: _FakePlaylistStore(),
+        settingsStore: _FakeSettingsStore(),
+        metadataRepository: _StaticMetadataRepository(),
+      );
+      try {
+        await controller.initialize();
+        await expectLater(
+          controller.playCandidate(_candidate(id: 'quota', name: '晴天')),
+          throwsA(isA<SourceAccessException>()),
+        );
+        expect(resolver.resolveIds, ['quota']);
+        expect(resolver.searchCalls, 0);
+        expect(handler.playCalls, 0);
+      } finally {
+        controller.dispose();
+        await handler.dispose();
+      }
+    },
+  );
+
   test('next resumes playback when player is paused', () async {
     final handler = _SpyAudioHandler();
     final controller = MusicController(
@@ -6674,6 +7160,27 @@ class _DelayedMusicResolver implements MusicResolver {
   }
 }
 
+class _AccessRestrictedResolver extends _DelayedMusicResolver {
+  int searchCalls = 0;
+  @override
+  Future<List<MusicSearchCandidate>> search(
+    String query,
+    MusicDataSource source,
+  ) async {
+    searchCalls++;
+    return [];
+  }
+
+  @override
+  Future<ResolvedMusic> resolve(MusicSearchCandidate candidate) async {
+    resolveIds.add(candidate.id);
+    throw const SourceAccessException(
+      MusicDataSource.twentyFourBit,
+      '今日访问已达限额',
+    );
+  }
+}
+
 class _LazySongResolver extends _DelayedMusicResolver {
   int searchCalls = 0;
   bool failFirst = false;
@@ -7282,6 +7789,7 @@ class _SourcePreferenceFixture {
     MusicDataSource initialSource = MusicDataSource.buguyy,
     _SourcePreferenceResolver? resolverOverride,
     _SpyAudioHandler? handlerOverride,
+    _StaticMetadataRepository? metadataOverride,
   }) async {
     final root = await Directory.systemTemp.createTemp('source-preference-');
     final handler = handlerOverride ?? _SpyAudioHandler();
@@ -7357,7 +7865,7 @@ class _SourcePreferenceFixture {
       cacheStore: cache,
       playlistStore: store,
       settingsStore: _SourcePreferenceSettings(initialSource),
-      metadataRepository: _StaticMetadataRepository(),
+      metadataRepository: metadataOverride ?? _StaticMetadataRepository(),
       listeningStatsStore: ListeningStatsStore.memory(),
       songSearchCache: SongSearchCache.memory(),
       downloadHistoryStore: MemoryDownloadHistory(),
@@ -7499,6 +8007,29 @@ class _MediaHealthHandler extends _SpyAudioHandler {
       initialPosition: initialPosition,
       playWhenReady: playWhenReady,
     );
+  }
+}
+
+class _CrossProviderMediaResolver extends _MediaHealthResolver {
+  bool fallback = true;
+  @override
+  Future<ResolvedMusic> resolveForSourceMode(
+    MusicSearchCandidate candidate,
+    MusicDataSource mode, {
+    MusicQualityLevel? quality,
+  }) async {
+    final result = await super.resolveForSourceMode(
+      candidate,
+      mode,
+      quality: quality,
+    );
+    if (!fallback) return result;
+    fallback = false;
+    return ResolvedMusic.fromJson({
+      ...result.toJson(),
+      'source': 'flac',
+      'id': 'actual-flac',
+    });
   }
 }
 
@@ -7754,7 +8285,7 @@ class _DelayedRecoveryResolver extends _MediaHealthResolver {
   final started = Completer<void>();
   final release = Completer<void>();
   Future<void> gate(String current) async {
-    if (stage == current && health.availableSources.length == 1) {
+    if (stage == current && !health.isAvailable(MusicDataSource.buguyy)) {
       if (!started.isCompleted) started.complete();
       await release.future;
     }
@@ -7777,5 +8308,41 @@ class _DelayedRecoveryResolver extends _MediaHealthResolver {
   }) async {
     await gate('resolve');
     return super.resolveForSourceMode(candidate, mode, quality: quality);
+  }
+}
+
+class _CancellableSearchProbe extends _FakeMusicResolver
+    implements CancellableMusicResolver {
+  final calls = <String>[];
+  final cancelled = <String, bool Function()>{};
+  final started = Completer<void>();
+  final release = Completer<void>();
+  @override
+  Stream<MusicSearchProgress> searchProgressively(
+    String query,
+    MusicDataSource source,
+  ) => searchWithCancellation(query, source, isCancelled: () => false);
+  @override
+  Stream<MusicSearchProgress> searchWithCancellation(
+    String query,
+    MusicDataSource source, {
+    required bool Function() isCancelled,
+  }) async* {
+    calls.add(query);
+    cancelled[query] = isCancelled;
+    yield MusicSearchProgress(
+      candidates: [_candidate(id: query, name: query)],
+      isComplete: false,
+    );
+    if (query == 'first' && !release.isCompleted) {
+      if (!started.isCompleted) started.complete();
+      await release.future;
+    }
+    if (!isCancelled()) {
+      yield MusicSearchProgress(
+        candidates: [_candidate(id: query, name: query)],
+        isComplete: true,
+      );
+    }
   }
 }

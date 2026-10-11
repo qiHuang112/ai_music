@@ -24,6 +24,56 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
+  testWidgets('opening the player does not notify the app during build', (
+    tester,
+  ) async {
+    final cached = _cachedTrack();
+    final handler = _SpyAudioHandler();
+    final controller = MusicController(
+      songSearchCache: SongSearchCache.memory(),
+      downloadHistoryStore: MemoryDownloadHistory(),
+      connectivityChanges: const Stream.empty(),
+      audioHandler: handler,
+      resolver: _FakeMusicResolver(),
+      cacheStore: _FakeCacheStore(cached: [cached]),
+      playlistStore: _FakePlaylistStore(),
+      settingsStore: _FakeSettingsStore(),
+      metadataRepository: _StaticMetadataRepository(
+        metadata: const TrackMetadata(),
+      ),
+    );
+    try {
+      await controller.initialize();
+      final track = trackFromCached(cached);
+      await controller.playTrack(track);
+      handler.emit(mediaItemFromTrack(track));
+      await tester.pumpWidget(
+        AnimatedBuilder(
+          animation: controller,
+          builder: (_, _) => MaterialApp(
+            home: Builder(
+              builder: (context) => TextButton(
+                onPressed: () => Navigator.of(context).push<void>(
+                  MaterialPageRoute(
+                    builder: (_) => PlayerPage(controller: controller),
+                  ),
+                ),
+                child: const Text('Open player'),
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.tap(find.text('Open player'));
+      await tester.pumpAndSettle();
+      expect(tester.takeException(), isNull);
+      expect(find.byType(PlayerPage), findsOneWidget);
+    } finally {
+      await tester.pumpWidget(const SizedBox.shrink());
+      controller.dispose();
+    }
+  });
+
   testWidgets(
     'comments entry opens the current song without replacing the player',
     (tester) async {

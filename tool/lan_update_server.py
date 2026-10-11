@@ -8,6 +8,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import unquote, urlsplit
 from android_release_archive import retained_versions
+from lan_diagnostics import DiagnosticsReceiver, MAX_REPORT_BYTES
 
 
 def download_page(root: Path):
@@ -45,10 +46,51 @@ def download_page(root: Path):
 def create_server(root: Path, host: str = "0.0.0.0", port: int = 8788):
     root = root.resolve()
     root.mkdir(parents=True, exist_ok=True)
+    diagnostics = DiagnosticsReceiver(root.parent / 'diagnostics')
 
     class Handler(BaseHTTPRequestHandler):
+        def json_response(self, status, document):
+            payload = json.dumps(document, ensure_ascii=False).encode('utf-8')
+            self.send_response(status)
+            self.send_header('Content-Type', 'application/json; charset=utf-8')
+            self.send_header('Cache-Control', 'no-store')
+            self.send_header('Content-Length', str(len(payload)))
+            self.end_headers()
+            self.wfile.write(payload)
+
+        def do_POST(self):
+            if urlsplit(self.path).path != '/api/v1/diagnostics':
+                self.send_error(404)
+                return
+            length = self.headers.get('Content-Length', '')
+            if not length.isdigit() or not 0 < int(length) <= MAX_REPORT_BYTES:
+                self.send_error(413)
+                return
+            if self.headers.get_content_type() != 'application/json':
+                self.send_error(415)
+                return
+            self.connection.settimeout(15)
+            try:
+                payload = self.rfile.read(int(length))
+                if len(payload) != int(length):
+                    raise ValueError('Truncated report')
+                receipt = diagnostics.receive(payload, self.client_address[0])
+                self.json_response(201, receipt)
+            except FileExistsError:
+                self.send_error(409)
+            except PermissionError:
+                self.send_error(403)
+            except (ValueError, TypeError, UnicodeError, TimeoutError):
+                self.send_error(400)
+            except OSError:
+                self.send_error(503)
+
         def do_GET(self):
             path = unquote(urlsplit(self.path).path)
+            if path == '/api/v1/diagnostics':
+                self.json_response(200, {'service': 'ai-music-diagnostics',
+                                        'schemaVersion': 1, 'maxReportBytes': MAX_REPORT_BYTES})
+                return
             if path in ('/', '/api/v1/releases/android'):
                 if path == '/':
                     payload = download_page(root)
