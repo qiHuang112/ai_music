@@ -982,6 +982,62 @@ void main() {
     },
   );
 
+  testWidgets(
+    'playlist dedup previews, cancels, confirms and handles no duplicates',
+    (tester) async {
+      final at = DateTime(2026);
+      PlaylistTrackEntry entry(String id) => PlaylistTrackEntry(
+        trackId: id,
+        addedAt: at,
+        song: PlaylistSong(key: id, title: '海阔天空', artist: 'Beyond'),
+      );
+      final playlists = _FakePlaylistStore()
+        ..library = PlaylistLibrary(
+          favoriteEntries: [entry('b')],
+          playlists: [
+            MusicPlaylist(
+              id: 'road',
+              name: 'Road',
+              entries: [entry('a'), entry('b'), entry('c')],
+              createdAt: at,
+              updatedAt: at,
+            ),
+          ],
+        );
+      await tester.pumpWidget(_app(playlistStore: playlists));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('home-playlist-road')));
+      await tester.pumpAndSettle();
+      Future<void> preview() async {
+        await tester.tap(find.byKey(const ValueKey('playlist-actions-menu')));
+        await tester.pumpAndSettle();
+        await tester.tap(
+          find.byKey(const ValueKey('deduplicate-playlist-action')),
+        );
+        await tester.pumpAndSettle();
+      }
+
+      await tester.enterText(find.byType(TextField).last, 'no match');
+      await tester.pumpAndSettle();
+      await preview();
+      expect(find.text('发现 1 组重复歌曲，可删除 2 首多余歌曲。'), findsOneWidget);
+      expect(find.textContaining('海阔天空\nBeyond'), findsOneWidget);
+      final writes = playlists.writeCount;
+      await tester.tap(find.text('取消'));
+      await tester.pumpAndSettle();
+      expect(playlists.writeCount, writes);
+      expect(playlists.library.playlists.single.trackIds, ['a', 'b', 'c']);
+      await preview();
+      await tester.tap(find.text('确认删除'));
+      await tester.pumpAndSettle();
+      expect(playlists.library.playlists.single.trackIds, ['a']);
+      expect(playlists.library.favoriteTrackIds, ['b']);
+      await preview();
+      expect(find.text('没有发现重复歌曲'), findsOneWidget);
+      expect(find.text('确认删除'), findsNothing);
+    },
+  );
+
   testWidgets('renders Android-first search and cache shell', (tester) async {
     await tester.pumpWidget(_app());
     await tester.pumpAndSettle();
@@ -1665,6 +1721,8 @@ void main() {
     expect(resolver.lastQuery, '周杰伦');
     expect(resolver.lastSource, MusicDataSource.auto);
     expect(find.text('稻香 0'), findsOneWidget);
+    expect(find.byIcon(Icons.download_for_offline), findsNothing);
+    expect(find.byTooltip('播放'), findsNothing);
     expect(find.text('FLAC'), findsWidgets);
     expect(find.textContaining('BuguYY'), findsNothing);
     expect(find.textContaining('kuwo'), findsNothing);
@@ -1702,7 +1760,7 @@ void main() {
     await tester.enterText(find.byType(TextField), '王蓉');
     await tester.tap(find.byTooltip('在线搜索'));
     await tester.pumpAndSettle();
-    await tester.tap(find.byTooltip('播放'));
+    await tester.tap(find.text('哎呀'));
     await tester.pump();
     expect(find.byKey(const ValueKey('search-play-spinner')), findsOneWidget);
 
@@ -1830,94 +1888,30 @@ void main() {
     expect(find.text('输入歌手或歌曲名，下载后会保存在本机缓存里。'), findsNothing);
   });
 
-  testWidgets('downloaded search result exposes play action', (tester) async {
-    final resolver = _FakeMusicResolver(
-      candidates: [_candidate(name: '稻香', artist: '周杰伦')],
-    );
-    await tester.pumpWidget(_app(resolver: resolver));
-    await tester.pumpAndSettle();
-
-    await tester.enterText(find.byType(TextField), '周杰伦');
-    await tester.tap(find.byTooltip('在线搜索'));
-    await tester.pumpAndSettle();
-
-    expect(find.byTooltip('播放'), findsOneWidget);
-    expect(find.byIcon(Icons.download_for_offline), findsOneWidget);
-
-    await tester.tap(find.byIcon(Icons.download_for_offline));
-    await tester.pumpAndSettle();
-
-    expect(find.byTooltip('播放'), findsOneWidget);
-    expect(find.byTooltip('重新下载'), findsOneWidget);
-  });
-
-  testWidgets('playback cache still offers a first manual download', (
-    tester,
-  ) async {
-    final music = _resolvedMusic();
-    final cache = _FakeCacheStore(
-      cached: [
-        CachedTrack(
-          cacheId: cacheIdForResolved(music),
-          music: music,
-          filePath: '/tmp/song-1.mp3',
-          sizeBytes: 4,
-          fromCache: false,
-          playbackCache: true,
-        ),
-      ],
-    );
-    final resolver = _FakeMusicResolver(
-      candidates: [_candidate(name: '稻香', artist: '周杰伦')],
-    );
-    await tester.pumpWidget(_app(resolver: resolver, cacheStore: cache));
-    await tester.pumpAndSettle();
-
-    await tester.enterText(find.byType(TextField), '周杰伦');
-    await tester.tap(find.byTooltip('在线搜索'));
-    await tester.pumpAndSettle();
-
-    final downloadButton = find.ancestor(
-      of: find.byIcon(Icons.download_for_offline),
-      matching: find.byType(IconButton),
-    );
-    expect(tester.widget<IconButton>(downloadButton).tooltip, '下载');
-    expect(find.byTooltip('重新下载'), findsNothing);
-
-    await tester.tap(find.byIcon(Icons.download_for_offline));
-    await tester.pumpAndSettle();
-
-    expect(tester.widget<IconButton>(downloadButton).tooltip, '重新下载');
-  });
-
-  testWidgets('download completion exposes play before metadata refresh', (
-    tester,
-  ) async {
-    final resolver = _FakeMusicResolver(
-      candidates: [_candidate(name: '稻香', artist: '周杰伦')],
-    );
-    final metadata = _BlockingMetadataRepository();
-    await tester.pumpWidget(
-      _app(resolver: resolver, metadataRepository: metadata),
-    );
-    await tester.pumpAndSettle();
-
-    await tester.enterText(find.byType(TextField), '周杰伦');
-    await tester.tap(find.byTooltip('在线搜索'));
-    await tester.pumpAndSettle();
-
-    await tester.tap(find.byIcon(Icons.download_for_offline));
-    for (var i = 0; i < 6 && find.byTooltip('重新下载').evaluate().isEmpty; i++) {
-      await tester.pump();
-    }
-
-    expect(metadata.loadCount, 1);
-    expect(find.byTooltip('播放'), findsOneWidget);
-    expect(find.byTooltip('重新下载'), findsOneWidget);
-
-    metadata.complete();
-    await tester.pumpAndSettle();
-  });
+  testWidgets(
+    'cached search row keeps full-row playback without action buttons',
+    (tester) async {
+      final resolver = _FakeMusicResolver(
+        candidates: [_candidate(name: '稻香', artist: '周杰伦')],
+      );
+      await tester.pumpWidget(_app(resolver: resolver));
+      await tester.pumpAndSettle();
+      final controller = tester
+          .widget<MusicHomePage>(find.byType(MusicHomePage))
+          .controller;
+      await controller.downloadCandidate(resolver.candidates.first);
+      await tester.enterText(find.byType(TextField), '周杰伦');
+      await tester.tap(find.byTooltip('在线搜索'));
+      await tester.pumpAndSettle();
+      expect(find.byIcon(Icons.download_for_offline), findsNothing);
+      expect(find.byTooltip('重新下载'), findsNothing);
+      expect(find.byTooltip('播放'), findsNothing);
+      final row = tester.widget<ListTile>(
+        find.ancestor(of: find.text('稻香'), matching: find.byType(ListTile)),
+      );
+      expect(row.onTap, isNotNull);
+    },
+  );
 
   testWidgets('download status snack does not move search results', (
     tester,
@@ -1934,7 +1928,10 @@ void main() {
 
     final before = tester.getTopLeft(find.text('稻香')).dy;
 
-    await tester.tap(find.byIcon(Icons.download_for_offline));
+    await tester
+        .widget<MusicHomePage>(find.byType(MusicHomePage))
+        .controller
+        .downloadCandidate(resolver.candidates.first);
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 300));
 
@@ -1954,7 +1951,10 @@ void main() {
     await tester.enterText(find.byType(TextField), '周杰伦');
     await tester.tap(find.byTooltip('在线搜索'));
     await tester.pumpAndSettle();
-    await tester.tap(find.byIcon(Icons.download_for_offline));
+    await tester
+        .widget<MusicHomePage>(find.byType(MusicHomePage))
+        .controller
+        .downloadCandidate(resolver.candidates.first);
     await tester.pumpAndSettle();
 
     await tester.tap(find.byTooltip('下载'));
@@ -4264,23 +4264,6 @@ class _FakeMetadataRepository extends TrackMetadataRepository {
   @override
   Future<void> delete(String cacheId) async {
     deletedIds.add(cacheId);
-  }
-}
-
-class _BlockingMetadataRepository extends TrackMetadataRepository {
-  final _completer = Completer<TrackMetadata>();
-  int loadCount = 0;
-
-  @override
-  Future<TrackMetadata> load(CachedTrack track) {
-    loadCount += 1;
-    return _completer.future;
-  }
-
-  void complete([TrackMetadata metadata = const TrackMetadata()]) {
-    if (!_completer.isCompleted) {
-      _completer.complete(metadata);
-    }
   }
 }
 

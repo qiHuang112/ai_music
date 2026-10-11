@@ -41,6 +41,7 @@ import 'download_use_case.dart';
 import 'lan_folder_playlist_merger.dart';
 import 'library_controller.dart';
 import 'library_use_case.dart';
+import 'playlist_duplicates.dart';
 import 'lan_sync_use_case.dart';
 import 'metadata_use_case.dart';
 import 'music_mappers.dart';
@@ -330,9 +331,19 @@ class MusicController extends ChangeNotifier {
     final pending =
         _pendingSongSources[trackId]?.candidate ??
         _adHocPlayCandidates[trackId];
+    final cached = pending == null
+        ? null
+        : _cachedRecordForCandidate(
+            pending,
+            sourceMode: _songEntry(trackId)?.manualSource == true
+                ? pending.source
+                : source,
+          );
     final key = pending == null
         ? _cacheProgressTrackKeys[trackId] ?? 'unresolved|$trackId'
-        : downloadQueue.taskIdForCandidate(pending);
+        : downloadQueue.taskIdForCandidate(
+            cached == null ? pending : _candidateFromCached(cached),
+          );
     return songCacheProgress.listenable(key);
   }
 
@@ -633,6 +644,7 @@ class MusicController extends ChangeNotifier {
     }
     _songSearches.clear();
     _pendingSongSources.clear();
+    _applyLibrarySnapshot(_librarySnapshot);
     playbackUseCase.invalidateOnlineSources();
     notifyListeners();
     await _playbackPrefetch.cancel();
@@ -3233,6 +3245,13 @@ class MusicController extends ChangeNotifier {
       ),
     );
     if (_isDisposed) return;
+    OperationLog.event('favorite.toggle', {
+      'trackId': track.id,
+      'title': track.title,
+      'artist': track.artist,
+      'added': added,
+      'quality': quality.storageValue,
+    });
     if (added) {
       _enqueueFavoriteDownload(track, quality);
     } else {
@@ -3573,6 +3592,24 @@ class MusicController extends ChangeNotifier {
     notifyListeners();
   }
 
+  PlaylistDuplicatePlan playlistDuplicates(MusicPlaylist playlist) =>
+      libraryUseCase.playlistDuplicates(playlist.id, current: _librarySnapshot);
+
+  Future<void> removePlaylistDuplicates(PlaylistDuplicatePlan plan) async {
+    await _playbackPrefetch.cancel();
+    _applyLibrarySnapshot(
+      await libraryUseCase.removePlaylistDuplicates(
+        plan,
+        current: _librarySnapshot,
+      ),
+    );
+    OperationLog.event('playlist.deduplicate', {
+      'id': plan.playlistId,
+      'removed': plan.removeCount,
+    });
+    notifyListeners();
+  }
+
   Future<void> removeTracksFromPlaylist(
     MusicPlaylist playlist,
     List<Track> tracks,
@@ -3693,8 +3730,14 @@ class MusicController extends ChangeNotifier {
     ]) {
       final candidate = entry.onlineTrack?.candidate;
       if (candidate != null) {
+        final cached = _cachedRecordForCandidate(
+          candidate,
+          sourceMode: entry.manualSource ? candidate.source : source,
+        );
         _cacheProgressTrackKeys[entry.trackId] = downloadQueue
-            .taskIdForCandidate(candidate);
+            .taskIdForCandidate(
+              cached == null ? candidate : _candidateFromCached(cached),
+            );
       }
     }
     songCacheProgress.completeKeys(completed);

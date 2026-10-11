@@ -11,6 +11,7 @@ import 'package:crypto/crypto.dart';
 import '../domain/music_models.dart';
 import 'library_controller.dart';
 import 'music_mappers.dart';
+import 'playlist_duplicates.dart';
 
 class LibrarySnapshot {
   const LibrarySnapshot({
@@ -840,6 +841,43 @@ class LibraryUseCase {
   }) {
     return removeTracksFromPlaylist(playlist, [track], current: current);
   }
+
+  PlaylistDuplicatePlan playlistDuplicates(
+    String playlistId, {
+    required LibrarySnapshot current,
+  }) {
+    final base = _currentSnapshot(current);
+    final playlist = base.playlistLibrary.playlists
+        .where((p) => p.id == playlistId)
+        .firstOrNull;
+    if (playlist == null) throw StateError('歌单已不存在');
+    if (playlist.isBuiltIn) throw StateError('榜单由平台维护，不能修改');
+    return findPlaylistDuplicates(playlist, base.allTracks);
+  }
+
+  Future<LibrarySnapshot> removePlaylistDuplicates(
+    PlaylistDuplicatePlan plan, {
+    required LibrarySnapshot current,
+  }) => _enqueuePlaylistMutation(() async {
+    final base = _currentSnapshot(current);
+    final latest = playlistDuplicates(plan.playlistId, current: base);
+    if (latest.signature != plan.signature) {
+      throw StateError('歌单内容已变化，请重新检查重复歌曲');
+    }
+    if (plan.removeCount == 0) return base;
+    final removed = plan.removedIds;
+    return _updatePlaylist(
+      plan.playlistId,
+      current: base,
+      update: (item) => item.copyWith(
+        entries: [
+          for (final e in item.entries)
+            if (!removed.contains(e.trackId)) e,
+        ],
+        updatedAt: DateTime.now(),
+      ),
+    );
+  });
 
   Future<LibrarySnapshot> removeTracksFromPlaylist(
     MusicPlaylist playlist,

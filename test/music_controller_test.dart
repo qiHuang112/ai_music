@@ -33,6 +33,44 @@ import 'package:flutter_test/flutter_test.dart';
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
+  test(
+    'Auto favorite cache marker survives cross-source reuse and reload',
+    () async {
+      final f = await _SourcePreferenceFixture.create(
+        initialSource: MusicDataSource.auto,
+        cached: true,
+      );
+      try {
+        final playlist = (await f.controller.importPlaylistCandidates(
+          'Cross-source',
+          [_sourcePreferenceCandidate(MusicDataSource.flac)],
+        ))!;
+        final track = f.controller.tracksForPlaylist(playlist).single;
+        expect(track.filePath, isNotEmpty);
+        expect(f.controller.cacheProgressFor(track).value.offline, isTrue);
+        f.controller.defaultDownloadQuality = MusicQualityLevel.low;
+        await f.controller.toggleFavorite(track);
+        await f.controller.waitForFavoriteDownloads();
+        expect(f.cache.downloadIds, isEmpty);
+        expect(f.controller.downloadTasks.single.reusedCache, isTrue);
+        expect(f.controller.cacheProgressFor(track).value.offline, isTrue);
+        await f.controller.loadCache(repairLegacy: false);
+        expect(f.controller.cacheProgressFor(track).value.offline, isTrue);
+        await f.controller.saveSource(MusicDataSource.flac);
+        expect(f.controller.cacheProgressFor(track).value.offline, isFalse);
+        await f.controller.saveSource(MusicDataSource.auto);
+        expect(f.controller.cacheProgressFor(track).value.offline, isTrue);
+        await f.controller.chooseSongSource(
+          track,
+          _sourcePreferenceCandidate(MusicDataSource.flac),
+        );
+        expect(f.controller.cacheProgressFor(track).value.offline, isFalse);
+      } finally {
+        await f.close();
+      }
+    },
+  );
+
   for (final ownCache in [false, true]) {
     test(
       'manual source overrides Auto cache reuse ownCache=$ownCache',

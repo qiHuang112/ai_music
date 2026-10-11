@@ -249,8 +249,6 @@ class _MusicHomePageState extends State<MusicHomePage>
                           isCandidatePreparing: (candidate) =>
                               _preparingCandidateKey ==
                               _candidatePlayKey(candidate),
-                          isCandidateManuallyDownloaded:
-                              controller.isCandidateManuallyDownloaded,
                           error:
                               _localizedMessage(
                                 strings,
@@ -259,7 +257,6 @@ class _MusicHomePageState extends State<MusicHomePage>
                               controller.errorDetail,
                           onRetry: () =>
                               controller.search(_searchController.text),
-                          onSelect: controller.downloadCandidate,
                           onPlay: (candidate) =>
                               unawaited(_playSearchCandidate(candidate)),
                         ),
@@ -831,10 +828,8 @@ class _OnlineSearchPanel extends StatelessWidget {
     required this.isSearching,
     required this.isCandidateBusy,
     required this.isCandidatePreparing,
-    required this.isCandidateManuallyDownloaded,
     required this.error,
     required this.onRetry,
-    required this.onSelect,
     required this.onPlay,
   });
 
@@ -842,11 +837,8 @@ class _OnlineSearchPanel extends StatelessWidget {
   final bool isSearching;
   final bool Function(MusicSearchCandidate candidate) isCandidateBusy;
   final bool Function(MusicSearchCandidate candidate) isCandidatePreparing;
-  final bool Function(MusicSearchCandidate candidate)
-  isCandidateManuallyDownloaded;
   final String? error;
   final VoidCallback onRetry;
-  final ValueChanged<MusicSearchCandidate> onSelect;
   final ValueChanged<MusicSearchCandidate> onPlay;
 
   @override
@@ -892,17 +884,17 @@ class _OnlineSearchPanel extends StatelessWidget {
                     final candidate = candidates[index];
                     final isBusy = isCandidateBusy(candidate);
                     final isPreparing = isCandidatePreparing(candidate);
-                    final isManuallyDownloaded = isCandidateManuallyDownloaded(
-                      candidate,
-                    );
                     return ListTile(
                       leading: CircleAvatar(
                         backgroundColor: colors.secondaryContainer,
                         foregroundColor: colors.onSecondaryContainer,
-                        child: isBusy
-                            ? const SizedBox.square(
+                        child: isBusy || isPreparing
+                            ? SizedBox.square(
+                                key: isPreparing
+                                    ? const ValueKey('search-play-spinner')
+                                    : null,
                                 dimension: 18,
-                                child: CircularProgressIndicator(
+                                child: const CircularProgressIndicator(
                                   strokeWidth: 2,
                                 ),
                               )
@@ -926,35 +918,6 @@ class _OnlineSearchPanel extends StatelessWidget {
                         _candidateSubtitle(candidate),
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
-                      ),
-                      trailing: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          IconButton(
-                            tooltip: strings.play,
-                            onPressed: isBusy || isPreparing
-                                ? null
-                                : () => onPlay(candidate),
-                            icon: isPreparing
-                                ? const SizedBox.square(
-                                    key: ValueKey('search-play-spinner'),
-                                    dimension: 18,
-                                    child: CircularProgressIndicator(
-                                      strokeWidth: 2,
-                                    ),
-                                  )
-                                : const Icon(Icons.play_arrow),
-                          ),
-                          IconButton(
-                            tooltip: isManuallyDownloaded
-                                ? strings.downloadAgain
-                                : strings.download,
-                            onPressed: isBusy
-                                ? null
-                                : () => onSelect(candidate),
-                            icon: const Icon(Icons.download_for_offline),
-                          ),
-                        ],
                       ),
                       onTap: isBusy || isPreparing
                           ? null
@@ -2038,6 +2001,8 @@ class _PlaylistDetailPageState extends State<_PlaylistDetailPage> {
                             }
                           case _PlaylistAction.rename:
                             _rename(context, list.playlist!);
+                          case _PlaylistAction.deduplicate:
+                            _deduplicate(context, list.playlist!);
                           case _PlaylistAction.delete:
                             _delete(context, list.playlist!);
                         }
@@ -2053,6 +2018,17 @@ class _PlaylistDetailPageState extends State<_PlaylistDetailPage> {
                               title: Text(strings.adjustOrder),
                             ),
                           ),
+                        PopupMenuItem(
+                          key: const ValueKey('deduplicate-playlist-action'),
+                          value: _PlaylistAction.deduplicate,
+                          child: ListTile(
+                            contentPadding: EdgeInsets.zero,
+                            leading: const Icon(Icons.playlist_remove_rounded),
+                            title: Text(
+                              strings.isZh ? '歌单去重' : 'Remove duplicates',
+                            ),
+                          ),
+                        ),
                         PopupMenuItem(
                           value: _PlaylistAction.rename,
                           child: ListTile(
@@ -2560,6 +2536,88 @@ class _PlaylistDetailPageState extends State<_PlaylistDetailPage> {
     );
     if (name != null) {
       await controller.renamePlaylist(playlist, name);
+    }
+  }
+
+  Future<void> _deduplicate(
+    BuildContext context,
+    MusicPlaylist playlist,
+  ) async {
+    final strings = AppStringsScope.of(context);
+    final zh = strings.isZh;
+    try {
+      final plan = controller.playlistDuplicates(playlist);
+      final confirmed = await showDialog<bool>(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: Text(zh ? '歌单去重' : 'Remove duplicates'),
+          content: SizedBox(
+            width: 360,
+            child: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    plan.removeCount == 0
+                        ? (zh ? '没有发现重复歌曲' : 'No duplicate songs found')
+                        : (zh
+                              ? '发现 ${plan.groups.length} 组重复歌曲，可删除 ${plan.removeCount} 首多余歌曲。'
+                              : '${plan.groups.length} duplicate groups; ${plan.removeCount} extra entries to remove.'),
+                  ),
+                  if (plan.removeCount > 0) ...[
+                    const SizedBox(height: 12),
+                    Text(
+                      zh
+                          ? '每组保留歌单中最先出现的一首，仅移除本歌单的重复条目。'
+                          : 'Keep the first entry in each group. Only this playlist is changed.',
+                    ),
+                    for (final group in plan.groups)
+                      Padding(
+                        padding: const EdgeInsets.only(top: 12),
+                        child: Text(
+                          '${group.title}\n${group.artist}\n${zh ? '共 ${group.trackIds.length} 首，删除 ${group.removeCount} 首' : '${group.trackIds.length} entries; remove ${group.removeCount}'}',
+                        ),
+                      ),
+                  ],
+                ],
+              ),
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(false),
+              child: Text(
+                plan.removeCount == 0 ? (zh ? '知道了' : 'OK') : strings.cancel,
+              ),
+            ),
+            if (plan.removeCount > 0)
+              FilledButton(
+                onPressed: () => Navigator.of(context).pop(true),
+                child: Text(zh ? '确认删除' : 'Confirm deletion'),
+              ),
+          ],
+        ),
+      );
+      if (confirmed != true || !mounted) return;
+      await controller.removePlaylistDuplicates(plan);
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              zh
+                  ? '已移除 ${plan.removeCount} 首重复歌曲'
+                  : 'Removed ${plan.removeCount} duplicate entries',
+            ),
+          ),
+        );
+      }
+    } catch (error) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(friendlyError(error))));
+      }
     }
   }
 
@@ -3189,7 +3247,7 @@ enum _TrackAction {
   addToPlaylist,
 }
 
-enum _PlaylistAction { reorder, rename, delete }
+enum _PlaylistAction { reorder, deduplicate, rename, delete }
 
 enum _ReorderExitAction { keepEditing, discard, save }
 
