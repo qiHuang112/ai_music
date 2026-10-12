@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:audio_service/audio_service.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -12,10 +14,14 @@ import 'src/presentation/app_localizations.dart';
 import 'src/playback/music_audio_handler.dart';
 import 'src/presentation/music_home_page.dart';
 import 'src/presentation/app_theme.dart';
+import 'src/presentation/design/design_gallery_page.dart';
 
 const _disableAudioService = bool.fromEnvironment(
   'AI_MUSIC_DISABLE_AUDIO_SERVICE',
 );
+
+/// Opens on the design-system gallery instead of the home page.
+const _designGallery = bool.fromEnvironment('AI_MUSIC_DESIGN_GALLERY');
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -87,9 +93,42 @@ class AiMusicApp extends StatelessWidget {
             language: controller.language,
             child: child ?? const SizedBox.shrink(),
           ),
-          home: MusicHomePage(controller: controller),
+          home: _designGallery
+              ? _DesignGalleryHome(controller: controller)
+              : MusicHomePage(controller: controller),
         );
       },
     );
   }
+}
+
+/// Feeds the gallery the cover of whatever is in the player.
+class _DesignGalleryHome extends StatelessWidget {
+  const _DesignGalleryHome({required this.controller});
+
+  final MusicController controller;
+
+  @override
+  Widget build(BuildContext context) => StreamBuilder<MediaItem?>(
+    stream: controller.mediaItemStream,
+    initialData: controller.audioHandler.mediaItem.value,
+    builder: (context, snapshot) {
+      final item = snapshot.data;
+      final art = item?.artUri;
+      return DesignGalleryPage(
+        artwork: art == null
+            ? null
+            : art.isScheme('file')
+            ? FileImage(File(art.toFilePath()))
+            : NetworkImage(art.toString()),
+        title: item?.title,
+        artist: item?.artist,
+        onEnterApp: () => Navigator.of(context).push<void>(
+          MaterialPageRoute(
+            builder: (_) => MusicHomePage(controller: controller),
+          ),
+        ),
+      );
+    },
+  );
 }

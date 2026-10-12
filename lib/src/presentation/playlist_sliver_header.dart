@@ -106,7 +106,9 @@ class PlaylistSliverHeader extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final style = Theme.of(context).textTheme.titleLarge!;
+    final style = Theme.of(
+      context,
+    ).textTheme.titleLarge!.copyWith(fontSize: 24);
     final painter = TextPainter(
       text: TextSpan(text: title, style: style),
       textDirection: Directionality.of(context),

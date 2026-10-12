@@ -945,17 +945,15 @@ void main() {
             expect(tester.takeException(), isNull);
             await tester.pageBack();
             await tester.pumpAndSettle();
-            await tester.pageBack();
-            await tester.pumpAndSettle();
+            // Library, settings and downloads are tabs; home is one tap away.
+            final home = find.byTooltip(strings.isZh ? '首页' : 'Home');
             await tester.tap(find.byTooltip(strings.settings));
             await tester.pumpAndSettle();
             expect(tester.takeException(), isNull);
-            await tester.pageBack();
-            await tester.pumpAndSettle();
             await tester.tap(find.byTooltip(strings.downloads));
             await tester.pumpAndSettle();
             expect(tester.takeException(), isNull);
-            await tester.pageBack();
+            await tester.tap(home);
             await tester.pumpAndSettle();
             await tester.tap(find.text('很长的歌曲名称 Very long title 0'));
             await tester.pumpAndSettle();
@@ -2117,7 +2115,8 @@ void main() {
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 500));
       expect(find.text('Today task'), findsNothing);
-      expect(find.text('Yesterday task'), findsOneWidget);
+      // Below the fold now that the tab bar shares the 600px test surface.
+      expect(find.text('Yesterday task', skipOffstage: false), findsOneWidget);
       await tester.tap(find.byTooltip('按日期筛选'));
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 500));
@@ -2797,7 +2796,7 @@ void main() {
     await tester.pump(const Duration(milliseconds: 400));
     expect(find.text('下载管理'), findsOneWidget);
 
-    await tester.pageBack();
+    await tester.tap(find.byTooltip('首页'));
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 400));
     controller.downloadActive = false;
@@ -2964,7 +2963,7 @@ void main() {
     await tester.tap(find.byTooltip('音乐库'));
     await tester.pumpAndSettle();
 
-    expect(find.text('音乐库'), findsOneWidget);
+    expect(find.widgetWithText(AppBar, '音乐库'), findsOneWidget);
     expect(find.textContaining('收藏'), findsOneWidget);
     expect(find.textContaining('本地'), findsOneWidget);
     expect(find.text('还没有自建歌单'), findsOneWidget);
@@ -3251,9 +3250,14 @@ void main() {
     await tester.tap(find.byTooltip('添加到收藏'));
     await tester.pumpAndSettle();
     await tester.pageBack();
-    await tester.pumpAndSettle();
+    // Favoriting starts a download, and the downloads tab shows its spinner
+    // for as long as that runs, so there is nothing to settle on.
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 500));
+    expect(find.byKey(const ValueKey('home-download-spinner')), findsOneWidget);
     await tester.tap(find.textContaining('收藏'));
-    await tester.pumpAndSettle();
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 500));
 
     expect(find.text('稻香'), findsOneWidget);
   });

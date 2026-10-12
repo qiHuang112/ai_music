@@ -107,6 +107,9 @@ void main() {
           200,
           scrollable: find.byType(Scrollable).first,
         );
+        // Built but possibly just below the 600px test surface.
+        await tester.ensureVisible(entry);
+        await tester.pump();
         await tester.tap(entry);
         await tester.pumpAndSettle();
         final page = tester.widget<SongCommentsPage>(

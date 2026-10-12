@@ -34,3 +34,8 @@ dev_dependencies:
 
 flutter:
   uses-material-design: true
+  fonts:
+    - family: Source Han Serif CN
+      fonts:
+        - asset: assets/fonts/SourceHanSerifCN-Bold.otf
+          weight: 700

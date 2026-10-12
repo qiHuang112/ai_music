@@ -34,6 +34,8 @@ import 'app_update_page.dart';
 import 'song_cache_progress.dart';
 import 'playlist_source_progress.dart';
 import 'app_theme.dart';
+import 'design/controls.dart';
+import 'design/glass_tab_bar.dart';
 import 'listening_stats_page.dart';
 import 'music_thumbnail.dart';
 
@@ -62,6 +64,10 @@ class _MusicHomePageState extends State<MusicHomePage>
   final _searchFocusNode = FocusNode();
   late final OnlinePlaylistSearch _playlistSearch;
   late final SearchHistoryStore _searchHistory;
+  int _tab = 0;
+  // Tabs are built on first visit: opening the app must not start the
+  // download and settings pages' own loading.
+  final _visitedTabs = {0};
   bool _playlistMode = false;
   bool _showPlaylistResults = false;
   bool _historyEditMode = false;
@@ -164,124 +170,169 @@ class _MusicHomePageState extends State<MusicHomePage>
           },
           child: Scaffold(
             extendBody: true,
-            appBar: AppBar(
-              title: Text(strings.homeLibraryTitle),
-              titleTextStyle: Theme.of(context).textTheme.headlineSmall,
-              actions: [
-                IconButton(
-                  tooltip: strings.downloads,
-                  onPressed: _openDownloads,
-                  icon: controller.hasActiveDownloads
-                      ? const SizedBox.square(
-                          key: ValueKey('home-download-spinner'),
-                          dimension: 22,
-                          child: CircularProgressIndicator(strokeWidth: 2),
-                        )
-                      : const Icon(Icons.download),
-                ),
-                IconButton(
-                  tooltip: strings.isZh ? '音乐库' : 'Music library',
-                  onPressed: _openLibrary,
-                  icon: const Icon(Icons.queue_music),
-                ),
-                IconButton(
-                  tooltip: strings.settings,
-                  onPressed: _openSettings,
-                  icon: UpdateBadge(
-                    updates: controller.appUpdates,
-                    child: const Icon(Icons.settings_outlined),
+            appBar: _tab != 0
+                ? null
+                : AppBar(
+                    title: Text(strings.homeLibraryTitle),
+                    titleTextStyle: MusicType.masthead(context, size: 30),
                   ),
-                ),
+            body: IndexedStack(
+              index: _tab,
+              children: [
+                _homeTab(strings),
+                _visitedTabs.contains(1)
+                    ? _LibraryPage(controller: controller)
+                    : const SizedBox.shrink(),
+                _visitedTabs.contains(2)
+                    ? DownloadManagerPage(
+                        controller: controller,
+                        onOpenPlaylist: _openMatchedPlaylist,
+                      )
+                    : const SizedBox.shrink(),
+                _visitedTabs.contains(3)
+                    ? SettingsPage(controller: controller)
+                    : const SizedBox.shrink(),
               ],
             ),
-            body: SafeArea(
-              bottom: false,
-              child: Column(
-                children: [
-                  _SearchHeader(
-                    controller: _searchController,
-                    focusNode: _searchFocusNode,
-                    playlistMode: _playlistMode,
-                    onToggleMode: _toggleSearchMode,
-                    isSearching: _playlistMode
-                        ? _playlistSearch.isLoading
-                        : controller.isSearching,
-                    onChanged: _handleSearchChanged,
-                    onSearch: () => _submitSearch(_searchController.text),
-                    onSubmitted: _submitSearch,
-                    onImportScreenshots: _openScreenshotImport,
-                  ),
-                  if (_searchFocusNode.hasFocus)
-                    Expanded(
-                      child: _SearchHistoryPanel(
-                        entries: _searchHistory.entries(
-                          _playlistMode
-                              ? SearchHistoryKind.playlist
-                              : SearchHistoryKind.song,
-                        ),
-                        editing: _historyEditMode,
-                        onLongPress: () =>
-                            setState(() => _historyEditMode = true),
-                        onDone: () => setState(() => _historyEditMode = false),
-                        onSearch: _searchFromHistory,
-                        onDelete: _removeHistory,
-                      ),
-                    )
-                  else ...[
-                    OnlinePlaylistTaskEntry(
-                      controller: controller,
-                      onOpenPlaylist: _openMatchedPlaylist,
-                    ),
-                    if (_showPlaylistResults)
-                      Expanded(
-                        child: OnlinePlaylistSearchPanel(
-                          search: _playlistSearch,
-                          controller: controller,
-                          onOpenPlaylist: _openMatchedPlaylist,
-                        ),
-                      )
-                    else if (_shouldShowSearchPanel)
-                      Expanded(
-                        child: _OnlineSearchPanel(
-                          candidates: controller.candidates,
-                          isSearching: controller.isSearching,
-                          isCandidateBusy: controller.isCandidateDownloading,
-                          isCandidatePreparing: (candidate) =>
-                              _preparingCandidateKey ==
-                              _candidatePlayKey(candidate),
-                          error:
-                              _localizedMessage(
-                                strings,
-                                controller.errorMessage,
-                              ) ??
-                              controller.errorDetail,
-                          onRetry: () =>
-                              controller.search(_searchController.text),
-                          onPlay: (candidate) =>
-                              unawaited(_playSearchCandidate(candidate)),
-                        ),
-                      )
-                    else
-                      Expanded(
-                        child: _SearchBody(
-                          controller: controller,
-                          showDefaultLibrary: _searchController.text
-                              .trim()
-                              .isEmpty,
-                          onOpenChart: _openChart,
-                          onOpenLibrary: _openLibrary,
-                        ),
-                      ),
-                  ],
-                ],
-              ),
-            ),
-            bottomNavigationBar: _searchFocusNode.hasFocus
+            bottomNavigationBar: _tab == 0 && _searchFocusNode.hasFocus
                 ? null
-                : MiniPlayer(controller: controller),
+                : Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      // The tab bar below owns the bottom safe area.
+                      MediaQuery.removePadding(
+                        context: context,
+                        removeBottom: true,
+                        child: MiniPlayer(controller: controller),
+                      ),
+                      GlassTabBar(
+                        index: _tab,
+                        onSelected: _selectTab,
+                        tabs: [
+                          GlassTab(
+                            icon: const Icon(Icons.home_rounded),
+                            label: strings.isZh ? '首页' : 'Home',
+                            tooltip: strings.isZh ? '首页' : 'Home',
+                          ),
+                          GlassTab(
+                            icon: const Icon(Icons.library_music_rounded),
+                            label: strings.isZh ? '音乐库' : 'Library',
+                            tooltip: strings.isZh ? '音乐库' : 'Music library',
+                          ),
+                          GlassTab(
+                            icon: controller.hasActiveDownloads
+                                ? const SizedBox.square(
+                                    key: ValueKey('home-download-spinner'),
+                                    dimension: 20,
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 2,
+                                    ),
+                                  )
+                                : const Icon(Icons.download),
+                            label: strings.isZh ? '下载' : 'Downloads',
+                            tooltip: strings.downloads,
+                          ),
+                          GlassTab(
+                            icon: UpdateBadge(
+                              updates: controller.appUpdates,
+                              child: const Icon(Icons.settings_outlined),
+                            ),
+                            label: strings.settings,
+                            tooltip: strings.settings,
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
           ),
         );
       },
+    );
+  }
+
+  void _selectTab(int tab) {
+    if (tab == _tab) return;
+    _searchFocusNode.unfocus();
+    setState(() {
+      _visitedTabs.add(tab);
+      _tab = tab;
+    });
+  }
+
+  Widget _homeTab(AppStrings strings) {
+    return SafeArea(
+      bottom: false,
+      child: Column(
+        children: [
+          _SearchHeader(
+            controller: _searchController,
+            focusNode: _searchFocusNode,
+            playlistMode: _playlistMode,
+            onToggleMode: _toggleSearchMode,
+            isSearching: _playlistMode
+                ? _playlistSearch.isLoading
+                : controller.isSearching,
+            onChanged: _handleSearchChanged,
+            onSearch: () => _submitSearch(_searchController.text),
+            onSubmitted: _submitSearch,
+            onImportScreenshots: _openScreenshotImport,
+          ),
+          if (_searchFocusNode.hasFocus)
+            Expanded(
+              child: _SearchHistoryPanel(
+                entries: _searchHistory.entries(
+                  _playlistMode
+                      ? SearchHistoryKind.playlist
+                      : SearchHistoryKind.song,
+                ),
+                editing: _historyEditMode,
+                onLongPress: () => setState(() => _historyEditMode = true),
+                onDone: () => setState(() => _historyEditMode = false),
+                onSearch: _searchFromHistory,
+                onDelete: _removeHistory,
+              ),
+            )
+          else ...[
+            OnlinePlaylistTaskEntry(
+              controller: controller,
+              onOpenPlaylist: _openMatchedPlaylist,
+            ),
+            if (_showPlaylistResults)
+              Expanded(
+                child: OnlinePlaylistSearchPanel(
+                  search: _playlistSearch,
+                  controller: controller,
+                  onOpenPlaylist: _openMatchedPlaylist,
+                ),
+              )
+            else if (_shouldShowSearchPanel)
+              Expanded(
+                child: _OnlineSearchPanel(
+                  candidates: controller.candidates,
+                  isSearching: controller.isSearching,
+                  isCandidateBusy: controller.isCandidateDownloading,
+                  isCandidatePreparing: (candidate) =>
+                      _preparingCandidateKey == _candidatePlayKey(candidate),
+                  error:
+                      _localizedMessage(strings, controller.errorMessage) ??
+                      controller.errorDetail,
+                  onRetry: () => controller.search(_searchController.text),
+                  onPlay: (candidate) =>
+                      unawaited(_playSearchCandidate(candidate)),
+                ),
+              )
+            else
+              Expanded(
+                child: _SearchBody(
+                  controller: controller,
+                  showDefaultLibrary: _searchController.text.trim().isEmpty,
+                  onOpenChart: _openChart,
+                  onOpenLibrary: _openLibrary,
+                ),
+              ),
+          ],
+        ],
+      ),
     );
   }
 
@@ -368,6 +419,10 @@ class _MusicHomePageState extends State<MusicHomePage>
   }
 
   void _handleRootBack(AppStrings strings) {
+    if (_tab != 0) {
+      _selectTab(0);
+      return;
+    }
     if (_searchFocusNode.hasFocus) {
       _searchFocusNode.unfocus();
       return;
@@ -472,39 +527,9 @@ class _MusicHomePageState extends State<MusicHomePage>
     );
   }
 
-  Future<void> _openSettings() async {
-    await Navigator.of(context).push<void>(
-      MaterialPageRoute(
-        builder: (context) => SettingsPage(controller: controller),
-      ),
-    );
-  }
+  Future<void> _openDownloads() async => _selectTab(2);
 
-  Future<void> _openDownloads() {
-    return Navigator.of(context).push<void>(
-      MaterialPageRoute(
-        builder: (context) => DownloadManagerPage(
-          controller: controller,
-          onOpenPlaylist: (playlist) => Navigator.of(context).push<void>(
-            MaterialPageRoute(
-              builder: (context) => _PlaylistDetailPage(
-                controller: controller,
-                selection: _LibraryListSpec.custom(playlist),
-              ),
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-
-  Future<void> _openLibrary() {
-    return Navigator.of(context).push<void>(
-      MaterialPageRoute(
-        builder: (context) => _LibraryPage(controller: controller),
-      ),
-    );
-  }
+  void _openLibrary() => _selectTab(1);
 
   Future<void> _openChart(MusicChart chart) {
     return Navigator.of(context).push<void>(
@@ -1294,7 +1319,6 @@ class _LibraryPage extends StatelessWidget {
             bottom: false,
             child: _LibraryLanding(controller: controller),
           ),
-          bottomNavigationBar: MiniPlayer(controller: controller),
         );
       },
     );
@@ -1458,8 +1482,13 @@ class _LibraryShortcutButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
     return FilledButton.tonalIcon(
       style: FilledButton.styleFrom(
+        // Shortcuts, not the page's one lit action.
+        backgroundColor: colors.surfaceContainerHigh,
+        foregroundColor: colors.onSurface,
+        iconColor: colors.primary,
         minimumSize: const Size(0, 40),
         padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
         tapTargetSize: MaterialTapTargetSize.shrinkWrap,
@@ -3035,7 +3064,8 @@ class _TrackTile extends StatelessWidget {
       track: track,
       rowBuilder: (context, cached) {
         final colors = Theme.of(context).colorScheme;
-        final faded = colors.onSurface.withValues(alpha: .46);
+        // Not yet cached, but still playable: quieter, never disabled-looking.
+        final faded = colors.onSurface.withValues(alpha: .72);
         return IconButtonTheme(
           data: IconButtonThemeData(
             style: IconButton.styleFrom(foregroundColor: cached ? null : faded),
@@ -3053,15 +3083,11 @@ class _TrackTile extends StatelessWidget {
                     value: selected,
                     onChanged: (_) => onToggleSelection(track),
                   )
-                : IconButton.filledTonal(
-                    style: cached
-                        ? null
-                        : IconButton.styleFrom(
-                            foregroundColor: faded,
-                            backgroundColor: colors.onSurface.withValues(
-                              alpha: .07,
-                            ),
-                          ),
+                : _TrackCover(
+                    track: track,
+                    active: active,
+                    preparing: isPreparing,
+                    dimmed: !cached,
                     tooltip: isPreparing
                         ? strings.preparingPlayback
                         : active
@@ -3070,13 +3096,6 @@ class _TrackTile extends StatelessWidget {
                     onPressed: isPreparing
                         ? null
                         : () => onPlayTrack(track, index, tracks),
-                    icon: isPreparing
-                        ? const SizedBox(
-                            width: 20,
-                            height: 20,
-                            child: CircularProgressIndicator(strokeWidth: 2),
-                          )
-                        : Icon(active ? Icons.equalizer : Icons.play_arrow),
                   ),
             title: Text(
               track.title,
@@ -3150,6 +3169,79 @@ class _TrackTile extends StatelessWidget {
           ),
         );
       },
+    );
+  }
+}
+
+/// The row's cover. It plays on tap like the old play button did, and shows
+/// the level meter over the art while its song is the one playing.
+class _TrackCover extends StatelessWidget {
+  const _TrackCover({
+    required this.track,
+    required this.active,
+    required this.preparing,
+    required this.dimmed,
+    required this.tooltip,
+    required this.onPressed,
+  });
+
+  final Track track;
+  final bool active, preparing, dimmed;
+  final String tooltip;
+  final VoidCallback? onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    const size = 48.0;
+    final radius = BorderRadius.circular(MusicUi.sleeveRadius);
+    return Tooltip(
+      message: tooltip,
+      child: Semantics(
+        button: true,
+        enabled: onPressed != null,
+        child: InkWell(
+          borderRadius: radius,
+          onTap: onPressed,
+          child: SizedBox.square(
+            dimension: size,
+            child: Stack(
+              fit: StackFit.expand,
+              children: [
+                Opacity(
+                  opacity: dimmed && !active ? .8 : 1,
+                  child: MusicThumbnail(
+                    uri: track.artworkUri,
+                    label: track.title,
+                    size: size,
+                    radius: MusicUi.sleeveRadius,
+                  ),
+                ),
+                if (active || preparing)
+                  DecoratedBox(
+                    decoration: BoxDecoration(
+                      color: Colors.black.withValues(alpha: .5),
+                      borderRadius: radius,
+                    ),
+                    child: Center(
+                      child: preparing
+                          ? const SizedBox.square(
+                              dimension: 20,
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            )
+                          : EqualizerBars(
+                              playing: true,
+                              size: 18,
+                              color: Theme.of(
+                                context,
+                              ).colorScheme.primaryContainer,
+                            ),
+                    ),
+                  ),
+              ],
+            ),
+          ),
+        ),
+      ),
     );
   }
 }

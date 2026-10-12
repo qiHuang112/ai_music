@@ -1,6 +1,10 @@
 import 'package:flutter/material.dart';
 
 /// Edit these palettes to recolor every screen, dialog and player together.
+///
+/// The look is a listening room. By night it is warm black lit by an amber
+/// valve glow; by day it is cream paper with mint for the few lit things.
+/// Each mode has one lit color, and nothing is neutral grey or pure white.
 class MusicPalette {
   const MusicPalette({
     required this.ink,
@@ -13,36 +17,107 @@ class MusicPalette {
     required this.text,
     required this.muted,
     required this.line,
+    required this.label,
+    required this.brass,
+    required this.vinyl,
+    required this.glass,
+    required this.sheen,
+    required this.haze,
   });
 
   final Color ink, accent, onAccent, background, panel, tint, field;
   final Color text, muted, line;
 
+  /// Colors with no ColorScheme role: record-label red, tonearm metal, the
+  /// disc itself, the smoked-glass tint and the light that catches its edge.
+  final Color label, brass, vinyl, glass, sheen;
+
+  /// The room's second light when no artwork colors it; [accent] is the first.
+  final Color haze;
+
   static const light = MusicPalette(
-    ink: Color(0xFF087F64),
-    accent: Color(0xFF12B886),
-    onAccent: Color(0xFF083E2F),
-    background: Color(0xFFF8FCF9),
-    panel: Color(0xFFFFFFFF),
-    tint: Color(0xFFE5F9EF),
-    field: Color(0xFFF0F8F3),
-    text: Color(0xFF172620),
-    muted: Color(0xFF69746E),
-    line: Color(0xFFDCEEE2),
+    ink: Color(0xFF1A7557),
+    accent: Color(0xFF7ED3B0),
+    onAccent: Color(0xFF0A3A2B),
+    background: Color(0xFFF7F2E4),
+    panel: Color(0xFFFFFCF3),
+    tint: Color(0xFFD3EBDD),
+    field: Color(0xFFEFE8D6),
+    text: Color(0xFF1B2620),
+    muted: Color(0xFF6B6F63),
+    line: Color(0xFFE3DAC6),
+    label: Color(0xFFD9573C),
+    brass: Color(0xFFB09A68),
+    vinyl: Color(0xFF14110F),
+    glass: Color(0xFFFFFDF6),
+    sheen: Color(0xFFFFFFFF),
+    haze: Color(0xFFF3DDB0),
   );
 
   static const dark = MusicPalette(
-    ink: Color(0xFF56DDB1),
-    accent: Color(0xFF36CEA0),
-    onAccent: Color(0xFF062F24),
-    background: Color(0xFF131C17),
-    panel: Color(0xFF202C25),
-    tint: Color(0xFF203E2C),
-    field: Color(0xFF27372D),
-    text: Color(0xFFE6ECE8),
-    muted: Color(0xFFA3AFA7),
-    line: Color(0xFF304237),
+    ink: Color(0xFFF2B866),
+    accent: Color(0xFFE8A33D),
+    onAccent: Color(0xFF2B1A04),
+    background: Color(0xFF100E0C),
+    panel: Color(0xFF1C1915),
+    tint: Color(0xFF362A18),
+    field: Color(0xFF27231E),
+    text: Color(0xFFF4EDE0),
+    muted: Color(0xFFA89E8F),
+    line: Color(0xFF332D26),
+    label: Color(0xFFD9573C),
+    brass: Color(0xFFCDB98F),
+    vinyl: Color(0xFF0B0A09),
+    glass: Color(0xFF1A1613),
+    sheen: Color(0xFFFFF4E0),
+    haze: Color(0xFF7F3626),
   );
+
+  static MusicPalette lerp(MusicPalette a, MusicPalette b, double t) {
+    Color mix(Color x, Color y) => Color.lerp(x, y, t)!;
+    return MusicPalette(
+      ink: mix(a.ink, b.ink),
+      accent: mix(a.accent, b.accent),
+      onAccent: mix(a.onAccent, b.onAccent),
+      background: mix(a.background, b.background),
+      panel: mix(a.panel, b.panel),
+      tint: mix(a.tint, b.tint),
+      field: mix(a.field, b.field),
+      text: mix(a.text, b.text),
+      muted: mix(a.muted, b.muted),
+      line: mix(a.line, b.line),
+      label: mix(a.label, b.label),
+      brass: mix(a.brass, b.brass),
+      vinyl: mix(a.vinyl, b.vinyl),
+      glass: mix(a.glass, b.glass),
+      sheen: mix(a.sheen, b.sheen),
+      haze: mix(a.haze, b.haze),
+    );
+  }
+}
+
+/// Carries the whole palette through Theme for the vinyl and glass components.
+class MusicTokens extends ThemeExtension<MusicTokens> {
+  const MusicTokens(this.palette);
+
+  final MusicPalette palette;
+
+  static MusicPalette of(BuildContext context) {
+    final theme = Theme.of(context);
+    return theme.extension<MusicTokens>()?.palette ??
+        (theme.brightness == Brightness.dark
+            ? MusicPalette.dark
+            : MusicPalette.light);
+  }
+
+  @override
+  MusicTokens copyWith({MusicPalette? palette}) =>
+      MusicTokens(palette ?? this.palette);
+
+  @override
+  MusicTokens lerp(MusicTokens? other, double t) => other == null
+      ? this
+      : MusicTokens(MusicPalette.lerp(palette, other.palette, t));
 }
 
 /// Shared geometry. Colors belong to ColorScheme, never individual pages.
@@ -54,6 +129,11 @@ abstract final class MusicUi {
   static const sectionGap = 24.0;
   static const playerCoverMaxWidth = 320.0;
   static const miniPlayerRadius = 26.0;
+
+  /// Printed matter keeps crisp corners; glass and hardware are round.
+  static const sleeveRadius = 6.0;
+  static const glassRadius = 28.0;
+  static const controlRadius = 14.0;
   static const miniPlayerInsets = EdgeInsets.fromLTRB(12, 8, 12, 10);
   static const pageInsets = EdgeInsets.fromLTRB(20, 16, 20, 24);
   static const horizontalInsets = EdgeInsets.symmetric(horizontal: pagePadding);
@@ -68,7 +148,105 @@ abstract final class MusicUi {
       MediaQuery.textScalerOf(context).scale(14) > 18;
 }
 
+/// Shared timing. Springs answer touch; curves move layout.
+abstract final class MusicMotion {
+  static const fast = Duration(milliseconds: 140);
+  static const base = Duration(milliseconds: 260);
+  static const slow = Duration(milliseconds: 460);
+  static const standard = Curves.easeOutCubic;
+  static const emphasized = Cubic(.2, 0, 0, 1);
+  static const snappy = SpringDescription(mass: 1, stiffness: 420, damping: 32);
+  static const bouncy = SpringDescription(mass: 1, stiffness: 260, damping: 18);
+
+  /// One turn of a playing record: 33⅓ rpm slowed until the label stays
+  /// readable. The platter needs [spinUp] to reach it and [spinDown] to coast.
+  static const revolution = Duration(seconds: 8);
+  static const spinUp = Duration(milliseconds: 500);
+  static const spinDown = Duration(milliseconds: 1100);
+  static const toneArm = Duration(milliseconds: 620);
+
+  /// Widget tests turn this off so pumpAndSettle is not held open by a record
+  /// that never stops.
+  static bool perpetual = true;
+
+  static bool allowsPerpetual(BuildContext context) =>
+      perpetual && !MediaQuery.disableAnimationsOf(context);
+}
+
+/// Three voices: sleeve print (serif), system text, and the engraved lettering
+/// of a hi-fi faceplate. The families ship with iOS; elsewhere the fallbacks
+/// keep the same roles.
+abstract final class MusicType {
+  static const display = 'Bodoni 72';
+  static const displayFallback = ['Source Han Serif CN', 'Didot', 'serif'];
+  static const engraved = 'DIN Alternate';
+  static const engravedFallback = [
+    'DIN Condensed',
+    'PingFang SC',
+    'sans-serif-condensed',
+  ];
+
+  /// Page mastheads and the playing song.
+  static TextStyle masthead(BuildContext context, {double size = 34}) =>
+      TextStyle(
+        fontFamily: display,
+        fontFamilyFallback: displayFallback,
+        fontSize: size,
+        height: 1.12,
+        fontWeight: FontWeight.w700,
+        letterSpacing: 0,
+        wordSpacing: size * .09,
+        color: Theme.of(context).colorScheme.onSurface,
+      );
+
+  /// Small capitals above a section, like the text around a record label.
+  static TextStyle eyebrow(BuildContext context) => TextStyle(
+    fontFamily: engraved,
+    fontFamilyFallback: engravedFallback,
+    fontSize: 11,
+    height: 1.2,
+    fontWeight: FontWeight.w700,
+    letterSpacing: 2.2,
+    color: Theme.of(context).colorScheme.primary,
+  );
+
+  /// Times, counts and quality marks: figures that must not jitter.
+  static TextStyle readout(BuildContext context, {double size = 12}) =>
+      TextStyle(
+        fontFamily: engraved,
+        fontFamilyFallback: engravedFallback,
+        fontSize: size,
+        height: 1.2,
+        fontWeight: FontWeight.w700,
+        letterSpacing: .6,
+        fontFeatures: const [FontFeature.tabularFigures()],
+        color: Theme.of(context).colorScheme.onSurfaceVariant,
+      );
+}
+
 abstract final class MusicAppTheme {
+  /// Material tracks every style for Latin text, which only loosens CJK.
+  static TextTheme _untracked(TextTheme theme) {
+    TextStyle? flat(TextStyle? style) => style?.copyWith(letterSpacing: 0);
+    return TextTheme(
+      displayLarge: flat(theme.displayLarge),
+      displayMedium: flat(theme.displayMedium),
+      displaySmall: flat(theme.displaySmall),
+      headlineLarge: flat(theme.headlineLarge),
+      headlineMedium: flat(theme.headlineMedium),
+      headlineSmall: flat(theme.headlineSmall),
+      titleLarge: flat(theme.titleLarge),
+      titleMedium: flat(theme.titleMedium),
+      titleSmall: flat(theme.titleSmall),
+      bodyLarge: flat(theme.bodyLarge),
+      bodyMedium: flat(theme.bodyMedium),
+      bodySmall: flat(theme.bodySmall),
+      labelLarge: flat(theme.labelLarge),
+      labelMedium: flat(theme.labelMedium),
+      labelSmall: flat(theme.labelSmall),
+    );
+  }
+
   static ThemeData create(Brightness brightness, {MusicPalette? palette}) {
     final p =
         palette ??
@@ -101,7 +279,7 @@ abstract final class MusicAppTheme {
           surfaceTint: Colors.transparent,
         );
     final base = ThemeData(colorScheme: colors, useMaterial3: true);
-    final text = base.textTheme
+    final sized = base.textTheme
         .apply(bodyColor: p.text, displayColor: p.text)
         .copyWith(
           headlineSmall: base.textTheme.headlineSmall?.copyWith(
@@ -127,6 +305,18 @@ abstract final class MusicAppTheme {
             color: p.muted,
           ),
         );
+    // Headings speak in the sleeve-print voice everywhere: page titles,
+    // section heads and dialog titles.
+    TextStyle? printed(TextStyle? style) => style?.copyWith(
+      fontFamily: MusicType.display,
+      fontFamilyFallback: MusicType.displayFallback,
+      fontWeight: FontWeight.w700,
+    );
+    final flat = _untracked(sized);
+    final text = flat.copyWith(
+      headlineSmall: printed(flat.headlineSmall),
+      titleLarge: printed(flat.titleLarge),
+    );
     final field = OutlineInputBorder(
       borderRadius: BorderRadius.circular(MusicUi.fieldRadius),
       borderSide: BorderSide.none,
@@ -135,6 +325,7 @@ abstract final class MusicAppTheme {
       borderRadius: BorderRadius.circular(14),
     );
     return base.copyWith(
+      extensions: [MusicTokens(p)],
       textTheme: text,
       scaffoldBackgroundColor: p.background,
       appBarTheme: AppBarTheme(

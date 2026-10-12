@@ -9,6 +9,10 @@ import '../application/music_controller.dart';
 import '../data/song_comments.dart';
 import '../domain/music_models.dart';
 import 'app_localizations.dart';
+import 'design/ambient_backdrop.dart';
+import 'design/artwork_palette.dart';
+import 'design/controls.dart';
+import 'design/turntable.dart';
 import 'playlist_actions.dart';
 import 'swipe_to_skip.dart';
 import 'song_source_page.dart';
@@ -64,7 +68,9 @@ class _PlayerPageState extends State<PlayerPage> {
         final currentTrack = controller.currentTrack;
         final strings = AppStringsScope.of(context);
         return Scaffold(
+          extendBodyBehindAppBar: true,
           appBar: AppBar(
+            backgroundColor: Colors.transparent,
             title: Text(strings.nowPlaying),
             actions: [
               if (currentTrack != null) ...[
@@ -88,122 +94,133 @@ class _PlayerPageState extends State<PlayerPage> {
               ],
             ],
           ),
-          body: SafeArea(
-            child: StreamBuilder<MediaItem?>(
-              stream: controller.mediaItemStream,
-              initialData: controller.audioHandler.mediaItem.value,
-              builder: (context, mediaSnapshot) {
-                final item = mediaSnapshot.data;
-                if (item == null) {
-                  return Center(child: Text(strings.nothingPlaying));
-                }
-                return StreamBuilder<PlaybackState>(
-                  stream: controller.playbackStateStream,
-                  initialData: controller.audioHandler.playbackState.value,
-                  builder: (context, stateSnapshot) {
-                    final state = stateSnapshot.data ?? PlaybackState();
-                    final duration = item.duration ?? Duration.zero;
-                    return SwipeToSkip(
-                      key: const ValueKey('player-swipe-area'),
-                      onNext: controller.next,
-                      onPrevious: controller.previous,
-                      child: ListView(
-                        padding: const EdgeInsets.fromLTRB(
-                          MusicUi.pagePadding,
-                          12,
-                          MusicUi.pagePadding,
-                          32,
-                        ),
-                        children: [
-                          _Artwork(
-                            uri: item.artUri ?? controller.currentArtworkUri,
+          body: _PlayerBackdrop(
+            controller: controller,
+            child: SafeArea(
+              child: StreamBuilder<MediaItem?>(
+                stream: controller.mediaItemStream,
+                initialData: controller.audioHandler.mediaItem.value,
+                builder: (context, mediaSnapshot) {
+                  final item = mediaSnapshot.data;
+                  if (item == null) {
+                    return Center(child: Text(strings.nothingPlaying));
+                  }
+                  return StreamBuilder<PlaybackState>(
+                    stream: controller.playbackStateStream,
+                    initialData: controller.audioHandler.playbackState.value,
+                    builder: (context, stateSnapshot) {
+                      final state = stateSnapshot.data ?? PlaybackState();
+                      final duration = item.duration ?? Duration.zero;
+                      return SwipeToSkip(
+                        key: const ValueKey('player-swipe-area'),
+                        onNext: controller.next,
+                        onPrevious: controller.previous,
+                        child: ListView(
+                          padding: const EdgeInsets.fromLTRB(
+                            MusicUi.pagePadding,
+                            4,
+                            MusicUi.pagePadding,
+                            12,
                           ),
-                          const SizedBox(height: 18),
-                          Text(
-                            item.title,
-                            maxLines: 2,
-                            overflow: TextOverflow.ellipsis,
-                            textAlign: TextAlign.center,
-                            style: Theme.of(context).textTheme.headlineSmall,
-                          ),
-                          const SizedBox(height: 6),
-                          Text(
-                            item.artist ?? '',
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            textAlign: TextAlign.center,
-                            style: Theme.of(context).textTheme.bodyLarge,
-                          ),
-                          const SizedBox(height: 18),
-                          _LyricsPreview(controller: controller),
-                          const SizedBox(height: 18),
-                          _PositionSlider(
-                            key: ValueKey('player-position-${item.id}'),
-                            trackId: item.id,
-                            controller: controller,
-                            duration: duration,
-                            bufferedPosition: state.bufferedPosition,
-                          ),
-                          const SizedBox(height: 16),
-                          _PlaybackControls(
-                            controller: controller,
-                            playing: state.playing,
-                          ),
-                          const SizedBox(height: 12),
-                          Wrap(
-                            alignment: WrapAlignment.center,
-                            spacing: 12,
-                            children: [
-                              if (currentTrack != null &&
-                                  controller.canSwitchSongSource(currentTrack))
-                                TextButton.icon(
-                                  key: const Key('player-switch-source'),
-                                  onPressed: () => showSongSourcePicker(
-                                    context,
-                                    controller,
-                                    currentTrack,
+                          children: [
+                            _Artwork(
+                              uri: item.artUri ?? controller.currentArtworkUri,
+                              controller: controller,
+                              playing: state.playing,
+                              duration: duration,
+                            ),
+                            const SizedBox(height: 14),
+                            Text(
+                              item.title,
+                              maxLines: 2,
+                              overflow: TextOverflow.ellipsis,
+                              textAlign: TextAlign.center,
+                              style: MusicType.masthead(context, size: 26),
+                            ),
+                            const SizedBox(height: 6),
+                            Text(
+                              item.artist ?? '',
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              textAlign: TextAlign.center,
+                              style: Theme.of(context).textTheme.bodyLarge
+                                  ?.copyWith(
+                                    color: Theme.of(
+                                      context,
+                                    ).colorScheme.onSurfaceVariant,
                                   ),
-                                  icon: const Icon(Icons.swap_horiz),
-                                  label: Text(
-                                    strings.isZh ? '切换来源' : 'Choose source',
-                                  ),
-                                ),
-                              if (currentTrack != null)
-                                TextButton.icon(
-                                  key: const ValueKey('player-comments'),
-                                  onPressed: () {
-                                    final query = SongCommentQuery.fromTrack(
+                            ),
+                            const SizedBox(height: 10),
+                            _LyricsPreview(controller: controller),
+                            const SizedBox(height: 8),
+                            _PositionSlider(
+                              key: ValueKey('player-position-${item.id}'),
+                              trackId: item.id,
+                              controller: controller,
+                              duration: duration,
+                              bufferedPosition: state.bufferedPosition,
+                            ),
+                            const SizedBox(height: 10),
+                            _PlaybackControls(
+                              controller: controller,
+                              playing: state.playing,
+                            ),
+                            const SizedBox(height: 8),
+                            Wrap(
+                              alignment: WrapAlignment.center,
+                              spacing: 12,
+                              children: [
+                                if (currentTrack != null &&
+                                    controller.canSwitchSongSource(
                                       currentTrack,
-                                      original: controller.originalSongForTrack(
-                                        currentTrack,
-                                      ),
-                                      candidate: controller.selectedSongSource(
-                                        currentTrack,
-                                      ),
-                                      lyrics: controller.currentLyrics,
-                                    );
-                                    Navigator.of(context).push(
-                                      MaterialPageRoute<void>(
-                                        builder: (_) =>
-                                            SongCommentsPage(query: query),
-                                      ),
-                                    );
-                                  },
-                                  icon: const Icon(
-                                    Icons.chat_bubble_outline_rounded,
+                                    ))
+                                  TextButton.icon(
+                                    key: const Key('player-switch-source'),
+                                    onPressed: () => showSongSourcePicker(
+                                      context,
+                                      controller,
+                                      currentTrack,
+                                    ),
+                                    icon: const Icon(Icons.swap_horiz),
+                                    label: Text(
+                                      strings.isZh ? '切换来源' : 'Choose source',
+                                    ),
                                   ),
-                                  label: Text(
-                                    strings.isZh ? '歌曲热评' : 'Song comments',
+                                if (currentTrack != null)
+                                  TextButton.icon(
+                                    key: const ValueKey('player-comments'),
+                                    onPressed: () {
+                                      final query = SongCommentQuery.fromTrack(
+                                        currentTrack,
+                                        original: controller
+                                            .originalSongForTrack(currentTrack),
+                                        candidate: controller
+                                            .selectedSongSource(currentTrack),
+                                        lyrics: controller.currentLyrics,
+                                      );
+                                      Navigator.of(context).push(
+                                        MaterialPageRoute<void>(
+                                          builder: (_) =>
+                                              SongCommentsPage(query: query),
+                                        ),
+                                      );
+                                    },
+                                    icon: const Icon(
+                                      Icons.chat_bubble_outline_rounded,
+                                    ),
+                                    label: Text(
+                                      strings.isZh ? '歌曲热评' : 'Song comments',
+                                    ),
                                   ),
-                                ),
-                            ],
-                          ),
-                        ],
-                      ),
-                    );
-                  },
-                );
-              },
+                              ],
+                            ),
+                          ],
+                        ),
+                      );
+                    },
+                  );
+                },
+              ),
             ),
           ),
         );
@@ -212,57 +229,106 @@ class _PlayerPageState extends State<PlayerPage> {
   }
 }
 
+/// The record on its deck. The cover is the label; the arm follows the song.
 class _Artwork extends StatelessWidget {
-  const _Artwork({required this.uri});
+  const _Artwork({
+    required this.uri,
+    required this.controller,
+    required this.playing,
+    required this.duration,
+  });
 
   final Uri? uri;
+  final MusicController controller;
+  final bool playing;
+  final Duration duration;
 
   @override
   Widget build(BuildContext context) {
     final colors = Theme.of(context).colorScheme;
     final artUri = uri;
+    final placeholder = ColoredBox(
+      color: colors.surfaceContainerHighest,
+      child: Center(child: Icon(Icons.album, size: 44, color: colors.primary)),
+    );
+    final label = artUri == null
+        ? placeholder
+        : Image(
+            image: artworkImageProvider(artUri),
+            fit: BoxFit.cover,
+            errorBuilder: (_, _, _) => placeholder,
+          );
     return Center(
       child: ConstrainedBox(
         constraints: BoxConstraints(
-          maxWidth: (MediaQuery.sizeOf(context).height * .34).clamp(
+          // Sized so the whole player fits one screen without scrolling.
+          maxWidth: (MediaQuery.sizeOf(context).height * .35).clamp(
             180.0,
             MusicUi.playerCoverMaxWidth,
           ),
         ),
-        child: AspectRatio(
-          aspectRatio: 1,
-          child: DecoratedBox(
-            decoration: BoxDecoration(
-              color: colors.surfaceContainerHighest,
-              borderRadius: BorderRadius.circular(MusicUi.radius),
-            ),
-            child: ClipRRect(
-              borderRadius: BorderRadius.circular(MusicUi.radius),
-              child: artUri == null
-                  ? Icon(Icons.album, size: 108, color: colors.primary)
-                  : Image(
-                      image: _imageProvider(artUri),
-                      fit: BoxFit.cover,
-                      errorBuilder: (_, _, _) {
-                        return Icon(
-                          Icons.album,
-                          size: 108,
-                          color: colors.primary,
-                        );
-                      },
-                    ),
-            ),
-          ),
+        child: StreamBuilder<Duration>(
+          stream: controller.positionStream,
+          initialData: controller.audioHandler.currentPosition,
+          builder: (context, snapshot) {
+            final total = duration.inMilliseconds;
+            final played = (snapshot.data ?? Duration.zero).inMilliseconds;
+            return Turntable(
+              playing: playing,
+              progress: total <= 0 ? 0 : played / total,
+              label: label,
+            );
+          },
         ),
       ),
     );
   }
+}
 
-  ImageProvider _imageProvider(Uri uri) {
-    if (uri.isScheme('file')) {
-      return FileImage(File(uri.toFilePath()));
-    }
-    return NetworkImage(uri.toString());
+ImageProvider artworkImageProvider(Uri uri) => uri.isScheme('file')
+    ? FileImage(File(uri.toFilePath()))
+    : NetworkImage(uri.toString());
+
+/// Lights the page from the playing cover and keeps that light while the
+/// next cover loads.
+class _PlayerBackdrop extends StatefulWidget {
+  const _PlayerBackdrop({required this.controller, required this.child});
+
+  final MusicController controller;
+  final Widget child;
+
+  @override
+  State<_PlayerBackdrop> createState() => _PlayerBackdropState();
+}
+
+class _PlayerBackdropState extends State<_PlayerBackdrop> {
+  Uri? _uri;
+  ArtworkPalette? _palette;
+
+  Future<void> _read(Uri? uri) async {
+    if (uri == _uri) return;
+    _uri = uri;
+    final palette = uri == null
+        ? null
+        : await ArtworkPalette.of(artworkImageProvider(uri));
+    if (mounted && uri == _uri) setState(() => _palette = palette);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final brightness = Theme.of(context).brightness;
+    return StreamBuilder<MediaItem?>(
+      stream: widget.controller.mediaItemStream,
+      initialData: widget.controller.audioHandler.mediaItem.value,
+      builder: (context, snapshot) {
+        _read(snapshot.data?.artUri ?? widget.controller.currentArtworkUri);
+        return AmbientBackdrop(
+          glow: _palette?.glow(brightness),
+          shade: _palette?.shade(brightness),
+          child: widget.child,
+        );
+      },
+    );
   }
 }
 
@@ -279,7 +345,9 @@ class _LyricsDetailPage extends StatelessWidget {
         final currentTrack = controller.currentTrack;
         final strings = AppStringsScope.of(context);
         return Scaffold(
+          extendBodyBehindAppBar: true,
           appBar: AppBar(
+            backgroundColor: Colors.transparent,
             title: Text(strings.lyrics),
             actions: [
               if (currentTrack != null) ...[
@@ -303,76 +371,84 @@ class _LyricsDetailPage extends StatelessWidget {
               ],
             ],
           ),
-          body: SafeArea(
-            child: StreamBuilder<MediaItem?>(
-              stream: controller.mediaItemStream,
-              initialData: controller.audioHandler.mediaItem.value,
-              builder: (context, mediaSnapshot) {
-                final item = mediaSnapshot.data;
-                if (item == null) {
-                  return Center(child: Text(strings.nothingPlaying));
-                }
-                return StreamBuilder<PlaybackState>(
-                  stream: controller.playbackStateStream,
-                  initialData: controller.audioHandler.playbackState.value,
-                  builder: (context, stateSnapshot) {
-                    final state = stateSnapshot.data ?? PlaybackState();
-                    final duration = item.duration ?? Duration.zero;
-                    return SwipeToSkip(
-                      key: const ValueKey('lyrics-swipe-area'),
-                      onNext: controller.next,
-                      onPrevious: controller.previous,
-                      child: Column(
-                        children: [
-                          Padding(
-                            padding: const EdgeInsets.fromLTRB(24, 8, 24, 12),
-                            child: Column(
-                              children: [
-                                Text(
-                                  item.title,
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                  textAlign: TextAlign.center,
-                                  style: Theme.of(context).textTheme.titleLarge,
-                                ),
-                                const SizedBox(height: 4),
-                                Text(
-                                  item.artist ?? '',
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                  textAlign: TextAlign.center,
-                                  style: Theme.of(context).textTheme.bodyMedium,
-                                ),
-                              ],
+          body: _PlayerBackdrop(
+            controller: controller,
+            child: SafeArea(
+              child: StreamBuilder<MediaItem?>(
+                stream: controller.mediaItemStream,
+                initialData: controller.audioHandler.mediaItem.value,
+                builder: (context, mediaSnapshot) {
+                  final item = mediaSnapshot.data;
+                  if (item == null) {
+                    return Center(child: Text(strings.nothingPlaying));
+                  }
+                  return StreamBuilder<PlaybackState>(
+                    stream: controller.playbackStateStream,
+                    initialData: controller.audioHandler.playbackState.value,
+                    builder: (context, stateSnapshot) {
+                      final state = stateSnapshot.data ?? PlaybackState();
+                      final duration = item.duration ?? Duration.zero;
+                      return SwipeToSkip(
+                        key: const ValueKey('lyrics-swipe-area'),
+                        onNext: controller.next,
+                        onPrevious: controller.previous,
+                        child: Column(
+                          children: [
+                            Padding(
+                              padding: const EdgeInsets.fromLTRB(24, 8, 24, 12),
+                              child: Column(
+                                children: [
+                                  Text(
+                                    item.title,
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    textAlign: TextAlign.center,
+                                    style: MusicType.masthead(
+                                      context,
+                                      size: 22,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 4),
+                                  Text(
+                                    item.artist ?? '',
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    textAlign: TextAlign.center,
+                                    style: Theme.of(
+                                      context,
+                                    ).textTheme.bodyMedium,
+                                  ),
+                                ],
+                              ),
                             ),
-                          ),
-                          Expanded(
-                            child: _LyricsPanel(
+                            Expanded(
+                              child: _LyricsPanel(
+                                controller: controller,
+                                fillsAvailable: true,
+                              ),
+                            ),
+                            Padding(
+                              padding: const EdgeInsets.fromLTRB(24, 8, 24, 0),
+                              child: _PositionSlider(
+                                key: ValueKey('lyrics-position-${item.id}'),
+                                trackId: item.id,
+                                controller: controller,
+                                duration: duration,
+                                bufferedPosition: state.bufferedPosition,
+                              ),
+                            ),
+                            _PlaybackControls(
                               controller: controller,
-                              fillsAvailable: true,
+                              playing: state.playing,
                             ),
-                          ),
-                          Padding(
-                            padding: const EdgeInsets.fromLTRB(24, 8, 24, 0),
-                            child: _PositionSlider(
-                              key: ValueKey('lyrics-position-${item.id}'),
-                              trackId: item.id,
-                              controller: controller,
-                              duration: duration,
-                              bufferedPosition: state.bufferedPosition,
-                            ),
-                          ),
-                          _PlaybackControls(
-                            controller: controller,
-                            playing: state.playing,
-                          ),
-                          const SizedBox(height: 12),
-                        ],
-                      ),
-                    );
-                  },
-                );
-              },
+                            const SizedBox(height: 12),
+                          ],
+                        ),
+                      );
+                    },
+                  );
+                },
+              ),
             ),
           ),
         );
@@ -426,49 +502,64 @@ class _PositionSliderState extends State<_PositionSlider> {
               valueListenable: widget.controller.cacheProgressForId(
                 widget.trackId,
               ),
-              builder: (context, progress, _) => Slider(
-                value: value,
-                max: max <= 0 ? 1 : max,
-                secondaryTrackValue: max <= 0
-                    ? 0
-                    : progress.offline
-                    ? max
-                    : widget.bufferedPosition.inMilliseconds
-                          .clamp(0, max)
-                          .toDouble(),
-                secondaryActiveColor: Theme.of(
-                  context,
-                ).colorScheme.onSurface.withValues(alpha: .28),
-                inactiveColor: Theme.of(
-                  context,
-                ).colorScheme.onSurface.withValues(alpha: .08),
-                onChanged: max <= 0
-                    ? null
-                    : (value) {
-                        setState(() {
-                          _dragging = true;
-                          _dragValue = value;
-                        });
-                      },
-                onChangeStart: max <= 0
-                    ? null
-                    : (value) {
-                        setState(() {
-                          _dragging = true;
-                          _dragValue = value;
-                        });
-                      },
-                onChangeEnd: max <= 0
-                    ? null
-                    : (value) {
-                        setState(() {
-                          _dragging = false;
-                          _dragValue = null;
-                        });
-                        widget.controller.seek(
-                          Duration(milliseconds: value.round()),
-                        );
-                      },
+              builder: (context, progress, _) => SliderTheme(
+                data: SliderTheme.of(context).copyWith(
+                  trackHeight: 4,
+                  thumbShape: const RoundSliderThumbShape(
+                    enabledThumbRadius: 6,
+                    elevation: 0,
+                    pressedElevation: 0,
+                  ),
+                  overlayShape: const RoundSliderOverlayShape(
+                    overlayRadius: 16,
+                  ),
+                  thumbColor: Theme.of(context).colorScheme.primaryContainer,
+                ),
+                child: Slider(
+                  padding: const EdgeInsets.symmetric(vertical: 8),
+                  value: value,
+                  max: max <= 0 ? 1 : max,
+                  secondaryTrackValue: max <= 0
+                      ? 0
+                      : progress.offline
+                      ? max
+                      : widget.bufferedPosition.inMilliseconds
+                            .clamp(0, max)
+                            .toDouble(),
+                  secondaryActiveColor: Theme.of(
+                    context,
+                  ).colorScheme.onSurface.withValues(alpha: .28),
+                  inactiveColor: Theme.of(
+                    context,
+                  ).colorScheme.onSurface.withValues(alpha: .08),
+                  onChanged: max <= 0
+                      ? null
+                      : (value) {
+                          setState(() {
+                            _dragging = true;
+                            _dragValue = value;
+                          });
+                        },
+                  onChangeStart: max <= 0
+                      ? null
+                      : (value) {
+                          setState(() {
+                            _dragging = true;
+                            _dragValue = value;
+                          });
+                        },
+                  onChangeEnd: max <= 0
+                      ? null
+                      : (value) {
+                          setState(() {
+                            _dragging = false;
+                            _dragValue = null;
+                          });
+                          widget.controller.seek(
+                            Duration(milliseconds: value.round()),
+                          );
+                        },
+                ),
               ),
             ),
             Row(
@@ -479,7 +570,7 @@ class _PositionSliderState extends State<_PositionSlider> {
                     _formatDuration(displayPosition),
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
-                    style: Theme.of(context).textTheme.bodySmall,
+                    style: MusicType.readout(context),
                   ),
                 ),
                 Expanded(
@@ -488,7 +579,7 @@ class _PositionSliderState extends State<_PositionSlider> {
                     textAlign: TextAlign.end,
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
-                    style: Theme.of(context).textTheme.bodySmall,
+                    style: MusicType.readout(context),
                   ),
                 ),
               ],
@@ -509,44 +600,46 @@ class _PlaybackControls extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final strings = AppStringsScope.of(context);
-    return Row(
-      mainAxisAlignment: MainAxisAlignment.center,
-      children: [
-        IconButton(
-          tooltip: _modeTooltip(strings, controller.playbackMode),
-          onPressed: controller.cyclePlaybackMode,
-          icon: Icon(_modeIcon(controller.playbackMode)),
-        ),
-        IconButton(
-          tooltip: strings.previous,
-          iconSize: 32,
-          onPressed: controller.previous,
-          icon: const Icon(Icons.skip_previous),
-        ),
-        IconButton.filled(
-          tooltip: playing ? strings.pause : strings.play,
-          iconSize: 40,
-          style: IconButton.styleFrom(
-            backgroundColor: Theme.of(context).colorScheme.primaryContainer,
-            foregroundColor: Theme.of(context).colorScheme.onPrimaryContainer,
-            minimumSize: const Size(64, 64),
+    // Scales down as one piece on narrow phones instead of overflowing.
+    return FittedBox(
+      fit: BoxFit.scaleDown,
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          GlassIconButton(
+            tooltip: _modeTooltip(strings, controller.playbackMode),
+            onPressed: controller.cyclePlaybackMode,
+            icon: _modeIcon(controller.playbackMode),
           ),
-          onPressed: controller.togglePlayPause,
-          icon: Icon(playing ? Icons.pause : Icons.play_arrow),
-        ),
-        IconButton(
-          tooltip: strings.next,
-          iconSize: 32,
-          onPressed: controller.next,
-          icon: const Icon(Icons.skip_next),
-        ),
-        IconButton(
-          key: const ValueKey('player-queue'),
-          tooltip: strings.isZh ? '当前队列' : 'Play queue',
-          onPressed: () => showPlaybackQueue(context, controller),
-          icon: const Icon(Icons.queue_music_rounded),
-        ),
-      ],
+          const SizedBox(width: 12),
+          GlassIconButton(
+            tooltip: strings.previous,
+            size: 54,
+            onPressed: controller.previous,
+            icon: Icons.skip_previous_rounded,
+          ),
+          const SizedBox(width: 16),
+          PlayPauseButton(
+            playing: playing,
+            tooltip: playing ? strings.pause : strings.play,
+            onPressed: controller.togglePlayPause,
+          ),
+          const SizedBox(width: 16),
+          GlassIconButton(
+            tooltip: strings.next,
+            size: 54,
+            onPressed: controller.next,
+            icon: Icons.skip_next_rounded,
+          ),
+          const SizedBox(width: 12),
+          GlassIconButton(
+            key: const ValueKey('player-queue'),
+            tooltip: strings.isZh ? '当前队列' : 'Play queue',
+            onPressed: () => showPlaybackQueue(context, controller),
+            icon: Icons.queue_music_rounded,
+          ),
+        ],
+      ),
     );
   }
 }
@@ -558,7 +651,6 @@ class _LyricsPreview extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final colors = Theme.of(context).colorScheme;
     return InkWell(
       key: const ValueKey('lyrics-preview'),
       borderRadius: BorderRadius.circular(MusicUi.radius),
@@ -571,10 +663,6 @@ class _LyricsPreview extends StatelessWidget {
         width: double.infinity,
         constraints: const BoxConstraints(minHeight: 82),
         padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-        decoration: BoxDecoration(
-          color: colors.surfaceContainerHighest,
-          borderRadius: BorderRadius.circular(MusicUi.radius),
-        ),
         child: _LyricsPreviewContent(controller: controller),
       ),
     );
@@ -626,9 +714,10 @@ class _LyricsPreviewContent extends StatelessWidget {
                   overflow: TextOverflow.ellipsis,
                   textAlign: TextAlign.center,
                   style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                    fontSize: row.active ? 16 : 14,
                     color: row.active
                         ? colors.primary
-                        : colors.onSurfaceVariant,
+                        : colors.onSurfaceVariant.withValues(alpha: .7),
                     fontWeight: row.active ? FontWeight.w700 : FontWeight.w400,
                   ),
                 ),
