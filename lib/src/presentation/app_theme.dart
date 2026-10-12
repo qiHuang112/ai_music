@@ -71,7 +71,7 @@ class MusicPalette {
     vinyl: Color(0xFF0B0A09),
     glass: Color(0xFF1A1613),
     sheen: Color(0xFFFFF4E0),
-    haze: Color(0xFF7F3626),
+    haze: Color(0xFFD9573C),
   );
 
   static MusicPalette lerp(MusicPalette a, MusicPalette b, double t) {

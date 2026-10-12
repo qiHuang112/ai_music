@@ -68,6 +68,62 @@ class AmbientBackdrop extends StatelessWidget {
   }
 }
 
+/// The night room's warm light over every page: amber from the upper left,
+/// label red from the lower right, and film grain. It steps aside while an
+/// [AmbientBackdrop] is on screen, which lights its page from the artwork.
+class RoomGlow extends StatelessWidget {
+  const RoomGlow({super.key, required this.child, this.enabled = true});
+
+  final Widget child;
+  final bool enabled;
+
+  /// How many [AmbientBackdrop]s are mounted.
+  static final covered = ValueNotifier<int>(0);
+
+  @override
+  Widget build(BuildContext context) {
+    if (!enabled) return child;
+    final palette = MusicTokens.of(context);
+    return Stack(
+      fit: StackFit.passthrough,
+      children: [
+        child,
+        Positioned.fill(
+          child: IgnorePointer(
+            child: ValueListenableBuilder<int>(
+              valueListenable: covered,
+              builder: (context, count, glow) => AnimatedOpacity(
+                opacity: count > 0 ? 0 : 1,
+                duration: MusicMotion.slow,
+                child: glow,
+              ),
+              child: RepaintBoundary(
+                child: Stack(
+                  fit: StackFit.expand,
+                  children: [
+                    CustomPaint(
+                      painter: _AmbientPainter(
+                        phase: const AlwaysStoppedAnimation(0),
+                        base: palette.background,
+                        glow: palette.accent,
+                        shade: palette.haze,
+                        ember: palette.accent,
+                        dark: true,
+                        overlay: true,
+                      ),
+                    ),
+                    const FilmGrain(opacity: .075),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
 class _Drift extends StatefulWidget {
   const _Drift({required this.enabled, required this.builder});
 
@@ -84,6 +140,7 @@ class _DriftState extends State<_Drift> with SingleTickerProviderStateMixin {
   @override
   void initState() {
     super.initState();
+    RoomGlow.covered.value++;
     _controller = AnimationController(
       vsync: this,
       duration: const Duration(seconds: 32),
@@ -113,6 +170,7 @@ class _DriftState extends State<_Drift> with SingleTickerProviderStateMixin {
 
   @override
   void dispose() {
+    RoomGlow.covered.value--;
     _controller.dispose();
     super.dispose();
   }
@@ -129,16 +187,24 @@ class _AmbientPainter extends CustomPainter {
     required this.shade,
     required this.ember,
     required this.dark,
+    this.overlay = false,
   }) : super(repaint: phase);
 
   final Animation<double> phase;
   final Color base, glow, shade, ember;
   final bool dark;
 
+  /// Paints only the light, screened over whatever is already there.
+  final bool overlay;
+
   @override
   void paint(Canvas canvas, Size size) {
     final rect = Offset.zero & size;
-    canvas.drawRect(rect, Paint()..color = base);
+    if (overlay) {
+      canvas.saveLayer(rect, Paint()..blendMode = BlendMode.screen);
+    } else {
+      canvas.drawRect(rect, Paint()..color = base);
+    }
     final turn = phase.value * 2 * math.pi;
     final reach = size.longestSide;
 
@@ -167,7 +233,7 @@ class _AmbientPainter extends CustomPainter {
       ),
       reach * .56,
       glow,
-      .40 * strength,
+      (dark ? .52 : .40) * strength,
     );
     pool(
       Offset(
@@ -176,15 +242,19 @@ class _AmbientPainter extends CustomPainter {
       ),
       reach * .54,
       shade,
-      .34 * strength,
+      (dark ? .40 : .34) * strength,
     );
     pool(
       Offset(size.width * .20, size.height * 1.06),
       reach * .40,
       ember,
-      .10 * strength,
+      (dark ? .16 : .10) * strength,
     );
 
+    if (overlay) {
+      canvas.restore();
+      return;
+    }
     if (dark) {
       canvas.drawRect(
         rect,

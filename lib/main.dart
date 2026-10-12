@@ -14,6 +14,7 @@ import 'src/presentation/app_localizations.dart';
 import 'src/playback/music_audio_handler.dart';
 import 'src/presentation/music_home_page.dart';
 import 'src/presentation/app_theme.dart';
+import 'src/presentation/design/ambient_backdrop.dart';
 import 'src/presentation/design/design_gallery_page.dart';
 import 'src/presentation/design/paper_texture.dart';
 
@@ -92,10 +93,13 @@ class AiMusicApp extends StatelessWidget {
               : ThemeMode.dark,
           builder: (context, child) => AppStringsScope(
             language: controller.language,
-            // Daylight pages are xuan paper; the night room stays plain.
-            child: PaperTexture(
-              enabled: Theme.of(context).brightness == Brightness.light,
-              child: child ?? const SizedBox.shrink(),
+            // Daylight pages are xuan paper; the night room is lit amber.
+            child: RoomGlow(
+              enabled: Theme.of(context).brightness == Brightness.dark,
+              child: PaperTexture(
+                enabled: Theme.of(context).brightness == Brightness.light,
+                child: child ?? const SizedBox.shrink(),
+              ),
             ),
           ),
           home: _designGallery
