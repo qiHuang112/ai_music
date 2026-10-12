@@ -79,7 +79,7 @@ class AppStrings {
   String get downloadManager => isZh ? '下载管理' : 'Download Manager';
   String get playlists => isZh ? '播放列表' : 'Playlists';
   String get language => isZh ? '语言' : 'Language';
-  String get theme => isZh ? '换肤' : 'Theme';
+  String get theme => isZh ? '外观' : 'Theme';
   String get musicSource => isZh ? '音乐源' : 'Music Source';
   String get screenshotSearchConcurrency =>
       isZh ? '截图搜歌并发数' : 'Screenshot search concurrency';
@@ -136,8 +136,8 @@ class AppStrings {
       : 'Songs were saved, but playlist organization failed. Retry sync.';
   String get chinese => isZh ? '中文' : 'Chinese';
   String get english => isZh ? '英文' : 'English';
-  String get lightTheme => isZh ? '白色' : 'Light';
-  String get darkTheme => isZh ? '黑色' : 'Dark';
+  String get lightTheme => isZh ? '浅色' : 'Light';
+  String get darkTheme => isZh ? '深色' : 'Dark';
   String get autoSource => isZh ? '自动 / Auto' : 'Auto';
   String get buguyy => isZh ? '布谷歪歪 / BuguYY' : 'BuguYY';
   String get flacSource => isZh ? 'FLAC / flac.music.hi.cn' : 'FLAC';

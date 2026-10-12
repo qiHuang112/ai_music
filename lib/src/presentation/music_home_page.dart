@@ -36,6 +36,7 @@ import 'playlist_source_progress.dart';
 import 'app_theme.dart';
 import 'design/controls.dart';
 import 'design/glass_tab_bar.dart';
+import 'design/record_sleeve.dart';
 import 'listening_stats_page.dart';
 import 'music_thumbnail.dart';
 
@@ -2961,6 +2962,15 @@ class _TrackList extends StatelessWidget {
         keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
         slivers: [
           ...headerSlivers!,
+          // Always present: rows must not jump when selection or search starts.
+          SliverToBoxAdapter(
+            child: _PlaylistSleeve(
+              controller: controller,
+              list: list,
+              playing: tracks.any((track) => track.id == activeId),
+              onPlayAll: () => onPlayTrack(tracks.first, 0, tracks),
+            ),
+          ),
           SliverPadding(
             padding: MusicUi.scrollInsets(
               context,
@@ -3169,6 +3179,72 @@ class _TrackTile extends StatelessWidget {
           ),
         );
       },
+    );
+  }
+}
+
+/// The playlist as a record in its sleeve, with the one lit action: play it.
+class _PlaylistSleeve extends StatelessWidget {
+  const _PlaylistSleeve({
+    required this.controller,
+    required this.list,
+    required this.playing,
+    required this.onPlayAll,
+  });
+
+  final MusicController controller;
+  final _ResolvedLibraryList list;
+  final bool playing;
+  final VoidCallback onPlayAll;
+
+  @override
+  Widget build(BuildContext context) {
+    final strings = AppStringsScope.of(context);
+    final playlist = list.playlist;
+    Uri? artwork = playlist == null
+        ? null
+        : _homePlaylistArtwork(controller, playlist);
+    for (final track in list.tracks) {
+      if (artwork != null) break;
+      artwork = track.artworkUri;
+    }
+    const size = 104.0;
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(20, 4, 20, 12),
+      child: Row(
+        children: [
+          RecordSleeve(
+            size: size,
+            reveal: playing ? .34 : .16,
+            spinning: playing,
+            cover: MusicThumbnail(
+              uri: artwork,
+              label: list.title,
+              size: size,
+              radius: 0,
+            ),
+          ),
+          const SizedBox(width: 18),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  strings.songCount(list.tracks.length),
+                  style: MusicType.readout(context, size: 13),
+                ),
+                const SizedBox(height: 10),
+                FilledButton.icon(
+                  key: const ValueKey('playlist-play-all'),
+                  onPressed: onPlayAll,
+                  icon: const Icon(Icons.play_arrow_rounded),
+                  label: Text(strings.isZh ? '播放全部' : 'Play all'),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
     );
   }
 }

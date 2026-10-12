@@ -15,6 +15,7 @@ import 'src/playback/music_audio_handler.dart';
 import 'src/presentation/music_home_page.dart';
 import 'src/presentation/app_theme.dart';
 import 'src/presentation/design/design_gallery_page.dart';
+import 'src/presentation/design/paper_texture.dart';
 
 const _disableAudioService = bool.fromEnvironment(
   'AI_MUSIC_DISABLE_AUDIO_SERVICE',
@@ -91,7 +92,11 @@ class AiMusicApp extends StatelessWidget {
               : ThemeMode.dark,
           builder: (context, child) => AppStringsScope(
             language: controller.language,
-            child: child ?? const SizedBox.shrink(),
+            // Daylight pages are xuan paper; the night room stays plain.
+            child: PaperTexture(
+              enabled: Theme.of(context).brightness == Brightness.light,
+              child: child ?? const SizedBox.shrink(),
+            ),
           ),
           home: _designGallery
               ? _DesignGalleryHome(controller: controller)

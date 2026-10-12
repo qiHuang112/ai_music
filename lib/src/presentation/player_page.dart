@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'app_theme.dart';
 import 'playback_queue.dart';
 import 'dart:io';
@@ -49,6 +50,34 @@ class LyricsPanelForTesting extends StatelessWidget {
 
 class _PlayerPageState extends State<PlayerPage> {
   MusicController get controller => widget.controller;
+
+  // Set between the tap on play and the first sound: the needle goes down
+  // first, then the record turns and the music starts with it.
+  bool _cueing = false;
+  Timer? _cue;
+
+  void _togglePlayPause(bool playing) {
+    if (playing || _cueing) {
+      // Pausing, or a second tap while cueing, is immediate.
+      _cue?.cancel();
+      final wasCueing = _cueing;
+      setState(() => _cueing = false);
+      if (!wasCueing) controller.togglePlayPause();
+      return;
+    }
+    setState(() => _cueing = true);
+    _cue = Timer(MusicMotion.toneArm, () {
+      if (!mounted) return;
+      setState(() => _cueing = false);
+      controller.togglePlayPause();
+    });
+  }
+
+  @override
+  void dispose() {
+    _cue?.cancel();
+    super.dispose();
+  }
 
   @override
   void initState() {
@@ -127,6 +156,7 @@ class _PlayerPageState extends State<PlayerPage> {
                               uri: item.artUri ?? controller.currentArtworkUri,
                               controller: controller,
                               playing: state.playing,
+                              cueing: _cueing,
                               duration: duration,
                             ),
                             const SizedBox(height: 14),
@@ -163,7 +193,8 @@ class _PlayerPageState extends State<PlayerPage> {
                             const SizedBox(height: 10),
                             _PlaybackControls(
                               controller: controller,
-                              playing: state.playing,
+                              playing: state.playing || _cueing,
+                              onToggle: () => _togglePlayPause(state.playing),
                             ),
                             const SizedBox(height: 8),
                             Wrap(
@@ -235,12 +266,13 @@ class _Artwork extends StatelessWidget {
     required this.uri,
     required this.controller,
     required this.playing,
+    required this.cueing,
     required this.duration,
   });
 
   final Uri? uri;
   final MusicController controller;
-  final bool playing;
+  final bool playing, cueing;
   final Duration duration;
 
   @override
@@ -275,6 +307,7 @@ class _Artwork extends StatelessWidget {
             final played = (snapshot.data ?? Duration.zero).inMilliseconds;
             return Turntable(
               playing: playing,
+              armDown: playing || cueing,
               progress: total <= 0 ? 0 : played / total,
               label: label,
             );
@@ -592,10 +625,17 @@ class _PositionSliderState extends State<_PositionSlider> {
 }
 
 class _PlaybackControls extends StatelessWidget {
-  const _PlaybackControls({required this.controller, required this.playing});
+  const _PlaybackControls({
+    required this.controller,
+    required this.playing,
+    this.onToggle,
+  });
 
   final MusicController controller;
   final bool playing;
+
+  /// Replaces the plain toggle where the deck is on screen to cue it first.
+  final VoidCallback? onToggle;
 
   @override
   Widget build(BuildContext context) {
@@ -622,7 +662,7 @@ class _PlaybackControls extends StatelessWidget {
           PlayPauseButton(
             playing: playing,
             tooltip: playing ? strings.pause : strings.play,
-            onPressed: controller.togglePlayPause,
+            onPressed: onToggle ?? controller.togglePlayPause,
           ),
           const SizedBox(width: 16),
           GlassIconButton(

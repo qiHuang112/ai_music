@@ -1,4 +1,5 @@
 import 'package:ai_music/src/presentation/app_theme.dart';
+import 'package:ai_music/src/presentation/design/turntable.dart';
 import 'package:ai_music/src/data/song_search_cache.dart';
 import 'memory_download_history.dart';
 import 'dart:async';
@@ -656,6 +657,60 @@ void main() {
       controller.dispose();
     }
   });
+
+  testWidgets(
+    'play lowers the needle first, then starts the record and sound',
+    (tester) async {
+      final cached = _cachedTrack();
+      final handler = _SpyAudioHandler();
+      final controller = MusicController(
+        songSearchCache: SongSearchCache.memory(),
+        downloadHistoryStore: MemoryDownloadHistory(),
+        connectivityChanges: const Stream.empty(),
+        audioHandler: handler,
+        resolver: _FakeMusicResolver(),
+        cacheStore: _FakeCacheStore(cached: [cached]),
+        playlistStore: _FakePlaylistStore(),
+        settingsStore: _FakeSettingsStore(),
+        metadataRepository: _StaticMetadataRepository(
+          metadata: const TrackMetadata(),
+        ),
+      );
+      try {
+        await controller.initialize();
+        final track = trackFromCached(cached);
+        await controller.playTrack(track);
+        handler.emit(mediaItemFromTrack(track));
+        handler.playbackState.add(
+          handler.playbackState.value.copyWith(playing: false),
+        );
+        await tester.pumpWidget(
+          AppStringsScope(
+            language: AppLanguage.zh,
+            child: MaterialApp(home: PlayerPage(controller: controller)),
+          ),
+        );
+        await tester.pump();
+        Turntable deck() => tester.widget<Turntable>(find.byType(Turntable));
+        expect(deck().armDown, isFalse);
+
+        await tester.tap(find.byTooltip('播放'));
+        await tester.pump();
+        // Needle down, record still, no sound yet.
+        expect(deck().armDown, isTrue);
+        expect(deck().playing, isFalse);
+        expect(handler.playbackState.value.playing, isFalse);
+
+        await tester.pump(MusicMotion.toneArm);
+        await tester.pump();
+        expect(handler.playbackState.value.playing, isTrue);
+        expect(deck().playing, isTrue);
+      } finally {
+        await tester.pumpWidget(const SizedBox.shrink());
+        controller.dispose();
+      }
+    },
+  );
 }
 
 class _SpyAudioHandler extends MusicAudioHandler {

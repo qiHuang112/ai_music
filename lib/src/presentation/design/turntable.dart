@@ -13,12 +13,18 @@ class Turntable extends StatelessWidget {
   const Turntable({
     super.key,
     required this.playing,
+    this.armDown,
     this.progress = 0,
     this.label,
     this.labelColor,
   });
 
+  /// Whether the record turns.
   final bool playing;
+
+  /// Whether the needle is in the groove; follows [playing] when null. Set it
+  /// ahead of [playing] to lower the arm before the record starts.
+  final bool? armDown;
   final double progress;
   final Widget? label;
   final Color? labelColor;
@@ -48,14 +54,14 @@ class Turntable extends StatelessWidget {
                 child: IgnorePointer(
                   child: RepaintBoundary(
                     child: _ToneArm(
-                      angle: playing
+                      angle: armDown ?? playing
                           ? lerpDouble(
                               _Deck.outerGroove,
                               _Deck.innerGroove,
                               progress.clamp(0, 1),
                             )!
                           : _Deck.rest,
-                      lift: playing ? 0 : 1,
+                      lift: armDown ?? playing ? 0 : 1,
                       brass: palette.brass,
                       sheen: palette.sheen,
                       stylus: palette.accent,

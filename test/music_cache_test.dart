@@ -33,6 +33,37 @@ void main() {
     },
   );
 
+  test('index rows follow their files when the app container moves', () async {
+    // iOS renames the data container on every install; the saved absolute
+    // paths then point nowhere although the files came along.
+    final container = await Directory.systemTemp.createTemp('container_');
+    addTearDown(() => container.delete(recursive: true));
+    final root = await Directory('${container.path}/ai_music_cache').create();
+    await File('${root.path}/song.mp3').writeAsBytes(List.filled(8, 1));
+    await File('${root.path}/song.lrc').writeAsString('[00:01.00]la');
+    const old = '/gone/Containers/Data/Application/OLD-UUID/Library/support';
+    final record = CachedTrack(
+      cacheId: 'moved',
+      music: _resolvedMusic(id: 'moved'),
+      filePath: '$old/ai_music_cache/song.mp3',
+      sizeBytes: 8,
+      fromCache: true,
+      lyricsPath: '$old/ai_music_cache/song.lrc',
+    );
+    await File(
+      '${root.path}/_cache_index.json',
+    ).writeAsString(jsonEncode([record.toJson()]));
+
+    final store = CachedTrackStore(rootProvider: () async => root);
+    final listed = await store.listCached();
+
+    expect(listed.single.filePath, '${root.path}/song.mp3');
+    expect(listed.single.lyricsPath, '${root.path}/song.lrc');
+    // A row whose file really is gone is still dropped.
+    await File('${root.path}/song.mp3').delete();
+    expect(await store.listCached(), isEmpty);
+  });
+
   test(
     'cache promotion boundary rejects early cancel and ignores late cancel',
     () {

@@ -1044,10 +1044,14 @@ class CachedTrackStore {
           backupPath: backup.path,
         );
       }
-      return decoded
+      final rows = decoded
           .whereType<Map>()
           .map((row) => row.cast<String, dynamic>())
           .toList(growable: true);
+      for (final row in rows) {
+        await _reanchor(root, row);
+      }
+      return rows;
     } on CacheIndexException {
       rethrow;
     } catch (error) {
@@ -1056,6 +1060,30 @@ class CachedTrackStore {
         'Cache index is damaged: $error',
         backupPath: backup.path,
       );
+    }
+  }
+
+  /// iOS gives the app a new container path on every install or update, which
+  /// strands the absolute paths saved in the index although the files moved
+  /// along. Point such a row at the same file under the current root.
+  Future<void> _reanchor(Directory root, Map<String, dynamic> row) async {
+    final separator = Platform.pathSeparator;
+    for (final field in const ['filePath', 'lyricsPath', 'artworkPath']) {
+      final saved = row[field]?.toString() ?? '';
+      if (saved.isEmpty || await File(saved).exists()) continue;
+      final parts = saved.split(separator);
+      if (parts.length < 2) continue;
+      final name = parts.last;
+      final folder = parts[parts.length - 2];
+      for (final candidate in [
+        '${root.path}$separator$name',
+        '${root.parent.path}$separator$folder$separator$name',
+      ]) {
+        if (await File(candidate).exists()) {
+          row[field] = candidate;
+          break;
+        }
+      }
     }
   }
 

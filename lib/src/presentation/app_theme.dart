@@ -3,7 +3,8 @@ import 'package:flutter/material.dart';
 /// Edit these palettes to recolor every screen, dialog and player together.
 ///
 /// The look is a listening room. By night it is warm black lit by an amber
-/// valve glow; by day it is cream paper with mint for the few lit things.
+/// valve glow; by day it is cream paper with a dusty sky blue for the few lit
+/// things.
 /// Each mode has one lit color, and nothing is neutral grey or pure white.
 class MusicPalette {
   const MusicPalette({
@@ -36,22 +37,22 @@ class MusicPalette {
   final Color haze;
 
   static const light = MusicPalette(
-    ink: Color(0xFF1A7557),
-    accent: Color(0xFF7ED3B0),
-    onAccent: Color(0xFF0A3A2B),
-    background: Color(0xFFF7F2E4),
-    panel: Color(0xFFFFFCF3),
-    tint: Color(0xFFD3EBDD),
-    field: Color(0xFFEFE8D6),
-    text: Color(0xFF1B2620),
-    muted: Color(0xFF6B6F63),
-    line: Color(0xFFE3DAC6),
+    ink: Color(0xFF236A8C),
+    accent: Color(0xFF7FB4CE),
+    onAccent: Color(0xFF0E2B3A),
+    background: Color(0xFFFAF7F1),
+    panel: Color(0xFFFFFDF8),
+    tint: Color(0xFFD6E8F0),
+    field: Color(0xFFF1EBDF),
+    text: Color(0xFF23262B),
+    muted: Color(0xFF6A6E73),
+    line: Color(0xFFE6DECF),
     label: Color(0xFFD9573C),
     brass: Color(0xFFB09A68),
     vinyl: Color(0xFF14110F),
-    glass: Color(0xFFFFFDF6),
+    glass: Color(0xFFFFFDF9),
     sheen: Color(0xFFFFFFFF),
-    haze: Color(0xFFF3DDB0),
+    haze: Color(0xFFF3E6CE),
   );
 
   static const dark = MusicPalette(
@@ -161,9 +162,9 @@ abstract final class MusicMotion {
   /// One turn of a playing record: 33⅓ rpm slowed until the label stays
   /// readable. The platter needs [spinUp] to reach it and [spinDown] to coast.
   static const revolution = Duration(seconds: 8);
-  static const spinUp = Duration(milliseconds: 500);
-  static const spinDown = Duration(milliseconds: 1100);
-  static const toneArm = Duration(milliseconds: 620);
+  static const spinUp = Duration(milliseconds: 280);
+  static const spinDown = Duration(milliseconds: 700);
+  static const toneArm = Duration(milliseconds: 320);
 
   /// Widget tests turn this off so pumpAndSettle is not held open by a record
   /// that never stops.
