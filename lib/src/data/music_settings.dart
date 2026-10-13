@@ -25,11 +25,19 @@ enum AppLanguage {
 
 enum AppThemePreference {
   light('light'),
-  dark('dark');
+  dark('dark'),
+  neon('neon'),
+  berry('berry'),
+  riso('riso'),
+  aurora('aurora'),
+  silver('silver');
 
   const AppThemePreference(this.storageValue);
 
   final String storageValue;
+
+  /// Whether this appearance is built on the dark theme.
+  bool get isDark => this == dark || this == neon || this == aurora;
 
   static AppThemePreference fromStorage(String? value) {
     return AppThemePreference.values.firstWhere(

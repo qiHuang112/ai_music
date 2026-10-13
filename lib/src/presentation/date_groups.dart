@@ -444,7 +444,10 @@ class DateGroupSliver extends StatelessWidget {
                         ),
                       ),
                       Padding(
-                        padding: const EdgeInsets.only(right: 12),
+                        // On the page margin, like the row actions below.
+                        padding: const EdgeInsets.only(
+                          right: MusicUi.pagePadding,
+                        ),
                         child: Icon(
                           collapsed ? Icons.expand_more : Icons.expand_less,
                         ),

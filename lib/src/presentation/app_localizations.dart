@@ -138,6 +138,16 @@ class AppStrings {
   String get english => isZh ? '英文' : 'English';
   String get lightTheme => isZh ? '浅色' : 'Light';
   String get darkTheme => isZh ? '深色' : 'Dark';
+  String get neonTheme => isZh ? '霓虹雨夜' : 'Neon rain';
+  String themeName(AppThemePreference theme) => switch (theme) {
+    AppThemePreference.light => lightTheme,
+    AppThemePreference.dark => darkTheme,
+    AppThemePreference.neon => neonTheme,
+    AppThemePreference.berry => isZh ? '草莓牛奶' : 'Strawberry milk',
+    AppThemePreference.riso => isZh ? '孔版印刷' : 'Riso club',
+    AppThemePreference.aurora => isZh ? '极光' : 'Aurora',
+    AppThemePreference.silver => isZh ? '银箱' : 'Silver face',
+  };
   String get autoSource => isZh ? '自动 / Auto' : 'Auto';
   String get buguyy => isZh ? '布谷歪歪 / BuguYY' : 'BuguYY';
   String get flacSource => isZh ? 'FLAC / flac.music.hi.cn' : 'FLAC';

@@ -198,6 +198,9 @@ class _PlayPauseButtonState extends State<PlayPauseButton>
   Widget build(BuildContext context) {
     final colors = Theme.of(context).colorScheme;
     final accent = colors.primaryContainer;
+    final palette = MusicTokens.of(context);
+    final neon = palette.neon;
+    final skin = palette.skin;
     final size = widget.size;
     final playing = widget.playing;
     final onPressed = widget.onPressed;
@@ -220,6 +223,76 @@ class _PlayPauseButtonState extends State<PlayPauseButton>
             builder: (context, icon) {
               final breath = Curves.easeInOut.transform(_breath.value);
               final lit = Color.lerp(accent, Colors.white, .10 * breath)!;
+              // Printed: flat ink, an outline and an off-register block.
+              if (skin == MusicSkin.riso) {
+                return Container(
+                  width: size,
+                  height: size,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    color: accent,
+                    border: Border.all(color: palette.text, width: 1.4),
+                    boxShadow: [
+                      BoxShadow(
+                        color: palette.haze,
+                        offset: const Offset(4, 4),
+                      ),
+                    ],
+                  ),
+                  child: icon,
+                );
+              }
+              // A knurled aluminium knob round an orange lens.
+              if (skin == MusicSkin.silver && size >= 60) {
+                return Container(
+                  width: size,
+                  height: size,
+                  padding: EdgeInsets.all(size * .18),
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    gradient: SweepGradient(
+                      colors: [
+                        for (var i = 0; i < 60; i++)
+                          i.isEven
+                              ? const Color(0xFFF6F6F4)
+                              : const Color(0xFF96979A),
+                      ],
+                    ),
+                    border: Border.all(
+                      color: Colors.black.withValues(alpha: .35),
+                    ),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withValues(alpha: .4),
+                        blurRadius: 8,
+                        offset: const Offset(0, 3),
+                      ),
+                    ],
+                  ),
+                  child: DecoratedBox(
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      gradient: RadialGradient(
+                        colors: [
+                          const Color(0xFFFFA36B),
+                          lit,
+                          const Color(0xFFC9440F),
+                        ],
+                        stops: const [0, .7, 1],
+                      ),
+                      boxShadow: [
+                        BoxShadow(
+                          color: accent.withValues(
+                            alpha: playing ? .5 + .3 * breath : .2,
+                          ),
+                          blurRadius: size * .12,
+                        ),
+                      ],
+                    ),
+                    child: icon,
+                  ),
+                );
+              }
               return Container(
                 width: size,
                 height: size,
@@ -235,12 +308,21 @@ class _PlayPauseButtonState extends State<PlayPauseButton>
                     ],
                     stops: const [0, .55, 1],
                   ),
+                  // A neon tube: a white inner ring and a harder glow.
+                  border: neon
+                      ? Border.all(color: Colors.white.withValues(alpha: .4))
+                      : null,
                   boxShadow: [
                     BoxShadow(
                       color: accent.withValues(
-                        alpha: playing ? .34 + .26 * breath : .22,
+                        alpha:
+                            (playing ? .34 + .26 * breath : .22) +
+                            (neon || skin == MusicSkin.aurora ? .3 : 0),
                       ),
-                      blurRadius: size * (playing ? .26 + .22 * breath : .2),
+                      blurRadius:
+                          size *
+                          (playing ? .26 + .22 * breath : .2) *
+                          (neon ? 1.5 : 1),
                       spreadRadius: playing ? size * .03 * breath : 0,
                     ),
                     BoxShadow(

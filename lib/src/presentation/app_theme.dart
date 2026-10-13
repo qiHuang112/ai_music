@@ -2,7 +2,11 @@ import 'package:flutter/cupertino.dart' show CupertinoPageTransitionsBuilder;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import '../data/music_settings.dart';
 import 'design/ambient_backdrop.dart';
+
+/// The looks the app can wear. Day and night are the originals.
+enum MusicSkin { day, night, neon, berry, riso, aurora, silver }
 
 /// Edit these palettes to recolor every screen, dialog and player together.
 ///
@@ -28,6 +32,8 @@ class MusicPalette {
     required this.glass,
     required this.sheen,
     required this.haze,
+    this.skin = MusicSkin.night,
+    this.gun = const Color(0xFF2B2826),
   });
 
   final Color ink, accent, onAccent, background, panel, tint, field;
@@ -36,6 +42,15 @@ class MusicPalette {
   /// Colors with no ColorScheme role: record-label red, tonearm metal, the
   /// disc itself, the smoked-glass tint and the light that catches its edge.
   final Color label, brass, vinyl, glass, sheen;
+
+  /// Which look this is. Textures and materials that colors alone cannot
+  /// express branch on it.
+  final MusicSkin skin;
+
+  bool get neon => skin == MusicSkin.neon;
+
+  /// The dark metal of the tonearm's pivot and counterweight.
+  final Color gun;
 
   /// The room's second light when no artwork colors it; [accent] is the first.
   final Color haze;
@@ -57,6 +72,7 @@ class MusicPalette {
     glass: Color(0xFFFFFDF9),
     sheen: Color(0xFFFFFFFF),
     haze: Color(0xFFF3E6CE),
+    skin: MusicSkin.day,
   );
 
   static const dark = MusicPalette(
@@ -78,6 +94,130 @@ class MusicPalette {
     haze: Color(0xFFD9573C),
   );
 
+  /// Neon rain: a wet street under signs. Magenta is the lit color, cyan the
+  /// second light, warning yellow marks favorites.
+  static const neonRain = MusicPalette(
+    ink: Color(0xFFFF7AB8),
+    accent: Color(0xFFFF3D9A),
+    onAccent: Color(0xFF2A0018),
+    background: Color(0xFF0A0714),
+    panel: Color(0xFF15102A),
+    tint: Color(0xFF3A1242),
+    field: Color(0xFF1D1638),
+    text: Color(0xFFEDE9FF),
+    muted: Color(0xFF9088B8),
+    line: Color(0xFF2A2148),
+    label: Color(0xFFF7E733),
+    brass: Color(0xFFB9C4E8),
+    vinyl: Color(0xFF0D0A1C),
+    glass: Color(0xFF130E26),
+    sheen: Color(0xFF9AF6FF),
+    haze: Color(0xFF19E3F0),
+    skin: MusicSkin.neon,
+    gun: Color(0xFF1B1630),
+  );
+
+  /// Strawberry milk: pink-tinted milk white, pearly, with cocoa text.
+  static const berry = MusicPalette(
+    ink: Color(0xFFC72660),
+    accent: Color(0xFFFF8FAB),
+    onAccent: Color(0xFF5A0F2A),
+    background: Color(0xFFFFF3F1),
+    panel: Color(0xFFFFFBFA),
+    tint: Color(0xFFFFD9E2),
+    field: Color(0xFFFBE4E3),
+    text: Color(0xFF4A2B36),
+    muted: Color(0xFF8A6170),
+    line: Color(0xFFF5D5D6),
+    label: Color(0xFFE5484D),
+    brass: Color(0xFFE0A893),
+    vinyl: Color(0xFFFF9DB8),
+    glass: Color(0xFFFFFFFF),
+    sheen: Color(0xFFFFFFFF),
+    haze: Color(0xFFFFE3A8),
+    skin: MusicSkin.berry,
+    gun: Color(0xFFD39A88),
+  );
+
+  /// Riso print: recycled paper and two inks, Klein blue and fluorescent
+  /// orange. Nothing is glass; everything is a cut piece of paper.
+  static const riso = MusicPalette(
+    ink: Color(0xFF2437FF),
+    accent: Color(0xFF2437FF),
+    onAccent: Color(0xFFF8F5EC),
+    background: Color(0xFFEFEBE0),
+    panel: Color(0xFFF8F5EC),
+    tint: Color(0xFFD7DCFF),
+    field: Color(0xFFE2DED2),
+    text: Color(0xFF14194D),
+    muted: Color(0xFF5A5F86),
+    line: Color(0xFFCFCABB),
+    label: Color(0xFFFF5B2E),
+    brass: Color(0xFFB9B4A6),
+    vinyl: Color(0xFF171C5C),
+    glass: Color(0xFFF8F5EC),
+    sheen: Color(0xFFFFFFFF),
+    haze: Color(0xFFFF5B2E),
+    skin: MusicSkin.riso,
+    gun: Color(0xFF14194D),
+  );
+
+  /// Aurora: a polar night, green light hanging from the sky, ice for glass.
+  static const aurora = MusicPalette(
+    ink: Color(0xFF7DF0CF),
+    accent: Color(0xFF5FE3B3),
+    onAccent: Color(0xFF022C22),
+    background: Color(0xFF06141A),
+    panel: Color(0xFF0E2229),
+    tint: Color(0xFF12403C),
+    field: Color(0xFF14303A),
+    text: Color(0xFFE6F4F1),
+    muted: Color(0xFF88A5A6),
+    line: Color(0xFF1D3A42),
+    label: Color(0xFFFF8FA3),
+    brass: Color(0xFFC7D6DC),
+    vinyl: Color(0xFF0B2A33),
+    glass: Color(0xFF0C2028),
+    sheen: Color(0xFFCFFFF4),
+    haze: Color(0xFF7C5CFF),
+    skin: MusicSkin.aurora,
+    gun: Color(0xFF17333B),
+  );
+
+  /// Silver face: a seventies amplifier in brushed aluminium, black
+  /// lettering, one signal-orange lamp.
+  static const silver = MusicPalette(
+    ink: Color(0xFFA63A0C),
+    accent: Color(0xFFFF6A2B),
+    onAccent: Color(0xFF2A0E00),
+    background: Color(0xFFDBDAD6),
+    panel: Color(0xFFE9E8E4),
+    tint: Color(0xFFF3E5C8),
+    field: Color(0xFFC9C8C4),
+    text: Color(0xFF1C1D1F),
+    muted: Color(0xFF5B5E63),
+    line: Color(0xFFBDBCB8),
+    label: Color(0xFFD62F2F),
+    brass: Color(0xFFE6E7E9),
+    vinyl: Color(0xFF121212),
+    glass: Color(0xFF17181A),
+    sheen: Color(0xFFFFFFFF),
+    haze: Color(0xFFFFE2A6),
+    skin: MusicSkin.silver,
+    gun: Color(0xFF2E2F32),
+  );
+
+  /// The palette a saved appearance stands for.
+  static MusicPalette of(AppThemePreference theme) => switch (theme) {
+    AppThemePreference.light => light,
+    AppThemePreference.dark => dark,
+    AppThemePreference.neon => neonRain,
+    AppThemePreference.berry => berry,
+    AppThemePreference.riso => riso,
+    AppThemePreference.aurora => aurora,
+    AppThemePreference.silver => silver,
+  };
+
   static MusicPalette lerp(MusicPalette a, MusicPalette b, double t) {
     Color mix(Color x, Color y) => Color.lerp(x, y, t)!;
     return MusicPalette(
@@ -97,6 +237,8 @@ class MusicPalette {
       glass: mix(a.glass, b.glass),
       sheen: mix(a.sheen, b.sheen),
       haze: mix(a.haze, b.haze),
+      skin: t < .5 ? a.skin : b.skin,
+      gun: mix(a.gun, b.gun),
     );
   }
 }
@@ -201,6 +343,21 @@ abstract final class MusicType {
         letterSpacing: 0,
         wordSpacing: size * .09,
         color: Theme.of(context).colorScheme.onSurface,
+        shadows: switch (MusicTokens.of(context)) {
+          // Neon lettering glows.
+          MusicPalette(skin: MusicSkin.neon, :final accent) => [
+            Shadow(color: accent.withValues(alpha: .65), blurRadius: 14),
+          ],
+          // Printed off-register in the second ink.
+          MusicPalette(skin: MusicSkin.riso, :final haze) => [
+            Shadow(color: haze, offset: Offset(size * .07, size * .07)),
+          ],
+          // Engraved in metal: a light lip under each stroke.
+          MusicPalette(skin: MusicSkin.silver) => const [
+            Shadow(color: Color(0xCCFFFFFF), offset: Offset(0, 1)),
+          ],
+          _ => null,
+        },
       );
 
   /// Small capitals above a section, like the text around a record label.
@@ -367,9 +524,17 @@ abstract final class MusicAppTheme {
       headlineSmall: printed(flat.headlineSmall),
       titleLarge: printed(flat.titleLarge),
     );
+    // Some skins draw a line around every pane.
+    final edge = switch (p.skin) {
+      MusicSkin.neon => BorderSide(color: p.haze.withValues(alpha: .16)),
+      MusicSkin.aurora => BorderSide(color: p.sheen.withValues(alpha: .11)),
+      // Paper pieces are cut out with an ink line.
+      MusicSkin.riso => BorderSide(color: p.text, width: 1.4),
+      _ => BorderSide.none,
+    };
     final field = OutlineInputBorder(
       borderRadius: BorderRadius.circular(MusicUi.fieldRadius),
-      borderSide: BorderSide.none,
+      borderSide: edge,
     );
     final buttonShape = RoundedRectangleBorder(
       borderRadius: BorderRadius.circular(14),
@@ -413,6 +578,7 @@ abstract final class MusicAppTheme {
         margin: EdgeInsets.zero,
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(MusicUi.radius),
+          side: edge,
         ),
         clipBehavior: Clip.antiAlias,
       ),

@@ -931,6 +931,16 @@ class _LyricsPreviewContent extends StatelessWidget {
                         ? colors.primary
                         : colors.onSurfaceVariant.withValues(alpha: .7),
                     fontWeight: row.active ? FontWeight.w700 : FontWeight.w400,
+                    shadows: row.active && MusicTokens.of(context).neon
+                        ? [
+                            Shadow(
+                              color: colors.primaryContainer.withValues(
+                                alpha: .75,
+                              ),
+                              blurRadius: 10,
+                            ),
+                          ]
+                        : null,
                   ),
                 ),
               ),

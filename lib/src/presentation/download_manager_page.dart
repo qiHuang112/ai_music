@@ -1,3 +1,5 @@
+import 'package:audio_service/audio_service.dart';
+import 'design/controls.dart';
 import 'file_sharing.dart';
 import 'app_theme.dart';
 import 'date_groups.dart';
@@ -1021,14 +1023,40 @@ class _CachedTrackTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final strings = AppStringsScope.of(context);
+    void play() =>
+        controller.playTrack(track, index: index, queueTracks: queueTracks);
     return ListTile(
-      leading: IconButton.filledTonal(
-        tooltip: strings.play,
-        onPressed: () =>
-            controller.playTrack(track, index: index, queueTracks: queueTracks),
-        icon: const Icon(Icons.play_arrow),
+      // The page already keeps its 20pt margin; a second inset here pushed
+      // the rows in from the date header above them.
+      contentPadding: EdgeInsets.zero,
+      onTap: play,
+      // The cover, as in every other song list; tapping it plays.
+      leading: Tooltip(
+        message: strings.play,
+        child: InkWell(
+          borderRadius: BorderRadius.circular(MusicUi.sleeveRadius),
+          onTap: play,
+          child: _PlayingCover(controller: controller, track: track),
+        ),
       ),
-      title: Text(track.title, maxLines: 1, overflow: TextOverflow.ellipsis),
+      title: StreamBuilder<MediaItem?>(
+        stream: controller.mediaItemStream,
+        initialData: controller.audioHandler.mediaItem.value,
+        builder: (context, current) {
+          final active = current.data?.id == track.id;
+          return Text(
+            track.title,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: active
+                ? TextStyle(
+                    color: Theme.of(context).colorScheme.primary,
+                    fontWeight: FontWeight.w700,
+                  )
+                : null,
+          );
+        },
+      ),
       subtitle: Text(
         [
           track.artist,
@@ -1087,4 +1115,59 @@ String _taskStatusLabel(AppStrings strings, DownloadTask task) {
     DownloadTaskStatus.failed => strings.statusFailed,
     DownloadTaskStatus.canceled => strings.statusCanceled,
   };
+}
+
+/// A downloaded song's cover. On the one that is playing it carries the level
+/// meter, as in every other song list: moving while it plays, still when
+/// paused.
+class _PlayingCover extends StatelessWidget {
+  const _PlayingCover({required this.controller, required this.track});
+
+  final MusicController controller;
+  final Track track;
+
+  @override
+  Widget build(BuildContext context) {
+    const size = 48.0;
+    final radius = BorderRadius.circular(MusicUi.sleeveRadius);
+    final cover = MusicThumbnail(
+      uri: track.artworkUri,
+      label: track.title,
+      size: size,
+      radius: MusicUi.sleeveRadius,
+    );
+    return StreamBuilder<MediaItem?>(
+      stream: controller.mediaItemStream,
+      initialData: controller.audioHandler.mediaItem.value,
+      builder: (context, current) {
+        if (current.data?.id != track.id) return cover;
+        return SizedBox.square(
+          dimension: size,
+          child: Stack(
+            fit: StackFit.expand,
+            children: [
+              cover,
+              DecoratedBox(
+                decoration: BoxDecoration(
+                  color: Colors.black.withValues(alpha: .5),
+                  borderRadius: radius,
+                ),
+                child: Center(
+                  child: StreamBuilder<PlaybackState>(
+                    stream: controller.playbackStateStream,
+                    initialData: controller.audioHandler.playbackState.value,
+                    builder: (context, state) => EqualizerBars(
+                      playing: state.data?.playing ?? false,
+                      size: 18,
+                      color: Theme.of(context).colorScheme.primaryContainer,
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
 }

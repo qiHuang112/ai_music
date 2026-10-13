@@ -50,6 +50,7 @@ class AmbientBackdrop extends StatelessWidget {
               shade: shade!,
               ember: palette.accent,
               dark: dark,
+              palette: palette,
             ),
             child: Stack(
               fit: StackFit.passthrough,
@@ -59,6 +60,14 @@ class AmbientBackdrop extends StatelessWidget {
                     child: IgnorePointer(
                       child: FilmGrain(opacity: dark ? .075 : .05),
                     ),
+                  ),
+                if (palette.neon)
+                  const Positioned.fill(
+                    child: IgnorePointer(child: NeonRain()),
+                  ),
+                if (palette.skin == MusicSkin.aurora)
+                  const Positioned.fill(
+                    child: IgnorePointer(child: AuroraLights()),
                   ),
                 ?child,
               ],
@@ -78,19 +87,26 @@ void paintPageBackdrop(
   MusicPalette palette, {
   required bool dark,
 }) {
-  if (dark) {
-    _AmbientPainter(
-      phase: const AlwaysStoppedAnimation(0),
-      base: palette.background,
-      glow: palette.accent,
-      shade: palette.haze,
-      ember: palette.accent,
-      dark: true,
-    ).paint(canvas, screen);
-  } else {
+  if (palette.skin == MusicSkin.day) {
     canvas.drawRect(Offset.zero & screen, Paint()..color = palette.background);
     PaperTexture.paintOn(canvas, screen);
+    return;
   }
+  _AmbientPainter(
+    phase: const AlwaysStoppedAnimation(0),
+    base: palette.background,
+    glow: palette.skin == MusicSkin.berry
+        ? const Color(0xFFFF9EBB)
+        : palette.accent,
+    shade: palette.haze,
+    ember: palette.accent,
+    dark: dark,
+    palette: palette,
+    // Behind lists the lights are held back.
+    k: palette.skin == MusicSkin.neon || palette.skin == MusicSkin.aurora
+        ? .5
+        : 1,
+  ).paint(canvas, screen);
 }
 
 /// The background of every pushed page. It sits behind the page's content,
@@ -107,6 +123,9 @@ class PageBackdrop extends StatelessWidget {
         children: [
           CustomPaint(painter: _PagePainter(MusicTokens.of(context), dark)),
           if (dark) const FilmGrain(opacity: .075),
+          if (MusicTokens.of(context).neon) const NeonRain(),
+          if (MusicTokens.of(context).skin == MusicSkin.aurora)
+            const AuroraLights(k: .5),
         ],
       ),
     );
@@ -193,6 +212,22 @@ class _RenderBackdropSlice extends RenderProxyBox {
   bool dark;
   Size screen;
 
+  void _tick() {
+    if (palette.skin == MusicSkin.aurora) markNeedsPaint();
+  }
+
+  @override
+  void attach(PipelineOwner owner) {
+    super.attach(owner);
+    _skyClock.addListener(_tick);
+  }
+
+  @override
+  void detach() {
+    _skyClock.removeListener(_tick);
+    super.detach();
+  }
+
   @override
   void paint(PaintingContext context, Offset offset) {
     // Measured within the page, not the screen: a page sliding in during a
@@ -207,6 +242,9 @@ class _RenderBackdropSlice extends RenderProxyBox {
       ..clipRect(offset & size)
       ..translate(offset.dx - origin.dx, offset.dy - origin.dy);
     paintPageBackdrop(context.canvas, screen, palette, dark: dark);
+    if (palette.skin == MusicSkin.aurora) {
+      _paintAuroraLights(context.canvas, screen, .5, _skyClock.value);
+    }
     context.canvas.restore();
     super.paint(context, offset);
   }
@@ -273,18 +311,42 @@ class _AmbientPainter extends CustomPainter {
     required this.shade,
     required this.ember,
     required this.dark,
+    required this.palette,
+    this.k = 1,
   }) : super(repaint: phase);
 
   final Animation<double> phase;
   final Color base, glow, shade, ember;
   final bool dark;
 
+  /// The skin decides the textures; its own colors paint them.
+  final MusicPalette palette;
+
+  /// How strong a skin's lights are: 1 in the player, about half behind
+  /// lists, where they must not fight the text.
+  final double k;
+
   @override
   void paint(Canvas canvas, Size size) {
     final rect = Offset.zero & size;
-    canvas.drawRect(rect, Paint()..color = base);
+    final skin = palette.skin;
+    if (skin == MusicSkin.aurora) {
+      canvas.drawRect(
+        rect,
+        Paint()
+          ..shader = LinearGradient(
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+            colors: [const Color(0xFF030D15), base, const Color(0xFF0A242A)],
+            stops: const [0, .55, 1],
+          ).createShader(rect),
+      );
+    } else {
+      canvas.drawRect(rect, Paint()..color = base);
+    }
     final turn = phase.value * 2 * math.pi;
     final reach = size.longestSide;
+    final w = size.width, h = size.height;
 
     void pool(Offset center, double radius, Color color, double alpha) {
       canvas.drawCircle(
@@ -302,34 +364,69 @@ class _AmbientPainter extends CustomPainter {
       );
     }
 
-    // On a pale page the pools tint the page itself; keep daylight faint.
-    final strength = dark ? 1.0 : .35;
-    pool(
-      Offset(
-        size.width * (.14 + .10 * math.sin(turn)),
-        size.height * (.10 + .05 * math.cos(turn)),
-      ),
-      reach * .56,
-      glow,
-      (dark ? .52 : .40) * strength,
+    // The first two lights wander a little; in the player they take the
+    // cover's colors.
+    final first = Offset(
+      w * (.14 + .10 * math.sin(turn)),
+      h * (.10 + .05 * math.cos(turn)),
     );
-    pool(
-      Offset(
-        size.width * (.94 + .08 * math.cos(turn + 1)),
-        size.height * (.64 + .07 * math.sin(turn + 2)),
-      ),
-      reach * .54,
-      shade,
-      (dark ? .40 : .34) * strength,
+    final second = Offset(
+      w * (.94 + .08 * math.cos(turn + 1)),
+      h * (.64 + .07 * math.sin(turn + 2)),
     );
-    pool(
-      Offset(size.width * .20, size.height * 1.06),
-      reach * .40,
-      ember,
-      (dark ? .16 : .10) * strength,
+    void texture(BlendMode blend) => canvas.drawImageRect(
+      _texture(size, k, palette),
+      Offset.zero & (size * _textureScale),
+      rect,
+      Paint()..blendMode = blend,
     );
 
+    switch (skin) {
+      case MusicSkin.night:
+        pool(first, reach * .56, glow, .52);
+        pool(second, reach * .54, shade, .40);
+        pool(Offset(w * .20, h * 1.06), reach * .40, ember, .16);
+      case MusicSkin.day:
+        // On a pale page the pools tint the page itself; keep them faint.
+        pool(first, reach * .56, glow, .40 * .35);
+        pool(second, reach * .54, shade, .34 * .35);
+        pool(Offset(w * .20, h * 1.06), reach * .40, ember, .10 * .35);
+      case MusicSkin.neon:
+        pool(first, reach * .56, glow, .42 * k + .1);
+        pool(second, reach * .54, shade, .28 * k + .06);
+        pool(Offset(w * .5, h * .34), h * .3, const Color(0xFF7B5CFF), .16);
+        // Signs reflected in the wet street, laid on additively.
+        texture(BlendMode.plus);
+        // Tube scanlines.
+        final line = Paint()..color = Colors.black.withValues(alpha: .2);
+        for (var y = 0.0; y < h; y += 3) {
+          canvas.drawRect(Rect.fromLTWH(0, y, w, 1), line);
+        }
+      case MusicSkin.berry:
+        // Watercolor blooms: pink, cream yellow, pale violet.
+        pool(first, h * .5, glow, .34);
+        pool(second, h * .5, shade, .5);
+        pool(Offset(w * .95, h * .05), h * .32, const Color(0xFFD9C8FF), .42);
+        pool(Offset(w * .1, h), h * .36, const Color(0xFFFFB8CE), .3);
+        texture(BlendMode.srcOver);
+      case MusicSkin.riso:
+        // Flat paper and two halftone corners; no light at all.
+        texture(BlendMode.srcOver);
+      case MusicSkin.aurora:
+        // The sky itself moves: see [AuroraLights].
+        pool(Offset(w * .5, h * 1.05), h * .45, glow, .14 * k);
+        pool(Offset(w, h * .02), h * .4, shade, .2 * k);
+      case MusicSkin.silver:
+        texture(BlendMode.srcOver);
+        pool(Offset(w * .5, h * .3), h * .4, shade, .14);
+    }
+
     if (dark) {
+      final depth = switch (skin) {
+        MusicSkin.neon => .4,
+        MusicSkin.aurora => .3,
+        _ => .34,
+      };
       canvas.drawRect(
         rect,
         Paint()
@@ -337,7 +434,7 @@ class _AmbientPainter extends CustomPainter {
             radius: .95,
             colors: [
               Colors.black.withValues(alpha: 0),
-              Colors.black.withValues(alpha: .34),
+              Colors.black.withValues(alpha: depth),
             ],
             stops: const [.55, 1],
           ).createShader(rect),
@@ -352,7 +449,544 @@ class _AmbientPainter extends CustomPainter {
       old.glow != glow ||
       old.shade != shade ||
       old.ember != ember ||
-      old.dark != dark;
+      old.dark != dark ||
+      old.palette != palette ||
+      old.k != k;
+
+  static const _textureScale = 2.0;
+  static final _textures = <String, ui.Image>{};
+
+  /// A skin's still texture, drawn once per size and strength.
+  static ui.Image _texture(Size size, double k, MusicPalette palette) {
+    final key = '${palette.skin.name} ${size.width}x${size.height} $k';
+    final cached = _textures[key];
+    if (cached != null) return cached;
+    if (_textures.length > 8) _textures.clear();
+    final recorder = ui.PictureRecorder();
+    final canvas = Canvas(recorder)..scale(_textureScale);
+    switch (palette.skin) {
+      case MusicSkin.neon:
+        _neonStreet(canvas, size, k, palette);
+      case MusicSkin.berry:
+        _pearl(canvas, size);
+      case MusicSkin.riso:
+        _halftone(canvas, size, palette);
+      case MusicSkin.aurora:
+        break;
+      case MusicSkin.silver:
+        _brushed(canvas, size);
+      case MusicSkin.day || MusicSkin.night:
+        break;
+    }
+    return _textures[key] = recorder.endRecording().toImageSync(
+      (size.width * _textureScale).ceil(),
+      (size.height * _textureScale).ceil(),
+    );
+  }
+
+  static void _neonStreet(Canvas canvas, Size size, double k, MusicPalette p) {
+    final random = math.Random(11);
+    const violet = Color(0xFF7B5CFF);
+    final colors = [p.accent, p.haze, p.accent, violet, p.haze, p.label];
+    for (var i = 0; i < 18; i++) {
+      final cx = random.nextDouble() * size.width;
+      final cy = size.height * (.74 + random.nextDouble() * .24);
+      final rx = 3 + random.nextDouble() * 10;
+      final ry = 40 + random.nextDouble() * 110;
+      final color = colors[i % colors.length];
+      // A tall streak: a round glow stretched down the wet road.
+      const unit = Rect.fromLTRB(-1, -1, 1, 1);
+      canvas
+        ..save()
+        ..translate(cx, cy)
+        ..scale(rx, ry)
+        ..drawOval(
+          unit,
+          Paint()
+            ..blendMode = BlendMode.plus
+            ..shader = RadialGradient(
+              colors: [
+                color.withValues(alpha: .36 * k),
+                color.withValues(alpha: 0),
+              ],
+            ).createShader(unit),
+        )
+        ..restore();
+    }
+  }
+
+  /// Pearl dust and a few four-pointed sparkles.
+  static void _pearl(Canvas canvas, Size size) {
+    final random = math.Random(5);
+    const colors = [
+      Color(0xFFFF9EBB),
+      Color(0xFFB9A0FF),
+      Color(0xFFFFD77A),
+      Color(0xFFFFFFFF),
+    ];
+    for (var i = 0; i < 1100; i++) {
+      final alpha = .35 + random.nextDouble() * .5;
+      canvas.drawCircle(
+        Offset(
+          random.nextDouble() * size.width,
+          random.nextDouble() * size.height,
+        ),
+        .3 + random.nextDouble() * .75,
+        Paint()..color = colors[i % 4].withValues(alpha: alpha),
+      );
+    }
+    for (var i = 0; i < 16; i++) {
+      final r = 2.5 + random.nextDouble() * 4.5;
+      final c = Offset(
+        random.nextDouble() * size.width,
+        random.nextDouble() * size.height,
+      );
+      final star = Path()
+        ..moveTo(c.dx, c.dy - r)
+        ..quadraticBezierTo(c.dx, c.dy, c.dx + r, c.dy)
+        ..quadraticBezierTo(c.dx, c.dy, c.dx, c.dy + r)
+        ..quadraticBezierTo(c.dx, c.dy, c.dx - r, c.dy)
+        ..quadraticBezierTo(c.dx, c.dy, c.dx, c.dy - r);
+      canvas
+        ..drawPath(
+          star,
+          Paint()
+            ..color = const Color(0xE6FF82AA)
+            ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 3),
+        )
+        ..drawPath(star, Paint()..color = const Color(0xF2FFFFFF));
+    }
+  }
+
+  /// Specks in recycled paper and a halftone fan in each ink, at two corners.
+  static void _halftone(Canvas canvas, Size size, MusicPalette p) {
+    final random = math.Random(9);
+    final specks = [
+      p.text.withValues(alpha: .2),
+      p.haze.withValues(alpha: .28),
+      Colors.white.withValues(alpha: .7),
+    ];
+    for (var i = 0; i < 900; i++) {
+      canvas.drawRect(
+        Rect.fromLTWH(
+          random.nextDouble() * size.width,
+          random.nextDouble() * size.height,
+          .5 + random.nextDouble() * 1.1,
+          .5 + random.nextDouble() * .9,
+        ),
+        Paint()..color = specks[i % 3],
+      );
+    }
+    // Dots on a turned grid, largest at the corner and shrinking to nothing.
+    void fan(
+      Offset corner,
+      double reach,
+      double cell,
+      double angle,
+      double largest,
+      Color color,
+    ) {
+      final paint = Paint()..color = color;
+      final cosA = math.cos(angle), sinA = math.sin(angle);
+      final steps = (reach / cell).ceil();
+      for (var i = -steps; i <= steps; i++) {
+        for (var j = -steps; j <= steps; j++) {
+          final at =
+              corner +
+              Offset(
+                (i * cosA - j * sinA) * cell,
+                (i * sinA + j * cosA) * cell,
+              );
+          final distance = (at - corner).distance;
+          if (distance > reach ||
+              at.dx < -4 ||
+              at.dy < -4 ||
+              at.dx > size.width + 4 ||
+              at.dy > size.height + 4) {
+            continue;
+          }
+          canvas.drawCircle(at, largest * (1 - distance / reach), paint);
+        }
+      }
+    }
+
+    final f = size.width / 286;
+    fan(
+      Offset(size.width + 10, -10),
+      300 * f,
+      7 * f,
+      math.pi / 4,
+      3.3 * f,
+      p.haze.withValues(alpha: .95),
+    );
+    fan(
+      Offset(-10, size.height + 10),
+      170 * f,
+      6 * f,
+      math.pi / 12,
+      2.4 * f,
+      p.accent.withValues(alpha: .9),
+    );
+  }
+
+  /// One of two sets of light curtains hanging from the sky: green along
+  /// the lower hem, fading to violet above. Drifting against each other they
+  /// make the aurora move.
+  static ui.Image _auroraCurtains(Size size, double k, int variant) {
+    final key = 'curtains$variant ${size.width}x${size.height} $k';
+    final cached = _textures[key];
+    if (cached != null) return cached;
+    if (_textures.length > 8) _textures.clear();
+    final recorder = ui.PictureRecorder();
+    _curtains(Canvas(recorder)..scale(_textureScale), size, k, variant);
+    return _textures[key] = recorder.endRecording().toImageSync(
+      (size.width * _textureScale).ceil(),
+      (size.height * _textureScale).ceil(),
+    );
+  }
+
+  static void _curtains(Canvas canvas, Size size, double k, int variant) {
+    // Smooth pseudo-random values, the same on every run.
+    double hash(double n) {
+      final v = math.sin(n * 127.1) * 43758.5453;
+      return v - v.floorToDouble();
+    }
+
+    double noise(double x, double seed) {
+      final i = x.floorToDouble(), t = x - i;
+      final u = t * t * (3 - 2 * t);
+      return hash(i + seed * 57) * (1 - u) + hash(i + 1 + seed * 57) * u;
+    }
+
+    const green = Color(0xFF5FFFB4);
+    const teal = Color(0xFF3CE1C8);
+    const violet = Color(0xFF7C5CFF);
+    final f = size.width / 286;
+    void curtain(double hem, double wave, double tall, double seed, double a) {
+      for (var x = 0.0; x < size.width; x += 1) {
+        final u = x / f;
+        final y =
+            hem +
+            wave * f * math.sin(u * .017 + seed) +
+            34 * f * (noise(u * .011 + seed, seed) - .5);
+        final height = tall * f * (.35 + 1.1 * noise(u * .11, seed * 3.1));
+        final glow = a * (.25 + .75 * noise(u * .028, seed * 7.7)) * k;
+        final up = Rect.fromLTWH(x, y - height, 1, height);
+        canvas.drawRect(
+          up,
+          Paint()
+            ..blendMode = BlendMode.plus
+            ..shader = ui.Gradient.linear(
+              up.bottomLeft,
+              up.topLeft,
+              [
+                green.withValues(alpha: glow),
+                teal.withValues(alpha: glow * .62),
+                violet.withValues(alpha: glow * .3),
+                violet.withValues(alpha: 0),
+              ],
+              [0, .22, .62, 1],
+            ),
+        );
+        final down = Rect.fromLTWH(x, y, 1, 16 * f);
+        canvas.drawRect(
+          down,
+          Paint()
+            ..blendMode = BlendMode.plus
+            ..shader = ui.Gradient.linear(down.topLeft, down.bottomLeft, [
+              green.withValues(alpha: glow * .7),
+              green.withValues(alpha: 0),
+            ]),
+        );
+      }
+    }
+
+    if (variant == 0) {
+      curtain(size.height * .33, 20, 150, 1.3, .20);
+      curtain(size.height * .47, 30, 210, 4.1, .32);
+    } else {
+      curtain(size.height * .30, 26, 170, 2.6, .16);
+      curtain(size.height * .50, 22, 190, 5.9, .26);
+    }
+  }
+
+  /// Brushed aluminium: hairlines along the grain and two broad reflections.
+  static void _brushed(Canvas canvas, Size size) {
+    final random = math.Random(17);
+    for (var y = 0.0; y < size.height; y += .5) {
+      final v = (random.nextDouble() - .5) * .11;
+      canvas.drawRect(
+        Rect.fromLTWH(0, y, size.width, .5),
+        Paint()
+          ..color = (v > 0 ? Colors.white : Colors.black).withValues(
+            alpha: v.abs(),
+          ),
+      );
+    }
+    for (var i = 0; i < 2600; i++) {
+      final length = 16 + random.nextDouble() * 130;
+      canvas.drawRect(
+        Rect.fromLTWH(
+          random.nextDouble() * size.width - length / 2,
+          random.nextDouble() * size.height,
+          length,
+          .5,
+        ),
+        Paint()
+          ..color = random.nextBool()
+              ? Colors.white.withValues(alpha: .07)
+              : Colors.black.withValues(alpha: .045),
+      );
+    }
+    final rect = Offset.zero & size;
+    canvas.drawRect(
+      rect,
+      Paint()
+        ..shader = LinearGradient(
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+          colors: [
+            Colors.white.withValues(alpha: .42),
+            Colors.white.withValues(alpha: 0),
+            Colors.black.withValues(alpha: .07),
+            Colors.white.withValues(alpha: .2),
+            Colors.black.withValues(alpha: .05),
+          ],
+          stops: const [0, .22, .6, .86, 1],
+        ).createShader(rect),
+    );
+  }
+}
+
+/// Seconds on the clock that moves the aurora, shared so that a bar painting
+/// its own piece of the sky stays in step with the sky behind it.
+final _skyClock = ValueNotifier<double>(0);
+
+/// Draws the aurora's moving parts across [size]: stars that twinkle each at
+/// their own pace, and two sets of light curtains swaying slowly past each
+/// other.
+void _paintAuroraLights(Canvas canvas, Size size, double k, double seconds) {
+  const loop = 600.0;
+  final turn = seconds / loop * 2 * math.pi;
+  final rect = Offset.zero & size;
+  void curtains(int variant, Offset sway, double strength) {
+    final image = _AmbientPainter._auroraCurtains(size, k, variant);
+    canvas.drawImageRect(
+      image,
+      Offset.zero & (size * _AmbientPainter._textureScale),
+      // Drawn a little oversize so the sway never uncovers an edge.
+      rect.shift(sway).inflate(44),
+      Paint()
+        ..blendMode = BlendMode.plus
+        ..color = Colors.white.withValues(alpha: strength),
+    );
+  }
+
+  // Whole cycles per loop, so the wrap-around never shows.
+  curtains(
+    0,
+    Offset(34 * math.sin(turn * 40), 10 * math.sin(turn * 29 + 2)),
+    .7 + .3 * math.sin(turn * 53),
+  );
+  curtains(
+    1,
+    Offset(-42 * math.sin(turn * 31 + 1), -12 * math.sin(turn * 37)),
+    .7 + .3 * math.cos(turn * 43),
+  );
+
+  const star = Color(0xFFDFF8FF);
+  for (final s in _stars) {
+    final twinkle = .55 + .45 * math.sin(turn * s.pace + s.phase);
+    canvas.drawCircle(
+      Offset(s.x * size.width, s.y * size.height * .85),
+      s.radius,
+      Paint()..color = star.withValues(alpha: s.alpha * twinkle),
+    );
+  }
+}
+
+final _stars = () {
+  final random = math.Random(21);
+  return [
+    for (var i = 0; i < 230; i++)
+      (
+        x: random.nextDouble(),
+        y: random.nextDouble(),
+        radius: random.nextDouble() > .92
+            ? .9 + random.nextDouble() * .5
+            : .35 + random.nextDouble() * .4,
+        alpha: .2 + random.nextDouble() * .75,
+        // A blink every two to five seconds.
+        pace: (120 + random.nextInt(180)).toDouble(),
+        phase: random.nextDouble() * 2 * math.pi,
+      ),
+  ];
+}();
+
+/// The aurora skin's living sky. Still when motion is reduced.
+class AuroraLights extends StatefulWidget {
+  const AuroraLights({super.key, this.k = 1});
+
+  /// Strength of the curtains: 1 in the player, about half behind lists.
+  final double k;
+
+  @override
+  State<AuroraLights> createState() => _AuroraLightsState();
+}
+
+class _AuroraLightsState extends State<AuroraLights>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _clock;
+
+  @override
+  void initState() {
+    super.initState();
+    _clock = AnimationController(
+      vsync: this,
+      duration: const Duration(minutes: 10),
+    )..addListener(() => _skyClock.value = _clock.value * 600);
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final run = MusicMotion.allowsPerpetual(context);
+    if (run && !_clock.isAnimating) {
+      _clock.repeat();
+    } else if (!run && _clock.isAnimating) {
+      _clock.stop();
+    }
+  }
+
+  @override
+  void dispose() {
+    _clock.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => RepaintBoundary(
+    child: CustomPaint(
+      painter: _AuroraPainter(_clock, widget.k),
+      size: Size.infinite,
+    ),
+  );
+}
+
+class _AuroraPainter extends CustomPainter {
+  _AuroraPainter(this.clock, this.k) : super(repaint: clock);
+
+  final Animation<double> clock;
+  final double k;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    canvas
+      ..save()
+      ..clipRect(Offset.zero & size);
+    _paintAuroraLights(canvas, size, k, clock.value * 600);
+    canvas.restore();
+  }
+
+  @override
+  bool shouldRepaint(_AuroraPainter old) => old.k != k;
+}
+
+/// Thin rain, actually falling: a few dozen drops, each at its own speed, so
+/// the street looks drizzled on, not streaked. Still when motion is reduced.
+class NeonRain extends StatefulWidget {
+  const NeonRain({super.key});
+
+  @override
+  State<NeonRain> createState() => _NeonRainState();
+}
+
+class _NeonRainState extends State<NeonRain>
+    with SingleTickerProviderStateMixin {
+  static const _loop = Duration(minutes: 10);
+  late final AnimationController _clock;
+
+  @override
+  void initState() {
+    super.initState();
+    _clock = AnimationController(vsync: this, duration: _loop);
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final run = MusicMotion.allowsPerpetual(context);
+    if (run && !_clock.isAnimating) {
+      _clock.repeat();
+    } else if (!run && _clock.isAnimating) {
+      _clock.stop();
+    }
+  }
+
+  @override
+  void dispose() {
+    _clock.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => RepaintBoundary(
+    child: CustomPaint(painter: _RainPainter(_clock), size: Size.infinite),
+  );
+}
+
+class _RainPainter extends CustomPainter {
+  _RainPainter(this.clock) : super(repaint: clock);
+
+  final Animation<double> clock;
+
+  /// Per drop: where along the top it starts, speed (pt/s), length, how
+  /// bright, and where in its fall it begins.
+  static final _drops = () {
+    final random = math.Random(11);
+    return [
+      for (var i = 0; i < 30; i++)
+        (
+          x: random.nextDouble(),
+          speed: 240 + random.nextDouble() * 300,
+          length: 14 + random.nextDouble() * 30,
+          alpha: .12 + random.nextDouble() * .2,
+          phase: random.nextDouble(),
+        ),
+    ];
+  }();
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    const color = Color(0xFFCDD7FF);
+    final seconds = clock.value * _NeonRainState._loop.inSeconds;
+    for (final drop in _drops) {
+      final span = size.height + drop.length;
+      // Whole trips per loop, so the wrap-around is seamless.
+      final trips = (drop.speed * _NeonRainState._loop.inSeconds / span)
+          .roundToDouble();
+      final fall =
+          (seconds / _NeonRainState._loop.inSeconds * trips + drop.phase) % 1;
+      final y = fall * span - drop.length;
+      // The wind leans every drop the same way.
+      final from = Offset(drop.x * (size.width + 60) - y * .2, y);
+      final to = from + Offset(-drop.length * .2, drop.length);
+      canvas.drawLine(
+        from,
+        to,
+        Paint()
+          ..strokeWidth = .8
+          ..strokeCap = StrokeCap.round
+          ..shader = ui.Gradient.linear(from, to, [
+            color.withValues(alpha: 0),
+            color.withValues(alpha: drop.alpha),
+          ]),
+      );
+    }
+  }
+
+  @override
+  bool shouldRepaint(_RainPainter old) => false;
 }
 
 /// Analogue grain: one small noise tile, generated once and repeated.

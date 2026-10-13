@@ -39,6 +39,16 @@ class Turntable extends StatelessWidget {
           final side = constraints.biggest.shortestSide;
           return Stack(
             children: [
+              // Silver face: the record sits on an aluminium platter with
+              // strobe dots round its edge.
+              if (palette.skin == MusicSkin.silver)
+                Positioned.fromRect(
+                  rect: Rect.fromCircle(
+                    center: _Deck.spindle * side,
+                    radius: _Deck.discRadius * side * 1.055,
+                  ),
+                  child: const CustomPaint(painter: _PlatterPainter()),
+                ),
               Positioned.fromRect(
                 rect: Rect.fromCircle(
                   center: _Deck.spindle * side,
@@ -65,6 +75,7 @@ class Turntable extends StatelessWidget {
                       brass: palette.brass,
                       sheen: palette.sheen,
                       stylus: palette.accent,
+                      metal: palette.gun,
                     ),
                   ),
                 ),
@@ -108,10 +119,11 @@ class _ToneArm extends ImplicitlyAnimatedWidget {
     required this.brass,
     required this.sheen,
     required this.stylus,
+    required this.metal,
   }) : super(duration: MusicMotion.toneArm, curve: Curves.easeInOutCubic);
 
   final double angle, lift;
-  final Color brass, sheen, stylus;
+  final Color brass, sheen, stylus, metal;
 
   @override
   AnimatedWidgetBaseState<_ToneArm> createState() => _ToneArmState();
@@ -146,6 +158,7 @@ class _ToneArmState extends AnimatedWidgetBaseState<_ToneArm> {
       brass: widget.brass,
       sheen: widget.sheen,
       stylus: widget.stylus,
+      metal: widget.metal,
     ),
   );
 }
@@ -157,12 +170,14 @@ class _ToneArmPainter extends CustomPainter {
     required this.brass,
     required this.sheen,
     required this.stylus,
+    required this.metal,
   });
 
   final double angle, lift;
-  final Color brass, sheen, stylus;
+  final Color brass, sheen, stylus, metal;
 
-  static const _gunmetal = Color(0xFF2B2826);
+  /// The dark metal of the pivot and counterweight.
+  Color get _gunmetal => metal;
 
   /// The cartridge is turned inwards so it sits along the groove.
   static const _offsetAngle = .33;
@@ -368,5 +383,50 @@ class _ToneArmPainter extends CustomPainter {
       old.lift != lift ||
       old.brass != brass ||
       old.sheen != sheen ||
-      old.stylus != stylus;
+      old.stylus != stylus ||
+      old.metal != metal;
+}
+
+class _PlatterPainter extends CustomPainter {
+  const _PlatterPainter();
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final center = size.center(Offset.zero);
+    final radius = size.shortestSide / 2;
+    final bounds = Rect.fromCircle(center: center, radius: radius);
+    canvas
+      ..drawCircle(
+        center.translate(0, radius * .03),
+        radius,
+        Paint()
+          ..color = Colors.black.withValues(alpha: .3)
+          ..maskFilter = MaskFilter.blur(BlurStyle.normal, radius * .05),
+      )
+      ..drawCircle(
+        center,
+        radius,
+        Paint()
+          ..shader = const SweepGradient(
+            colors: [
+              Color(0xFFF6F6F4),
+              Color(0xFFA9AAAD),
+              Color(0xFFF2F2F0),
+              Color(0xFF9B9C9F),
+              Color(0xFFF6F6F4),
+            ],
+          ).createShader(bounds),
+      );
+    final dot = Paint()..color = const Color(0xFF2E2F32);
+    for (var i = 0; i < 72; i++) {
+      canvas.drawCircle(
+        center + Offset.fromDirection(i * math.pi / 36, radius * .974),
+        radius * .009,
+        dot,
+      );
+    }
+  }
+
+  @override
+  bool shouldRepaint(_PlatterPainter old) => false;
 }

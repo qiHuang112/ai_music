@@ -59,9 +59,7 @@ class SettingsPage extends StatelessWidget {
                       leading: const Icon(Icons.contrast),
                       title: Text(strings.theme),
                       subtitle: Text(
-                        controller.themePreference == AppThemePreference.light
-                            ? strings.lightTheme
-                            : strings.darkTheme,
+                        strings.themeName(controller.themePreference),
                       ),
                       trailing: const Icon(Icons.chevron_right),
                       onTap: () => Navigator.of(context).push<void>(
@@ -692,14 +690,11 @@ class ThemeSettingsPage extends StatelessWidget {
               },
               child: ListView(
                 children: [
-                  RadioListTile<AppThemePreference>(
-                    value: AppThemePreference.light,
-                    title: Text(strings.lightTheme),
-                  ),
-                  RadioListTile<AppThemePreference>(
-                    value: AppThemePreference.dark,
-                    title: Text(strings.darkTheme),
-                  ),
+                  for (final theme in AppThemePreference.values)
+                    RadioListTile<AppThemePreference>(
+                      value: theme,
+                      title: Text(strings.themeName(theme)),
+                    ),
                 ],
               ),
             ),

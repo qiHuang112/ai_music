@@ -1,3 +1,6 @@
+import 'package:ai_music/src/presentation/design/glass_surface.dart';
+import 'package:ai_music/src/presentation/design/ambient_backdrop.dart';
+import 'package:ai_music/src/data/music_settings.dart';
 import 'package:ai_music/src/presentation/app_theme.dart';
 import 'package:ai_music/src/presentation/design/controls.dart';
 import 'package:ai_music/src/presentation/design/design_gallery_page.dart';
@@ -179,5 +182,137 @@ void main() {
     await tester.tapAt(const Offset(400, 500));
     await tester.pump();
     expect(focus.hasFocus, isFalse);
+  });
+
+  testWidgets('neon rain skin paints its backdrop and materials', (
+    tester,
+  ) async {
+    expect(AppThemePreference.fromStorage('neon'), AppThemePreference.neon);
+    final theme = MusicAppTheme.create(
+      Brightness.dark,
+      palette: MusicPalette.neonRain,
+    );
+    expect(theme.extension<MusicTokens>()!.palette.neon, isTrue);
+    expect(theme.colorScheme.primaryContainer, const Color(0xFFFF3D9A));
+    // Night stays as it was.
+    expect(
+      MusicAppTheme.create(Brightness.dark).extension<MusicTokens>()!.palette,
+      same(MusicPalette.dark),
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: theme,
+        home: Stack(
+          fit: StackFit.expand,
+          children: [
+            const PageBackdrop(),
+            Scaffold(
+              body: AmbientBackdrop(
+                drift: false,
+                child: Column(
+                  children: [
+                    const SizedBox.square(
+                      dimension: 220,
+                      child: Turntable(playing: false, progress: .3),
+                    ),
+                    GlassSurface(
+                      child: Padding(
+                        padding: const EdgeInsets.all(12),
+                        child: PlayPauseButton(
+                          playing: true,
+                          tooltip: 'pause',
+                          onPressed: () {},
+                        ),
+                      ),
+                    ),
+                    Builder(
+                      builder: (context) =>
+                          Text('霓虹', style: MusicType.masthead(context)),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(tester.takeException(), isNull);
+    final title = tester.widget<Text>(find.text('霓虹'));
+    expect(title.style!.shadows, isNotEmpty);
+  });
+
+  testWidgets('every appearance builds its backdrop and materials', (
+    tester,
+  ) async {
+    for (final appearance in AppThemePreference.values) {
+      expect(
+        AppThemePreference.fromStorage(appearance.storageValue),
+        appearance,
+      );
+      final palette = MusicPalette.of(appearance);
+      final theme = MusicAppTheme.create(
+        appearance.isDark ? Brightness.dark : Brightness.light,
+        palette: palette,
+      );
+      await tester.pumpWidget(
+        MaterialApp(
+          key: ValueKey(appearance),
+          theme: theme,
+          home: Stack(
+            fit: StackFit.expand,
+            children: [
+              const PageBackdrop(),
+              Scaffold(
+                body: AmbientBackdrop(
+                  drift: false,
+                  child: ListView(
+                    children: [
+                      const SizedBox.square(
+                        dimension: 220,
+                        child: Turntable(playing: false, progress: .3),
+                      ),
+                      GlassSurface(
+                        child: Row(
+                          children: [
+                            PlayPauseButton(
+                              playing: true,
+                              tooltip: 'pause',
+                              onPressed: () {},
+                            ),
+                            PlayPauseButton(
+                              playing: false,
+                              size: 40,
+                              tooltip: 'play',
+                              onPressed: () {},
+                            ),
+                            GlassIconButton(
+                              icon: Icons.skip_next,
+                              tooltip: 'next',
+                              onPressed: () {},
+                            ),
+                            const Text('song'),
+                          ],
+                        ),
+                      ),
+                      const Card(child: ListTile(title: Text('card'))),
+                      const TextField(),
+                      Builder(
+                        builder: (context) =>
+                            Text('标题', style: MusicType.masthead(context)),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(tester.takeException(), isNull, reason: appearance.name);
+    }
   });
 }

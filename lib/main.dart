@@ -8,7 +8,6 @@ import 'src/data/operation_log.dart';
 
 import 'src/application/music_controller.dart';
 import 'src/domain/app_brand.dart';
-import 'src/data/music_settings.dart';
 import 'src/platform/platform_detection.dart';
 import 'src/presentation/app_localizations.dart';
 import 'src/playback/music_audio_handler.dart';
@@ -102,11 +101,22 @@ class AiMusicApp extends StatelessWidget {
           // show it under half-changed colors.
           themeAnimationDuration: Duration.zero,
           scrollBehavior: const SoftEdgeScrollBehavior(),
-          theme: MusicAppTheme.create(Brightness.light),
-          darkTheme: MusicAppTheme.create(Brightness.dark),
-          themeMode: controller.themePreference == AppThemePreference.light
-              ? ThemeMode.light
-              : ThemeMode.dark,
+          // The saved appearance picks both the brightness and the palette.
+          theme: MusicAppTheme.create(
+            Brightness.light,
+            palette: controller.themePreference.isDark
+                ? null
+                : MusicPalette.of(controller.themePreference),
+          ),
+          darkTheme: MusicAppTheme.create(
+            Brightness.dark,
+            palette: controller.themePreference.isDark
+                ? MusicPalette.of(controller.themePreference)
+                : null,
+          ),
+          themeMode: controller.themePreference.isDark
+              ? ThemeMode.dark
+              : ThemeMode.light,
           builder: (context, child) => AppStringsScope(
             language: controller.language,
             // One backdrop for the whole app, fixed behind every page, so

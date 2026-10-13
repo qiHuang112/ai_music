@@ -39,15 +39,31 @@ class VinylDisc extends StatelessWidget {
         child: DecoratedBox(
           decoration: BoxDecoration(
             shape: BoxShape.circle,
-            boxShadow: shadow
-                ? [
-                    BoxShadow(
-                      color: Colors.black.withValues(alpha: .45),
-                      blurRadius: 28,
-                      offset: const Offset(0, 14),
-                    ),
-                  ]
-                : null,
+            boxShadow: !shadow
+                ? null
+                : switch (palette.skin) {
+                    // A second, off-register print of the disc.
+                    MusicSkin.riso => [
+                      BoxShadow(
+                        color: palette.haze,
+                        offset: const Offset(8, 8),
+                      ),
+                    ],
+                    MusicSkin.berry => [
+                      BoxShadow(
+                        color: const Color(0xFFD65078).withValues(alpha: .3),
+                        blurRadius: 26,
+                        offset: const Offset(0, 12),
+                      ),
+                    ],
+                    _ => [
+                      BoxShadow(
+                        color: Colors.black.withValues(alpha: .45),
+                        blurRadius: 28,
+                        offset: const Offset(0, 14),
+                      ),
+                    ],
+                  },
           ),
           child: Stack(
             fit: StackFit.expand,
@@ -57,6 +73,8 @@ class VinylDisc extends StatelessWidget {
                   painter: _GroovePainter(
                     vinyl: palette.vinyl,
                     label: labelFraction,
+                    skin: palette.skin,
+                    sheen: palette.sheen,
                   ),
                 ),
               ),
@@ -87,6 +105,26 @@ class VinylDisc extends StatelessWidget {
                     brass: palette.brass,
                     rotation: turn,
                     label: labelFraction,
+                    holo: switch (palette.skin) {
+                      MusicSkin.neon => [
+                        palette.haze,
+                        palette.accent,
+                        palette.label,
+                      ],
+                      // Mint and violet, with a line of ice round the rim.
+                      MusicSkin.aurora => [
+                        palette.haze,
+                        palette.sheen,
+                        palette.haze,
+                      ],
+                      _ => null,
+                    },
+                    dots: palette.skin == MusicSkin.riso ? palette.haze : null,
+                    outline: switch (palette.skin) {
+                      MusicSkin.riso => palette.text,
+                      MusicSkin.berry => Colors.white.withValues(alpha: .7),
+                      _ => null,
+                    },
                   ),
                 ),
               ),
@@ -99,30 +137,62 @@ class VinylDisc extends StatelessWidget {
 }
 
 class _GroovePainter extends CustomPainter {
-  const _GroovePainter({required this.vinyl, required this.label});
+  const _GroovePainter({
+    required this.vinyl,
+    required this.label,
+    required this.skin,
+    required this.sheen,
+  });
 
   final double label;
+  final MusicSkin skin;
 
-  final Color vinyl;
+  final Color vinyl, sheen;
 
   @override
   void paint(Canvas canvas, Size size) {
     final center = size.center(Offset.zero);
     final radius = size.shortestSide / 2;
     final bounds = Rect.fromCircle(center: center, radius: radius);
-    canvas.drawCircle(
-      center,
-      radius,
-      Paint()
-        ..shader = RadialGradient(
-          colors: [
-            Color.lerp(vinyl, Colors.white, .10)!,
-            vinyl,
-            Color.lerp(vinyl, Colors.white, .05)!,
-          ],
-          stops: const [0, .7, 1],
-        ).createShader(bounds),
-    );
+    switch (skin) {
+      case MusicSkin.riso:
+        // One flat ink.
+        canvas.drawCircle(center, radius, Paint()..color = vinyl);
+      case MusicSkin.aurora:
+        // Clear ice: the light behind shows through.
+        canvas.drawCircle(
+          center,
+          radius,
+          Paint()
+            ..shader = const RadialGradient(
+              colors: [Color(0x478FF5DC), Color(0x80185C62), Color(0xD1061E24)],
+              stops: [0, .48, 1],
+            ).createShader(bounds),
+        );
+      case MusicSkin.berry:
+        _marble(canvas, center, radius);
+      default:
+        canvas.drawCircle(
+          center,
+          radius,
+          Paint()
+            ..shader = RadialGradient(
+              colors: [
+                Color.lerp(vinyl, Colors.white, .10)!,
+                vinyl,
+                Color.lerp(vinyl, Colors.white, .05)!,
+              ],
+              stops: const [0, .7, 1],
+            ).createShader(bounds),
+        );
+    }
+    // What the grooves and the gaps between tracks are drawn in.
+    final (Color? ink, double bandAlpha) = switch (skin) {
+      MusicSkin.berry => (const Color(0xFFAA285A), .16),
+      MusicSkin.riso => (Colors.white, .3),
+      MusicSkin.aurora => (sheen, .25),
+      _ => (null, .6),
+    };
 
     // Each groove catches a different amount of light. A fixed seed keeps the
     // pattern identical between repaints.
@@ -134,9 +204,8 @@ class _GroovePainter extends CustomPainter {
     for (var r = inner; r < outer; r += step) {
       groove
         ..strokeWidth = step * .55
-        ..color = (random.nextBool() ? Colors.white : Colors.black).withValues(
-          alpha: .025 + random.nextDouble() * .075,
-        );
+        ..color = (ink ?? (random.nextBool() ? Colors.white : Colors.black))
+            .withValues(alpha: .025 + random.nextDouble() * .075);
       canvas.drawCircle(center, r, groove);
     }
 
@@ -150,7 +219,9 @@ class _GroovePainter extends CustomPainter {
           Paint()
             ..style = PaintingStyle.stroke
             ..strokeWidth = step * 1.7
-            ..color = Colors.black.withValues(alpha: .6),
+            ..color =
+                (ink == null || skin == MusicSkin.aurora ? Colors.black : ink)
+                    .withValues(alpha: bandAlpha),
         )
         ..drawCircle(
           center,
@@ -184,7 +255,48 @@ class _GroovePainter extends CustomPainter {
 
   @override
   bool shouldRepaint(_GroovePainter old) =>
-      old.vinyl != vinyl || old.label != label;
+      old.vinyl != vinyl ||
+      old.label != label ||
+      old.skin != skin ||
+      old.sheen != sheen;
+
+  /// Pink and white marbled vinyl: soft veins swept across the disc.
+  void _marble(Canvas canvas, Offset center, double radius) {
+    final disc = Path()
+      ..addOval(Rect.fromCircle(center: center, radius: radius));
+    canvas
+      ..save()
+      ..clipPath(disc)
+      ..drawCircle(center, radius, Paint()..color = vinyl);
+    final random = math.Random(3);
+    for (var i = 0; i < 16; i++) {
+      final white = i.isEven;
+      final from =
+          center +
+          Offset.fromDirection(random.nextDouble() * 2 * math.pi, radius * 1.1);
+      final to =
+          center +
+          Offset.fromDirection(random.nextDouble() * 2 * math.pi, radius * 1.1);
+      final bend =
+          center +
+          Offset.fromDirection(
+            random.nextDouble() * 2 * math.pi,
+            radius * random.nextDouble() * .9,
+          );
+      canvas.drawPath(
+        Path()
+          ..moveTo(from.dx, from.dy)
+          ..quadraticBezierTo(bend.dx, bend.dy, to.dx, to.dy),
+        Paint()
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = radius * (.05 + random.nextDouble() * .16)
+          ..color = (white ? const Color(0xFFFFF6F8) : const Color(0xFFF06292))
+              .withValues(alpha: white ? .6 : .3)
+          ..maskFilter = MaskFilter.blur(BlurStyle.normal, radius * .05),
+      );
+    }
+    canvas.restore();
+  }
 }
 
 /// The paper label when there is no artwork: a flat colour with printed rings
@@ -241,9 +353,22 @@ class _SheenPainter extends CustomPainter {
     required this.brass,
     required this.rotation,
     required this.label,
+    this.holo,
+    this.dots,
+    this.outline,
   }) : super(repaint: rotation);
 
   final double label;
+
+  /// Neon rain: cyan, magenta and yellow for a holographic reflection and a
+  /// lit rim in place of the plain white sheen.
+  final List<Color>? holo;
+
+  /// Riso: the reflection is printed as two wedges of halftone dots.
+  final Color? dots;
+
+  /// A plain line round the rim.
+  final Color? outline;
 
   final Color sheen, brass;
   final ValueListenable<double> rotation;
@@ -255,8 +380,8 @@ class _SheenPainter extends CustomPainter {
     final bounds = Rect.fromCircle(center: center, radius: radius);
     final labelRadius = radius * label;
     final clear = sheen.withValues(alpha: 0);
-    final bright = sheen.withValues(alpha: .24);
-    final faint = sheen.withValues(alpha: .055);
+    final bright = sheen.withValues(alpha: dots == null ? .24 : 0);
+    final faint = sheen.withValues(alpha: dots == null ? .055 : 0);
 
     // No record is perfectly flat: the reflection sways a little each turn.
     final sway = math.sin(rotation.value) * .045;
@@ -268,21 +393,94 @@ class _SheenPainter extends CustomPainter {
       Paint()
         ..blendMode = BlendMode.plus
         ..shader = SweepGradient(
-          colors: [
-            clear, clear, bright, clear, //
-            clear, faint, clear, //
-            clear, bright, clear, //
-            clear, faint, clear, clear, //
-          ],
-          stops: const [
-            0, .035, .105, .175, //
-            .29, .345, .40, //
-            .535, .605, .675, //
-            .79, .845, .90, 1, //
-          ],
+          colors: holo == null
+              ? [
+                  clear, clear, bright, clear, //
+                  clear, faint, clear, //
+                  clear, bright, clear, //
+                  clear, faint, clear, clear, //
+                ]
+              : [
+                  clear, clear, //
+                  holo![0].withValues(alpha: .42),
+                  const Color(0xFF7B5CFF).withValues(alpha: .38),
+                  holo![1].withValues(alpha: .42),
+                  holo![2].withValues(alpha: .26),
+                  clear, clear, //
+                  holo![0].withValues(alpha: .38),
+                  const Color(0xFF7B5CFF).withValues(alpha: .34),
+                  holo![1].withValues(alpha: .38),
+                  holo![2].withValues(alpha: .22),
+                  clear, clear, //
+                ],
+          stops: holo == null
+              ? const [
+                  0, .035, .105, .175, //
+                  .29, .345, .40, //
+                  .535, .605, .675, //
+                  .79, .845, .90, 1, //
+                ]
+              : const [
+                  0, .04, .08, .11, .14, .17, .21, //
+                  .54, .58, .61, .64, .67, .71, 1, //
+                ],
           transform: GradientRotation(.13 + sway),
         ).createShader(bounds),
     );
+
+    if (dots != null) {
+      final wedges = Path()
+        ..moveTo(center.dx, center.dy)
+        ..lineTo(center.dx + radius, center.dy - radius * .76)
+        ..lineTo(center.dx + radius, center.dy - radius * .12)
+        ..close()
+        ..moveTo(center.dx, center.dy)
+        ..lineTo(center.dx - radius, center.dy + radius * .76)
+        ..lineTo(center.dx - radius, center.dy + radius * .16)
+        ..close();
+      final ring = Path()
+        ..fillType = PathFillType.evenOdd
+        ..addOval(bounds.deflate(radius * .04))
+        ..addOval(Rect.fromCircle(center: center, radius: labelRadius * 1.12));
+      canvas
+        ..save()
+        ..clipPath(Path.combine(PathOperation.intersect, wedges, ring));
+      final cell = math.max(3.0, radius / 30);
+      final dot = Paint()..color = dots!;
+      for (var y = bounds.top; y < bounds.bottom; y += cell) {
+        for (var x = bounds.left; x < bounds.right; x += cell) {
+          canvas.drawCircle(Offset(x, y), cell * .27, dot);
+        }
+      }
+      canvas.restore();
+    }
+    if (outline != null) {
+      canvas.drawCircle(
+        center,
+        radius - .7,
+        Paint()
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 1.4
+          ..color = outline!,
+      );
+    }
+
+    if (holo != null) {
+      final rim = Paint()
+        ..style = PaintingStyle.stroke
+        ..color = holo![1].withValues(alpha: .4);
+      canvas
+        ..drawCircle(
+          center,
+          radius,
+          Paint()
+            ..style = PaintingStyle.stroke
+            ..strokeWidth = radius * .05
+            ..color = holo![1].withValues(alpha: .28)
+            ..maskFilter = MaskFilter.blur(BlurStyle.normal, radius * .07),
+        )
+        ..drawCircle(center, radius - .5, rim..strokeWidth = 1);
+    }
 
     canvas
       ..drawCircle(
@@ -322,7 +520,10 @@ class _SheenPainter extends CustomPainter {
       old.sheen != sheen ||
       old.brass != brass ||
       old.rotation != rotation ||
-      old.label != label;
+      old.label != label ||
+      old.holo != holo ||
+      old.dots != dots ||
+      old.outline != outline;
 }
 
 /// Turns a [VinylDisc] with the inertia of a platter: it winds up to speed and
