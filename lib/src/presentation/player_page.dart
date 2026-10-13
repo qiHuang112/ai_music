@@ -54,6 +54,7 @@ class _PlayerPageState extends State<PlayerPage> {
   // Set between the tap on play and the first sound: the needle goes down
   // first, then the record turns and the music starts with it.
   bool _cueing = false;
+  final _disc = _DiscSwipe();
   Timer? _cue;
 
   void _togglePlayPause(bool playing) {
@@ -66,16 +67,21 @@ class _PlayerPageState extends State<PlayerPage> {
       return;
     }
     setState(() => _cueing = true);
+    // An explicit play: if the song changed meanwhile, the new one must not
+    // be paused by a toggle.
     _cue = Timer(MusicMotion.toneArm, () {
       if (!mounted) return;
       setState(() => _cueing = false);
-      controller.togglePlayPause();
+      controller.play();
     });
   }
 
   @override
   void dispose() {
+    // Leaving mid-cue still starts the song that was asked for.
+    if (_cue?.isActive ?? false) controller.play();
     _cue?.cancel();
+    _disc.dispose();
     super.dispose();
   }
 
@@ -144,6 +150,8 @@ class _PlayerPageState extends State<PlayerPage> {
                         key: const ValueKey('player-swipe-area'),
                         onNext: controller.next,
                         onPrevious: controller.previous,
+                        onDrag: _disc.drag,
+                        onSettle: _disc.settle,
                         child: ListView(
                           padding: const EdgeInsets.fromLTRB(
                             MusicUi.pagePadding,
@@ -157,6 +165,7 @@ class _PlayerPageState extends State<PlayerPage> {
                               controller: controller,
                               playing: state.playing,
                               cueing: _cueing,
+                              swipe: _disc,
                               duration: duration,
                             ),
                             const SizedBox(height: 14),
@@ -267,12 +276,14 @@ class _Artwork extends StatelessWidget {
     required this.controller,
     required this.playing,
     required this.cueing,
+    required this.swipe,
     required this.duration,
   });
 
   final Uri? uri;
   final MusicController controller;
   final bool playing, cueing;
+  final _DiscSwipe swipe;
   final Duration duration;
 
   @override
@@ -299,21 +310,172 @@ class _Artwork extends StatelessWidget {
             MusicUi.playerCoverMaxWidth,
           ),
         ),
-        child: StreamBuilder<Duration>(
-          stream: controller.positionStream,
-          initialData: controller.audioHandler.currentPosition,
-          builder: (context, snapshot) {
-            final total = duration.inMilliseconds;
-            final played = (snapshot.data ?? Duration.zero).inMilliseconds;
-            return Turntable(
-              playing: playing,
-              armDown: playing || cueing,
-              progress: total <= 0 ? 0 : played / total,
-              label: label,
-            );
-          },
+        child: _DiscCarousel(
+          swipe: swipe,
+          neighbor: _neighborLabel,
+          builder: (context, swiping) => StreamBuilder<Duration>(
+            stream: controller.positionStream,
+            initialData: controller.audioHandler.currentPosition,
+            builder: (context, snapshot) {
+              final total = duration.inMilliseconds;
+              final played = (snapshot.data ?? Duration.zero).inMilliseconds;
+              return Turntable(
+                playing: playing,
+                // The arm lifts off while the record is being changed.
+                armDown: (playing || cueing) && !swiping,
+                progress: total <= 0 ? 0 : played / total,
+                label: label,
+              );
+            },
+          ),
         ),
       ),
+    );
+  }
+
+  /// The cover of the song before (-1) or after (1) this one in the queue,
+  /// for the record that slides in. Unknown in shuffle: the label is blank.
+  Widget? _neighborLabel(int step) {
+    if (controller.playbackMode == PlaybackMode.shuffle) return null;
+    final queue = controller.audioHandler.queue.value;
+    final id = controller.audioHandler.mediaItem.value?.id;
+    final index = queue.indexWhere((item) => item.id == id);
+    if (index < 0 || queue.length < 2) return null;
+    final art = queue[(index + step) % queue.length].artUri;
+    return art == null
+        ? null
+        : Image(
+            image: artworkImageProvider(art),
+            fit: BoxFit.cover,
+            errorBuilder: (_, _, _) => const SizedBox.shrink(),
+          );
+  }
+}
+
+/// What the finger is doing to the record, passed from the page's swipe area
+/// to the deck.
+class _DiscSwipe extends ChangeNotifier {
+  double dx = 0;
+  bool dragging = false;
+
+  /// Set for one notification when a drag ends: -1 next, 1 previous, 0 back.
+  int? settled;
+
+  void drag(double distance) {
+    dx = distance;
+    dragging = true;
+    settled = null;
+    notifyListeners();
+  }
+
+  void settle(int direction) {
+    dragging = false;
+    settled = direction;
+    notifyListeners();
+    settled = null;
+  }
+}
+
+/// Changing records: the deck follows the finger, the neighbouring record
+/// comes in from the side, and on release one of them takes the centre.
+class _DiscCarousel extends StatefulWidget {
+  const _DiscCarousel({
+    required this.swipe,
+    required this.neighbor,
+    required this.builder,
+  });
+
+  final _DiscSwipe swipe;
+  final Widget? Function(int step) neighbor;
+  final Widget Function(BuildContext context, bool swiping) builder;
+
+  @override
+  State<_DiscCarousel> createState() => _DiscCarouselState();
+}
+
+class _DiscCarouselState extends State<_DiscCarousel>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _x;
+  bool _swiping = false;
+  double _width = 400;
+
+  @override
+  void initState() {
+    super.initState();
+    _x = AnimationController.unbounded(vsync: this);
+    widget.swipe.addListener(_follow);
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _width = MediaQuery.sizeOf(context).width;
+  }
+
+  Future<void> _follow() async {
+    final swipe = widget.swipe;
+    if (swipe.dragging) {
+      _x.value = swipe.dx;
+      if (!_swiping) setState(() => _swiping = true);
+      return;
+    }
+    final direction = swipe.settled ?? 0;
+    try {
+      if (direction == 0) {
+        await _x.animateTo(
+          0,
+          duration: MusicMotion.base,
+          curve: MusicMotion.standard,
+        );
+      } else {
+        // The old record leaves and the neighbour arrives at the centre,
+        // where the real deck then takes its place.
+        await _x.animateTo(
+          direction * _width,
+          duration: MusicMotion.base,
+          curve: Curves.easeOutCubic,
+        );
+        _x.value = 0;
+      }
+    } on TickerCanceled {
+      return;
+    }
+    if (mounted && !widget.swipe.dragging) setState(() => _swiping = false);
+  }
+
+  @override
+  void dispose() {
+    widget.swipe.removeListener(_follow);
+    _x.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final deck = widget.builder(context, _swiping);
+    if (!_swiping) return deck;
+    return AnimatedBuilder(
+      animation: _x,
+      builder: (context, deck) {
+        final x = _x.value;
+        final step = x < 0 ? 1 : -1;
+        return Stack(
+          clipBehavior: Clip.none,
+          children: [
+            if (x != 0)
+              Transform.translate(
+                offset: Offset(x + step * _width, 0),
+                child: Turntable(
+                  playing: false,
+                  armDown: false,
+                  label: widget.neighbor(step),
+                ),
+              ),
+            Transform.translate(offset: Offset(x, 0), child: deck),
+          ],
+        );
+      },
+      child: deck,
     );
   }
 }
@@ -355,10 +517,16 @@ class _PlayerBackdropState extends State<_PlayerBackdrop> {
       initialData: widget.controller.audioHandler.mediaItem.value,
       builder: (context, snapshot) {
         _read(snapshot.data?.artUri ?? widget.controller.currentArtworkUri);
-        return AmbientBackdrop(
-          glow: _palette?.glow(brightness),
-          shade: _palette?.shade(brightness),
-          child: widget.child,
+        // The light wanders only while music plays; a paused page is still.
+        return StreamBuilder<PlaybackState>(
+          stream: widget.controller.playbackStateStream,
+          initialData: widget.controller.audioHandler.playbackState.value,
+          builder: (context, state) => AmbientBackdrop(
+            glow: _palette?.glow(brightness),
+            shade: _palette?.shade(brightness),
+            drift: state.data?.playing ?? false,
+            child: _SwipeDownToClose(child: widget.child),
+          ),
         );
       },
     );
@@ -647,12 +815,14 @@ class _PlaybackControls extends StatelessWidget {
         mainAxisSize: MainAxisSize.min,
         children: [
           GlassIconButton(
+            blur: false,
             tooltip: _modeTooltip(strings, controller.playbackMode),
             onPressed: controller.cyclePlaybackMode,
             icon: _modeIcon(controller.playbackMode),
           ),
           const SizedBox(width: 12),
           GlassIconButton(
+            blur: false,
             tooltip: strings.previous,
             size: 54,
             onPressed: controller.previous,
@@ -666,6 +836,7 @@ class _PlaybackControls extends StatelessWidget {
           ),
           const SizedBox(width: 16),
           GlassIconButton(
+            blur: false,
             tooltip: strings.next,
             size: 54,
             onPressed: controller.next,
@@ -673,6 +844,7 @@ class _PlaybackControls extends StatelessWidget {
           ),
           const SizedBox(width: 12),
           GlassIconButton(
+            blur: false,
             key: const ValueKey('player-queue'),
             tooltip: strings.isZh ? '当前队列' : 'Play queue',
             onPressed: () => showPlaybackQueue(context, controller),
@@ -1184,4 +1356,71 @@ String _formatDuration(Duration value) {
     return '$hours:$minutes:$seconds';
   }
   return '$minutes:$seconds';
+}
+
+/// Pulling the page down from its top closes it, as it rose from the mini
+/// player. Sideways swipes stay with song skipping.
+class _SwipeDownToClose extends StatefulWidget {
+  const _SwipeDownToClose({required this.child});
+
+  final Widget child;
+
+  @override
+  State<_SwipeDownToClose> createState() => _SwipeDownToCloseState();
+}
+
+class _SwipeDownToCloseState extends State<_SwipeDownToClose> {
+  Offset? _down;
+  DateTime? _at;
+  bool _atTop = true;
+
+  @override
+  Widget build(
+    BuildContext context,
+  ) => NotificationListener<ScrollNotification>(
+    onNotification: (n) {
+      if (n.metrics.axis == Axis.vertical) _atTop = n.metrics.extentBefore <= 0;
+      return false;
+    },
+    child: Listener(
+      onPointerDown: (event) {
+        _down = _atTop ? event.position : null;
+        _at = DateTime.now();
+      },
+      onPointerCancel: (_) => _down = null,
+      onPointerUp: (event) {
+        final down = _down;
+        _down = null;
+        if (down == null || !_atTop) return;
+        final delta = event.position - down;
+        final quick =
+            DateTime.now().difference(_at!) < const Duration(milliseconds: 600);
+        if (delta.dy > 90 && delta.dy > delta.dx.abs() * 2 && quick) {
+          Navigator.of(context).maybePop();
+        }
+      },
+      child: Stack(
+        children: [
+          widget.child,
+          // The left edge is the system's way back; it takes a sideways
+          // drag before song skipping can.
+          PositionedDirectional(
+            start: 0,
+            top: 0,
+            bottom: 0,
+            width: 22,
+            child: GestureDetector(
+              key: const ValueKey('player-edge-back'),
+              behavior: HitTestBehavior.translucent,
+              onHorizontalDragEnd: (details) {
+                if ((details.primaryVelocity ?? 0) >= 0) {
+                  Navigator.of(context).maybePop();
+                }
+              },
+            ),
+          ),
+        ],
+      ),
+    ),
+  );
 }

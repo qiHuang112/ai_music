@@ -175,6 +175,17 @@ class _BackdropSliceBox extends SingleChildRenderObjectWidget {
   }
 }
 
+/// Marks a page's own area; [BackdropSlice] places itself against it.
+class BackdropScope extends SingleChildRenderObjectWidget {
+  const BackdropScope({super.key, super.child});
+
+  @override
+  RenderObject createRenderObject(BuildContext context) =>
+      _RenderBackdropScope();
+}
+
+class _RenderBackdropScope extends RenderProxyBox {}
+
 class _RenderBackdropSlice extends RenderProxyBox {
   _RenderBackdropSlice(this.palette, this.dark, this.screen);
 
@@ -184,7 +195,13 @@ class _RenderBackdropSlice extends RenderProxyBox {
 
   @override
   void paint(PaintingContext context, Offset offset) {
-    final origin = localToGlobal(Offset.zero);
+    // Measured within the page, not the screen: a page sliding in during a
+    // route transition must not shift which part of the backdrop this shows.
+    RenderObject? page = parent;
+    while (page != null && page is! _RenderBackdropScope) {
+      page = page.parent;
+    }
+    final origin = localToGlobal(Offset.zero, ancestor: page);
     context.canvas
       ..save()
       ..clipRect(offset & size)
@@ -350,13 +367,16 @@ class FilmGrain extends StatefulWidget {
 
 class _FilmGrainState extends State<FilmGrain> {
   static const _side = 128;
-  static ui.Image? _tile;
+
+  /// Shared by every instance, including ones mounted while it decodes.
+  static final _tile = ValueNotifier<ui.Image?>(null);
   static bool _requested = false;
 
   @override
   void initState() {
     super.initState();
-    if (_tile != null || _requested) return;
+    _tile.addListener(_ready);
+    if (_tile.value != null || _requested) return;
     _requested = true;
     final random = math.Random(33);
     final pixels = Uint8List(_side * _side * 4);
@@ -370,17 +390,28 @@ class _FilmGrainState extends State<FilmGrain> {
         ..[i + 2] = value
         ..[i + 3] = alpha;
     }
-    ui.decodeImageFromPixels(pixels, _side, _side, ui.PixelFormat.rgba8888, (
-      image,
-    ) {
-      _tile = image;
-      if (mounted) setState(() {});
-    });
+    ui.decodeImageFromPixels(
+      pixels,
+      _side,
+      _side,
+      ui.PixelFormat.rgba8888,
+      (image) => _tile.value = image,
+    );
+  }
+
+  void _ready() {
+    if (mounted) setState(() {});
+  }
+
+  @override
+  void dispose() {
+    _tile.removeListener(_ready);
+    super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
-    final tile = _tile;
+    final tile = _tile.value;
     if (tile == null) return const SizedBox.expand();
     return RepaintBoundary(
       child: CustomPaint(

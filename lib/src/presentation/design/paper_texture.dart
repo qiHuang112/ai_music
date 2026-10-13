@@ -6,12 +6,7 @@ import 'package:flutter/material.dart';
 /// The surface of xuan paper laid over the whole app: a dense felt of short
 /// pressed fibres seen as soft relief, with no drawn strands. One tile is
 /// drawn once and repeated.
-class PaperTexture extends StatelessWidget {
-  const PaperTexture({super.key, required this.child, this.enabled = true});
-
-  final Widget child;
-  final bool enabled;
-
+abstract final class PaperTexture {
   static const _tileSide = 320.0;
   static ui.Image? _tile;
 
@@ -106,34 +101,4 @@ class PaperTexture extends StatelessWidget {
         ),
     );
   }
-
-  @override
-  Widget build(BuildContext context) {
-    if (!enabled) return child;
-    return Stack(
-      fit: StackFit.passthrough,
-      children: [
-        child,
-        Positioned.fill(
-          child: IgnorePointer(
-            child: RepaintBoundary(
-              child: CustomPaint(painter: _PaperPainter(_tile ??= _draw())),
-            ),
-          ),
-        ),
-      ],
-    );
-  }
-}
-
-class _PaperPainter extends CustomPainter {
-  const _PaperPainter(this.tile);
-
-  final ui.Image tile;
-
-  @override
-  void paint(Canvas canvas, Size size) => PaperTexture.paintOn(canvas, size);
-
-  @override
-  bool shouldRepaint(_PaperPainter old) => old.tile != tile;
 }

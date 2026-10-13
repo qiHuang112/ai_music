@@ -325,6 +325,23 @@ class _PlaybackCacheSettingState extends State<_PlaybackCacheSetting> {
     _bytes = widget.controller.playbackCacheBytes();
   }
 
+  // The settings tab stays alive behind the others; read the size again each
+  // time it comes back to the front.
+  bool _front = true;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    // flutter_ohos does not have TickerMode.valuesOf yet.
+    // ignore: deprecated_member_use
+    final front = TickerMode.of(context);
+    if (front && !_front) {
+      // A rebuild follows this callback; no setState needed.
+      _bytes = widget.controller.playbackCacheBytes();
+    }
+    _front = front;
+  }
+
   Future<void> _clear() async {
     final zh = AppStringsScope.of(context).isZh;
     final confirmed = await showDialog<bool>(
@@ -351,7 +368,8 @@ class _PlaybackCacheSettingState extends State<_PlaybackCacheSetting> {
     if (confirmed != true) return;
     await widget.controller.clearPlaybackCache();
     if (mounted) {
-      setState(() => _bytes = widget.controller.playbackCacheBytes());
+      // A rebuild follows this callback; no setState needed.
+      _bytes = widget.controller.playbackCacheBytes();
     }
   }
 

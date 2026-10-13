@@ -10,6 +10,7 @@ import 'app_localizations.dart';
 import 'app_theme.dart';
 import 'design/controls.dart';
 import 'music_thumbnail.dart';
+import 'playlist_actions.dart';
 
 Future<void> showPlaybackQueue(
   BuildContext context,
@@ -92,7 +93,7 @@ class _PlaybackQueueState extends State<PlaybackQueue> {
   Future<void> _remove(Iterable<String> ids) =>
       _edit(() => widget.controller.removeQueueItems(ids));
 
-  Future<void> _clear(List<MediaItem> items, String? currentId) async {
+  Future<void> _clear() async {
     final strings = AppStringsScope.of(context);
     final confirmed = await showDialog<bool>(
       context: context,
@@ -100,8 +101,8 @@ class _PlaybackQueueState extends State<PlaybackQueue> {
         title: Text(strings.isZh ? '清空队列？' : 'Clear the queue?'),
         content: Text(
           strings.isZh
-              ? '正在播放的这首会保留，其余歌曲从队列中移除。歌单和已下载的文件不受影响。'
-              : 'The song that is playing stays; the rest leave the queue. '
+              ? '播放会停止，队列里的歌曲全部移除。歌单和已下载的文件不受影响。'
+              : 'Playback stops and every song leaves the queue. '
                     'Playlists and downloads are not touched.',
         ),
         actions: [
@@ -117,17 +118,19 @@ class _PlaybackQueueState extends State<PlaybackQueue> {
       ),
     );
     if (confirmed != true || !mounted) return;
-    await _remove([
-      for (final item in items)
-        if (item.id != currentId) item.id,
-    ]);
+    final navigator = Navigator.of(context);
+    await _edit(widget.controller.clearQueue);
+    if (mounted) navigator.pop();
   }
 
   void _reorder(List<MediaItem> items, int from, int to) {
     if (to > from) to -= 1;
     if (from == to) return;
     final item = items[from];
-    setState(() => _moving = [...items]..insert(to, items.removeAt(from)));
+    // The published queue is a fixed-length list: reorder a copy of it.
+    final moved = [...items];
+    moved.insert(to, moved.removeAt(from));
+    setState(() => _moving = moved);
     _edit(() => widget.controller.moveQueueItem(item.id, to));
   }
 
@@ -151,7 +154,8 @@ class _PlaybackQueueState extends State<PlaybackQueue> {
               initialData: controller.audioHandler.mediaItem.value,
               builder: (context, current) {
                 final currentId = current.data?.id;
-                final editable = items.length > 1;
+                final editable = items.isNotEmpty;
+                final removable = _picked.any((id) => id != currentId);
                 return Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
@@ -180,10 +184,15 @@ class _PlaybackQueueState extends State<PlaybackQueue> {
                               tooltip: strings.isZh
                                   ? '移除所选'
                                   : 'Remove selected',
-                              onPressed: _picked.isEmpty
+                              // The playing song can be picked for a
+                              // playlist but stays in the queue.
+                              onPressed: !removable
                                   ? null
                                   : () {
-                                      final ids = _picked.toList();
+                                      final ids = [
+                                        for (final id in _picked)
+                                          if (id != currentId) id,
+                                      ];
                                       setState(() {
                                         _picked.clear();
                                         _selecting = false;
@@ -211,9 +220,7 @@ class _PlaybackQueueState extends State<PlaybackQueue> {
                             IconButton(
                               key: const ValueKey('queue-clear'),
                               tooltip: strings.isZh ? '清空队列' : 'Clear queue',
-                              onPressed: editable
-                                  ? () => _clear(items, currentId)
-                                  : null,
+                              onPressed: items.isEmpty ? null : _clear,
                               icon: const Icon(Icons.delete_sweep_outlined),
                             ),
                             IconButton(
@@ -271,12 +278,9 @@ class _PlaybackQueueState extends State<PlaybackQueue> {
                                         end: 4,
                                       ),
                                   leading: _selecting
-                                      // The playing song cannot be removed.
                                       ? Checkbox(
                                           value: picked,
-                                          onChanged: active
-                                              ? null
-                                              : (_) => toggle(),
+                                          onChanged: (_) => toggle(),
                                         )
                                       : _QueueCover(
                                           controller: controller,
@@ -339,12 +343,36 @@ class _PlaybackQueueState extends State<PlaybackQueue> {
                                           ],
                                         ),
                                   onTap: _selecting
-                                      ? (active ? null : toggle)
+                                      ? toggle
                                       : () => _select(item.id),
                                 );
                               },
                             ),
                     ),
+                    // The main thing to do with a selection sits at the
+                    // bottom, within reach of the thumb.
+                    if (_selecting)
+                      Padding(
+                        padding: const EdgeInsets.fromLTRB(20, 8, 20, 12),
+                        child: FilledButton.icon(
+                          key: const ValueKey('queue-add-to-playlist'),
+                          style: FilledButton.styleFrom(
+                            minimumSize: const Size.fromHeight(52),
+                          ),
+                          onPressed: _picked.isEmpty
+                              ? null
+                              : () => showAddTracksToPlaylistSheet(
+                                  context,
+                                  controller,
+                                  [
+                                    for (final track in controller.queueTracks)
+                                      if (_picked.contains(track.id)) track,
+                                  ],
+                                ),
+                          icon: const Icon(Icons.playlist_add_rounded),
+                          label: Text(strings.addToPlaylist),
+                        ),
+                      ),
                   ],
                 );
               },

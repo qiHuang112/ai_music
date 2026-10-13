@@ -96,12 +96,16 @@ class PlaylistSliverHeader extends StatelessWidget {
   const PlaylistSliverHeader({
     super.key,
     required this.title,
+    this.note,
     this.actions = const [],
     this.leading,
     this.toolbarTitle,
   });
 
   final String title;
+
+  /// A small line at the right of the expanded title, such as a chart's date.
+  final String? note;
   final List<Widget> actions;
   final Widget? leading;
   final Widget? toolbarTitle;
@@ -111,11 +115,27 @@ class PlaylistSliverHeader extends StatelessWidget {
     final style = Theme.of(
       context,
     ).textTheme.titleLarge!.copyWith(fontSize: 24);
+    final noteStyle = Theme.of(context).textTheme.bodySmall;
+    var noteWidth = 0.0;
+    if (note != null) {
+      final measure = TextPainter(
+        text: TextSpan(text: note, style: noteStyle),
+        textDirection: Directionality.of(context),
+        textScaler: MediaQuery.textScalerOf(context),
+        maxLines: 1,
+      )..layout();
+      // The title keeps at least half the row.
+      noteWidth = (measure.width + 12).clamp(
+        0.0,
+        (MediaQuery.sizeOf(context).width - 40) / 2,
+      );
+      measure.dispose();
+    }
     final painter = TextPainter(
       text: TextSpan(text: title, style: style),
       textDirection: Directionality.of(context),
       textScaler: MediaQuery.textScalerOf(context),
-    )..layout(maxWidth: MediaQuery.sizeOf(context).width - 40);
+    )..layout(maxWidth: MediaQuery.sizeOf(context).width - 40 - noteWidth);
     final expandedHeight = kToolbarHeight + painter.height + 28;
     painter.dispose();
     return SliverAppBar(
@@ -146,9 +166,27 @@ class PlaylistSliverHeader extends StatelessWidget {
               child: Stack(
                 clipBehavior: Clip.hardEdge,
                 children: [
+                  if (note != null)
+                    PositionedDirectional(
+                      end: 20,
+                      width: noteWidth - 12,
+                      top: top + kToolbarHeight + 20 - 48 * collapse,
+                      child: IgnorePointer(
+                        child: Opacity(
+                          opacity: (1 - collapse / 0.7).clamp(0.0, 1.0),
+                          child: Text(
+                            note!,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            textAlign: TextAlign.end,
+                            style: noteStyle,
+                          ),
+                        ),
+                      ),
+                    ),
                   PositionedDirectional(
                     start: 20 + 36 * collapse,
-                    end: 20,
+                    end: 20 + noteWidth,
                     top: top + kToolbarHeight + 12 - 48 * collapse,
                     child: IgnorePointer(
                       child: Opacity(

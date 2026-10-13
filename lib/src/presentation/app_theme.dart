@@ -133,7 +133,6 @@ abstract final class MusicUi {
   static const coverRadius = 12.0;
   static const sectionGap = 24.0;
   static const playerCoverMaxWidth = 320.0;
-  static const miniPlayerRadius = 26.0;
 
   /// Printed matter keeps crisp corners; glass and hardware are round.
   static const sleeveRadius = 6.0;
@@ -183,7 +182,7 @@ abstract final class MusicMotion {
 /// keep the same roles.
 abstract final class MusicType {
   static const display = 'Bodoni 72';
-  static const displayFallback = ['Source Han Serif CN', 'Didot', 'serif'];
+  static const displayFallback = ['Didot', 'PingFang SC', 'serif'];
   static const engraved = 'DIN Alternate';
   static const engravedFallback = [
     'DIN Condensed',
@@ -229,8 +228,8 @@ abstract final class MusicType {
       );
 }
 
-/// Puts the page backdrop behind every pushed page and then hands over to
-/// the platform's own transition, so the backdrop travels with its page.
+/// Hands a page's content to the platform's own transition (which keeps the
+/// edge-swipe back gesture) with fades added; the backdrop is not part of it.
 class _BackdropTransitions extends PageTransitionsBuilder {
   const _BackdropTransitions(this.platform);
 
@@ -248,7 +247,23 @@ class _BackdropTransitions extends PageTransitionsBuilder {
     context,
     animation,
     secondaryAnimation,
-    Stack(fit: StackFit.expand, children: [const PageBackdrop(), child]),
+    // The backdrop itself stays put behind the navigator. Only a page's
+    // content moves: it fades in as it arrives and fades out as it is covered,
+    // so two see-through pages never show through each other.
+    BackdropScope(
+      child: FadeTransition(
+        opacity: animation.drive(CurveTween(curve: const Interval(.15, .75))),
+        child: FadeTransition(
+          opacity: secondaryAnimation.drive(
+            Tween<double>(
+              begin: 1,
+              end: 0,
+            ).chain(CurveTween(curve: const Interval(0, .45))),
+          ),
+          child: child,
+        ),
+      ),
+    ),
   );
 }
 
@@ -362,29 +377,18 @@ abstract final class MusicAppTheme {
     return base.copyWith(
       extensions: [MusicTokens(p)],
       textTheme: text,
-      // Pages are see-through; [PageBackdrop] is painted behind each one by
-      // the page transition below.
+      // Pages are see-through; one [PageBackdrop] sits behind the navigator.
       scaffoldBackgroundColor: Colors.transparent,
-      pageTransitionsTheme: const PageTransitionsTheme(
+      // Every platform the SDK knows, including ones a fork adds: a page
+      // without this builder would have no background at all.
+      pageTransitionsTheme: PageTransitionsTheme(
         builders: {
-          TargetPlatform.iOS: _BackdropTransitions(
-            CupertinoPageTransitionsBuilder(),
-          ),
-          TargetPlatform.macOS: _BackdropTransitions(
-            CupertinoPageTransitionsBuilder(),
-          ),
-          TargetPlatform.android: _BackdropTransitions(
-            ZoomPageTransitionsBuilder(),
-          ),
-          TargetPlatform.fuchsia: _BackdropTransitions(
-            ZoomPageTransitionsBuilder(),
-          ),
-          TargetPlatform.linux: _BackdropTransitions(
-            ZoomPageTransitionsBuilder(),
-          ),
-          TargetPlatform.windows: _BackdropTransitions(
-            ZoomPageTransitionsBuilder(),
-          ),
+          for (final platform in TargetPlatform.values)
+            platform: _BackdropTransitions(
+              platform == TargetPlatform.iOS || platform == TargetPlatform.macOS
+                  ? const CupertinoPageTransitionsBuilder()
+                  : const ZoomPageTransitionsBuilder(),
+            ),
         },
       ),
       appBarTheme: AppBarTheme(

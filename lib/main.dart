@@ -14,6 +14,7 @@ import 'src/presentation/app_localizations.dart';
 import 'src/playback/music_audio_handler.dart';
 import 'src/presentation/music_home_page.dart';
 import 'src/presentation/app_theme.dart';
+import 'src/presentation/design/ambient_backdrop.dart';
 import 'src/presentation/design/controls.dart';
 import 'src/presentation/design/design_gallery_page.dart';
 import 'src/presentation/design/soft_scroll_edge.dart';
@@ -108,8 +109,14 @@ class AiMusicApp extends StatelessWidget {
               : ThemeMode.dark,
           builder: (context, child) => AppStringsScope(
             language: controller.language,
-            child: DismissKeyboardOnTap(
-              child: child ?? const SizedBox.shrink(),
+            // One backdrop for the whole app, fixed behind every page, so
+            // moving between pages changes only what lies on top of it.
+            child: Stack(
+              fit: StackFit.expand,
+              children: [
+                const PageBackdrop(),
+                DismissKeyboardOnTap(child: child ?? const SizedBox.shrink()),
+              ],
             ),
           ),
           home: _designGallery

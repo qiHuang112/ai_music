@@ -1469,6 +1469,7 @@ class MusicController extends ChangeNotifier {
     final previousQueuePlaylist = _queuePlaylistId;
     final previousActivePlaylist = _activePlaylistId;
     final previousRetired = Set.of(_retiredQueueTrackIds);
+    final previousUserRemoved = Set.of(_userRemovedQueueIds);
     final previousMediaId = audioHandler.mediaItem.value?.id;
     List<Track>? loadingQueue;
     var handoverCompleted = false;
@@ -1558,6 +1559,9 @@ class MusicController extends ChangeNotifier {
         _retiredQueueTrackIds
           ..clear()
           ..addAll(previousRetired);
+        _userRemovedQueueIds
+          ..clear()
+          ..addAll(previousUserRemoved);
         for (final entry in previousQueueEntries.entries) {
           _queueSongEntries.putIfAbsent(entry.key, () => entry.value);
         }
@@ -1593,6 +1597,12 @@ class MusicController extends ChangeNotifier {
     return playbackUseCase.togglePlayPause();
   }
 
+  /// Starts playback; unlike [togglePlayPause] it never pauses.
+  Future<void> play() async {
+    _playbackIntentRevision++;
+    if (!audioHandler.playbackState.value.playing) await audioHandler.play();
+  }
+
   /// Select within the existing queue, retaining background playlist additions.
   Future<void> playQueueItem(String id) {
     final index = _activeQueueTracks.indexWhere((track) => track.id == id);
@@ -1626,23 +1636,67 @@ class MusicController extends ChangeNotifier {
   /// Takes songs out of the queue. The one playing stays: removing it would
   /// mean changing what is heard, which is what next/previous are for.
   Future<void> removeQueueItems(Iterable<String> ids) => _editQueue(() async {
-    for (final id in ids.toList()) {
-      if (audioHandler.mediaItem.value?.id == id) continue;
-      final index = _activeQueueTracks.indexWhere((track) => track.id == id);
-      if (index < 0) continue;
-      await playbackUseCase.removeTrackAt(_activeQueueTracks, index);
-      _activeQueueTracks = [..._activeQueueTracks]..removeAt(index);
-      _retiredQueueTrackIds.remove(id);
-      _userRemovedQueueIds.add(id);
-    }
+    final wanted = ids.toSet()..remove(audioHandler.mediaItem.value?.id);
+    final indexes = {
+      for (var i = 0; i < _activeQueueTracks.length; i++)
+        if (wanted.contains(_activeQueueTracks[i].id)) i,
+    };
+    if (indexes.isEmpty) return;
+    // One edit for the whole batch: clearing a long queue must not hold the
+    // load queue for hundreds of round trips.
+    await playbackUseCase.removeTracksAt(_activeQueueTracks, indexes);
+    final removed = [for (final i in indexes) _activeQueueTracks[i].id];
+    _activeQueueTracks = [
+      for (var i = 0; i < _activeQueueTracks.length; i++)
+        if (!indexes.contains(i)) _activeQueueTracks[i],
+    ];
+    _retiredQueueTrackIds.removeAll(removed);
+    _userRemovedQueueIds.addAll(removed);
   });
+
+  /// The songs in the queue, in order.
+  List<Track> get queueTracks => List.unmodifiable(_activeQueueTracks);
+
+  /// Adds songs to the end of the queue without touching what is playing.
+  /// With nothing queued it starts playing them. Returns how many were new.
+  Future<int> addToQueue(List<Track> tracks) async {
+    if (tracks.isEmpty) return 0;
+    if (audioHandler.mediaItem.value == null || _activeQueueTracks.isEmpty) {
+      await playTrack(tracks.first, index: 0, queueTracks: tracks);
+      return tracks.length;
+    }
+    var added = 0;
+    await _editQueue(() async {
+      final queued = {for (final track in _activeQueueTracks) track.id};
+      final additions = [
+        for (final track in tracks)
+          if (queued.add(track.id)) track,
+      ];
+      if (additions.isEmpty) return;
+      await playbackUseCase.appendTracks(_activeQueueTracks, additions);
+      _activeQueueTracks = [..._activeQueueTracks, ...additions];
+      _userRemovedQueueIds.removeAll([for (final t in additions) t.id]);
+      added = additions.length;
+    });
+    return added;
+  }
+
+  /// Empties the queue, the playing song included, and stops.
+  Future<void> clearQueue() async {
+    await stop();
+    await audioHandler.clearQueue();
+    if (!_isDisposed) notifyListeners();
+  }
 
   /// Moves a song that is not the one playing to [newIndex] in the queue.
   Future<void> moveQueueItem(String id, int newIndex) => _editQueue(() async {
     if (audioHandler.mediaItem.value?.id == id) return;
     final from = _activeQueueTracks.indexWhere((track) => track.id == id);
+    // After stop() the controller's queue is empty while the sheet may still
+    // show the last published one.
+    if (from < 0) return;
     final to = newIndex.clamp(0, _activeQueueTracks.length - 1);
-    if (from < 0 || from == to) return;
+    if (from == to) return;
     await playbackUseCase.moveTrack(_activeQueueTracks, from, to);
     final moved = [..._activeQueueTracks];
     moved.insert(to, moved.removeAt(from));

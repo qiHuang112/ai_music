@@ -1,6 +1,5 @@
 import 'package:audio_service/audio_service.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import '../application/music_controller.dart';
 import 'app_localizations.dart';
 import 'app_theme.dart';
@@ -66,11 +65,6 @@ class MiniPlayer extends StatelessWidget {
                             },
                             child: InkWell(
                               onTap: () => _openPlayer(context),
-                              // Holding the bar is the quick way to the queue.
-                              onLongPress: () {
-                                HapticFeedback.mediumImpact();
-                                showPlaybackQueue(context, controller);
-                              },
                               child: MediaQuery.withClampedTextScaling(
                                 maxScaleFactor: 1.4,
                                 child: SizedBox(
@@ -162,7 +156,7 @@ class MiniPlayer extends StatelessWidget {
                                                 'mini-player-play',
                                               ),
                                               playing: state.playing,
-                                              size: 36,
+                                              size: 42,
                                               tooltip: state.playing
                                                   ? strings.pause
                                                   : strings.play,
@@ -251,8 +245,8 @@ class _OutlinedPlayButton extends StatelessWidget {
           child: Padding(
             padding: const EdgeInsets.all(7),
             child: Container(
-              width: 32,
-              height: 32,
+              width: 38,
+              height: 38,
               decoration: BoxDecoration(
                 shape: BoxShape.circle,
                 border: Border.all(
@@ -262,7 +256,7 @@ class _OutlinedPlayButton extends StatelessWidget {
               ),
               child: Icon(
                 playing ? Icons.pause_rounded : Icons.play_arrow_rounded,
-                size: 19,
+                size: 22,
                 color: colors.onSurface,
               ),
             ),

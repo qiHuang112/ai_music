@@ -1646,6 +1646,122 @@ void main() {
     );
   }
 
+  testWidgets('search cancel button clears the search and restores home', (
+    tester,
+  ) async {
+    await tester.pumpWidget(_app());
+    await tester.pumpAndSettle();
+    final cancel = find.byKey(const ValueKey('home-search-cancel'));
+    expect(cancel, findsNothing);
+    await tester.enterText(find.byType(TextField), '周杰伦');
+    await tester.testTextInput.receiveAction(TextInputAction.search);
+    await tester.pumpAndSettle();
+    expect(find.text('发现'), findsNothing);
+    await tester.tap(cancel);
+    await tester.pumpAndSettle();
+    expect(find.text('发现'), findsOneWidget);
+    expect(
+      tester.widget<TextField>(find.byType(TextField)).controller!.text,
+      '',
+    );
+    expect(cancel, findsNothing);
+  });
+
+  testWidgets('queue sheet reorders, removes, batch-removes and clears', (
+    tester,
+  ) async {
+    final handler = _WidgetAudioHandler();
+    final controller = _QueueEditController(handler);
+    // The real handler publishes fixed-length lists; so does this test.
+    final items = List<MediaItem>.generate(
+      4,
+      (i) => MediaItem(id: 's$i', title: 'Song $i', artist: 'A'),
+      growable: false,
+    );
+    handler.queue.add(items);
+    handler.mediaItem.add(items[0]);
+    try {
+      await tester.pumpWidget(
+        AppStringsScope(
+          language: AppLanguage.zh,
+          child: MaterialApp(
+            theme: MusicAppTheme.create(Brightness.light),
+            home: Scaffold(body: PlaybackQueue(controller: controller)),
+          ),
+        ),
+      );
+      await tester.pump();
+
+      // Drag the last row above the second by its handle.
+      final handle = find.descendant(
+        of: find.byKey(const ValueKey('queue-item-s3')),
+        matching: find.byIcon(Icons.drag_handle_rounded),
+      );
+      final gesture = await tester.startGesture(tester.getCenter(handle));
+      await tester.pump(const Duration(milliseconds: 100));
+      await gesture.moveBy(const Offset(0, -20));
+      await tester.pump();
+      await gesture.moveBy(const Offset(0, -110));
+      await tester.pump();
+      await gesture.up();
+      await tester.pumpAndSettle();
+      expect(tester.takeException(), isNull);
+      expect(controller.moves.single.$1, 's3');
+      expect(controller.moves.single.$2, lessThan(3));
+      // The published list was not touched.
+      expect(
+        [for (final item in handler.queue.value) item.id],
+        ['s0', 's1', 's2', 's3'],
+      );
+
+      handler.emit(items[0]);
+      await tester.pump();
+      await tester.pump();
+      // The playing row offers neither removal nor a handle.
+      expect(
+        find.descendant(
+          of: find.byKey(const ValueKey('queue-item-s0')),
+          matching: find.byIcon(Icons.close_rounded),
+        ),
+        findsNothing,
+      );
+      await tester.tap(
+        find.descendant(
+          of: find.byKey(const ValueKey('queue-item-s1')),
+          matching: find.byIcon(Icons.close_rounded),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(controller.removals.last, ['s1']);
+
+      await tester.tap(find.byKey(const ValueKey('queue-select')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Song 2'));
+      await tester.tap(find.text('Song 3'));
+      // The playing song can be picked (for a playlist) but is not removed.
+      await tester.tap(find.text('Song 0'));
+      await tester.pumpAndSettle();
+      expect(find.text('已选 3 首'), findsOneWidget);
+      expect(
+        find.byKey(const ValueKey('queue-add-to-playlist')),
+        findsOneWidget,
+      );
+      await tester.tap(find.byKey(const ValueKey('queue-remove-selected')));
+      await tester.pumpAndSettle();
+      expect(controller.removals.last, unorderedEquals(['s2', 's3']));
+
+      await tester.tap(find.byKey(const ValueKey('queue-clear')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('清空'));
+      await tester.pumpAndSettle();
+      // Clearing empties everything, the playing song included.
+      expect(controller.clears, 1);
+    } finally {
+      await tester.pumpWidget(const SizedBox.shrink());
+      controller.dispose();
+    }
+  });
+
   testWidgets('history card submits search and returns to results after back', (
     tester,
   ) async {
@@ -2925,6 +3041,9 @@ void main() {
 
     await tester.tap(find.byTooltip('删除'));
     await tester.pump(const Duration(milliseconds: 100));
+    await tester.pumpAndSettle();
+    // Deleting removes the file from the device, so it asks first.
+    await tester.tap(find.widgetWithText(FilledButton, '删除'));
     await tester.pumpAndSettle();
 
     expect(cache.cached, isEmpty);
@@ -4623,6 +4742,22 @@ class _CountingPlaybackController extends MusicController {
   }, isBroadcast: true);
   @override
   Stream<MediaItem?> get mediaItemStream => _countedStream;
+}
+
+/// Records queue edits instead of performing them.
+class _QueueEditController extends _QueueUiController {
+  _QueueEditController(super.handler);
+  final moves = <(String, int)>[];
+  final removals = <List<String>>[];
+  var clears = 0;
+  @override
+  Future<void> clearQueue() async => clears += 1;
+  @override
+  Future<void> moveQueueItem(String id, int newIndex) async =>
+      moves.add((id, newIndex));
+  @override
+  Future<void> removeQueueItems(Iterable<String> ids) async =>
+      removals.add(ids.toList());
 }
 
 class _QueueUiController extends MusicController {

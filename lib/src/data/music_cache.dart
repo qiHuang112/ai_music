@@ -941,8 +941,10 @@ class CachedTrackStore {
         );
       }
       final deduped = _dedupeCachedTracks(tracks);
-      if (deduped.length != index.length) {
+      if (deduped.length != index.length || _reanchored) {
+        // Also saves repaired paths once, so later reads skip the repair.
         await _writeIndex(root, [for (final track in deduped) track.toJson()]);
+        _reanchored = false;
       }
       deduped.sort((a, b) => a.music.name.compareTo(b.music.name));
       return deduped;
@@ -1066,11 +1068,16 @@ class CachedTrackStore {
   /// iOS gives the app a new container path on every install or update, which
   /// strands the absolute paths saved in the index although the files moved
   /// along. Point such a row at the same file under the current root.
+  ///
+  /// Paths already under the current support directory are left alone without
+  /// touching the disk, so an up-to-date index costs only string checks.
   Future<void> _reanchor(Directory root, Map<String, dynamic> row) async {
     final separator = Platform.pathSeparator;
+    final home = '${root.parent.path}$separator';
     for (final field in const ['filePath', 'lyricsPath', 'artworkPath']) {
       final saved = row[field]?.toString() ?? '';
-      if (saved.isEmpty || await File(saved).exists()) continue;
+      if (saved.isEmpty || saved.startsWith(home)) continue;
+      if (await File(saved).exists()) continue;
       final parts = saved.split(separator);
       if (parts.length < 2) continue;
       final name = parts.last;
@@ -1081,11 +1088,15 @@ class CachedTrackStore {
       ]) {
         if (await File(candidate).exists()) {
           row[field] = candidate;
+          _reanchored = true;
           break;
         }
       }
     }
   }
+
+  /// Set when a read repaired paths that have not been written back yet.
+  bool _reanchored = false;
 
   Future<void> _writeIndex(
     Directory root,

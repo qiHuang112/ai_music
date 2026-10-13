@@ -7,11 +7,18 @@ class SwipeToSkip extends StatefulWidget {
     required this.child,
     required this.onNext,
     required this.onPrevious,
+    this.onDrag,
+    this.onSettle,
   });
 
   final Widget child;
   final VoidCallback onNext;
   final VoidCallback onPrevious;
+
+  /// For a view that follows the finger: the distance dragged so far, then
+  /// how it ended (-1 went to the next song, 1 to the previous, 0 neither).
+  final ValueChanged<double>? onDrag;
+  final ValueChanged<int>? onSettle;
 
   @override
   State<SwipeToSkip> createState() => _SwipeToSkipState();
@@ -26,16 +33,26 @@ class _SwipeToSkipState extends State<SwipeToSkip> {
     return GestureDetector(
       behavior: HitTestBehavior.translucent,
       onHorizontalDragStart: (_) => _dragDistance = 0,
-      onHorizontalDragUpdate: (details) => _dragDistance += details.delta.dx,
+      onHorizontalDragUpdate: (details) {
+        _dragDistance += details.delta.dx;
+        widget.onDrag?.call(_dragDistance);
+      },
       onHorizontalDragEnd: (_) {
+        var direction = 0;
         if (_dragDistance <= -_minimumSwipeDistance) {
+          direction = -1;
           widget.onNext();
         } else if (_dragDistance >= _minimumSwipeDistance) {
+          direction = 1;
           widget.onPrevious();
         }
         _dragDistance = 0;
+        widget.onSettle?.call(direction);
       },
-      onHorizontalDragCancel: () => _dragDistance = 0,
+      onHorizontalDragCancel: () {
+        _dragDistance = 0;
+        widget.onSettle?.call(0);
+      },
       child: widget.child,
     );
   }

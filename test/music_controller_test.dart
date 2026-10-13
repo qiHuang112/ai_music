@@ -2270,6 +2270,13 @@ void main() {
       await controller.playQueueItem(ids[0]);
       expect(queued(), [ids[2], ids[0], ids[1]]);
       expect(() => controller.playQueueItem(ids[3]), throwsStateError);
+
+      // Adding appends only what is not queued yet and leaves playback alone.
+      final nowPlaying = handler.mediaItem.value!.id;
+      expect(await controller.addToQueue([tracks[3], tracks[0]]), 1);
+      expect(queued(), [ids[2], ids[0], ids[1], ids[3]]);
+      expect(handler.mediaItem.value!.id, nowPlaying);
+      expect(await controller.addToQueue([tracks[3]]), 0);
     } finally {
       controller.dispose();
     }
@@ -6797,6 +6804,15 @@ class _SpyAudioHandler extends MusicAudioHandler {
   @override
   Future<void> removeQueueItemAt(int index) async {
     queue.add([...queue.value]..removeAt(index));
+  }
+
+  @override
+  Future<void> removeQueueItemsAt(Iterable<int> indexes) async {
+    final gone = indexes.toSet();
+    queue.add([
+      for (var i = 0; i < queue.value.length; i++)
+        if (!gone.contains(i)) queue.value[i],
+    ]);
   }
 
   @override

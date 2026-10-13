@@ -342,6 +342,60 @@ void main() {
   );
 
   test(
+    'batch removal and moving keep the playing item and its index',
+    () async {
+      final original = JustAudioPlatform.instance;
+      final platform = _TestJustAudioPlatform();
+      JustAudioPlatform.instance = platform;
+      final handler = MusicAudioHandler();
+      List<String> ids() => [for (final item in handler.queue.value) item.id];
+      try {
+        await handler.loadQueue(
+          [
+            for (final id in ['a', 'b', 'c', 'd', 'e', 'f'])
+              PlayableAudio(
+                mediaItem: MediaItem(id: id, title: id),
+                source: AudioSource.uri(
+                  Uri.parse('https://example.com/$id.mp3'),
+                ),
+              ),
+          ],
+          initialIndex: 2,
+          playWhenReady: false,
+        );
+        var publishes = 0;
+        final sub = handler.queue.skip(1).listen((_) => publishes += 1);
+
+        // Two runs around the playing item, which is asked for and ignored.
+        await handler.removeQueueItemsAt([0, 1, 2, 4, 5]);
+        await Future<void>.delayed(Duration.zero);
+        expect(ids(), ['c', 'd']);
+        expect(publishes, 1);
+        expect(handler.mediaItem.value?.id, 'c');
+        expect(handler.playbackState.value.queueIndex, 0);
+
+        await handler.moveQueueItem(1, 0);
+        await Future<void>.delayed(Duration.zero);
+        expect(ids(), ['d', 'c']);
+        expect(handler.mediaItem.value?.id, 'c');
+        expect(handler.playbackState.value.queueIndex, 1);
+        // The playing item itself does not move.
+        await expectLater(handler.moveQueueItem(1, 0), throwsRangeError);
+        await sub.cancel();
+
+        await handler.clearQueue();
+        await Future<void>.delayed(Duration.zero);
+        expect(ids(), isEmpty);
+        expect(handler.mediaItem.value, isNull);
+        expect(handler.playbackState.value.playing, isFalse);
+      } finally {
+        await handler.dispose();
+        JustAudioPlatform.instance = original;
+      }
+    },
+  );
+
+  test(
     'removing an earlier queue item synchronizes the system index without another native event',
     () async {
       final original = JustAudioPlatform.instance;
@@ -562,6 +616,23 @@ class _TestAudioPlayerPlatform extends AudioPlayerPlatform {
     }
     _emit();
     return ConcatenatingRemoveRangeResponse();
+  }
+
+  @override
+  Future<ConcatenatingMoveResponse> concatenatingMove(
+    ConcatenatingMoveRequest request,
+  ) async {
+    // The playing source keeps playing; only its index shifts.
+    final index = _index;
+    if (index != null) {
+      if (request.currentIndex < index && request.newIndex >= index) {
+        _index = index - 1;
+      } else if (request.currentIndex > index && request.newIndex <= index) {
+        _index = index + 1;
+      }
+    }
+    _emit();
+    return ConcatenatingMoveResponse();
   }
 
   @override

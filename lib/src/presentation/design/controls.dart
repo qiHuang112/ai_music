@@ -731,6 +731,8 @@ class DismissKeyboardOnTap extends StatelessWidget {
   @override
   Widget build(BuildContext context) => GestureDetector(
     behavior: HitTestBehavior.translucent,
+    // Not a control: screen readers must not see the whole app as tappable.
+    excludeFromSemantics: true,
     onTap: () => FocusManager.instance.primaryFocus?.unfocus(),
     child: child,
   );

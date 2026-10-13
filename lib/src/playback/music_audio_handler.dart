@@ -217,6 +217,55 @@ class MusicAudioHandler extends BaseAudioHandler
     }
   }
 
+  /// Removes several items in one edit: contiguous runs go out together and
+  /// the queue is published once. The playing item is left alone.
+  Future<void> removeQueueItemsAt(Iterable<int> indexes) async {
+    final current = _player.currentIndex;
+    final doomed = {
+      for (final index in indexes)
+        if (index >= 0 && index < _items.length && index != current) index,
+    }.toList()..sort();
+    if (doomed.isEmpty) return;
+    _beginQueueEdit();
+    try {
+      // From the back, so earlier indexes stay valid.
+      var end = doomed.length;
+      while (end > 0) {
+        var start = end - 1;
+        while (start > 0 && doomed[start - 1] == doomed[start] - 1) {
+          start -= 1;
+        }
+        await _player.removeAudioSourceRange(
+          doomed[start],
+          doomed[end - 1] + 1,
+        );
+        end = start;
+      }
+      final gone = doomed.toSet();
+      _items = List<PlayableAudio>.unmodifiable([
+        for (var i = 0; i < _items.length; i++)
+          if (!gone.contains(i)) _items[i],
+      ]);
+      _publishQueue();
+    } finally {
+      await _finishQueueEdit();
+    }
+  }
+
+  /// Stops and empties the queue: nothing is left playing or loaded.
+  Future<void> clearQueue() async {
+    await stop();
+    _beginQueueEdit();
+    try {
+      await _player.clearAudioSources();
+      _items = const [];
+      _publishQueue();
+      mediaItem.add(null);
+    } finally {
+      await _finishQueueEdit();
+    }
+  }
+
   /// Moves an item that is not the one playing. The playing source keeps its
   /// position and state; only its index may shift.
   Future<void> moveQueueItem(int from, int to) async {

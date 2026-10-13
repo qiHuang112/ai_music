@@ -19,6 +19,40 @@ import Vision
     // Plugins are generated from Flutter dependencies. Register them with the
     // implicit engine instead of hand-writing native bridges for app logic.
     GeneratedPluginRegistrant.register(with: engineBridge.pluginRegistry)
+    // Sends a downloaded file through the system share sheet.
+    let share = FlutterMethodChannel(
+      name: "ai_music/share",
+      binaryMessenger: engineBridge.applicationRegistrar.messenger()
+    )
+    share.setMethodCallHandler { call, result in
+      guard call.method == "file" else {
+        result(FlutterMethodNotImplemented)
+        return
+      }
+      guard let args = call.arguments as? [String: Any],
+            let path = args["path"] as? String,
+            FileManager.default.fileExists(atPath: path) else {
+        result(FlutterError(code: "invalid_file", message: "File is unavailable", details: nil))
+        return
+      }
+      let scenes = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
+      var presenter = scenes.flatMap { $0.windows }.first { $0.isKeyWindow }?.rootViewController
+      while let presented = presenter?.presentedViewController { presenter = presented }
+      guard let host = presenter else {
+        result(FlutterError(code: "no_window", message: "No window to present from", details: nil))
+        return
+      }
+      let sheet = UIActivityViewController(
+        activityItems: [URL(fileURLWithPath: path)],
+        applicationActivities: nil
+      )
+      // iPad presents this as a popover and needs an anchor.
+      sheet.popoverPresentationController?.sourceView = host.view
+      sheet.popoverPresentationController?.sourceRect = CGRect(
+        x: host.view.bounds.midX, y: host.view.bounds.midY, width: 0, height: 0
+      )
+      host.present(sheet, animated: true) { result(nil) }
+    }
     let channel = FlutterMethodChannel(
       name: "ai_music/screenshot_ocr",
       binaryMessenger: engineBridge.applicationRegistrar.messenger()

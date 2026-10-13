@@ -180,19 +180,23 @@ class _MusicHomePageState extends State<MusicHomePage>
             body: IndexedStack(
               index: _tab,
               children: [
-                _homeTab(strings),
-                _visitedTabs.contains(1)
-                    ? _LibraryPage(controller: controller)
-                    : const SizedBox.shrink(),
-                _visitedTabs.contains(2)
-                    ? DownloadManagerPage(
-                        controller: controller,
-                        onOpenPlaylist: _openMatchedPlaylist,
-                      )
-                    : const SizedBox.shrink(),
-                _visitedTabs.contains(3)
-                    ? SettingsPage(controller: controller)
-                    : const SizedBox.shrink(),
+                // Hidden tabs stay built but their animations stop.
+                for (final (i, tab) in [
+                  _homeTab(strings),
+                  _visitedTabs.contains(1)
+                      ? _LibraryPage(controller: controller)
+                      : const SizedBox.shrink(),
+                  _visitedTabs.contains(2)
+                      ? DownloadManagerPage(
+                          controller: controller,
+                          onOpenPlaylist: _openMatchedPlaylist,
+                        )
+                      : const SizedBox.shrink(),
+                  _visitedTabs.contains(3)
+                      ? SettingsPage(controller: controller)
+                      : const SizedBox.shrink(),
+                ].indexed)
+                  TickerMode(enabled: i == _tab, child: tab),
               ],
             ),
             bottomNavigationBar: _tab == 0 && _searchFocusNode.hasFocus
@@ -277,6 +281,10 @@ class _MusicHomePageState extends State<MusicHomePage>
             onSearch: () => _submitSearch(_searchController.text),
             onSubmitted: _submitSearch,
             onImportScreenshots: _openScreenshotImport,
+            onCancel: () {
+              _searchFocusNode.unfocus();
+              _clearSearchInputAndState();
+            },
           ),
           if (_searchFocusNode.hasFocus)
             Expanded(
@@ -600,6 +608,7 @@ class _SearchHeader extends StatelessWidget {
     required this.onSearch,
     required this.onSubmitted,
     required this.onImportScreenshots,
+    required this.onCancel,
     required this.onToggleMode,
     this.playlistMode = false,
   });
@@ -611,6 +620,7 @@ class _SearchHeader extends StatelessWidget {
   final VoidCallback onSearch;
   final ValueChanged<String> onSubmitted;
   final VoidCallback onImportScreenshots;
+  final VoidCallback onCancel;
   final bool playlistMode;
   final VoidCallback onToggleMode;
 
@@ -683,12 +693,36 @@ class _SearchHeader extends StatelessWidget {
                       ],
                     ),
                   ),
-                  suffixIcon: playlistMode
-                      ? null
-                      : IconButton(
-                          tooltip: strings.importScreenshots,
-                          onPressed: onImportScreenshots,
-                          icon: const Icon(Icons.document_scanner_outlined),
+                  // The cancel button is the way out of a search: it clears
+                  // the search and puts the home page back.
+                  suffixIcon: controller.text.isEmpty
+                      ? (playlistMode
+                            ? null
+                            : IconButton(
+                                tooltip: strings.importScreenshots,
+                                onPressed: onImportScreenshots,
+                                icon: const Icon(
+                                  Icons.document_scanner_outlined,
+                                ),
+                              ))
+                      : Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            IconButton(
+                              key: const ValueKey('home-search-cancel'),
+                              tooltip: strings.isZh ? '取消搜索' : 'Cancel search',
+                              onPressed: onCancel,
+                              icon: const Icon(Icons.cancel_rounded, size: 20),
+                            ),
+                            if (!playlistMode)
+                              IconButton(
+                                tooltip: strings.importScreenshots,
+                                onPressed: onImportScreenshots,
+                                icon: const Icon(
+                                  Icons.document_scanner_outlined,
+                                ),
+                              ),
+                          ],
                         ),
                   border: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(MusicUi.fieldRadius),
@@ -1112,21 +1146,6 @@ class _HomeLibrarySection extends StatelessWidget {
                           const Icon(Icons.swap_vert_rounded, size: 18),
                         ],
                       ),
-              ),
-            ),
-            TextButton(
-              key: const ValueKey('home-manage-playlists'),
-              onPressed: onOpenLibrary,
-              style: TextButton.styleFrom(
-                foregroundColor: theme.colorScheme.onSurfaceVariant,
-                padding: const EdgeInsets.symmetric(horizontal: 4),
-              ),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Text(strings.isZh ? '管理' : 'Manage'),
-                  const Icon(Icons.chevron_right, size: 16),
-                ],
               ),
             ),
           ],
@@ -2123,14 +2142,6 @@ class _PlaylistDetailPageState extends State<_PlaylistDetailPage> {
                 strings.isZh ? '暂时显示上次保存的榜单' : 'Showing the last saved chart',
               ),
             ),
-          if (widget.chartUpdatedAt case final updatedAt?)
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 4),
-              child: Text(
-                strings.chartUpdated(updatedAt),
-                style: Theme.of(context).textTheme.bodySmall,
-              ),
-            ),
           if (!_isReorderEditing)
             ListSearchField(
               controller: _searchController,
@@ -2193,6 +2204,9 @@ class _PlaylistDetailPageState extends State<_PlaylistDetailPage> {
             ? <Widget>[
                 PlaylistSliverHeader(
                   title: list.title,
+                  note: widget.chartUpdatedAt == null
+                      ? null
+                      : strings.chartUpdated(widget.chartUpdatedAt!),
                   actions: appBar.actions ?? const [],
                   leading: appBar.leading,
                   toolbarTitle: selecting ? appBar.title : null,
@@ -3386,6 +3400,10 @@ class _TrackActions extends StatelessWidget {
           itemBuilder: (context) {
             return [
               PopupMenuItem(
+                value: _TrackAction.addToQueue,
+                child: Text(strings.isZh ? '添加到播放列表' : 'Add to queue'),
+              ),
+              PopupMenuItem(
                 value: _TrackAction.addToPlaylist,
                 child: Text(strings.addToPlaylist),
               ),
@@ -3419,6 +3437,21 @@ class _TrackActions extends StatelessWidget {
 
   Future<void> _handle(BuildContext context, _TrackAction action) async {
     switch (action) {
+      case _TrackAction.addToQueue:
+        final messenger = ScaffoldMessenger.of(context);
+        final zh = AppStringsScope.of(context).isZh;
+        final added = await controller.addToQueue([track]);
+        messenger
+          ..hideCurrentSnackBar()
+          ..showSnackBar(
+            SnackBar(
+              content: Text(
+                added > 0
+                    ? (zh ? '已添加到播放列表' : 'Added to the queue')
+                    : (zh ? '已经在播放列表里' : 'Already in the queue'),
+              ),
+            ),
+          );
       case _TrackAction.addToPlaylist:
         await showAddToPlaylistSheet(context, controller, track);
       case _TrackAction.switchSource:
@@ -3445,6 +3478,7 @@ enum _TrackAction {
   deleteLocal,
   removeFromCurrent,
   switchSource,
+  addToQueue,
   addToPlaylist,
 }
 

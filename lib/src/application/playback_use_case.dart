@@ -112,6 +112,17 @@ class PlaybackUseCase {
     _lastQueueSignature = _queueSignature(updated);
   }
 
+  Future<void> removeTracksAt(
+    List<Track> currentQueue,
+    Set<int> indexes,
+  ) async {
+    await audioHandler.removeQueueItemsAt(indexes);
+    _lastQueueSignature = _queueSignature([
+      for (var i = 0; i < currentQueue.length; i++)
+        if (!indexes.contains(i)) currentQueue[i],
+    ]);
+  }
+
   Future<void> moveTrack(List<Track> currentQueue, int from, int to) async {
     await audioHandler.moveQueueItem(from, to);
     final updated = [...currentQueue];

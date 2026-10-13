@@ -1,3 +1,4 @@
+import 'file_sharing.dart';
 import 'app_theme.dart';
 import 'date_groups.dart';
 import 'package:flutter/material.dart';
@@ -976,6 +977,47 @@ class _CachedTrackTile extends StatelessWidget {
   final List<Track> queueTracks;
   final int index;
 
+  Future<void> _share(BuildContext context) async {
+    final messenger = ScaffoldMessenger.of(context);
+    final zh = AppStringsScope.of(context).isZh;
+    try {
+      await FileSharing.share(track.filePath);
+    } catch (_) {
+      messenger.showSnackBar(
+        SnackBar(content: Text(zh ? '无法发送这个文件' : 'This file cannot be sent')),
+      );
+    }
+  }
+
+  /// Deleting here removes the audio file itself, so it asks first.
+  Future<void> _confirmDelete(BuildContext context) async {
+    final strings = AppStringsScope.of(context);
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text(strings.isZh ? '删除这首歌的文件？' : 'Delete this file?'),
+        content: Text(
+          strings.isZh
+              ? '《${track.title}》的音频文件会从这台设备上删除，不只是从列表里移除。歌单和收藏里仍会保留这首歌，之后播放需要重新下载。'
+              : 'The audio file of "${track.title}" is removed from this '
+                    'device, not just from this list. It stays in playlists '
+                    'and favorites and downloads again when played.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: Text(strings.cancel),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: Text(strings.delete),
+          ),
+        ],
+      ),
+    );
+    if (confirmed == true) await controller.deleteCachedTrack(track);
+  }
+
   @override
   Widget build(BuildContext context) {
     final strings = AppStringsScope.of(context);
@@ -995,10 +1037,22 @@ class _CachedTrackTile extends StatelessWidget {
         maxLines: 1,
         overflow: TextOverflow.ellipsis,
       ),
-      trailing: IconButton(
-        tooltip: strings.delete,
-        onPressed: () => controller.deleteCachedTrack(track),
-        icon: const Icon(Icons.delete_outline),
+      trailing: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          if (FileSharing.supported)
+            IconButton(
+              key: ValueKey('share-${track.id}'),
+              tooltip: strings.isZh ? '发送文件' : 'Send file',
+              onPressed: () => _share(context),
+              icon: const Icon(Icons.ios_share_rounded),
+            ),
+          IconButton(
+            tooltip: strings.delete,
+            onPressed: () => _confirmDelete(context),
+            icon: const Icon(Icons.delete_outline),
+          ),
+        ],
       ),
     );
   }

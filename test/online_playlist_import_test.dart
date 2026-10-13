@@ -1101,7 +1101,7 @@ void main() {
         find.byKey(ValueKey('home-playlist-${destination.id}')),
         findsOneWidget,
       );
-      await tester.tap(find.byKey(const ValueKey('home-manage-playlists')));
+      await tester.tap(find.byTooltip('音乐库'));
       await tester.pumpAndSettle();
       expect(
         find.byKey(ValueKey('custom-playlist-${destination.id}')),
@@ -1544,7 +1544,7 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.byKey(const Key('playlist-task-entry')), findsNothing);
       expect(store.writes, 2); // Create, then automatically save the match.
-      await tester.tap(find.byKey(const ValueKey('home-manage-playlists')));
+      await tester.tap(find.byTooltip('音乐库'));
       await tester.pumpAndSettle();
       await tester.ensureVisible(find.text('匹配歌单'));
       await tester.pumpAndSettle();
