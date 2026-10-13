@@ -1302,6 +1302,7 @@ class _LibraryPage extends StatelessWidget {
         return Scaffold(
           extendBody: true,
           appBar: AppBar(
+            titleTextStyle: MusicType.masthead(context, size: 30),
             title: Text(strings.isZh ? '音乐库' : 'Music library'),
             actions: [
               IconButton(

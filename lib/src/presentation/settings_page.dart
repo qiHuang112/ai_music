@@ -21,7 +21,10 @@ class SettingsPage extends StatelessWidget {
       animation: controller,
       builder: (context, _) {
         return Scaffold(
-          appBar: AppBar(title: Text(strings.settings)),
+          appBar: AppBar(
+            titleTextStyle: MusicType.masthead(context, size: 30),
+            title: Text(strings.settings),
+          ),
           body: SafeArea(
             // The list runs on under the floating bottom bars.
             bottom: false,

@@ -148,6 +148,7 @@ class _DownloadManagerPageState extends State<DownloadManagerPage> {
           };
           return Scaffold(
             appBar: AppBar(
+              titleTextStyle: MusicType.masthead(context, size: 30),
               title: Text(strings.downloadManager),
               actions: [
                 IconButton(
