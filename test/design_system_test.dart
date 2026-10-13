@@ -145,4 +145,39 @@ void main() {
     expect(ends.single, closeTo(.7, .1));
     expect(changes.every((value) => value >= 0 && value <= 1), isTrue);
   });
+
+  testWidgets('tapping blank space dismisses the keyboard, a button does not', (
+    tester,
+  ) async {
+    final focus = FocusNode();
+    addTearDown(focus.dispose);
+    var pressed = 0;
+    await tester.pumpWidget(
+      MaterialApp(
+        home: DismissKeyboardOnTap(
+          child: Scaffold(
+            body: Column(
+              children: [
+                TextField(focusNode: focus),
+                TextButton(onPressed: () => pressed++, child: const Text('go')),
+                const Expanded(child: SizedBox.expand()),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.tap(find.byType(TextField));
+    await tester.pump();
+    expect(focus.hasFocus, isTrue);
+
+    await tester.tap(find.text('go'));
+    await tester.pump();
+    expect(pressed, 1);
+    expect(focus.hasFocus, isTrue);
+
+    await tester.tapAt(const Offset(400, 500));
+    await tester.pump();
+    expect(focus.hasFocus, isFalse);
+  });
 }

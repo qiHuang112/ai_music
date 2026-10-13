@@ -112,6 +112,13 @@ class PlaybackUseCase {
     _lastQueueSignature = _queueSignature(updated);
   }
 
+  Future<void> moveTrack(List<Track> currentQueue, int from, int to) async {
+    await audioHandler.moveQueueItem(from, to);
+    final updated = [...currentQueue];
+    updated.insert(to, updated.removeAt(from));
+    _lastQueueSignature = _queueSignature(updated);
+  }
+
   PlayableAudio _playableFromTrack(Track track, {AudioSource? selectedSource}) {
     final mediaItem = mediaItemFromTrack(track);
     if (selectedSource != null) {

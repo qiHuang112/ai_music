@@ -177,6 +177,8 @@ class _DownloadManagerPageState extends State<DownloadManagerPage> {
             ),
             body: SafeArea(
               top: false,
+              // Lists run on under the floating bottom bars.
+              bottom: false,
               child: Column(
                 children: [
                   ListSearchField(
@@ -349,7 +351,11 @@ class _DownloadManagerPageState extends State<DownloadManagerPage> {
                                         ),
                                   ),
                           ),
-                        const SliverToBoxAdapter(child: SizedBox(height: 32)),
+                        SliverToBoxAdapter(
+                          child: SizedBox(
+                            height: 32 + MediaQuery.paddingOf(context).bottom,
+                          ),
+                        ),
                       ],
                     ),
                   ),

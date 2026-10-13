@@ -16,6 +16,7 @@ class VinylDisc extends StatelessWidget {
     this.labelColor,
     this.rotation,
     this.shadow = true,
+    this.labelFraction = .37,
   });
 
   /// Shown on the centre label, clipped to a circle. Usually the cover art.
@@ -24,8 +25,9 @@ class VinylDisc extends StatelessWidget {
   final ValueListenable<double>? rotation;
   final bool shadow;
 
-  /// Label radius as a share of the disc radius.
-  static const labelFraction = .37;
+  /// Label radius as a share of the disc radius. Small discs raise it so the
+  /// cover stays readable.
+  final double labelFraction;
 
   @override
   Widget build(BuildContext context) {
@@ -52,7 +54,10 @@ class VinylDisc extends StatelessWidget {
             children: [
               RepaintBoundary(
                 child: CustomPaint(
-                  painter: _GroovePainter(vinyl: palette.vinyl),
+                  painter: _GroovePainter(
+                    vinyl: palette.vinyl,
+                    label: labelFraction,
+                  ),
                 ),
               ),
               FractionallySizedBox(
@@ -81,6 +86,7 @@ class VinylDisc extends StatelessWidget {
                     sheen: palette.sheen,
                     brass: palette.brass,
                     rotation: turn,
+                    label: labelFraction,
                   ),
                 ),
               ),
@@ -93,7 +99,9 @@ class VinylDisc extends StatelessWidget {
 }
 
 class _GroovePainter extends CustomPainter {
-  const _GroovePainter({required this.vinyl});
+  const _GroovePainter({required this.vinyl, required this.label});
+
+  final double label;
 
   final Color vinyl;
 
@@ -119,7 +127,7 @@ class _GroovePainter extends CustomPainter {
     // Each groove catches a different amount of light. A fixed seed keeps the
     // pattern identical between repaints.
     final random = math.Random(7);
-    final inner = radius * (VinylDisc.labelFraction + .07);
+    final inner = radius * (label + .07);
     final outer = radius * .965;
     final step = math.max(1.1, radius / 92);
     final groove = Paint()..style = PaintingStyle.stroke;
@@ -134,6 +142,7 @@ class _GroovePainter extends CustomPainter {
 
     // Silent bands between tracks.
     for (final fraction in const [.56, .69, .81, .91]) {
+      if (fraction < label + .12) continue;
       canvas
         ..drawCircle(
           center,
@@ -157,7 +166,7 @@ class _GroovePainter extends CustomPainter {
     canvas
       ..drawCircle(
         center,
-        radius * (VinylDisc.labelFraction + .035),
+        radius * (label + .035),
         Paint()
           ..style = PaintingStyle.stroke
           ..strokeWidth = radius * .07
@@ -174,7 +183,8 @@ class _GroovePainter extends CustomPainter {
   }
 
   @override
-  bool shouldRepaint(_GroovePainter old) => old.vinyl != vinyl;
+  bool shouldRepaint(_GroovePainter old) =>
+      old.vinyl != vinyl || old.label != label;
 }
 
 /// The paper label when there is no artwork: a flat colour with printed rings
@@ -230,7 +240,10 @@ class _SheenPainter extends CustomPainter {
     required this.sheen,
     required this.brass,
     required this.rotation,
+    required this.label,
   }) : super(repaint: rotation);
+
+  final double label;
 
   final Color sheen, brass;
   final ValueListenable<double> rotation;
@@ -240,7 +253,7 @@ class _SheenPainter extends CustomPainter {
     final center = size.center(Offset.zero);
     final radius = size.shortestSide / 2;
     final bounds = Rect.fromCircle(center: center, radius: radius);
-    final labelRadius = radius * VinylDisc.labelFraction;
+    final labelRadius = radius * label;
     final clear = sheen.withValues(alpha: 0);
     final bright = sheen.withValues(alpha: .24);
     final faint = sheen.withValues(alpha: .055);
@@ -306,7 +319,10 @@ class _SheenPainter extends CustomPainter {
 
   @override
   bool shouldRepaint(_SheenPainter old) =>
-      old.sheen != sheen || old.brass != brass || old.rotation != rotation;
+      old.sheen != sheen ||
+      old.brass != brass ||
+      old.rotation != rotation ||
+      old.label != label;
 }
 
 /// Turns a [VinylDisc] with the inertia of a platter: it winds up to speed and
@@ -318,9 +334,11 @@ class SpinningVinyl extends StatefulWidget {
     this.label,
     this.labelColor,
     this.shadow = true,
+    this.labelFraction = .37,
   });
 
   final bool spinning;
+  final double labelFraction;
   final Widget? label;
   final Color? labelColor;
   final bool shadow;
@@ -394,6 +412,7 @@ class _SpinningVinylState extends State<SpinningVinyl>
 
   @override
   Widget build(BuildContext context) => VinylDisc(
+    labelFraction: widget.labelFraction,
     label: widget.label,
     labelColor: widget.labelColor,
     rotation: _angle,

@@ -217,6 +217,29 @@ class MusicAudioHandler extends BaseAudioHandler
     }
   }
 
+  /// Moves an item that is not the one playing. The playing source keeps its
+  /// position and state; only its index may shift.
+  Future<void> moveQueueItem(int from, int to) async {
+    if (from < 0 ||
+        from >= _items.length ||
+        to < 0 ||
+        to >= _items.length ||
+        from == _player.currentIndex) {
+      throw RangeError.index(from, _items);
+    }
+    if (from == to) return;
+    _beginQueueEdit();
+    try {
+      await _player.moveAudioSource(from, to);
+      final items = [..._items];
+      items.insert(to, items.removeAt(from));
+      _items = List<PlayableAudio>.unmodifiable(items);
+      _publishQueue();
+    } finally {
+      await _finishQueueEdit();
+    }
+  }
+
   void _beginQueueEdit() {
     _editingQueue = true;
     _queueRevision += 1;

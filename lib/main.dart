@@ -14,9 +14,9 @@ import 'src/presentation/app_localizations.dart';
 import 'src/playback/music_audio_handler.dart';
 import 'src/presentation/music_home_page.dart';
 import 'src/presentation/app_theme.dart';
-import 'src/presentation/design/ambient_backdrop.dart';
+import 'src/presentation/design/controls.dart';
 import 'src/presentation/design/design_gallery_page.dart';
-import 'src/presentation/design/paper_texture.dart';
+import 'src/presentation/design/soft_scroll_edge.dart';
 
 const _disableAudioService = bool.fromEnvironment(
   'AI_MUSIC_DISABLE_AUDIO_SERVICE',
@@ -47,7 +47,18 @@ Future<void> main() async {
   };
   final audioHandler = await _createAudioHandler();
   await audioHandler.configure();
-  runApp(AiMusicApp(controller: MusicController(audioHandler: audioHandler)));
+  final controller = MusicController(audioHandler: audioHandler);
+  // Know the saved look before the first frame. Otherwise the app opens in
+  // the default dark theme and visibly fades to the user's light one.
+  try {
+    final saved = await controller.settingsController.load();
+    controller
+      ..themePreference = saved.theme
+      ..language = saved.language;
+  } catch (_) {
+    // The defaults stand; initialize() reports real settings failures.
+  }
+  runApp(AiMusicApp(controller: controller));
 }
 
 Future<MusicAudioHandler> _createAudioHandler() async {
@@ -86,6 +97,10 @@ class AiMusicApp extends StatelessWidget {
         return MaterialApp(
           title: AppBrand.name,
           debugShowCheckedModeBanner: false,
+          // The page backdrop swaps whole with the theme; a cross-fade would
+          // show it under half-changed colors.
+          themeAnimationDuration: Duration.zero,
+          scrollBehavior: const SoftEdgeScrollBehavior(),
           theme: MusicAppTheme.create(Brightness.light),
           darkTheme: MusicAppTheme.create(Brightness.dark),
           themeMode: controller.themePreference == AppThemePreference.light
@@ -93,13 +108,8 @@ class AiMusicApp extends StatelessWidget {
               : ThemeMode.dark,
           builder: (context, child) => AppStringsScope(
             language: controller.language,
-            // Daylight pages are xuan paper; the night room is lit amber.
-            child: RoomGlow(
-              enabled: Theme.of(context).brightness == Brightness.dark,
-              child: PaperTexture(
-                enabled: Theme.of(context).brightness == Brightness.light,
-                child: child ?? const SizedBox.shrink(),
-              ),
+            child: DismissKeyboardOnTap(
+              child: child ?? const SizedBox.shrink(),
             ),
           ),
           home: _designGallery

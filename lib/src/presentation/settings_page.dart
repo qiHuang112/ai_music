@@ -23,8 +23,10 @@ class SettingsPage extends StatelessWidget {
         return Scaffold(
           appBar: AppBar(title: Text(strings.settings)),
           body: SafeArea(
+            // The list runs on under the floating bottom bars.
+            bottom: false,
             child: ListView(
-              padding: MusicUi.pageInsets,
+              padding: MusicUi.scrollInsets(context),
               children: [
                 _SettingsGroup(
                   title: strings.isZh ? '通用' : 'General',

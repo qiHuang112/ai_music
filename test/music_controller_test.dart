@@ -2222,6 +2222,59 @@ void main() {
     );
   });
 
+  test('queue edits remove and move around the playing song', () async {
+    final handler = _SpyAudioHandler();
+    final cached = [
+      for (final name in ['a', 'b', 'c', 'd'])
+        _cachedTrack(
+          id: name,
+          name: name,
+        ).copyWith(cacheId: 'cache-$name', filePath: '/tmp/$name.mp3'),
+    ];
+    final controller = MusicController(
+      audioHandler: handler,
+      songSearchCache: SongSearchCache.memory(),
+      downloadHistoryStore: MemoryDownloadHistory(),
+      connectivityChanges: const Stream.empty(),
+      resolver: _FakeMusicResolver(),
+      cacheStore: _FakeCacheStore(cached: cached),
+      playlistStore: _MemoryPlaylistStore(),
+      settingsStore: _FakeSettingsStore(),
+      metadataRepository: _StaticMetadataRepository(),
+    );
+    try {
+      await controller.initialize();
+      final tracks = controller.cachedTracks;
+      expect(tracks, hasLength(4));
+      List<String> queued() => [
+        for (final item in handler.queue.value) item.id,
+      ];
+      final ids = [for (final track in tracks) track.id];
+      await controller.playTrack(tracks[1], index: 1, queueTracks: tracks);
+      expect(queued(), ids);
+      final playing = handler.mediaItem.value!.id;
+      expect(playing, ids[1]);
+
+      // The playing song is skipped; the other one goes.
+      await controller.removeQueueItems([playing, ids[3]]);
+      expect(queued(), [ids[0], ids[1], ids[2]]);
+
+      await controller.moveQueueItem(ids[2], 0);
+      expect(queued(), [ids[2], ids[0], ids[1]]);
+      // The playing song does not move.
+      await controller.moveQueueItem(playing, 0);
+      expect(queued(), [ids[2], ids[0], ids[1]]);
+      expect(handler.mediaItem.value!.id, playing);
+
+      // The queue the controller plays from follows the edits.
+      await controller.playQueueItem(ids[0]);
+      expect(queued(), [ids[2], ids[0], ids[1]]);
+      expect(() => controller.playQueueItem(ids[3]), throwsStateError);
+    } finally {
+      controller.dispose();
+    }
+  });
+
   test(
     'statistics retain the actual playlist origin and known quality identity',
     () async {
@@ -6744,6 +6797,13 @@ class _SpyAudioHandler extends MusicAudioHandler {
   @override
   Future<void> removeQueueItemAt(int index) async {
     queue.add([...queue.value]..removeAt(index));
+  }
+
+  @override
+  Future<void> moveQueueItem(int from, int to) async {
+    final items = [...queue.value];
+    items.insert(to, items.removeAt(from));
+    queue.add(items);
   }
 
   @override

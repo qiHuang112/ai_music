@@ -397,6 +397,10 @@ class MusicController extends ChangeNotifier {
   // Queue ownership survives the temporary sync suspension during device loads.
   String? _queuePlaylistId;
   final Set<String> _retiredQueueTrackIds = {};
+
+  /// Songs the user took out of this queue. A playlist that is still being
+  /// matched in the background must not append them again.
+  final Set<String> _userRemovedQueueIds = {};
   final Map<String, MusicSearchCandidate> _adHocPlayCandidates = {};
   final Map<
     String,
@@ -1504,7 +1508,10 @@ class MusicController extends ChangeNotifier {
       // source that may fail while the original playlist keeps playing.
       _listeningRecorder.capture();
       _activePlaylistId = null;
-      if (!selectFromQueue) _retiredQueueTrackIds.clear();
+      if (!selectFromQueue) {
+        _retiredQueueTrackIds.clear();
+        _userRemovedQueueIds.clear();
+      }
       _captureQueueSongEntries(queue, selectedPlaylistId);
       loadingQueue = queue;
       _activeQueueTracks = queue;
@@ -1597,6 +1604,51 @@ class MusicController extends ChangeNotifier {
     );
   }
 
+  /// Queue edits wait their turn behind loads and background appends, so two
+  /// of them never rewrite the source list at once.
+  Future<void> _editQueue(Future<void> Function() edit) async {
+    final prior = _playLoadTail;
+    final done = Completer<void>();
+    _playLoadTail = done.future;
+    await prior;
+    try {
+      if (_isDisposed) return;
+      await edit();
+      _lyricsPrefetchQueueKey = null;
+      _maybePrefetchNext();
+      _maybePrefetchUpcomingLyrics();
+    } finally {
+      done.complete();
+    }
+    if (!_isDisposed) notifyListeners();
+  }
+
+  /// Takes songs out of the queue. The one playing stays: removing it would
+  /// mean changing what is heard, which is what next/previous are for.
+  Future<void> removeQueueItems(Iterable<String> ids) => _editQueue(() async {
+    for (final id in ids.toList()) {
+      if (audioHandler.mediaItem.value?.id == id) continue;
+      final index = _activeQueueTracks.indexWhere((track) => track.id == id);
+      if (index < 0) continue;
+      await playbackUseCase.removeTrackAt(_activeQueueTracks, index);
+      _activeQueueTracks = [..._activeQueueTracks]..removeAt(index);
+      _retiredQueueTrackIds.remove(id);
+      _userRemovedQueueIds.add(id);
+    }
+  });
+
+  /// Moves a song that is not the one playing to [newIndex] in the queue.
+  Future<void> moveQueueItem(String id, int newIndex) => _editQueue(() async {
+    if (audioHandler.mediaItem.value?.id == id) return;
+    final from = _activeQueueTracks.indexWhere((track) => track.id == id);
+    final to = newIndex.clamp(0, _activeQueueTracks.length - 1);
+    if (from < 0 || from == to) return;
+    await playbackUseCase.moveTrack(_activeQueueTracks, from, to);
+    final moved = [..._activeQueueTracks];
+    moved.insert(to, moved.removeAt(from));
+    _activeQueueTracks = moved;
+  });
+
   Future<void> seek(Duration position) => playbackUseCase.seek(position);
 
   Future<void> seekToLyricLine(LyricLine line) => seek(line.time);
@@ -1617,6 +1669,7 @@ class MusicController extends ChangeNotifier {
     _streamingMetadataTracks.clear();
     _activePlaylistId = null;
     _retiredQueueTrackIds.clear();
+    _userRemovedQueueIds.clear();
     await _playbackPrefetch.cancel();
     _replaceQueueSongEntries(const {});
     _activeQueueTracks = const [];
@@ -3058,7 +3111,10 @@ class MusicController extends ChangeNotifier {
           audioHandler.mediaItem.value == null) {
         return;
       }
-      final existingIds = {for (final track in _activeQueueTracks) track.id};
+      final existingIds = {
+        for (final track in _activeQueueTracks) track.id,
+        ..._userRemovedQueueIds,
+      };
       final additions = [
         for (final track in tracksForPlaylist(playlist))
           if (existingIds.add(track.id)) track,

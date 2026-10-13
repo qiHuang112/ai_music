@@ -672,34 +672,13 @@ void main() {
       controller.positions.add(const Duration(seconds: 80));
       await tester.pump();
       await tester.pump();
-      expect(
-        tester
-            .widget<FractionallySizedBox>(
-              find.byKey(const ValueKey('mini-played-progress')),
-            )
-            .widthFactor,
-        .8,
-      );
+      expect(tester.widget<ProgressRing>(find.byType(ProgressRing)).played, .8);
       expect(handler.currentPosition, Duration.zero);
       await show('A', seconds: 200);
-      expect(
-        tester
-            .widget<FractionallySizedBox>(
-              find.byKey(const ValueKey('mini-played-progress')),
-            )
-            .widthFactor,
-        .4,
-      );
+      expect(tester.widget<ProgressRing>(find.byType(ProgressRing)).played, .4);
       await show('B');
       await tester.pump();
-      expect(
-        tester
-            .widget<FractionallySizedBox>(
-              find.byKey(const ValueKey('mini-played-progress')),
-            )
-            .widthFactor,
-        0,
-      );
+      expect(tester.widget<ProgressRing>(find.byType(ProgressRing)).played, 0);
     } finally {
       await tester.pumpWidget(const SizedBox.shrink());
       controller.dispose();
@@ -744,7 +723,12 @@ void main() {
         handler.queue.add([first]);
         handler.emit(first);
         await tester.pumpAndSettle();
-        await tester.tap(find.byKey(const ValueKey('mini-player-queue')));
+        // The queue opens by swiping the mini player up.
+        await tester.fling(
+          find.byKey(const ValueKey('mini-player-card')),
+          const Offset(0, -80),
+          800,
+        );
         await tester.pumpAndSettle();
         expect(find.text('当前队列 · 1'), findsOneWidget);
         handler.queue.add([first, second]);
@@ -812,9 +796,11 @@ void main() {
               ),
             ),
           );
-      double fraction(String key) => tester
-          .widget<FractionallySizedBox>(find.byKey(ValueKey(key)))
-          .widthFactor!;
+      double fraction(String key) {
+        final ring = tester.widget<ProgressRing>(find.byType(ProgressRing));
+        return key == 'mini-played-progress' ? ring.played : ring.buffered;
+      }
+
       try {
         await show(
           const MediaItem(
@@ -923,7 +909,12 @@ void main() {
             ]);
             handler.emit(handler.queue.value.first);
             await tester.pumpAndSettle();
-            await tester.tap(find.byKey(const ValueKey('mini-player-queue')));
+            // The queue opens by swiping the mini player up.
+            await tester.fling(
+              find.byKey(const ValueKey('mini-player-card')),
+              const Offset(0, -80),
+              800,
+            );
             await tester.pumpAndSettle();
             await tester.scrollUntilVisible(
               find.byKey(const ValueKey('queue-item-49')),
@@ -2803,7 +2794,8 @@ void main() {
     controller.notifyListeners();
     await tester.pump();
     expect(find.byKey(const ValueKey('home-download-spinner')), findsNothing);
-    expect(find.byIcon(Icons.download), findsOneWidget);
+    // Tabs are words only now; the spinner is the whole signal.
+    expect(find.byTooltip('下载'), findsOneWidget);
   });
 
   testWidgets('download manager playlist button starts its whole batch', (

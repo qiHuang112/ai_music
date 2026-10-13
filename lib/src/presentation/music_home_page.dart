@@ -206,42 +206,42 @@ class _MusicHomePageState extends State<MusicHomePage>
                         removeBottom: true,
                         child: MiniPlayer(controller: controller),
                       ),
-                      GlassTabBar(
-                        index: _tab,
-                        onSelected: _selectTab,
-                        tabs: [
-                          GlassTab(
-                            icon: const Icon(Icons.home_rounded),
-                            label: strings.isZh ? '首页' : 'Home',
-                            tooltip: strings.isZh ? '首页' : 'Home',
-                          ),
-                          GlassTab(
-                            icon: const Icon(Icons.library_music_rounded),
-                            label: strings.isZh ? '音乐库' : 'Library',
-                            tooltip: strings.isZh ? '音乐库' : 'Music library',
-                          ),
-                          GlassTab(
-                            icon: controller.hasActiveDownloads
-                                ? const SizedBox.square(
-                                    key: ValueKey('home-download-spinner'),
-                                    dimension: 20,
-                                    child: CircularProgressIndicator(
-                                      strokeWidth: 2,
-                                    ),
-                                  )
-                                : const Icon(Icons.download),
-                            label: strings.isZh ? '下载' : 'Downloads',
-                            tooltip: strings.downloads,
-                          ),
-                          GlassTab(
-                            icon: UpdateBadge(
-                              updates: controller.appUpdates,
-                              child: const Icon(Icons.settings_outlined),
+                      NavBlur(
+                        child: GlassTabBar(
+                          index: _tab,
+                          onSelected: _selectTab,
+                          tabs: [
+                            GlassTab(
+                              label: strings.isZh ? '首页' : 'Home',
+                              tooltip: strings.isZh ? '首页' : 'Home',
                             ),
-                            label: strings.settings,
-                            tooltip: strings.settings,
-                          ),
-                        ],
+                            GlassTab(
+                              label: strings.isZh ? '音乐库' : 'Library',
+                              tooltip: strings.isZh ? '音乐库' : 'Music library',
+                            ),
+                            GlassTab(
+                              label: strings.isZh ? '下载' : 'Downloads',
+                              tooltip: strings.downloads,
+                              marker: controller.hasActiveDownloads
+                                  ? const SizedBox.square(
+                                      key: ValueKey('home-download-spinner'),
+                                      dimension: 11,
+                                      child: CircularProgressIndicator(
+                                        strokeWidth: 1.6,
+                                      ),
+                                    )
+                                  : null,
+                            ),
+                            GlassTab(
+                              label: strings.settings,
+                              tooltip: strings.settings,
+                              marker: UpdateBadge(
+                                updates: controller.appUpdates,
+                                child: const SizedBox(width: 2, height: 10),
+                              ),
+                            ),
+                          ],
+                        ),
                       ),
                     ],
                   ),
@@ -622,7 +622,7 @@ class _SearchHeader extends StatelessWidget {
         MediaQuery.sizeOf(context).width < 360 &&
         MediaQuery.textScalerOf(context).scale(12) > 16;
     return Material(
-      color: colors.surface,
+      type: MaterialType.transparency,
       child: Padding(
         padding: const EdgeInsets.fromLTRB(20, 4, 20, 16),
         child: Row(
@@ -1355,21 +1355,25 @@ class _LibraryLanding extends StatelessWidget {
           const LinearProgressIndicator(),
           const SizedBox(height: 12),
         ],
-        Wrap(
-          spacing: 8,
-          runSpacing: 8,
+        Row(
           children: [
-            _LibraryShortcutButton(
-              selection: _LibraryListSpec.favorite(),
-              count: controller.favoriteTracks.length,
-              title: strings.favorite,
-              onPressed: () => _openList(context, _LibraryListSpec.favorite()),
+            Expanded(
+              child: _LibraryShortcutButton(
+                selection: _LibraryListSpec.favorite(),
+                count: controller.favoriteTracks.length,
+                title: strings.favorite,
+                onPressed: () =>
+                    _openList(context, _LibraryListSpec.favorite()),
+              ),
             ),
-            _LibraryShortcutButton(
-              selection: _LibraryListSpec.local(),
-              count: controller.cachedTracks.length,
-              title: strings.localLibrary,
-              onPressed: () => _openList(context, _LibraryListSpec.local()),
+            const SizedBox(width: 12),
+            Expanded(
+              child: _LibraryShortcutButton(
+                selection: _LibraryListSpec.local(),
+                count: controller.cachedTracks.length,
+                title: strings.localLibrary,
+                onPressed: () => _openList(context, _LibraryListSpec.local()),
+              ),
             ),
           ],
         ),
@@ -1481,22 +1485,50 @@ class _LibraryShortcutButton extends StatelessWidget {
   final String title;
   final VoidCallback onPressed;
 
+  /// A flat tile, one of two side by side: icon and name on the left, the
+  /// count on the right in the engraved voice. No shadow; the tint alone
+  /// separates it from the page.
   @override
   Widget build(BuildContext context) {
     final colors = Theme.of(context).colorScheme;
-    return FilledButton.tonalIcon(
-      style: FilledButton.styleFrom(
-        // Shortcuts, not the page's one lit action.
-        backgroundColor: colors.surfaceContainerHigh,
-        foregroundColor: colors.onSurface,
-        iconColor: colors.primary,
-        minimumSize: const Size(0, 40),
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+    final radius = BorderRadius.circular(MusicUi.radius);
+    return Material(
+      color: colors.surfaceContainerHigh,
+      borderRadius: radius,
+      child: InkWell(
+        borderRadius: radius,
+        onTap: onPressed,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(14, 14, 14, 14),
+          child: Row(
+            children: [
+              Icon(selection.icon, size: 20, color: colors.primary),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  title,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: Theme.of(context).textTheme.titleSmall,
+                ),
+              ),
+              const SizedBox(width: 8),
+              // Shrinks before it overflows on narrow phones with large type.
+              Expanded(
+                child: FittedBox(
+                  fit: BoxFit.scaleDown,
+                  alignment: AlignmentDirectional.centerEnd,
+                  child: Text(
+                    AppStringsScope.of(context).songCount(count),
+                    maxLines: 1,
+                    style: MusicType.readout(context, size: 13),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
       ),
-      onPressed: onPressed,
-      icon: Icon(selection.icon, size: 18),
-      label: Text('$title · ${AppStringsScope.of(context).songCount(count)}'),
     );
   }
 }

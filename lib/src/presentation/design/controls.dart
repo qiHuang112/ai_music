@@ -134,8 +134,9 @@ class GlassIconButton extends StatelessWidget {
   }
 }
 
-/// The one loud control: an amber button lit from inside like a pilot lamp.
-class PlayPauseButton extends StatelessWidget {
+/// The one loud control: a button lit from inside like a pilot lamp. While
+/// the song plays its light breathes, slowly swelling and easing back.
+class PlayPauseButton extends StatefulWidget {
   const PlayPauseButton({
     super.key,
     required this.playing,
@@ -150,11 +151,58 @@ class PlayPauseButton extends StatelessWidget {
   final double size;
 
   @override
+  State<PlayPauseButton> createState() => _PlayPauseButtonState();
+}
+
+class _PlayPauseButtonState extends State<PlayPauseButton>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _breath;
+
+  @override
+  void initState() {
+    super.initState();
+    _breath = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 2200),
+    );
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _sync();
+  }
+
+  @override
+  void didUpdateWidget(PlayPauseButton oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    _sync();
+  }
+
+  void _sync() {
+    final run = widget.playing && MusicMotion.allowsPerpetual(context);
+    if (run && !_breath.isAnimating) {
+      _breath.repeat(reverse: true);
+    } else if (!run && (_breath.isAnimating || _breath.value != 0)) {
+      _breath.animateBack(0, duration: MusicMotion.slow);
+    }
+  }
+
+  @override
+  void dispose() {
+    _breath.dispose();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
     final colors = Theme.of(context).colorScheme;
     final accent = colors.primaryContainer;
+    final size = widget.size;
+    final playing = widget.playing;
+    final onPressed = widget.onPressed;
     return Tooltip(
-      message: tooltip,
+      message: widget.tooltip,
       child: Semantics(
         button: true,
         enabled: onPressed != null,
@@ -164,39 +212,47 @@ class PlayPauseButton extends StatelessWidget {
               ? null
               : () {
                   HapticFeedback.mediumImpact();
-                  onPressed!();
+                  onPressed();
                 },
           haptic: false,
-          child: AnimatedContainer(
-            duration: MusicMotion.slow,
-            curve: MusicMotion.standard,
-            width: size,
-            height: size,
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              gradient: RadialGradient(
-                center: const Alignment(-.3, -.45),
-                radius: .95,
-                colors: [
-                  Color.lerp(accent, Colors.white, .42)!,
-                  accent,
-                  Color.lerp(accent, Colors.black, .22)!,
-                ],
-                stops: const [0, .55, 1],
-              ),
-              boxShadow: [
-                BoxShadow(
-                  color: accent.withValues(alpha: playing ? .55 : .26),
-                  blurRadius: playing ? 34 : 18,
-                  spreadRadius: playing ? 2 : 0,
+          child: AnimatedBuilder(
+            animation: _breath,
+            builder: (context, icon) {
+              final breath = Curves.easeInOut.transform(_breath.value);
+              final lit = Color.lerp(accent, Colors.white, .10 * breath)!;
+              return Container(
+                width: size,
+                height: size,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  gradient: RadialGradient(
+                    center: const Alignment(-.3, -.45),
+                    radius: .95,
+                    colors: [
+                      Color.lerp(lit, Colors.white, .42)!,
+                      lit,
+                      Color.lerp(lit, Colors.black, .22)!,
+                    ],
+                    stops: const [0, .55, 1],
+                  ),
+                  boxShadow: [
+                    BoxShadow(
+                      color: accent.withValues(
+                        alpha: playing ? .34 + .26 * breath : .22,
+                      ),
+                      blurRadius: size * (playing ? .26 + .22 * breath : .2),
+                      spreadRadius: playing ? size * .03 * breath : 0,
+                    ),
+                    BoxShadow(
+                      color: Colors.black.withValues(alpha: .30),
+                      blurRadius: size * .13,
+                      offset: Offset(0, size * .07),
+                    ),
+                  ],
                 ),
-                BoxShadow(
-                  color: Colors.black.withValues(alpha: .35),
-                  blurRadius: 10,
-                  offset: const Offset(0, 6),
-                ),
-              ],
-            ),
+                child: icon,
+              );
+            },
             child: AnimatedSwitcher(
               duration: MusicMotion.base,
               switchInCurve: Curves.easeOutBack,
@@ -662,4 +718,20 @@ class QualityBadge extends StatelessWidget {
       ),
     );
   }
+}
+
+/// Puts the keyboard away when a blank part of the screen is tapped. Taps on
+/// buttons, rows and fields still go to them; only a tap nothing else wants
+/// lands here.
+class DismissKeyboardOnTap extends StatelessWidget {
+  const DismissKeyboardOnTap({super.key, required this.child});
+
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) => GestureDetector(
+    behavior: HitTestBehavior.translucent,
+    onTap: () => FocusManager.instance.primaryFocus?.unfocus(),
+    child: child,
+  );
 }

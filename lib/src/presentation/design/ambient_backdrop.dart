@@ -3,8 +3,10 @@ import 'dart:typed_data';
 import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 
 import '../app_theme.dart';
+import 'paper_texture.dart';
 
 /// The room behind everything: the page color, two slow pools of light and a
 /// veil of film grain. Pass colors from [ArtworkPalette] to light it from the
@@ -68,59 +70,128 @@ class AmbientBackdrop extends StatelessWidget {
   }
 }
 
-/// The night room's warm light over every page: amber from the upper left,
-/// label red from the lower right, and film grain. It steps aside while an
-/// [AmbientBackdrop] is on screen, which lights its page from the artwork.
-class RoomGlow extends StatelessWidget {
-  const RoomGlow({super.key, required this.child, this.enabled = true});
+/// Paints what lies behind a page, as if the canvas were the whole screen:
+/// by day cream xuan paper, by night the room's amber and red light.
+void paintPageBackdrop(
+  Canvas canvas,
+  Size screen,
+  MusicPalette palette, {
+  required bool dark,
+}) {
+  if (dark) {
+    _AmbientPainter(
+      phase: const AlwaysStoppedAnimation(0),
+      base: palette.background,
+      glow: palette.accent,
+      shade: palette.haze,
+      ember: palette.accent,
+      dark: true,
+    ).paint(canvas, screen);
+  } else {
+    canvas.drawRect(Offset.zero & screen, Paint()..color = palette.background);
+    PaperTexture.paintOn(canvas, screen);
+  }
+}
 
-  final Widget child;
-  final bool enabled;
-
-  /// How many [AmbientBackdrop]s are mounted.
-  static final covered = ValueNotifier<int>(0);
+/// The background of every pushed page. It sits behind the page's content,
+/// so buttons and covers on top of it keep their own solid colors.
+class PageBackdrop extends StatelessWidget {
+  const PageBackdrop({super.key});
 
   @override
   Widget build(BuildContext context) {
-    if (!enabled) return child;
-    final palette = MusicTokens.of(context);
-    return Stack(
+    final dark = Theme.of(context).brightness == Brightness.dark;
+    return RepaintBoundary(
+      child: Stack(
+        fit: StackFit.expand,
+        children: [
+          CustomPaint(painter: _PagePainter(MusicTokens.of(context), dark)),
+          if (dark) const FilmGrain(opacity: .075),
+        ],
+      ),
+    );
+  }
+}
+
+class _PagePainter extends CustomPainter {
+  const _PagePainter(this.palette, this.dark);
+
+  final MusicPalette palette;
+  final bool dark;
+
+  @override
+  void paint(Canvas canvas, Size size) =>
+      paintPageBackdrop(canvas, size, palette, dark: dark);
+
+  @override
+  bool shouldRepaint(_PagePainter old) =>
+      old.palette != palette || old.dark != dark;
+}
+
+/// A piece of the page backdrop for a bar that stays put while content
+/// scrolls under it. It paints the part of the backdrop that lies behind
+/// itself, so the bar hides the content without showing as a flat band.
+class BackdropSlice extends StatelessWidget {
+  const BackdropSlice({super.key, this.child});
+
+  final Widget? child;
+
+  @override
+  Widget build(BuildContext context) => _BackdropSliceBox(
+    child: Stack(
       fit: StackFit.passthrough,
       children: [
-        child,
-        Positioned.fill(
-          child: IgnorePointer(
-            child: ValueListenableBuilder<int>(
-              valueListenable: covered,
-              builder: (context, count, glow) => AnimatedOpacity(
-                opacity: count > 0 ? 0 : 1,
-                duration: MusicMotion.slow,
-                child: glow,
-              ),
-              child: RepaintBoundary(
-                child: Stack(
-                  fit: StackFit.expand,
-                  children: [
-                    CustomPaint(
-                      painter: _AmbientPainter(
-                        phase: const AlwaysStoppedAnimation(0),
-                        base: palette.background,
-                        glow: palette.accent,
-                        shade: palette.haze,
-                        ember: palette.accent,
-                        dark: true,
-                        overlay: true,
-                      ),
-                    ),
-                    const FilmGrain(opacity: .075),
-                  ],
-                ),
-              ),
-            ),
+        // The same grain the page has, or the bar would read as a darker band.
+        if (Theme.of(context).brightness == Brightness.dark)
+          const Positioned.fill(
+            child: IgnorePointer(child: FilmGrain(opacity: .075)),
           ),
-        ),
+        child ?? const SizedBox.shrink(),
       ],
-    );
+    ),
+  );
+}
+
+class _BackdropSliceBox extends SingleChildRenderObjectWidget {
+  const _BackdropSliceBox({super.child});
+
+  @override
+  RenderObject createRenderObject(BuildContext context) => _RenderBackdropSlice(
+    MusicTokens.of(context),
+    Theme.of(context).brightness == Brightness.dark,
+    MediaQuery.sizeOf(context),
+  );
+
+  @override
+  void updateRenderObject(
+    BuildContext context,
+    covariant RenderObject renderObject,
+  ) {
+    (renderObject as _RenderBackdropSlice)
+      ..palette = MusicTokens.of(context)
+      ..dark = Theme.of(context).brightness == Brightness.dark
+      ..screen = MediaQuery.sizeOf(context)
+      ..markNeedsPaint();
+  }
+}
+
+class _RenderBackdropSlice extends RenderProxyBox {
+  _RenderBackdropSlice(this.palette, this.dark, this.screen);
+
+  MusicPalette palette;
+  bool dark;
+  Size screen;
+
+  @override
+  void paint(PaintingContext context, Offset offset) {
+    final origin = localToGlobal(Offset.zero);
+    context.canvas
+      ..save()
+      ..clipRect(offset & size)
+      ..translate(offset.dx - origin.dx, offset.dy - origin.dy);
+    paintPageBackdrop(context.canvas, screen, palette, dark: dark);
+    context.canvas.restore();
+    super.paint(context, offset);
   }
 }
 
@@ -140,7 +211,6 @@ class _DriftState extends State<_Drift> with SingleTickerProviderStateMixin {
   @override
   void initState() {
     super.initState();
-    RoomGlow.covered.value++;
     _controller = AnimationController(
       vsync: this,
       duration: const Duration(seconds: 32),
@@ -170,7 +240,6 @@ class _DriftState extends State<_Drift> with SingleTickerProviderStateMixin {
 
   @override
   void dispose() {
-    RoomGlow.covered.value--;
     _controller.dispose();
     super.dispose();
   }
@@ -187,24 +256,16 @@ class _AmbientPainter extends CustomPainter {
     required this.shade,
     required this.ember,
     required this.dark,
-    this.overlay = false,
   }) : super(repaint: phase);
 
   final Animation<double> phase;
   final Color base, glow, shade, ember;
   final bool dark;
 
-  /// Paints only the light, screened over whatever is already there.
-  final bool overlay;
-
   @override
   void paint(Canvas canvas, Size size) {
     final rect = Offset.zero & size;
-    if (overlay) {
-      canvas.saveLayer(rect, Paint()..blendMode = BlendMode.screen);
-    } else {
-      canvas.drawRect(rect, Paint()..color = base);
-    }
+    canvas.drawRect(rect, Paint()..color = base);
     final turn = phase.value * 2 * math.pi;
     final reach = size.longestSide;
 
@@ -251,10 +312,6 @@ class _AmbientPainter extends CustomPainter {
       (dark ? .16 : .10) * strength,
     );
 
-    if (overlay) {
-      canvas.restore();
-      return;
-    }
     if (dark) {
       canvas.drawRect(
         rect,

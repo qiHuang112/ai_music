@@ -3,6 +3,8 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 
+import 'design/ambient_backdrop.dart';
+
 /// Also completes a partial drag after the scroll position has laid out.
 class PlaylistScrollView extends StatefulWidget {
   const PlaylistScrollView({
@@ -134,31 +136,38 @@ class PlaylistSliverHeader extends StatelessWidget {
                       (expandedHeight - kToolbarHeight))
                   .clamp(0.0, 1.0);
           // Keep only one title in semantics once the crossfade has finished.
-          if (collapse >= 0.7) return const SizedBox.shrink();
-          return ClipRect(
-            child: Stack(
-              children: [
-                PositionedDirectional(
-                  start: 20 + 36 * collapse,
-                  end: 20,
-                  top: top + kToolbarHeight + 12 - 48 * collapse,
-                  child: IgnorePointer(
-                    child: Opacity(
-                      opacity: (1 - collapse / 0.7).clamp(0.0, 1.0),
-                      child: Transform.scale(
-                        scale: 1 - 0.15 * collapse,
-                        alignment: AlignmentDirectional.topStart,
-                        child: Text(
-                          title,
-                          key: const ValueKey('playlist-detail-title'),
-                          softWrap: true,
-                          style: style,
+          // The pinned bar hides the rows scrolling under it with its own piece
+          // of the page backdrop.
+          if (collapse >= 0.7) {
+            return const BackdropSlice(child: SizedBox.expand());
+          }
+          return BackdropSlice(
+            child: SizedBox.expand(
+              child: Stack(
+                clipBehavior: Clip.hardEdge,
+                children: [
+                  PositionedDirectional(
+                    start: 20 + 36 * collapse,
+                    end: 20,
+                    top: top + kToolbarHeight + 12 - 48 * collapse,
+                    child: IgnorePointer(
+                      child: Opacity(
+                        opacity: (1 - collapse / 0.7).clamp(0.0, 1.0),
+                        child: Transform.scale(
+                          scale: 1 - 0.15 * collapse,
+                          alignment: AlignmentDirectional.topStart,
+                          child: Text(
+                            title,
+                            key: const ValueKey('playlist-detail-title'),
+                            softWrap: true,
+                            style: style,
+                          ),
                         ),
                       ),
                     ),
                   ),
-                ),
-              ],
+                ],
+              ),
             ),
           );
         },

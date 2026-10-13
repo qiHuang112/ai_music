@@ -1,9 +1,13 @@
+import 'package:flutter/cupertino.dart' show CupertinoPageTransitionsBuilder;
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+
+import 'design/ambient_backdrop.dart';
 
 /// Edit these palettes to recolor every screen, dialog and player together.
 ///
 /// The look is a listening room. By night it is warm black lit by an amber
-/// valve glow; by day it is cream paper with a dusty sky blue for the few lit
+/// valve glow; by day it is cream paper with a fresh leaf green for the few lit
 /// things.
 /// Each mode has one lit color, and nothing is neutral grey or pure white.
 class MusicPalette {
@@ -37,12 +41,12 @@ class MusicPalette {
   final Color haze;
 
   static const light = MusicPalette(
-    ink: Color(0xFF236A8C),
-    accent: Color(0xFF7FB4CE),
-    onAccent: Color(0xFF0E2B3A),
+    ink: Color(0xFF47761C),
+    accent: Color(0xFFA6D06F),
+    onAccent: Color(0xFF1E3609),
     background: Color(0xFFFAF7F1),
     panel: Color(0xFFFFFDF8),
-    tint: Color(0xFFD6E8F0),
+    tint: Color(0xFFE2F0CD),
     field: Color(0xFFF1EBDF),
     text: Color(0xFF23262B),
     muted: Color(0xFF6A6E73),
@@ -135,7 +139,7 @@ abstract final class MusicUi {
   static const sleeveRadius = 6.0;
   static const glassRadius = 28.0;
   static const controlRadius = 14.0;
-  static const miniPlayerInsets = EdgeInsets.fromLTRB(12, 8, 12, 10);
+  static const miniPlayerInsets = EdgeInsets.fromLTRB(14, 6, 14, 6);
   static const pageInsets = EdgeInsets.fromLTRB(20, 16, 20, 24);
   static const horizontalInsets = EdgeInsets.symmetric(horizontal: pagePadding);
   static EdgeInsets scrollInsets(
@@ -225,6 +229,29 @@ abstract final class MusicType {
       );
 }
 
+/// Puts the page backdrop behind every pushed page and then hands over to
+/// the platform's own transition, so the backdrop travels with its page.
+class _BackdropTransitions extends PageTransitionsBuilder {
+  const _BackdropTransitions(this.platform);
+
+  final PageTransitionsBuilder platform;
+
+  @override
+  Widget buildTransitions<T>(
+    PageRoute<T> route,
+    BuildContext context,
+    Animation<double> animation,
+    Animation<double> secondaryAnimation,
+    Widget child,
+  ) => platform.buildTransitions(
+    route,
+    context,
+    animation,
+    secondaryAnimation,
+    Stack(fit: StackFit.expand, children: [const PageBackdrop(), child]),
+  );
+}
+
 abstract final class MusicAppTheme {
   /// Material tracks every style for Latin text, which only loosens CJK.
   static TextTheme _untracked(TextTheme theme) {
@@ -254,6 +281,13 @@ abstract final class MusicAppTheme {
         (brightness == Brightness.dark
             ? MusicPalette.dark
             : MusicPalette.light);
+    // By night, cards and fields are smoked panes the room's light shows
+    // through; only the lit color stays solid, so it sits in front of
+    // everything. Dialogs, sheets and menus keep the solid [p.panel].
+    final dark = brightness == Brightness.dark;
+    final card = dark ? p.text.withValues(alpha: .055) : p.panel;
+    final well = dark ? p.text.withValues(alpha: .085) : p.field;
+    final selected = dark ? p.accent.withValues(alpha: .13) : p.tint;
     final colors =
         ColorScheme.fromSeed(
           seedColor: p.accent,
@@ -269,11 +303,11 @@ abstract final class MusicAppTheme {
           secondaryContainer: p.tint,
           onSecondaryContainer: p.text,
           surface: p.background,
-          surfaceContainerLowest: p.panel,
-          surfaceContainerLow: p.panel,
-          surfaceContainer: p.tint,
-          surfaceContainerHigh: p.field,
-          surfaceContainerHighest: p.field,
+          surfaceContainerLowest: card,
+          surfaceContainerLow: card,
+          surfaceContainer: selected,
+          surfaceContainerHigh: well,
+          surfaceContainerHighest: well,
           onSurface: p.text,
           onSurfaceVariant: p.muted,
           outlineVariant: p.line,
@@ -328,9 +362,37 @@ abstract final class MusicAppTheme {
     return base.copyWith(
       extensions: [MusicTokens(p)],
       textTheme: text,
-      scaffoldBackgroundColor: p.background,
+      // Pages are see-through; [PageBackdrop] is painted behind each one by
+      // the page transition below.
+      scaffoldBackgroundColor: Colors.transparent,
+      pageTransitionsTheme: const PageTransitionsTheme(
+        builders: {
+          TargetPlatform.iOS: _BackdropTransitions(
+            CupertinoPageTransitionsBuilder(),
+          ),
+          TargetPlatform.macOS: _BackdropTransitions(
+            CupertinoPageTransitionsBuilder(),
+          ),
+          TargetPlatform.android: _BackdropTransitions(
+            ZoomPageTransitionsBuilder(),
+          ),
+          TargetPlatform.fuchsia: _BackdropTransitions(
+            ZoomPageTransitionsBuilder(),
+          ),
+          TargetPlatform.linux: _BackdropTransitions(
+            ZoomPageTransitionsBuilder(),
+          ),
+          TargetPlatform.windows: _BackdropTransitions(
+            ZoomPageTransitionsBuilder(),
+          ),
+        },
+      ),
       appBarTheme: AppBarTheme(
-        backgroundColor: p.background,
+        // The bar is see-through, so say which status-bar icons to use.
+        systemOverlayStyle: dark
+            ? SystemUiOverlayStyle.light
+            : SystemUiOverlayStyle.dark,
+        backgroundColor: Colors.transparent,
         foregroundColor: p.text,
         surfaceTintColor: Colors.transparent,
         elevation: 0,
@@ -341,7 +403,7 @@ abstract final class MusicAppTheme {
         titleTextStyle: text.titleLarge?.copyWith(fontSize: 22),
       ),
       cardTheme: CardThemeData(
-        color: p.panel,
+        color: card,
         surfaceTintColor: Colors.transparent,
         elevation: 0,
         margin: EdgeInsets.zero,
@@ -363,7 +425,7 @@ abstract final class MusicAppTheme {
       ),
       inputDecorationTheme: InputDecorationTheme(
         filled: true,
-        fillColor: p.field,
+        fillColor: well,
         hintStyle: text.bodyLarge?.copyWith(color: p.muted),
         prefixIconColor: p.ink,
         suffixIconColor: p.muted,
@@ -407,11 +469,15 @@ abstract final class MusicAppTheme {
         ),
       ),
       chipTheme: base.chipTheme.copyWith(
-        backgroundColor: p.field,
+        backgroundColor: well,
         selectedColor: p.tint,
         side: BorderSide.none,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
         labelStyle: text.bodySmall?.copyWith(color: p.text),
+      ),
+      datePickerTheme: DatePickerThemeData(
+        backgroundColor: p.panel,
+        rangePickerBackgroundColor: p.panel,
       ),
       dividerTheme: DividerThemeData(color: p.line, thickness: 1, space: 1),
       progressIndicatorTheme: ProgressIndicatorThemeData(

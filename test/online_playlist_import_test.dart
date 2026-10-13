@@ -1555,6 +1555,12 @@ void main() {
       expect(find.textContaining('已自动同步'), findsOneWidget);
       await tester.ensureVisible(find.textContaining('已自动同步'));
       await tester.pumpAndSettle();
+      // The status snack bar floats just above the bottom bars, which are
+      // lower now, and would take the tap meant for this row.
+      ScaffoldMessenger.of(
+        tester.element(find.byType(Scaffold).first),
+      ).clearSnackBars();
+      await tester.pumpAndSettle();
       await tester.tap(find.textContaining('已自动同步'));
       await tester.pumpAndSettle();
       expect(find.text('已选 1 首'), findsOneWidget);

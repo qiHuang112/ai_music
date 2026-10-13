@@ -1,4 +1,5 @@
 import 'app_theme.dart';
+import 'design/ambient_backdrop.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter/rendering.dart';
@@ -407,47 +408,49 @@ class DateGroupSliver extends StatelessWidget {
         pinned: pinned,
         delegate: _DateHeaderDelegate(
           height: 64 * MediaQuery.textScalerOf(context).scale(1),
-          child: Material(
-            color: Theme.of(context).colorScheme.surface,
-            child: Semantics(
-              button: true,
-              expanded: !collapsed,
-              child: InkWell(
-                onTap: () {
-                  final render = context.findRenderObject();
-                  if (!collapsed && render is RenderSliver) {
-                    final position = Scrollable.of(context).position;
-                    final start = render.constraints.precedingScrollExtent;
-                    if (position.pixels > start) {
-                      position.jumpTo(
-                        start.clamp(
-                          position.minScrollExtent,
-                          position.maxScrollExtent,
-                        ),
-                      );
+          child: BackdropSlice(
+            child: Material(
+              type: MaterialType.transparency,
+              child: Semantics(
+                button: true,
+                expanded: !collapsed,
+                child: InkWell(
+                  onTap: () {
+                    final render = context.findRenderObject();
+                    if (!collapsed && render is RenderSliver) {
+                      final position = Scrollable.of(context).position;
+                      final start = render.constraints.precedingScrollExtent;
+                      if (position.pixels > start) {
+                        position.jumpTo(
+                          start.clamp(
+                            position.minScrollExtent,
+                            position.maxScrollExtent,
+                          ),
+                        );
+                      }
                     }
-                  }
-                  onToggle();
-                },
-                child: Row(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    Expanded(
-                      child: DateGroupHeader(
-                        day: day,
-                        label: label,
-                        indent: depth * 12,
-                        summary: summary,
-                        zh: zh,
+                    onToggle();
+                  },
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      Expanded(
+                        child: DateGroupHeader(
+                          day: day,
+                          label: label,
+                          indent: depth * 12,
+                          summary: summary,
+                          zh: zh,
+                        ),
                       ),
-                    ),
-                    Padding(
-                      padding: const EdgeInsets.only(right: 12),
-                      child: Icon(
-                        collapsed ? Icons.expand_more : Icons.expand_less,
+                      Padding(
+                        padding: const EdgeInsets.only(right: 12),
+                        child: Icon(
+                          collapsed ? Icons.expand_more : Icons.expand_less,
+                        ),
                       ),
-                    ),
-                  ],
+                    ],
+                  ),
                 ),
               ),
             ),

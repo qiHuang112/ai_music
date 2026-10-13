@@ -90,6 +90,23 @@ class PaperTexture extends StatelessWidget {
     return recorder.endRecording().toImageSync(pixels, pixels);
   }
 
+  /// Paints the paper surface across [size], starting at the origin.
+  static void paintOn(Canvas canvas, Size size) {
+    final tile = _tile ??= _draw();
+    final scale = _tileSide / tile.width;
+    canvas.drawRect(
+      Offset.zero & size,
+      Paint()
+        ..shader = ui.ImageShader(
+          tile,
+          TileMode.repeated,
+          TileMode.repeated,
+          (Matrix4.identity()..scaleByDouble(scale, scale, 1, 1)).storage,
+          filterQuality: FilterQuality.medium,
+        ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     if (!enabled) return child;
@@ -115,20 +132,7 @@ class _PaperPainter extends CustomPainter {
   final ui.Image tile;
 
   @override
-  void paint(Canvas canvas, Size size) {
-    final scale = PaperTexture._tileSide / tile.width;
-    canvas.drawRect(
-      Offset.zero & size,
-      Paint()
-        ..shader = ui.ImageShader(
-          tile,
-          TileMode.repeated,
-          TileMode.repeated,
-          (Matrix4.identity()..scaleByDouble(scale, scale, 1, 1)).storage,
-          filterQuality: FilterQuality.medium,
-        ),
-    );
-  }
+  void paint(Canvas canvas, Size size) => PaperTexture.paintOn(canvas, size);
 
   @override
   bool shouldRepaint(_PaperPainter old) => old.tile != tile;
