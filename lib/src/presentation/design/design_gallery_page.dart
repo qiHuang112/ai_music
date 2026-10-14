@@ -198,7 +198,6 @@ class _DesignGalleryPageState extends State<DesignGalleryPage>
             animation: _position,
             builder: (context, label) => Turntable(
               playing: _playing,
-              progress: _position.value,
               labelColor: _light?.label,
               label: label,
             ),

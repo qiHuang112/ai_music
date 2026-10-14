@@ -1,10 +1,11 @@
 import 'dart:math' as math;
+import 'dart:ui' as ui;
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter/scheduler.dart';
 
 import '../app_theme.dart';
+import 'ambient_clock.dart';
 
 /// A record drawn from scratch: grooves, track gaps, dead wax, a light sheen
 /// that stays put while the disc turns, and a centre label that turns with
@@ -68,14 +69,17 @@ class VinylDisc extends StatelessWidget {
           child: Stack(
             fit: StackFit.expand,
             children: [
-              RepaintBoundary(
-                child: CustomPaint(
-                  painter: _GroovePainter(
-                    vinyl: palette.vinyl,
-                    label: labelFraction,
-                    skin: palette.skin,
-                    sheen: palette.sheen,
-                  ),
+              _Baked(
+                painter: _GroovePainter(
+                  vinyl: palette.vinyl,
+                  label: labelFraction,
+                  skin: palette.skin,
+                  sheen: palette.sheen,
+                  rim: switch (palette.skin) {
+                    MusicSkin.neon => palette.accent,
+                    MusicSkin.aurora => palette.sheen,
+                    _ => null,
+                  },
                 ),
               ),
               FractionallySizedBox(
@@ -98,33 +102,44 @@ class VinylDisc extends StatelessWidget {
                   ),
                 ),
               ),
-              RepaintBoundary(
-                child: CustomPaint(
-                  painter: _SheenPainter(
-                    sheen: palette.sheen,
-                    brass: palette.brass,
-                    rotation: turn,
-                    label: labelFraction,
-                    holo: switch (palette.skin) {
-                      MusicSkin.neon => [
-                        palette.haze,
-                        palette.accent,
-                        palette.label,
-                      ],
-                      // Mint and violet, with a line of ice round the rim.
-                      MusicSkin.aurora => [
-                        palette.haze,
-                        palette.sheen,
-                        palette.haze,
-                      ],
-                      _ => null,
-                    },
-                    dots: palette.skin == MusicSkin.riso ? palette.haze : null,
-                    outline: switch (palette.skin) {
-                      MusicSkin.riso => palette.text,
-                      MusicSkin.berry => Colors.white.withValues(alpha: .7),
-                      _ => null,
-                    },
+              // No record is perfectly flat: the reflection sways a little
+              // each turn. The sheen is drawn once and only turned, so the
+              // sway costs no repaint.
+              AnimatedBuilder(
+                animation: turn,
+                builder: (context, child) => Transform.rotate(
+                  angle: math.sin(turn.value) * .045,
+                  child: child,
+                ),
+                child: RepaintBoundary(
+                  child: CustomPaint(
+                    painter: _SheenPainter(
+                      sheen: palette.sheen,
+                      brass: palette.brass,
+                      label: labelFraction,
+                      holo: switch (palette.skin) {
+                        MusicSkin.neon => [
+                          palette.haze,
+                          palette.accent,
+                          palette.label,
+                        ],
+                        // Mint and violet, with a line of ice round the rim.
+                        MusicSkin.aurora => [
+                          palette.haze,
+                          palette.sheen,
+                          palette.haze,
+                        ],
+                        _ => null,
+                      },
+                      dots: palette.skin == MusicSkin.riso
+                          ? palette.haze
+                          : null,
+                      outline: switch (palette.skin) {
+                        MusicSkin.riso => palette.text,
+                        MusicSkin.berry => Colors.white.withValues(alpha: .7),
+                        _ => null,
+                      },
+                    ),
                   ),
                 ),
               ),
@@ -142,12 +157,16 @@ class _GroovePainter extends CustomPainter {
     required this.label,
     required this.skin,
     required this.sheen,
+    this.rim,
   });
 
   final double label;
   final MusicSkin skin;
 
   final Color vinyl, sheen;
+
+  /// Neon rain and aurora: the edge of the disc glows in this color.
+  final Color? rim;
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -251,10 +270,32 @@ class _GroovePainter extends CustomPainter {
           ..strokeWidth = 1.5
           ..color = Colors.white.withValues(alpha: .10),
       );
+
+    if (rim != null) {
+      canvas
+        ..drawCircle(
+          center,
+          radius,
+          Paint()
+            ..style = PaintingStyle.stroke
+            ..strokeWidth = radius * .05
+            ..color = rim!.withValues(alpha: .28)
+            ..maskFilter = MaskFilter.blur(BlurStyle.normal, radius * .07),
+        )
+        ..drawCircle(
+          center,
+          radius - .5,
+          Paint()
+            ..style = PaintingStyle.stroke
+            ..strokeWidth = 1
+            ..color = rim!.withValues(alpha: .4),
+        );
+    }
   }
 
   @override
   bool shouldRepaint(_GroovePainter old) =>
+      old.rim != rim ||
       old.vinyl != vinyl ||
       old.label != label ||
       old.skin != skin ||
@@ -348,15 +389,14 @@ class _LabelPainter extends CustomPainter {
 }
 
 class _SheenPainter extends CustomPainter {
-  _SheenPainter({
+  const _SheenPainter({
     required this.sheen,
     required this.brass,
-    required this.rotation,
     required this.label,
     this.holo,
     this.dots,
     this.outline,
-  }) : super(repaint: rotation);
+  });
 
   final double label;
 
@@ -371,7 +411,6 @@ class _SheenPainter extends CustomPainter {
   final Color? outline;
 
   final Color sheen, brass;
-  final ValueListenable<double> rotation;
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -383,8 +422,6 @@ class _SheenPainter extends CustomPainter {
     final bright = sheen.withValues(alpha: dots == null ? .24 : 0);
     final faint = sheen.withValues(alpha: dots == null ? .055 : 0);
 
-    // No record is perfectly flat: the reflection sways a little each turn.
-    final sway = math.sin(rotation.value) * .045;
     canvas.drawPath(
       Path()
         ..fillType = PathFillType.evenOdd
@@ -424,7 +461,7 @@ class _SheenPainter extends CustomPainter {
                   0, .04, .08, .11, .14, .17, .21, //
                   .54, .58, .61, .64, .67, .71, 1, //
                 ],
-          transform: GradientRotation(.13 + sway),
+          transform: const GradientRotation(.13),
         ).createShader(bounds),
     );
 
@@ -465,23 +502,6 @@ class _SheenPainter extends CustomPainter {
       );
     }
 
-    if (holo != null) {
-      final rim = Paint()
-        ..style = PaintingStyle.stroke
-        ..color = holo![1].withValues(alpha: .4);
-      canvas
-        ..drawCircle(
-          center,
-          radius,
-          Paint()
-            ..style = PaintingStyle.stroke
-            ..strokeWidth = radius * .05
-            ..color = holo![1].withValues(alpha: .28)
-            ..maskFilter = MaskFilter.blur(BlurStyle.normal, radius * .07),
-        )
-        ..drawCircle(center, radius - .5, rim..strokeWidth = 1);
-    }
-
     canvas
       ..drawCircle(
         center,
@@ -519,11 +539,109 @@ class _SheenPainter extends CustomPainter {
   bool shouldRepaint(_SheenPainter old) =>
       old.sheen != sheen ||
       old.brass != brass ||
-      old.rotation != rotation ||
       old.label != label ||
       old.holo != holo ||
       old.dots != dots ||
       old.outline != outline;
+}
+
+/// Draws [painter] once into an image and shows that image from then on.
+///
+/// The renderer rasterizes every layer again on every frame, so a still
+/// drawing made of many strokes and blurs under something that moves is paid
+/// for at the frame rate. Baked, it is one textured quad.
+class _Baked extends StatefulWidget {
+  const _Baked({required this.painter});
+
+  final CustomPainter painter;
+
+  /// Room round the edge, as a share of the shortest side, for glows.
+  static const _bleed = .14;
+
+  @override
+  State<_Baked> createState() => _BakedState();
+}
+
+class _BakedState extends State<_Baked> {
+  ui.Image? _image;
+  Size? _size;
+  double? _scale;
+  CustomPainter? _of;
+
+  ui.Image _bake(Size size, double scale) {
+    final painter = widget.painter;
+    final image = _image;
+    if (image != null &&
+        _size == size &&
+        _scale == scale &&
+        !painter.shouldRepaint(_of!)) {
+      return image;
+    }
+    image?.dispose();
+    final margin = size.shortestSide * _Baked._bleed;
+    final recorder = ui.PictureRecorder();
+    final canvas = Canvas(recorder)
+      ..scale(scale)
+      ..translate(margin, margin);
+    painter.paint(canvas, size);
+    final picture = recorder.endRecording();
+    _size = size;
+    _scale = scale;
+    _of = painter;
+    _image = picture.toImageSync(
+      ((size.width + margin * 2) * scale).ceil(),
+      ((size.height + margin * 2) * scale).ceil(),
+    );
+    picture.dispose();
+    return _image!;
+  }
+
+  @override
+  void dispose() {
+    _image?.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => RepaintBoundary(
+    child: CustomPaint(
+      painter: _BakedPainter(
+        this,
+        widget.painter,
+        MediaQuery.devicePixelRatioOf(context),
+      ),
+    ),
+  );
+}
+
+class _BakedPainter extends CustomPainter {
+  const _BakedPainter(this.state, this.painter, this.scale);
+
+  final _BakedState state;
+  final CustomPainter painter;
+  final double scale;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    if (size.isEmpty) return;
+    final image = state._bake(size, scale);
+    final margin = size.shortestSide * _Baked._bleed;
+    canvas.drawImageRect(
+      image,
+      Offset.zero & Size(image.width.toDouble(), image.height.toDouble()),
+      Rect.fromLTWH(
+        -margin,
+        -margin,
+        image.width / scale,
+        image.height / scale,
+      ),
+      Paint()..filterQuality = FilterQuality.medium,
+    );
+  }
+
+  @override
+  bool shouldRepaint(_BakedPainter old) =>
+      old.scale != scale || painter.shouldRepaint(old.painter);
 }
 
 /// Turns a [VinylDisc] with the inertia of a platter: it winds up to speed and
@@ -548,15 +666,14 @@ class SpinningVinyl extends StatefulWidget {
   State<SpinningVinyl> createState() => _SpinningVinylState();
 }
 
-class _SpinningVinylState extends State<SpinningVinyl>
-    with SingleTickerProviderStateMixin {
+class _SpinningVinylState extends State<SpinningVinyl> {
   static final _cruise =
       2 * math.pi / (MusicMotion.revolution.inMicroseconds / 1e6);
 
-  late final Ticker _ticker;
+  // A slow turn reads fine at the ambient heartbeat's rate.
+  final _clock = AmbientClock();
   final _angle = ValueNotifier<double>(0);
   double _velocity = 0;
-  Duration _last = Duration.zero;
   bool _allowed = true;
 
   bool get _driven => widget.spinning && _allowed;
@@ -564,13 +681,13 @@ class _SpinningVinylState extends State<SpinningVinyl>
   @override
   void initState() {
     super.initState();
-    _ticker = createTicker(_tick);
+    _clock.addListener(_tick);
   }
 
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
-    _allowed = MusicMotion.allowsPerpetual(context);
+    _allowed = AmbientClock.wanted(context);
     _wake();
   }
 
@@ -581,16 +698,17 @@ class _SpinningVinylState extends State<SpinningVinyl>
   }
 
   void _wake() {
-    if (_driven && !_ticker.isActive) {
-      _last = Duration.zero;
-      _ticker.start();
+    if (_driven) {
+      _clock.run(true);
+    } else if (!_allowed) {
+      // Hidden or motion reduced: stop where it is.
+      _velocity = 0;
+      _clock.run(false);
     }
   }
 
-  void _tick(Duration elapsed) {
-    // A dropped frame must not turn the record by a visible jump.
-    final dt = ((elapsed - _last).inMicroseconds / 1e6).clamp(0.0, .05);
-    _last = elapsed;
+  void _tick() {
+    final dt = _clock.step;
     final target = _driven ? _cruise : 0.0;
     final settle = _driven ? MusicMotion.spinUp : MusicMotion.spinDown;
     _velocity +=
@@ -598,7 +716,7 @@ class _SpinningVinylState extends State<SpinningVinyl>
         (1 - math.exp(-dt / (settle.inMicroseconds / 1e6)));
     if (!_driven && _velocity < _cruise * .01) {
       _velocity = 0;
-      _ticker.stop();
+      _clock.run(false);
       return;
     }
     _angle.value = (_angle.value + _velocity * dt) % (2 * math.pi);
@@ -606,7 +724,7 @@ class _SpinningVinylState extends State<SpinningVinyl>
 
   @override
   void dispose() {
-    _ticker.dispose();
+    _clock.dispose();
     _angle.dispose();
     super.dispose();
   }

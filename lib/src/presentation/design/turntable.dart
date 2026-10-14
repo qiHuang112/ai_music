@@ -6,15 +6,13 @@ import 'package:flutter/material.dart';
 import '../app_theme.dart';
 import 'vinyl_disc.dart';
 
-/// A record with its tonearm. The arm swings in and lowers when [playing],
-/// then tracks [progress] from the outer groove towards the label, so the deck
-/// itself shows how far the song has run.
+/// A record with its tonearm. The arm swings in and lowers when [playing] and
+/// rests in the middle of the grooves until it is lifted again.
 class Turntable extends StatelessWidget {
   const Turntable({
     super.key,
     required this.playing,
     this.armDown,
-    this.progress = 0,
     this.label,
     this.labelColor,
   });
@@ -25,7 +23,6 @@ class Turntable extends StatelessWidget {
   /// Whether the needle is in the groove; follows [playing] when null. Set it
   /// ahead of [playing] to lower the arm before the record starts.
   final bool? armDown;
-  final double progress;
   final Widget? label;
   final Color? labelColor;
 
@@ -64,13 +61,7 @@ class Turntable extends StatelessWidget {
                 child: IgnorePointer(
                   child: RepaintBoundary(
                     child: _ToneArm(
-                      angle: armDown ?? playing
-                          ? lerpDouble(
-                              _Deck.outerGroove,
-                              _Deck.innerGroove,
-                              progress.clamp(0, 1),
-                            )!
-                          : _Deck.rest,
+                      angle: armDown ?? playing ? _Deck.midGroove : _Deck.rest,
                       lift: armDown ?? playing ? 0 : 1,
                       brass: palette.brass,
                       sheen: palette.sheen,
@@ -97,8 +88,7 @@ abstract final class _Deck {
   static const pivot = Offset(.885, .115);
   static const reach = .585;
 
-  static final outerGroove = _angleAt(discRadius * .93);
-  static final innerGroove = _angleAt(discRadius * .47);
+  static final midGroove = _angleAt(discRadius * .7);
   static final rest = _angleAt(discRadius * 1.2);
 
   /// Direction from the pivot that puts the stylus [radius] from the spindle.
@@ -112,7 +102,7 @@ abstract final class _Deck {
   }
 }
 
-class _ToneArm extends ImplicitlyAnimatedWidget {
+class _ToneArm extends StatefulWidget {
   const _ToneArm({
     required this.angle,
     required this.lift,
@@ -120,45 +110,54 @@ class _ToneArm extends ImplicitlyAnimatedWidget {
     required this.sheen,
     required this.stylus,
     required this.metal,
-  }) : super(duration: MusicMotion.toneArm, curve: Curves.easeInOutCubic);
+  });
 
   final double angle, lift;
   final Color brass, sheen, stylus, metal;
 
   @override
-  AnimatedWidgetBaseState<_ToneArm> createState() => _ToneArmState();
+  State<_ToneArm> createState() => _ToneArmState();
 }
 
-class _ToneArmState extends AnimatedWidgetBaseState<_ToneArm> {
-  Tween<double>? _angle, _lift;
+class _ToneArmState extends State<_ToneArm>
+    with SingleTickerProviderStateMixin {
+  late final _move = AnimationController(
+    vsync: this,
+    duration: MusicMotion.toneArm,
+    value: 1,
+  );
+  late double _fromAngle = widget.angle, _fromLift = widget.lift;
+
+  double get _t => Curves.easeInOutCubic.transform(_move.value);
 
   @override
-  void forEachTween(TweenVisitor<dynamic> visitor) {
-    _angle =
-        visitor(
-              _angle,
-              widget.angle,
-              (value) => Tween<double>(begin: value as double),
-            )
-            as Tween<double>?;
-    _lift =
-        visitor(
-              _lift,
-              widget.lift,
-              (value) => Tween<double>(begin: value as double),
-            )
-            as Tween<double>?;
+  void didUpdateWidget(_ToneArm old) {
+    super.didUpdateWidget(old);
+    if (old.lift == widget.lift && old.angle == widget.angle) return;
+    final t = _t;
+    _fromAngle = lerpDouble(_fromAngle, old.angle, t)!;
+    _fromLift = lerpDouble(_fromLift, old.lift, t)!;
+    _move.forward(from: 0);
   }
 
   @override
-  Widget build(BuildContext context) => CustomPaint(
-    painter: _ToneArmPainter(
-      angle: _angle!.evaluate(animation),
-      lift: _lift!.evaluate(animation),
-      brass: widget.brass,
-      sheen: widget.sheen,
-      stylus: widget.stylus,
-      metal: widget.metal,
+  void dispose() {
+    _move.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => AnimatedBuilder(
+    animation: _move,
+    builder: (context, _) => CustomPaint(
+      painter: _ToneArmPainter(
+        angle: lerpDouble(_fromAngle, widget.angle, _t)!,
+        lift: lerpDouble(_fromLift, widget.lift, _t)!,
+        brass: widget.brass,
+        sheen: widget.sheen,
+        stylus: widget.stylus,
+        metal: widget.metal,
+      ),
     ),
   );
 }

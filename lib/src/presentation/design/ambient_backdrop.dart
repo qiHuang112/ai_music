@@ -1,11 +1,12 @@
 import 'dart:math' as math;
-import 'dart:typed_data';
 import 'dart:ui' as ui;
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 
 import '../app_theme.dart';
+import 'ambient_clock.dart';
 import 'paper_texture.dart';
 
 /// The room behind everything: the page color, two slow pools of light and a
@@ -42,36 +43,40 @@ class AmbientBackdrop extends StatelessWidget {
         curve: MusicMotion.standard,
         builder: (context, shade, _) => _Drift(
           enabled: drift,
-          builder: (phase) => CustomPaint(
-            painter: _AmbientPainter(
-              phase: phase,
-              base: palette.background,
-              glow: glow!,
-              shade: shade!,
-              ember: palette.accent,
-              dark: dark,
-              palette: palette,
-            ),
-            child: Stack(
-              fit: StackFit.passthrough,
-              children: [
-                if (grain)
-                  Positioned.fill(
-                    child: IgnorePointer(
-                      child: FilmGrain(opacity: dark ? .075 : .05),
+          // The lights repaint as they wander; kept apart, they do not drag
+          // the page in front of them into every repaint.
+          builder: (phase) => Stack(
+            fit: StackFit.passthrough,
+            children: [
+              Positioned.fill(
+                child: RepaintBoundary(
+                  child: CustomPaint(
+                    painter: _AmbientPainter(
+                      phase: phase,
+                      base: palette.background,
+                      glow: glow!,
+                      shade: shade!,
+                      ember: palette.accent,
+                      dark: dark,
+                      palette: palette,
                     ),
                   ),
-                if (palette.neon)
-                  const Positioned.fill(
-                    child: IgnorePointer(child: NeonRain()),
+                ),
+              ),
+              if (grain)
+                Positioned.fill(
+                  child: IgnorePointer(
+                    child: FilmGrain(opacity: dark ? .075 : .05),
                   ),
-                if (palette.skin == MusicSkin.aurora)
-                  const Positioned.fill(
-                    child: IgnorePointer(child: AuroraLights()),
-                  ),
-                ?child,
-              ],
-            ),
+                ),
+              if (palette.neon)
+                const Positioned.fill(child: IgnorePointer(child: NeonRain())),
+              if (palette.skin == MusicSkin.aurora)
+                const Positioned.fill(
+                  child: IgnorePointer(child: AuroraLights()),
+                ),
+              if (child != null) RepaintBoundary(child: child),
+            ],
           ),
         ),
       ),
@@ -123,9 +128,18 @@ class PageBackdrop extends StatelessWidget {
         children: [
           CustomPaint(painter: _PagePainter(MusicTokens.of(context), dark)),
           if (dark) const FilmGrain(opacity: .075),
-          if (MusicTokens.of(context).neon) const NeonRain(),
-          if (MusicTokens.of(context).skin == MusicSkin.aurora)
-            const AuroraLights(k: .5),
+          // Under a page that brings its own backdrop nobody can see these,
+          // but they would still be drawn on every frame.
+          ValueListenableBuilder(
+            valueListenable: _covers,
+            builder: (context, covers, _) => covers > 0
+                ? const SizedBox.shrink()
+                : switch (MusicTokens.of(context).skin) {
+                    MusicSkin.neon => const NeonRain(),
+                    MusicSkin.aurora => const AuroraLights(k: .5),
+                    _ => const SizedBox.shrink(),
+                  },
+          ),
         ],
       ),
     );
@@ -250,31 +264,40 @@ class _RenderBackdropSlice extends RenderProxyBox {
   }
 }
 
+/// How many pages with an [AmbientBackdrop] of their own have finished
+/// arriving and so hide the [PageBackdrop] completely.
+final _covers = ValueNotifier<int>(0);
+
 class _Drift extends StatefulWidget {
   const _Drift({required this.enabled, required this.builder});
 
   final bool enabled;
-  final Widget Function(Animation<double> phase) builder;
+  final Widget Function(ValueListenable<double> phase) builder;
 
   @override
   State<_Drift> createState() => _DriftState();
 }
 
-class _DriftState extends State<_Drift> with SingleTickerProviderStateMixin {
-  late final AnimationController _controller;
+class _DriftState extends State<_Drift> {
+  // The light wanders slowly; fifteen frames a second is plenty.
+  final _clock = AmbientClock(fps: 15);
+  late final _phase = _Loop(_clock, 32);
 
-  @override
-  void initState() {
-    super.initState();
-    _controller = AnimationController(
-      vsync: this,
-      duration: const Duration(seconds: 32),
-    );
-  }
+  Animation<double>? _arrival;
+  bool _covering = false;
 
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
+    final arrival = ModalRoute.of(context)?.animation;
+    if (arrival != _arrival) {
+      _arrival?.removeStatusListener(_arrived);
+      _arrival = arrival?..addStatusListener(_arrived);
+      // Deferred: the page backdrop may be building right now.
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _cover(_arrival?.isCompleted ?? false);
+      });
+    }
     _sync();
   }
 
@@ -284,23 +307,48 @@ class _DriftState extends State<_Drift> with SingleTickerProviderStateMixin {
     _sync();
   }
 
-  void _sync() {
-    final run = widget.enabled && MusicMotion.allowsPerpetual(context);
-    if (run && !_controller.isAnimating) {
-      _controller.repeat();
-    } else if (!run && _controller.isAnimating) {
-      _controller.stop();
-    }
+  void _sync() => _clock.run(widget.enabled && AmbientClock.wanted(context));
+
+  void _arrived(AnimationStatus status) =>
+      _cover(status == AnimationStatus.completed);
+
+  void _cover(bool covering) {
+    if (covering == _covering) return;
+    _covering = covering;
+    _covers.value += covering ? 1 : -1;
   }
 
   @override
   void dispose() {
-    _controller.dispose();
+    _arrival?.removeStatusListener(_arrived);
+    if (_covering) {
+      _covering = false;
+      // Deferred: listeners must not rebuild while the tree is being torn down.
+      WidgetsBinding.instance.addPostFrameCallback((_) => _covers.value--);
+    }
+    _clock.dispose();
     super.dispose();
   }
 
   @override
-  Widget build(BuildContext context) => widget.builder(_controller);
+  Widget build(BuildContext context) => widget.builder(_phase);
+}
+
+/// A clock's seconds as a 0–1 phase that wraps every [period] seconds.
+class _Loop extends ValueListenable<double> {
+  const _Loop(this.clock, this.period);
+
+  final AmbientClock clock;
+  final double period;
+
+  @override
+  double get value => (clock.value / period) % 1;
+
+  @override
+  void addListener(VoidCallback listener) => clock.addListener(listener);
+
+  @override
+  void removeListener(VoidCallback listener) => clock.removeListener(listener);
 }
 
 class _AmbientPainter extends CustomPainter {
@@ -315,7 +363,7 @@ class _AmbientPainter extends CustomPainter {
     this.k = 1,
   }) : super(repaint: phase);
 
-  final Animation<double> phase;
+  final ValueListenable<double> phase;
   final Color base, glow, shade, ember;
   final bool dark;
 
@@ -398,10 +446,16 @@ class _AmbientPainter extends CustomPainter {
         // Signs reflected in the wet street, laid on additively.
         texture(BlendMode.plus);
         // Tube scanlines.
-        final line = Paint()..color = Colors.black.withValues(alpha: .2);
-        for (var y = 0.0; y < h; y += 3) {
-          canvas.drawRect(Rect.fromLTWH(0, y, w, 1), line);
-        }
+        canvas.drawRect(
+          rect,
+          Paint()
+            ..shader = ui.ImageShader(
+              _scanlines,
+              TileMode.repeated,
+              TileMode.repeated,
+              Matrix4.identity().storage,
+            ),
+        );
       case MusicSkin.berry:
         // Watercolor blooms: pink, cream yellow, pale violet.
         pool(first, h * .5, glow, .34);
@@ -452,6 +506,16 @@ class _AmbientPainter extends CustomPainter {
       old.dark != dark ||
       old.palette != palette ||
       old.k != k;
+
+  /// One dark row in every three, as a tile: a single draw covers the screen.
+  static final ui.Image _scanlines = () {
+    final recorder = ui.PictureRecorder();
+    Canvas(recorder).drawRect(
+      const Rect.fromLTWH(0, 0, 1, 1),
+      Paint()..color = Colors.black.withValues(alpha: .2),
+    );
+    return recorder.endRecording().toImageSync(1, 3);
+  }();
 
   static const _textureScale = 2.0;
   static final _textures = <String, ui.Image>{};
@@ -795,12 +859,13 @@ void _paintAuroraLights(Canvas canvas, Size size, double k, double seconds) {
   );
 
   const star = Color(0xFFDFF8FF);
+  final dot = Paint();
   for (final s in _stars) {
     final twinkle = .55 + .45 * math.sin(turn * s.pace + s.phase);
     canvas.drawCircle(
       Offset(s.x * size.width, s.y * size.height * .85),
       s.radius,
-      Paint()..color = star.withValues(alpha: s.alpha * twinkle),
+      dot..color = star.withValues(alpha: s.alpha * twinkle),
     );
   }
 }
@@ -834,28 +899,20 @@ class AuroraLights extends StatefulWidget {
   State<AuroraLights> createState() => _AuroraLightsState();
 }
 
-class _AuroraLightsState extends State<AuroraLights>
-    with SingleTickerProviderStateMixin {
-  late final AnimationController _clock;
+class _AuroraLightsState extends State<AuroraLights> {
+  // The sky moves slowly; fifteen frames a second is plenty.
+  final _clock = AmbientClock(fps: 15);
 
   @override
   void initState() {
     super.initState();
-    _clock = AnimationController(
-      vsync: this,
-      duration: const Duration(minutes: 10),
-    )..addListener(() => _skyClock.value = _clock.value * 600);
+    _clock.addListener(() => _skyClock.value = _clock.value);
   }
 
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
-    final run = MusicMotion.allowsPerpetual(context);
-    if (run && !_clock.isAnimating) {
-      _clock.repeat();
-    } else if (!run && _clock.isAnimating) {
-      _clock.stop();
-    }
+    _clock.run(AmbientClock.wanted(context));
   }
 
   @override
@@ -876,7 +933,7 @@ class _AuroraLightsState extends State<AuroraLights>
 class _AuroraPainter extends CustomPainter {
   _AuroraPainter(this.clock, this.k) : super(repaint: clock);
 
-  final Animation<double> clock;
+  final ValueListenable<double> clock;
   final double k;
 
   @override
@@ -884,7 +941,7 @@ class _AuroraPainter extends CustomPainter {
     canvas
       ..save()
       ..clipRect(Offset.zero & size);
-    _paintAuroraLights(canvas, size, k, clock.value * 600);
+    _paintAuroraLights(canvas, size, k, clock.value);
     canvas.restore();
   }
 
@@ -901,26 +958,13 @@ class NeonRain extends StatefulWidget {
   State<NeonRain> createState() => _NeonRainState();
 }
 
-class _NeonRainState extends State<NeonRain>
-    with SingleTickerProviderStateMixin {
-  static const _loop = Duration(minutes: 10);
-  late final AnimationController _clock;
-
-  @override
-  void initState() {
-    super.initState();
-    _clock = AnimationController(vsync: this, duration: _loop);
-  }
+class _NeonRainState extends State<NeonRain> {
+  final _clock = AmbientClock(fps: 30);
 
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
-    final run = MusicMotion.allowsPerpetual(context);
-    if (run && !_clock.isAnimating) {
-      _clock.repeat();
-    } else if (!run && _clock.isAnimating) {
-      _clock.stop();
-    }
+    _clock.run(AmbientClock.wanted(context));
   }
 
   @override
@@ -938,7 +982,7 @@ class _NeonRainState extends State<NeonRain>
 class _RainPainter extends CustomPainter {
   _RainPainter(this.clock) : super(repaint: clock);
 
-  final Animation<double> clock;
+  final ValueListenable<double> clock;
 
   /// Per drop: where along the top it starts, speed (pt/s), length, how
   /// bright, and where in its fall it begins.
@@ -959,29 +1003,28 @@ class _RainPainter extends CustomPainter {
   @override
   void paint(Canvas canvas, Size size) {
     const color = Color(0xFFCDD7FF);
-    final seconds = clock.value * _NeonRainState._loop.inSeconds;
+    final stroke = Paint()
+      ..strokeWidth = .8
+      ..strokeCap = StrokeCap.round;
     for (final drop in _drops) {
       final span = size.height + drop.length;
-      // Whole trips per loop, so the wrap-around is seamless.
-      final trips = (drop.speed * _NeonRainState._loop.inSeconds / span)
-          .roundToDouble();
-      final fall =
-          (seconds / _NeonRainState._loop.inSeconds * trips + drop.phase) % 1;
+      final fall = (clock.value * drop.speed / span + drop.phase) % 1;
       final y = fall * span - drop.length;
       // The wind leans every drop the same way.
       final from = Offset(drop.x * (size.width + 60) - y * .2, y);
-      final to = from + Offset(-drop.length * .2, drop.length);
-      canvas.drawLine(
-        from,
-        to,
-        Paint()
-          ..strokeWidth = .8
-          ..strokeCap = StrokeCap.round
-          ..shader = ui.Gradient.linear(from, to, [
-            color.withValues(alpha: 0),
-            color.withValues(alpha: drop.alpha),
-          ]),
-      );
+      final lean = Offset(-drop.length * .2, drop.length);
+      // A faint tail and a brighter head, without a shader per drop.
+      canvas
+        ..drawLine(
+          from,
+          from + lean * .55,
+          stroke..color = color.withValues(alpha: drop.alpha * .35),
+        )
+        ..drawLine(
+          from + lean * .55,
+          from + lean,
+          stroke..color = color.withValues(alpha: drop.alpha),
+        );
     }
   }
 

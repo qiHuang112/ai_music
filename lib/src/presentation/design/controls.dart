@@ -5,6 +5,7 @@ import 'package:flutter/physics.dart';
 import 'package:flutter/services.dart';
 
 import '../app_theme.dart';
+import 'ambient_clock.dart';
 import 'glass_surface.dart';
 
 /// Touch feedback for anything tappable: it sinks under the finger, springs
@@ -179,17 +180,35 @@ class _PlayPauseButtonState extends State<PlayPauseButton>
     _sync();
   }
 
+  // A slow swell needs few frames; the clock sets the controller's value so
+  // nothing redraws at the display's full rate.
+  final _clock = AmbientClock(fps: 15);
+  double _since = 0;
+
+  void _swell() {
+    const period = 4.4;
+    final t = ((_clock.value - _since) % period) / period;
+    _breath.value = t < .5 ? t * 2 : 2 - t * 2;
+  }
+
   void _sync() {
-    final run = widget.playing && MusicMotion.allowsPerpetual(context);
-    if (run && !_breath.isAnimating) {
-      _breath.repeat(reverse: true);
-    } else if (!run && (_breath.isAnimating || _breath.value != 0)) {
+    final run = widget.playing && AmbientClock.wanted(context);
+    if (run && !_clock.running) {
+      _breath.stop();
+      _since = _clock.value;
+      _clock
+        ..removeListener(_swell)
+        ..addListener(_swell)
+        ..run(true);
+    } else if (!run && (_clock.running || _breath.value != 0)) {
+      _clock.run(false);
       _breath.animateBack(0, duration: MusicMotion.slow);
     }
   }
 
   @override
   void dispose() {
+    _clock.dispose();
     _breath.dispose();
     super.dispose();
   }
@@ -592,17 +611,25 @@ class _EqualizerBarsState extends State<EqualizerBars>
     _sync();
   }
 
+  final _clock = AmbientClock(fps: 15);
+
   void _sync() {
-    final run = widget.playing && MusicMotion.allowsPerpetual(context);
-    if (run && !_beat.isAnimating) {
-      _beat.repeat();
-    } else if (!run && _beat.isAnimating) {
-      _beat.stop();
+    final run = widget.playing && AmbientClock.wanted(context);
+    if (run && !_clock.running) {
+      _clock
+        ..removeListener(_step)
+        ..addListener(_step)
+        ..run(true);
+    } else if (!run) {
+      _clock.run(false);
     }
   }
 
+  void _step() => _beat.value = (_clock.value / 1.4) % 1;
+
   @override
   void dispose() {
+    _clock.dispose();
     _beat.dispose();
     super.dispose();
   }

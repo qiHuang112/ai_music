@@ -1,3 +1,4 @@
+import 'package:ai_music/src/presentation/design/vinyl_disc.dart';
 import 'package:ai_music/src/presentation/design/glass_surface.dart';
 import 'package:ai_music/src/presentation/design/ambient_backdrop.dart';
 import 'package:ai_music/src/data/music_settings.dart';
@@ -97,20 +98,23 @@ void main() {
             return Center(
               child: SizedBox.square(
                 dimension: 300,
-                child: Turntable(playing: playing, progress: .5),
+                child: Turntable(playing: playing),
               ),
             );
           },
         ),
       ),
     );
+    SpinningVinyl disc() => tester.widget(find.byType(SpinningVinyl));
     await tester.pump(const Duration(seconds: 1));
-    expect(tester.hasRunningAnimations, isTrue);
+    expect(disc().spinning, isTrue);
 
     rebuild(() => playing = false);
-    // Without the stop the platter would hold pumpAndSettle open forever.
-    await tester.pumpAndSettle(const Duration(milliseconds: 100));
-    expect(tester.hasRunningAnimations, isFalse);
+    await tester.pump();
+    // The platter coasts on its own clock and then stops it; a clock left
+    // running would fail the test as a pending timer.
+    await tester.pump(const Duration(seconds: 8));
+    expect(disc().spinning, isFalse);
   });
 
   testWidgets('groove slider seeks on tap and on drag release', (tester) async {
@@ -214,7 +218,7 @@ void main() {
                   children: [
                     const SizedBox.square(
                       dimension: 220,
-                      child: Turntable(playing: false, progress: .3),
+                      child: Turntable(playing: false),
                     ),
                     GlassSurface(
                       child: Padding(
@@ -272,7 +276,7 @@ void main() {
                     children: [
                       const SizedBox.square(
                         dimension: 220,
-                        child: Turntable(playing: false, progress: .3),
+                        child: Turntable(playing: false),
                       ),
                       GlassSurface(
                         child: Row(

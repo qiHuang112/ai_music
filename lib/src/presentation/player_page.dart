@@ -166,7 +166,6 @@ class _PlayerPageState extends State<PlayerPage> {
                               playing: state.playing,
                               cueing: _cueing,
                               swipe: _disc,
-                              duration: duration,
                             ),
                             const SizedBox(height: 14),
                             Text(
@@ -269,7 +268,7 @@ class _PlayerPageState extends State<PlayerPage> {
   }
 }
 
-/// The record on its deck. The cover is the label; the arm follows the song.
+/// The record on its deck. The cover is the label.
 class _Artwork extends StatelessWidget {
   const _Artwork({
     required this.uri,
@@ -277,14 +276,12 @@ class _Artwork extends StatelessWidget {
     required this.playing,
     required this.cueing,
     required this.swipe,
-    required this.duration,
   });
 
   final Uri? uri;
   final MusicController controller;
   final bool playing, cueing;
   final _DiscSwipe swipe;
-  final Duration duration;
 
   @override
   Widget build(BuildContext context) {
@@ -313,20 +310,14 @@ class _Artwork extends StatelessWidget {
         child: _DiscCarousel(
           swipe: swipe,
           neighbor: _neighborLabel,
-          builder: (context, swiping) => StreamBuilder<Duration>(
-            stream: controller.positionStream,
-            initialData: controller.audioHandler.currentPosition,
-            builder: (context, snapshot) {
-              final total = duration.inMilliseconds;
-              final played = (snapshot.data ?? Duration.zero).inMilliseconds;
-              return Turntable(
-                playing: playing,
-                // The arm lifts off while the record is being changed.
-                armDown: (playing || cueing) && !swiping,
-                progress: total <= 0 ? 0 : played / total,
-                label: label,
-              );
-            },
+          // The arm does not follow the song: the position updates several
+          // times a second, and redrawing the deck for each kept the phone
+          // busy for as long as music played.
+          builder: (context, swiping) => Turntable(
+            playing: playing,
+            // The arm lifts off while the record is being changed.
+            armDown: (playing || cueing) && !swiping,
+            label: label,
           ),
         ),
       ),
