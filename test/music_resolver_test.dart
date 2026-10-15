@@ -510,11 +510,11 @@ void main() {
       );
 
       expect(
-        (await resolver.search('梧桐灯', MusicDataSource.auto)).single.source,
+        (await resolver.search('许嵩 梧桐灯', MusicDataSource.auto)).single.source,
         MusicDataSource.flac,
       );
       final progress = await resolver
-          .searchProgressively('梧桐灯', MusicDataSource.auto)
+          .searchProgressively('许嵩 梧桐灯', MusicDataSource.auto)
           .toList();
       expect(progress.last.isComplete, isTrue);
       expect(progress.last.error, isNull);
@@ -1454,7 +1454,7 @@ void main() {
   );
 
   test(
-    'auto keeps FLAC results without searching lower priority providers',
+    'auto keeps strongly paired FLAC results without lower priority providers',
     () async {
       var buguyyRequests = 0;
       var flacRequests = 0;
@@ -1463,7 +1463,7 @@ void main() {
           buguyyRequests += 1;
           return _json(uri, {
             'data': [
-              {'id': 'song-1', 'title': '晴天', 'singer': '周杰伦'},
+              {'id': 'song-1', 'title': '江南', 'singer': '林俊杰'},
             ],
           });
         },
@@ -1476,8 +1476,8 @@ void main() {
                     ? [
                         {
                           'id': 'flac-1',
-                          'name': '晴天',
-                          'artist': '周杰伦',
+                          'name': '江南',
+                          'artist': '林俊杰',
                           'pic_url': 'https://img.example.test/qingtian.jpg',
                           'duration': 240,
                           'minfo': [
@@ -1497,7 +1497,7 @@ void main() {
         initialFlacCookie: 'sl-session=test',
       );
 
-      final candidates = await resolver.search('周杰伦', MusicDataSource.auto);
+      final candidates = await resolver.search('林俊杰 江南', MusicDataSource.auto);
       expect(candidates.map((candidate) => candidate.source).toSet(), {
         MusicDataSource.flac,
       });

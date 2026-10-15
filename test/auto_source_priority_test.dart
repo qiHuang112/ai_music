@@ -9,6 +9,166 @@ import 'package:ai_music/src/data/saved_online_track.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
+  for (final query in ['周杰伦 晴天', '晴天 周杰倫', '周杰伦']) {
+    test(
+      'persisted Jay query keeps YY priority after resolver restart: $query',
+      () async {
+        final http = _PriorityHttp(
+          MusicDataSource.buguyy,
+          title: '晴天',
+          artist: '周杰伦',
+          bothRegular: true,
+        );
+        final found = await http.resolver().search(query, MusicDataSource.auto);
+        expect(found.single.source, MusicDataSource.buguyy);
+        final restored = SavedOnlineTrack.fromJson(
+          jsonDecode(
+            jsonEncode(SavedOnlineTrack(candidate: found.single).toJson()),
+          ),
+        )!.candidate;
+        final cold = _PriorityHttp(
+          MusicDataSource.buguyy,
+          title: '晴天',
+          artist: '周杰伦',
+          bothRegular: true,
+        );
+        final resolved = await cold.resolver().resolveForSourceMode(
+          restored,
+          MusicDataSource.auto,
+        );
+        expect(resolved.source, MusicDataSource.buguyy);
+        expect(cold.searches, isEmpty);
+        expect(cold.resolutions, [MusicDataSource.buguyy]);
+      },
+    );
+  }
+  test(
+    'cold cached YY failure still falls back to verified same FLAC recording',
+    () async {
+      final origin = _PriorityHttp(
+        MusicDataSource.buguyy,
+        title: '晴天',
+        artist: '周杰伦',
+        bothRegular: true,
+      );
+      final found = await origin.resolver().search(
+        '周杰伦 晴天',
+        MusicDataSource.auto,
+      );
+      final restored = SavedOnlineTrack.fromJson(
+        SavedOnlineTrack(candidate: found.single).toJson(),
+      )!.candidate;
+      final cold = _PriorityHttp(
+        MusicDataSource.buguyy,
+        title: '晴天',
+        artist: '周杰伦',
+        bothRegular: true,
+      )..failYyResolve = true;
+      final resolved = await cold.resolver().resolveForSourceMode(
+        restored,
+        MusicDataSource.auto,
+      );
+      expect(resolved.source, MusicDataSource.flac);
+      expect(cold.resolutions.first, MusicDataSource.buguyy);
+      expect(cold.resolutions.last, MusicDataSource.flac);
+      expect(cold.searches.toSet(), {MusicDataSource.flac});
+    },
+  );
+  test(
+    'Jay alternative search follows query priority after restoring cache',
+    () async {
+      final origin = _PriorityHttp(
+        MusicDataSource.twentyFourBit,
+        title: '晴天',
+        artist: '周杰伦',
+      );
+      final found = await origin.resolver().search(
+        '周杰伦 晴天',
+        MusicDataSource.auto,
+      );
+      final restored = SavedOnlineTrack.fromJson(
+        SavedOnlineTrack(candidate: found.single).toJson(),
+      )!.candidate;
+      final cold = _PriorityHttp(
+        MusicDataSource.buguyy,
+        title: '晴天',
+        artist: '周杰伦',
+        bothRegular: true,
+      );
+      final resolved = await cold.resolver().resolveAlternative(
+        restored,
+        excludedSources: {MusicDataSource.twentyFourBit},
+      );
+      expect(resolved.source, MusicDataSource.buguyy);
+      expect(cold.searches, [MusicDataSource.buguyy]);
+      expect(cold.resolutions, [MusicDataSource.buguyy]);
+    },
+  );
+  for (final mode in [MusicDataSource.buguyy, MusicDataSource.flac]) {
+    test('manual cached Jay $mode is not reordered', () async {
+      final origin = _PriorityHttp(
+        mode,
+        title: '晴天',
+        artist: '周杰伦',
+        bothRegular: true,
+      );
+      final found = await origin.resolver().search('周杰伦 晴天', mode);
+      final restored = SavedOnlineTrack.fromJson(
+        SavedOnlineTrack(candidate: found.single).toJson(),
+      )!.candidate;
+      final cold = _PriorityHttp(
+        mode,
+        title: '晴天',
+        artist: '周杰伦',
+        bothRegular: true,
+      );
+      final resolved = await cold.resolver().resolveForSourceMode(
+        restored,
+        mode,
+      );
+      expect(resolved.source, mode);
+      expect(cold.searches, isEmpty);
+      expect(cold.resolutions, [mode]);
+    });
+  }
+  test(
+    'cold Jay cache respects unavailable YY and falls back to FLAC',
+    () async {
+      final origin = _PriorityHttp(
+        MusicDataSource.buguyy,
+        title: '晴天',
+        artist: '周杰伦',
+        bothRegular: true,
+      );
+      final found = await origin.resolver().search(
+        '周杰伦 晴天',
+        MusicDataSource.auto,
+      );
+      final restored = SavedOnlineTrack.fromJson(
+        SavedOnlineTrack(candidate: found.single).toJson(),
+      )!.candidate;
+      final cold = _PriorityHttp(
+        MusicDataSource.buguyy,
+        title: '晴天',
+        artist: '周杰伦',
+        bothRegular: true,
+      );
+      final resolver = cold.resolver();
+      for (var i = 0; i < 3; i++) {
+        resolver.reportSourceFailure(
+          MusicDataSource.buguyy,
+          StateError('HTTP 503'),
+        );
+      }
+      final resolved = await resolver.resolveForSourceMode(
+        restored,
+        MusicDataSource.auto,
+      );
+      expect(resolved.source, MusicDataSource.flac);
+      expect(cold.searches.toSet(), {MusicDataSource.flac});
+      expect(cold.resolutions, [MusicDataSource.flac]);
+    },
+  );
   for (final progressive in [false, true]) {
     for (final preferred in [
       MusicDataSource.flac,
@@ -20,11 +180,11 @@ void main() {
         final resolver = http.resolver();
         final found = progressive
             ? (await resolver
-                      .searchProgressively('晴天 周杰伦', MusicDataSource.auto)
+                      .searchProgressively('江南 林俊杰', MusicDataSource.auto)
                       .toList())
                   .last
                   .candidates
-            : await resolver.search('晴天 周杰伦', MusicDataSource.auto);
+            : await resolver.search('江南 林俊杰', MusicDataSource.auto);
         expect(found, isNotEmpty);
         expect(found.every((c) => c.source == preferred), isTrue);
         final stages = http.searches.toSet().toList();
@@ -44,7 +204,7 @@ void main() {
       final http = _PriorityHttp(MusicDataSource.flac)..failWyy = true;
       final results = await http
           .resolver(platforms: ['kuwo', 'wyy'])
-          .searchProgressively('晴天 周杰伦', MusicDataSource.auto)
+          .searchProgressively('江南 林俊杰', MusicDataSource.auto)
           .toList();
       expect(results.last.isComplete, isTrue);
       expect(results.last.error, isNull);
@@ -62,7 +222,7 @@ void main() {
       var cancelled = false;
       final operation = resolver
           .searchWithCancellation(
-            '晴天 周杰伦',
+            '江南 林俊杰',
             MusicDataSource.auto,
             isCancelled: () => cancelled,
           )
@@ -102,7 +262,7 @@ void main() {
     () async {
       final http = _PriorityHttp(MusicDataSource.twentyFourBit);
       final resolver = http.resolver();
-      final found = await resolver.search('晴天 周杰伦', MusicDataSource.auto);
+      final found = await resolver.search('江南 林俊杰', MusicDataSource.auto);
       final previous = List.of(http.searches);
       final resolved = await resolver.resolveForSourceMode(
         found.first,
@@ -118,7 +278,7 @@ void main() {
     'playlist lookup uses FLAC first without touching limited provider',
     () async {
       final http = _PriorityHttp(MusicDataSource.flac);
-      final found = await http.resolver().searchScreenshot('晴天', '周杰伦');
+      final found = await http.resolver().searchScreenshot('江南', '林俊杰');
       expect(found.first.source, MusicDataSource.flac);
       expect(http.searches, [MusicDataSource.flac]);
     },
@@ -137,10 +297,10 @@ void main() {
       const ScreenshotSongDraft(
         imageId: 'priority',
         row: 0,
-        title: '晴天',
-        artist: '周杰伦',
+        title: '江南',
+        artist: '林俊杰',
         version: '',
-        rawText: '晴天 周杰伦',
+        rawText: '江南 林俊杰',
       ),
     );
     expect(matched.candidates.single.source, MusicDataSource.flac);
@@ -215,16 +375,16 @@ void main() {
 
 const _id = '943e5cfd3555f45f5847010ebb501086';
 MusicSearchCandidate _candidate(MusicDataSource source) => MusicSearchCandidate(
-  query: '晴天 周杰伦',
+  query: '江南 林俊杰',
   source: source,
   platform: source == MusicDataSource.twentyFourBit
       ? '24bit'
       : source.storageValue,
-  keyword: '晴天',
+  keyword: '江南',
   page: 1,
   id: source == MusicDataSource.twentyFourBit ? 'b:$_id' : 'song',
-  name: '晴天',
-  artist: '周杰伦',
+  name: '江南',
+  artist: '林俊杰',
   album: '叶惠美',
   duration: 269,
   link: '',
@@ -235,7 +395,15 @@ MusicSearchCandidate _candidate(MusicDataSource source) => MusicSearchCandidate(
 );
 
 class _PriorityHttp implements MusicResolverHttp {
-  _PriorityHttp(this.preferred);
+  _PriorityHttp(
+    this.preferred, {
+    this.title = '江南',
+    this.artist = '林俊杰',
+    this.bothRegular = false,
+  });
+  final String title, artist;
+  final bool bothRegular;
+  bool failYyResolve = false;
   final MusicDataSource preferred;
   final searches = <MusicDataSource>[];
   final resolutions = <MusicDataSource>[];
@@ -275,11 +443,11 @@ class _PriorityHttp implements MusicResolverHttp {
     return json(uri, {
       'data': {
         'list': [
-          if (preferred == MusicDataSource.flac)
+          if (bothRegular || preferred == MusicDataSource.flac)
             {
               'id': 'flac-song',
-              'name': '晴天',
-              'artist': '周杰伦',
+              'name': title,
+              'artist': artist,
               'minfo': [
                 {'format': 'mp3', 'bitrate': '320'},
               ],
@@ -310,20 +478,21 @@ class _PriorityHttp implements MusicResolverHttp {
             '<script>self.__next_f.push(${jsonEncode([
               1,
               'a:${jsonEncode({
-                'itemMusic': {'id': _id, 'name': '晴天', 'player': '周杰伦', 'album': '叶惠美', 'url': 'https://audio.test/song.flac', 'format': 'flac'},
+                'itemMusic': {'id': _id, 'name': title, 'player': artist, 'album': '叶惠美', 'url': 'https://audio.test/song.flac', 'format': 'flac'},
               })}\n',
             ])})</script>',
       );
     }
     if (uri.path == '/api/geturl') {
       resolutions.add(MusicDataSource.buguyy);
+      if (failYyResolve) throw StateError('HTTP 503');
       return json(uri, {'success': true, 'url': 'https://audio.test/song.mp3'});
     }
     searches.add(MusicDataSource.buguyy);
     return json(uri, {
       'data': [
-        if (preferred == MusicDataSource.buguyy)
-          {'id': 'yy-song', 'title': '晴天', 'singer': '周杰伦'},
+        if (bothRegular || preferred == MusicDataSource.buguyy)
+          {'id': 'yy-song', 'title': title, 'singer': artist},
       ],
     });
   }
@@ -338,7 +507,7 @@ class _PriorityHttp implements MusicResolverHttp {
     return json(uri, {
       'status': true,
       'result': [
-        {'id': _id, 'name': '晴天', 'player': '周杰伦', 'album': '叶惠美'},
+        {'id': _id, 'name': title, 'player': artist, 'album': '叶惠美'},
       ],
     });
   }

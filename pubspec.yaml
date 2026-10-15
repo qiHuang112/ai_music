@@ -1,7 +1,7 @@
 name: ai_music
 description: "Cross-platform music search, cache, and playback app."
 publish_to: 'none'
-version: 1.0.4+8245
+version: 1.0.4+8250
 
 environment:
   sdk: '>=3.9.2 <4.0.0'

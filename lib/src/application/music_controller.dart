@@ -2024,7 +2024,7 @@ class MusicController extends ChangeNotifier {
   }
 
   String _sourceCacheScope(MusicDataSource mode) => mode == MusicDataSource.auto
-      ? 'auto-priority-v4:${_sourceAvailability?.sourceAvailabilityRevision ?? 0}:${(_sourceHealth?.availableAutoSources ?? sourceCatalog.autoSources()).map((s) => s.storageValue).join(',')}'
+      ? 'auto-match-v7:${_sourceAvailability?.sourceAvailabilityRevision ?? 0}:${(_sourceHealth?.availableAutoSources ?? sourceCatalog.autoSources()).map((s) => s.storageValue).join(',')}'
       : '${mode.storageValue}:${_sourceAvailability?.sourceAvailabilityRevision ?? 0}';
 
   MusicDataSource _sourceModeForTrack(Track track) {

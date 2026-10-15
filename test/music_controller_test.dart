@@ -33,6 +33,58 @@ import 'package:flutter_test/flutter_test.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
+
+  for (final oldScope in ['auto-priority-v4', 'auto-match-v6']) {
+    test(
+      'new Auto matching ignores $oldScope cache without clearing manual cache',
+      () async {
+        final cache = SongSearchCache.memory();
+        final old = _candidate(id: 'old-weak', name: '不相关结果');
+        final query = '周杰伦';
+        final oldKey =
+            '${SongSearchCache.searchKey(query, MusicDataSource.auto)}|$oldScope:0:flac,buguyy,24bit';
+        final manualKey =
+            '${SongSearchCache.searchKey(query, MusicDataSource.flac)}|flac:0';
+        await cache.search(oldKey, () async => [old]);
+        await cache.search(manualKey, () async => [old]);
+        final controller = MusicController(
+          audioHandler: _SpyAudioHandler(),
+          songSearchCache: cache,
+          downloadHistoryStore: MemoryDownloadHistory(),
+          connectivityChanges: const Stream.empty(),
+          resolver: _FakeMusicResolver(),
+          cacheStore: _FakeCacheStore(cached: const []),
+          playlistStore: _MemoryPlaylistStore(),
+          settingsStore: _FakeSettingsStore(),
+          metadataRepository: _StaticMetadataRepository(),
+        );
+        try {
+          await controller.initialize();
+          await controller.search(query);
+          expect(
+            controller.candidates,
+            isEmpty,
+            reason:
+                'Old Auto results must not short-circuit the new source policy',
+          );
+          expect(
+            (await cache.search(oldKey, () async => [])).single.id,
+            old.id,
+          );
+          await controller.saveSource(MusicDataSource.flac);
+          await controller.search(query);
+          expect(
+            controller.candidates.single.id,
+            old.id,
+            reason: 'Manual source cache remains usable',
+          );
+        } finally {
+          controller.dispose();
+        }
+      },
+    );
+  }
+
   test(
     'skin changes persist from/to and save outcome while the performance panel is off',
     () async {

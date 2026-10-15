@@ -12,6 +12,7 @@ import 'dart:async';
 import 'dart:developer' as developer;
 
 import 'auto_source_health.dart';
+import 'auto_search_policy.dart';
 import 'buguyy_resolver.dart';
 import 'candidate_scorer.dart';
 import 'challenge_client.dart';
@@ -372,6 +373,8 @@ class RemoteMusicResolver
   }) {
     final trimmed = query.trim();
     final merged = <MusicSearchCandidate>[];
+    final bySource = <MusicDataSource, List<MusicSearchCandidate>>{};
+    final policy = AutoSearchPolicy(trimmed, catalog: sourceCatalog);
     final errors = <Object>[];
     var cancelled = false;
     bool stopped() => cancelled || isCancelled();
@@ -379,7 +382,7 @@ class RemoteMusicResolver
       onCancel: () => cancelled = true,
     );
     final sources = source == MusicDataSource.auto
-        ? availableAutoSources
+        ? policy.orderSources(availableAutoSources)
         : [source];
     void emit(bool complete) {
       if (stopped()) return;
@@ -394,7 +397,17 @@ class RemoteMusicResolver
       );
     }
 
-    void update(List<MusicSearchCandidate> candidates) {
+    void update(
+      MusicDataSource concrete,
+      List<MusicSearchCandidate> candidates,
+    ) {
+      if (source == MusicDataSource.auto) {
+        bySource[concrete] = candidates;
+        merged
+          ..clear()
+          ..addAll(policy.rank(bySource.values.expand((items) => items)));
+        return;
+      }
       if (candidates.isEmpty) return;
       final keys = {
         for (final c in candidates) '${c.source}\t${c.platform}\t${c.id}',
@@ -405,10 +418,13 @@ class RemoteMusicResolver
       _appendStableCandidates(merged, candidates);
     }
 
-    void batch(List<MusicSearchCandidate> candidates) {
+    void batch(
+      MusicDataSource concrete,
+      List<MusicSearchCandidate> candidates,
+    ) {
       if (stopped() || candidates.isEmpty) return;
-      if (source == MusicDataSource.auto) _rememberAutoPriority(candidates);
-      update(candidates);
+      update(concrete, candidates);
+      if (source == MusicDataSource.auto) _rememberAutoPriority(merged);
       emit(false);
     }
 
@@ -423,24 +439,51 @@ class RemoteMusicResolver
         try {
           for (final concrete in sources) {
             if (stopped()) return;
+            if (source == MusicDataSource.auto &&
+                sourceCatalog.policyFor(concrete)?.fallbackOnly == true &&
+                policy.hasStrongMatch(merged)) {
+              OperationLog.event('search.auto.fallbackSkipped', {
+                'query': trimmed,
+                'source': concrete.storageValue,
+                'reason': 'regular_source_strong_match',
+              });
+              break;
+            }
             final result = await _searchAutoSource(
               trimmed,
               concrete,
               isCancelled: stopped,
               automatic: source == MusicDataSource.auto,
-              onBatch: batch,
+              onBatch: (candidates) => batch(concrete, candidates),
             );
             if (stopped()) return;
             if (result.error != null) errors.add(result.error!);
             if (result.error == null || result.candidates.isNotEmpty) {
-              update(result.candidates);
+              update(concrete, result.candidates);
+              emit(false);
             }
-            // Keep usable partial batches if the provider later fails. Do not
-            // consume a limited fallback merely to supplement existing results.
-            if (merged.isNotEmpty) {
+            final complete = source != MusicDataSource.auto
+                ? merged.isNotEmpty
+                : policy.canStopEarly(merged);
+            if (source == MusicDataSource.auto) {
+              OperationLog.event('search.auto.source', {
+                'query': trimmed,
+                'source': concrete.storageValue,
+                'count': result.candidates.length,
+                'mergedCount': merged.length,
+                'strongCount': merged
+                    .where((c) => policy.matchLevel(c) >= 2)
+                    .length,
+                'earlyStop': complete,
+              });
+            }
+            if (complete) {
               if (source == MusicDataSource.auto) _rememberAutoPriority(merged);
               break;
             }
+            // Deliver this source before dispatching another request, so a
+            // listener cancelling after the batch can prevent the fallback.
+            await Future<void>.delayed(Duration.zero);
           }
           emit(true);
         } finally {
@@ -468,9 +511,11 @@ class RemoteMusicResolver
     MusicQualityLevel? quality,
   }) async {
     final checkedEarlier = <MusicDataSource>{};
-    final earlierSources = sourceCatalog
-        .sourcesBefore(candidate.source)
-        .toSet();
+    final earlierSources =
+        AutoSearchPolicy(candidate.query, catalog: sourceCatalog)
+            .orderSources(availableAutoSources)
+            .takeWhile((source) => source != candidate.source)
+            .toSet();
     if (mode == MusicDataSource.auto &&
         earlierSources.isNotEmpty &&
         !_autoPriorityCandidates.contains(_candidateKey(candidate))) {
@@ -533,7 +578,11 @@ class RemoteMusicResolver
     final identity = SongMatchIdentity(candidate.name, candidate.artist);
     bool matches(MusicSearchCandidate item) =>
         identity.sameRecording(SongMatchIdentity(item.name, item.artist));
-    for (final source in availableAutoSources) {
+    final sources = AutoSearchPolicy(
+      candidate.query,
+      catalog: sourceCatalog,
+    ).orderSources(availableAutoSources);
+    for (final source in sources) {
       if (stopped()) throw StateError('Source request cancelled');
       if (excludedSources.contains(source)) continue;
       try {
@@ -722,21 +771,21 @@ class RemoteMusicResolver
   }
 
   Future<List<MusicSearchCandidate>> _searchAuto(String query) async {
-    final sources = availableAutoSources;
-    if (sources.isEmpty) throw _noAvailableAutoSourceError();
-    final errors = <Object>[];
-    for (final source in sources) {
-      if (_requestCancelled()) throw StateError('Source request cancelled');
-      final result = await _searchAutoSource(query, source);
-      if (_requestCancelled()) throw StateError('Source request cancelled');
-      if (result.candidates.isNotEmpty) {
-        _rememberAutoPriority(result.candidates);
-        return result.candidates.take(80).toList(growable: false);
-      }
-      if (result.error != null) errors.add(result.error!);
+    // Capture the parent cancellation callback before entering the provider
+    // zone; looking it up from inside its own replacement would recurse.
+    final inherited = Zone.current[providerCancellationKey];
+    bool cancelled() => inherited is bool Function() && inherited();
+    MusicSearchProgress? latest;
+    await for (final progress in searchWithCancellation(
+      query,
+      MusicDataSource.auto,
+      isCancelled: cancelled,
+    )) {
+      latest = progress;
     }
-    if (errors.isNotEmpty) throw _combinedAutoError(errors);
-    return const [];
+    if (cancelled()) throw StateError('Source request cancelled');
+    if (latest?.error != null) throw latest!.error!;
+    return latest?.candidates ?? const [];
   }
 
   Future<_AutoSourceResult> _searchAutoSource(
