@@ -399,32 +399,45 @@ class _BackdropTransitions extends PageTransitionsBuilder {
     Animation<double> animation,
     Animation<double> secondaryAnimation,
     Widget child,
-  ) => platform.buildTransitions(
-    route,
-    context,
-    animation,
-    secondaryAnimation,
-    // The backdrop itself stays put behind the navigator. Only a page's
-    // content moves: it fades in as it arrives and fades out as it is covered,
-    // so two see-through pages never show through each other.
-    BackdropScope(
-      child: FadeTransition(
-        opacity: animation.drive(CurveTween(curve: const Interval(.15, .75))),
-        child: FadeTransition(
-          opacity: secondaryAnimation.drive(
-            Tween<double>(
-              begin: 1,
-              end: 0,
-            ).chain(CurveTween(curve: const Interval(0, .45))),
-          ),
-          child: child,
-        ),
+  ) => FadeTransition(
+    // Animate opacity outside the platform's snapshot. Capturing the fades
+    // inside Zoom freezes a partially visible page until the route settles.
+    opacity: animation.drive(CurveTween(curve: const Interval(.15, .75))),
+    child: FadeTransition(
+      opacity: secondaryAnimation.drive(
+        Tween<double>(
+          begin: 1,
+          end: 0,
+        ).chain(CurveTween(curve: const Interval(0, .45))),
+      ),
+      child: platform.buildTransitions(
+        route,
+        context,
+        animation,
+        secondaryAnimation,
+        BackdropScope(child: child),
       ),
     ),
   );
 }
 
 abstract final class MusicAppTheme {
+  static SystemUiOverlayStyle systemOverlayStyle(Brightness brightness) {
+    final dark = brightness == Brightness.dark;
+    return SystemUiOverlayStyle(
+      statusBarColor: Colors.transparent,
+      statusBarIconBrightness: dark ? Brightness.light : Brightness.dark,
+      statusBarBrightness: brightness,
+      systemStatusBarContrastEnforced: false,
+      systemNavigationBarColor: Colors.transparent,
+      systemNavigationBarDividerColor: Colors.transparent,
+      systemNavigationBarIconBrightness: dark
+          ? Brightness.light
+          : Brightness.dark,
+      systemNavigationBarContrastEnforced: false,
+    );
+  }
+
   /// Material tracks every style for Latin text, which only loosens CJK.
   static TextTheme _untracked(TextTheme theme) {
     TextStyle? flat(TextStyle? style) => style?.copyWith(letterSpacing: 0);
@@ -558,9 +571,7 @@ abstract final class MusicAppTheme {
       ),
       appBarTheme: AppBarTheme(
         // The bar is see-through, so say which status-bar icons to use.
-        systemOverlayStyle: dark
-            ? SystemUiOverlayStyle.light
-            : SystemUiOverlayStyle.dark,
+        systemOverlayStyle: systemOverlayStyle(brightness),
         backgroundColor: Colors.transparent,
         foregroundColor: p.text,
         surfaceTintColor: Colors.transparent,

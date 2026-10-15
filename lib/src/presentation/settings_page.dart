@@ -50,6 +50,9 @@ class SettingsPage extends StatelessWidget {
                       trailing: const Icon(Icons.chevron_right),
                       onTap: () => Navigator.of(context).push<void>(
                         MaterialPageRoute(
+                          settings: const RouteSettings(
+                            name: 'language-settings',
+                          ),
                           builder: (_) =>
                               LanguageSettingsPage(controller: controller),
                         ),
@@ -64,6 +67,9 @@ class SettingsPage extends StatelessWidget {
                       trailing: const Icon(Icons.chevron_right),
                       onTap: () => Navigator.of(context).push<void>(
                         MaterialPageRoute(
+                          settings: const RouteSettings(
+                            name: 'appearance-settings',
+                          ),
                           builder: (_) =>
                               ThemeSettingsPage(controller: controller),
                         ),
@@ -82,6 +88,9 @@ class SettingsPage extends StatelessWidget {
                       trailing: const Icon(Icons.chevron_right),
                       onTap: () => Navigator.of(context).push<void>(
                         MaterialPageRoute(
+                          settings: const RouteSettings(
+                            name: 'source-settings',
+                          ),
                           builder: (_) =>
                               SourceSettingsPage(controller: controller),
                         ),
@@ -102,6 +111,9 @@ class SettingsPage extends StatelessWidget {
                       trailing: const Icon(Icons.chevron_right),
                       onTap: () => Navigator.of(context).push<void>(
                         MaterialPageRoute(
+                          settings: const RouteSettings(
+                            name: 'download-quality',
+                          ),
                           builder: (_) =>
                               _DownloadQualityPage(controller: controller),
                         ),
@@ -144,6 +156,20 @@ class SettingsPage extends StatelessWidget {
                 _SettingsGroup(
                   title: strings.isZh ? '高级' : 'Advanced',
                   children: [
+                    SwitchListTile(
+                      key: const Key('performance-overlay-setting'),
+                      secondary: const Icon(Icons.speed),
+                      title: Text(
+                        strings.isZh ? '性能悬浮窗' : 'Performance overlay',
+                      ),
+                      subtitle: Text(
+                        strings.isZh
+                            ? '实时 FPS、内存、CPU，并记录性能日志'
+                            : 'Live FPS, memory, CPU and performance logs',
+                      ),
+                      value: controller.performanceOverlayEnabled,
+                      onChanged: controller.savePerformanceOverlayEnabled,
+                    ),
                     ListTile(
                       key: const Key('concurrency-settings'),
                       leading: const Icon(Icons.tune),
@@ -156,6 +182,9 @@ class SettingsPage extends StatelessWidget {
                       trailing: const Icon(Icons.chevron_right),
                       onTap: () => Navigator.of(context).push<void>(
                         MaterialPageRoute(
+                          settings: const RouteSettings(
+                            name: 'concurrency-settings',
+                          ),
                           builder: (_) =>
                               _ConcurrencySettingsPage(controller: controller),
                         ),
@@ -168,6 +197,9 @@ class SettingsPage extends StatelessWidget {
                       trailing: const Icon(Icons.chevron_right),
                       onTap: () => Navigator.of(context).push<void>(
                         MaterialPageRoute(
+                          settings: const RouteSettings(
+                            name: 'lan-library-settings',
+                          ),
                           builder: (_) =>
                               LanLibrarySettingsPage(controller: controller),
                         ),

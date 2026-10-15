@@ -28,6 +28,23 @@ class MainActivity : AudioServiceActivity() {
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "ai_music/performance")
+            .setMethodCallHandler { call, result ->
+                if (call.method == "sample") PerformanceSampler.sample(result) else result.notImplemented()
+            }
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "ai_music/share")
+            .setMethodCallHandler { call, result ->
+                if (call.method != "file") {
+                    result.notImplemented()
+                } else {
+                    try {
+                        AudioFileSharing.open(this, call.argument<String>("path") ?: "", call.argument("name"), call.argument("chooserTitle"))
+                        result.success(null)
+                    } catch (error: Exception) {
+                        result.error("share_failed", error.message, null)
+                    }
+                }
+            }
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "ai_music/artwork")
             .setMethodCallHandler { call, result ->
                 if (call.method != "load") {
@@ -79,10 +96,11 @@ class MainActivity : AudioServiceActivity() {
                         "info" -> {
                             val info = packageManager.getPackageInfo(packageName, 0)
                             result.success(mapOf(
+                                "packageName" to packageName,
                                 "versionName" to info.versionName,
                                 "versionCode" to if (Build.VERSION.SDK_INT >= 28) info.longVersionCode else info.versionCode.toLong(),
                                 "builtAt" to BuildConfig.BUILD_TIMESTAMP,
-                                "channel" to BuildConfig.BUILD_TYPE,
+                                "channel" to if (BuildConfig.IS_PREVIEW) "preview" else BuildConfig.BUILD_TYPE,
                                 "abis" to Build.SUPPORTED_ABIS.toList()
                             ))
                         }

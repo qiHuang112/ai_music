@@ -494,9 +494,11 @@ class _PlayerBackdropState extends State<_PlayerBackdrop> {
   Future<void> _read(Uri? uri) async {
     if (uri == _uri) return;
     _uri = uri;
-    final palette = uri == null
-        ? null
-        : await ArtworkPalette.of(artworkImageProvider(uri));
+    // This is called by the media StreamBuilder; even clearing a missing cover
+    // must finish asynchronously before notifying its ancestor.
+    final palette = await (uri == null
+        ? Future<ArtworkPalette?>.value()
+        : ArtworkPalette.of(artworkImageProvider(uri)));
     if (mounted && uri == _uri) setState(() => _palette = palette);
   }
 

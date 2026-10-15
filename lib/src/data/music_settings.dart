@@ -57,6 +57,7 @@ class MusicAppSettings {
     this.playlistDownloadConcurrency = 3,
     this.downloadPlaylistsOnWifi = true,
     this.defaultDownloadQuality = MusicQualityLevel.high,
+    this.performanceOverlayEnabled = false,
   });
 
   final MusicDataSource source;
@@ -67,6 +68,7 @@ class MusicAppSettings {
   final int playlistDownloadConcurrency;
   final bool downloadPlaylistsOnWifi;
   final MusicQualityLevel defaultDownloadQuality;
+  final bool performanceOverlayEnabled;
 
   MusicAppSettings copyWith({
     MusicDataSource? source,
@@ -77,6 +79,7 @@ class MusicAppSettings {
     int? playlistDownloadConcurrency,
     bool? downloadPlaylistsOnWifi,
     MusicQualityLevel? defaultDownloadQuality,
+    bool? performanceOverlayEnabled,
   }) {
     return MusicAppSettings(
       source: source ?? this.source,
@@ -91,6 +94,8 @@ class MusicAppSettings {
           downloadPlaylistsOnWifi ?? this.downloadPlaylistsOnWifi,
       defaultDownloadQuality:
           defaultDownloadQuality ?? this.defaultDownloadQuality,
+      performanceOverlayEnabled:
+          performanceOverlayEnabled ?? this.performanceOverlayEnabled,
     );
   }
 
@@ -104,6 +109,7 @@ class MusicAppSettings {
       'playlistDownloadConcurrency': playlistDownloadConcurrency,
       'downloadPlaylistsOnWifi': downloadPlaylistsOnWifi,
       'defaultDownloadQuality': defaultDownloadQuality.storageValue,
+      'performanceOverlayEnabled': performanceOverlayEnabled,
     };
   }
 }
@@ -148,6 +154,8 @@ class MusicSettingsStore {
           defaultDownloadQuality: MusicQualityLevel.fromStorage(
             decoded['defaultDownloadQuality']?.toString(),
           ),
+          performanceOverlayEnabled:
+              decoded['performanceOverlayEnabled'] == true,
         );
       }
       return MusicAppSettings(source: _restoredSource(text));

@@ -62,12 +62,14 @@ class InstalledAppVersion {
     required this.code,
     required this.builtAt,
     required this.channel,
+    this.packageName = 'com.qi.ai.music',
     this.abis = const ['arm64-v8a'],
   });
   final String name;
   final int code;
   final DateTime builtAt;
   final String channel;
+  final String packageName;
   final List<String> abis;
   String get label => '$name ($code)';
 }
@@ -101,7 +103,7 @@ class AppRelease {
     final date = DateTime.tryParse(json['publishedAt']?.toString() ?? '');
     final path = json['url']?.toString() ?? '';
     final uri = server.resolve(path);
-    if (json['packageName'] != 'com.qi.ai.music' ||
+    if (json['packageName'] != current.packageName ||
         json['channel'] != 'release' ||
         !current.abis.contains(json['abi']) ||
         code is! int ||
@@ -156,6 +158,7 @@ class NativeAndroidUpdateBridge implements AndroidUpdateBridge {
       code: data['versionCode'] as int,
       builtAt: DateTime.fromMillisecondsSinceEpoch(data['builtAt'] as int),
       channel: data['channel'] as String,
+      packageName: data['packageName'] as String? ?? 'com.qi.ai.music',
       abis: (data['abis'] as List).cast<String>(),
     );
   }

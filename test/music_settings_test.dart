@@ -6,6 +6,30 @@ import 'package:ai_music/src/data/lan_library_models.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
+  test(
+    'performance switch persists across appearance changes and defaults off for old settings',
+    () async {
+      final root = await Directory.systemTemp.createTemp(
+        'performance_settings_',
+      );
+      addTearDown(() => root.delete(recursive: true));
+      final store = MusicSettingsStore(rootProvider: () async => root);
+      expect((await store.loadSettings()).performanceOverlayEnabled, isFalse);
+      await store.saveSettings(
+        const MusicAppSettings(performanceOverlayEnabled: true),
+      );
+      final restored = await store.loadSettings();
+      expect(restored.performanceOverlayEnabled, isTrue);
+      await store.saveSettings(
+        restored.copyWith(theme: AppThemePreference.silver),
+      );
+      expect((await store.loadSettings()).performanceOverlayEnabled, isTrue);
+      await File(
+        '${root.path}/settings.json',
+      ).writeAsString('{"themeMode":"neon"}');
+      expect((await store.loadSettings()).performanceOverlayEnabled, isFalse);
+    },
+  );
   test('settings store restores legacy source text', () async {
     final root = await Directory.systemTemp.createTemp(
       'ai_music_settings_old_',

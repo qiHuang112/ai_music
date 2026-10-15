@@ -1,5 +1,11 @@
 # Android 自动发布与更新
 
+## 独立材质体验包（2026-10-13）
+
+用户要求改包名并在77安装release体验。显式设置 `ORG_GRADLE_PROJECT_aiMusicPreview=true` 后构建arm64 release，包名为 `com.qi.ai.music.preview`，桌面名为「来听·材质体验」；未设置时继续构建原包名「来听」。体验包使用现有release签名、独立数据目录，可与原应用并存，不消费正式版更新通道。日志上报记录实际包名。该本地试用不发布到GitHub或切换LAN latest，APK与校验信息单独永久保存在 `releases/ai_music/android/previews/`。
+
+自测场景：实际APK为release且不可调试；两应用可同时安装、分别启动；体验版切换七种外观、重启保留、搜索播放及队列可用；原应用版本和数据保持；检测更新正确说明体验身份。
+
 ## GitHub CI 自动发布（2026-10-10最新决定）
 
 用户要求后续不手工打包或上传 Release，改由 GitHub Actions 自动完成。`main` 每次推送触发 `.github/workflows/android-release.yml`：固定 Flutter 3.44.2/Java 17，执行分析、Flutter 与 Python 测试，构建现有签名的 arm64 release，校验包名/ABI/证书/成品版本，上传 APK、SHA-256 和 `latest.json`。先创建草稿并回读核对上传文件，再一次发布并设为 latest；失败保留旧 latest。串行发布，同提交已交付则跳过，已被后续 main 取代的构建不发布。保留历次 Release 和 APK，无需每次手工测试 release 实机或安装。

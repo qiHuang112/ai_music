@@ -17,6 +17,7 @@ import 'src/presentation/design/ambient_backdrop.dart';
 import 'src/presentation/design/controls.dart';
 import 'src/presentation/design/design_gallery_page.dart';
 import 'src/presentation/design/soft_scroll_edge.dart';
+import 'src/presentation/performance_overlay.dart';
 
 const _disableAudioService = bool.fromEnvironment(
   'AI_MUSIC_DISABLE_AUDIO_SERVICE',
@@ -27,6 +28,9 @@ const _designGallery = bool.fromEnvironment('AI_MUSIC_DESIGN_GALLERY');
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  if (Platform.isAndroid) {
+    await SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
+  }
   OperationLog.instance = OperationLog();
   OperationLog.event('app.start');
   final previousFlutterError = FlutterError.onError;
@@ -55,6 +59,7 @@ Future<void> main() async {
     controller
       ..themePreference = saved.theme
       ..language = saved.language;
+    controller.performanceMonitor.setEnabled(saved.performanceOverlayEnabled);
   } catch (_) {
     // The defaults stand; initialize() reports real settings failures.
   }
@@ -97,6 +102,7 @@ class AiMusicApp extends StatelessWidget {
         return MaterialApp(
           title: AppBrand.name,
           debugShowCheckedModeBanner: false,
+          navigatorObservers: [controller.performanceMonitor.routes],
           // The page backdrop swaps whole with the theme; a cross-fade would
           // show it under half-changed colors.
           themeAnimationDuration: Duration.zero,
@@ -117,16 +123,24 @@ class AiMusicApp extends StatelessWidget {
           themeMode: controller.themePreference.isDark
               ? ThemeMode.dark
               : ThemeMode.light,
-          builder: (context, child) => AppStringsScope(
-            language: controller.language,
-            // One backdrop for the whole app, fixed behind every page, so
-            // moving between pages changes only what lies on top of it.
-            child: Stack(
-              fit: StackFit.expand,
-              children: [
-                const PageBackdrop(),
-                DismissKeyboardOnTap(child: child ?? const SizedBox.shrink()),
-              ],
+          builder: (context, child) => AnnotatedRegion<SystemUiOverlayStyle>(
+            value: MusicAppTheme.systemOverlayStyle(
+              Theme.of(context).brightness,
+            ),
+            child: AppStringsScope(
+              language: controller.language,
+              // One backdrop for the whole app, fixed behind every page, so
+              // moving between pages changes only what lies on top of it.
+              child: Stack(
+                fit: StackFit.expand,
+                children: [
+                  const PageBackdrop(),
+                  DismissKeyboardOnTap(child: child ?? const SizedBox.shrink()),
+                  PerformanceOverlayPanel(
+                    monitor: controller.performanceMonitor,
+                  ),
+                ],
+              ),
             ),
           ),
           home: _designGallery

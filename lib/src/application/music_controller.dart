@@ -54,6 +54,7 @@ import 'screenshot_song_parser.dart';
 import 'app_update_controller.dart';
 import 'diagnostics_upload_controller.dart';
 import '../data/operation_log.dart';
+import 'performance_monitor.dart';
 
 class _FavoriteDownloadJob {
   _FavoriteDownloadJob(this.track, this.quality, this.taskId, this.token);
@@ -420,6 +421,8 @@ class MusicController extends ChangeNotifier {
   bool _retiredQueueCleanupRunning = false;
   int _playRequest = 0;
   Future<void> _playLoadTail = Future<void>.value();
+  Future<void> _queueAddTail = Future<void>.value();
+  int _queueAddEpoch = 0;
   String? _lyricsPrefetchQueueKey;
   int _lyricsPrefetchRequest = 0;
   @visibleForTesting
@@ -453,6 +456,15 @@ class MusicController extends ChangeNotifier {
   Future<void> _playbackModeChange = Future<void>.value();
   AppLanguage language = AppLanguage.zh;
   AppThemePreference themePreference = AppThemePreference.dark;
+  late final performanceMonitor = PerformanceMonitor(
+    context: () => {
+      'skin': themePreference.storageValue,
+      'source': source.storageValue,
+      'playing': audioHandler.playbackState.value.playing,
+      'trackId': audioHandler.mediaItem.value?.id,
+    },
+  );
+  bool get performanceOverlayEnabled => performanceMonitor.enabled;
   int screenshotSearchConcurrency = 3;
   int playlistDownloadConcurrency = 3;
   bool downloadPlaylistsOnWifi = true;
@@ -584,6 +596,10 @@ class MusicController extends ChangeNotifier {
     source = settings.source;
     language = settings.language;
     themePreference = settings.theme;
+    OperationLog.event('appearance.restore', {
+      'skin': settings.theme.storageValue,
+    });
+    performanceMonitor.setEnabled(settings.performanceOverlayEnabled);
     lanLibraryUrl = settings.lanLibraryUrl;
     screenshotSearchConcurrency = settings.screenshotSearchConcurrency;
     playlistDownloadConcurrency = settings.playlistDownloadConcurrency;
@@ -663,7 +679,29 @@ class MusicController extends ChangeNotifier {
   }
 
   Future<void> saveTheme(AppThemePreference nextTheme) async {
+    final previous = themePreference;
+    if (previous == nextTheme) return;
+    OperationLog.event('appearance.change', {
+      'from': previous.storageValue,
+      'to': nextTheme.storageValue,
+    });
+    performanceMonitor.contextWillChange('skin');
     themePreference = nextTheme;
+    notifyListeners();
+    try {
+      await _saveSettings();
+      OperationLog.event('appearance.saved', {'skin': nextTheme.storageValue});
+    } catch (error) {
+      OperationLog.event('appearance.save_failed', {
+        'skin': nextTheme.storageValue,
+        'error': error.toString(),
+      });
+      rethrow;
+    }
+  }
+
+  Future<void> savePerformanceOverlayEnabled(bool value) async {
+    performanceMonitor.setEnabled(value);
     notifyListeners();
     await _saveSettings();
   }
@@ -1661,24 +1699,46 @@ class MusicController extends ChangeNotifier {
   /// With nothing queued it starts playing them. Returns how many were new.
   Future<int> addToQueue(List<Track> tracks) async {
     if (tracks.isEmpty) return 0;
-    if (audioHandler.mediaItem.value == null || _activeQueueTracks.isEmpty) {
-      await playTrack(tracks.first, index: 0, queueTracks: tracks);
-      return tracks.length;
-    }
-    var added = 0;
-    await _editQueue(() async {
-      final queued = {for (final track in _activeQueueTracks) track.id};
-      final additions = [
+    // Reserve the whole operation before checking for an empty queue. Initial
+    // playback prepares metadata before taking the load lock, so serializing
+    // only appendQueue would let another add supersede that first song.
+    final prior = _queueAddTail;
+    final done = Completer<void>();
+    final epoch = _queueAddEpoch;
+    _queueAddTail = done.future;
+    await prior;
+    try {
+      if (_isDisposed || epoch != _queueAddEpoch) return 0;
+      final seen = <String>{};
+      final unique = [
         for (final track in tracks)
-          if (queued.add(track.id)) track,
+          if (seen.add(track.id)) track,
       ];
-      if (additions.isEmpty) return;
-      await playbackUseCase.appendTracks(_activeQueueTracks, additions);
-      _activeQueueTracks = [..._activeQueueTracks, ...additions];
-      _userRemovedQueueIds.removeAll([for (final t in additions) t.id]);
-      added = additions.length;
-    });
-    return added;
+      if (audioHandler.mediaItem.value == null || _activeQueueTracks.isEmpty) {
+        await playTrack(unique.first, index: 0, queueTracks: unique);
+        if (_isDisposed || epoch != _queueAddEpoch) return 0;
+        final queued = {for (final track in _activeQueueTracks) track.id};
+        return unique.where((track) => queued.contains(track.id)).length;
+      }
+      var added = 0;
+      await _editQueue(() async {
+        if (epoch != _queueAddEpoch) return;
+        final queued = {for (final track in _activeQueueTracks) track.id};
+        final additions = [
+          for (final track in unique)
+            if (queued.add(track.id)) track,
+        ];
+        if (additions.isEmpty) return;
+        await playbackUseCase.appendTracks(_activeQueueTracks, additions);
+        if (epoch != _queueAddEpoch) return;
+        _activeQueueTracks = [..._activeQueueTracks, ...additions];
+        _userRemovedQueueIds.removeAll([for (final t in additions) t.id]);
+        added = additions.length;
+      });
+      return added;
+    } finally {
+      done.complete();
+    }
   }
 
   /// Empties the queue, the playing song included, and stops.
@@ -1718,6 +1778,7 @@ class MusicController extends ChangeNotifier {
   }
 
   Future<void> stop() async {
+    _queueAddEpoch++;
     _listeningRecorder.capture();
     _playRequest += 1;
     _streamingMetadataTracks.clear();
@@ -3781,6 +3842,7 @@ class MusicController extends ChangeNotifier {
       'language': language.storageValue,
       'theme': themePreference.storageValue,
       'downloadQuality': defaultDownloadQuality.storageValue,
+      'performanceOverlayEnabled': performanceOverlayEnabled,
     });
     return settingsController.save(
       source: source,
@@ -3791,6 +3853,7 @@ class MusicController extends ChangeNotifier {
       playlistDownloadConcurrency: playlistDownloadConcurrency,
       downloadPlaylistsOnWifi: downloadPlaylistsOnWifi,
       defaultDownloadQuality: defaultDownloadQuality,
+      performanceOverlayEnabled: performanceOverlayEnabled,
     );
   }
 
@@ -4339,6 +4402,7 @@ class MusicController extends ChangeNotifier {
 
   @override
   void dispose() {
+    performanceMonitor.dispose();
     unawaited(_listeningRecorder.close());
     appUpdates.dispose();
     diagnostics.dispose();

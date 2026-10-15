@@ -1,4 +1,5 @@
 import 'package:ai_music/src/data/music_charts.dart';
+import 'package:ai_music/src/data/operation_log.dart';
 import 'package:ai_music/src/data/auto_source_health.dart';
 import 'package:ai_music/src/data/playlist_song.dart';
 import 'package:ai_music/src/data/listening_stats_store.dart';
@@ -32,6 +33,68 @@ import 'package:flutter_test/flutter_test.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
+  test(
+    'skin changes persist from/to and save outcome while the performance panel is off',
+    () async {
+      final root = await Directory.systemTemp.createTemp('skin_operation_log_');
+      final previous = OperationLog.instance;
+      final log = OperationLog(rootProvider: () async => root);
+      OperationLog.instance = log;
+      final settings = _AppearanceTestSettingsStore();
+      final controller = MusicController(
+        audioHandler: _SpyAudioHandler(),
+        resolver: _FakeMusicResolver(),
+        cacheStore: _FakeCacheStore(cached: []),
+        playlistStore: _FakePlaylistStore(),
+        settingsStore: settings,
+        listeningStatsStore: ListeningStatsStore.memory(),
+      );
+      try {
+        expect(controller.performanceOverlayEnabled, isFalse);
+        await controller.saveTheme(AppThemePreference.silver);
+        final events = (await log.export()).cast<Map>();
+        final change = events.singleWhere(
+          (e) => e['operation'] == 'appearance.change',
+        );
+        expect(change['details'], {'from': 'dark', 'to': 'silver'});
+        expect(
+          events.where((e) => e['operation'] == 'appearance.saved').length,
+          1,
+        );
+        await controller.saveTheme(AppThemePreference.silver);
+        expect(
+          (await log.export())
+              .cast<Map>()
+              .where((e) => e['operation'] == 'appearance.change')
+              .length,
+          1,
+        );
+        settings.fail = true;
+        await expectLater(
+          controller.saveTheme(AppThemePreference.neon),
+          throwsStateError,
+        );
+        final afterFailure = (await log.export()).cast<Map>();
+        expect(
+          afterFailure
+              .where((e) => e['operation'] == 'appearance.saved')
+              .length,
+          1,
+        );
+        expect(
+          afterFailure
+              .where((e) => e['operation'] == 'appearance.save_failed')
+              .length,
+          1,
+        );
+      } finally {
+        controller.dispose();
+        await log.flush();
+        OperationLog.instance = previous;
+        await root.delete(recursive: true);
+      }
+    },
+  );
 
   test(
     'Auto favorite cache marker survives cross-source reuse and reload',
@@ -2220,6 +2283,54 @@ void main() {
         }
       },
     );
+  });
+
+  test('concurrent empty queue adds retain both songs in call order', () async {
+    final handler = _SpyAudioHandler();
+    final cached = [
+      for (final name in ['a', 'b'])
+        _cachedTrack(
+          id: name,
+          name: name,
+        ).copyWith(cacheId: 'cache-$name', filePath: '/tmp/$name.mp3'),
+    ];
+    final controller = MusicController(
+      audioHandler: handler,
+      songSearchCache: SongSearchCache.memory(),
+      downloadHistoryStore: MemoryDownloadHistory(),
+      connectivityChanges: const Stream.empty(),
+      resolver: _FakeMusicResolver(),
+      cacheStore: _FakeCacheStore(cached: cached),
+      playlistStore: _MemoryPlaylistStore(),
+      settingsStore: _FakeSettingsStore(),
+      metadataRepository: _StaticMetadataRepository(),
+    );
+    try {
+      await controller.initialize();
+      final tracks = controller.cachedTracks;
+      expect(
+        await Future.wait([
+          controller.addToQueue([tracks[0]]),
+          controller.addToQueue([tracks[1]]),
+        ]),
+        [1, 1],
+      );
+      expect(controller.queueTracks.map((t) => t.id), tracks.map((t) => t.id));
+      expect(handler.queue.value.map((t) => t.id), tracks.map((t) => t.id));
+      expect(handler.mediaItem.value!.id, tracks[0].id);
+      await controller.clearQueue();
+      expect(await controller.addToQueue([tracks[0], tracks[0]]), 1);
+      expect(controller.queueTracks, hasLength(1));
+      await controller.clearQueue();
+      final first = controller.addToQueue([tracks[0]]);
+      final second = controller.addToQueue([tracks[1]]);
+      await controller.clearQueue();
+      expect(await Future.wait([first, second]), [0, 0]);
+      expect(controller.queueTracks, isEmpty);
+      expect(handler.queue.value, isEmpty);
+    } finally {
+      controller.dispose();
+    }
   });
 
   test('queue edits remove and move around the playing song', () async {
@@ -7162,6 +7273,15 @@ List<int> _controllerLanMp3Bytes() {
     0x00,
     ...List<int>.filled(16 * 1024, 0x42),
   ];
+}
+
+class _AppearanceTestSettingsStore extends _FakeSettingsStore {
+  bool fail = false;
+  @override
+  Future<void> saveSettings(MusicAppSettings settings) async {
+    if (fail) throw StateError('Disk unavailable');
+    await super.saveSettings(settings);
+  }
 }
 
 class _FakeSettingsStore implements MusicSettingsStore {

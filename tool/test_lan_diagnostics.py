@@ -62,6 +62,20 @@ class DiagnosticsTest(unittest.TestCase):
             error.exception.close()
         self.assertFalse((self.root / 'diagnostics').exists())
 
+    def test_preview_performance_report_retains_its_actual_identity(self):
+        self.payload['app'] = {'packageName': 'com.qi.ai.music.preview', 'channel': 'preview'}
+        self.payload['operations'] = [{'operation': 'performance.sample', 'details': {'skin': 'neon', 'fps': 30, 'cpuPercent': 21, 'memoryMiB': 110}}]
+        receipt, _ = self.post(self.payload)
+        saved = json.loads((self.root / 'diagnostics' / (receipt['reportId'] + '.json')).read_text())
+        self.assertEqual(saved['payload']['app'], self.payload['app'])
+        self.assertEqual(saved['payload']['operations'], self.payload['operations'])
+        self.payload['reportId'] = 'b' * 32
+        self.payload['app']['packageName'] = 'other.application'
+        with self.assertRaises(urllib.error.HTTPError) as error:
+            self.post(self.payload)
+        self.assertEqual(error.exception.code, 400)
+        error.exception.close()
+
 
 if __name__ == '__main__':
     unittest.main()

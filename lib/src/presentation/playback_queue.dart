@@ -17,6 +17,7 @@ Future<void> showPlaybackQueue(
   MusicController controller,
 ) => showModalBottomSheet<void>(
   context: context,
+  routeSettings: const RouteSettings(name: 'playback-queue'),
   isScrollControlled: true,
   useSafeArea: true,
   builder: (_) => PlaybackQueue(controller: controller),

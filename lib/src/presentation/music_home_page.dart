@@ -136,6 +136,7 @@ class _MusicHomePageState extends State<MusicHomePage>
   void _openMatchedPlaylist(MusicPlaylist playlist) {
     Navigator.of(context).push(
       MaterialPageRoute<void>(
+        settings: const RouteSettings(name: 'playlist-detail'),
         builder: (_) => _PlaylistDetailPage(
           controller: controller,
           selection: _LibraryListSpec.custom(playlist),
@@ -192,7 +193,8 @@ class _MusicHomePageState extends State<MusicHomePage>
                           onOpenPlaylist: _openMatchedPlaylist,
                         )
                       : const SizedBox.shrink(),
-                  _visitedTabs.contains(3)
+                  // Recreate settings to rediscover LAN services.
+                  _tab == 3
                       ? SettingsPage(controller: controller)
                       : const SizedBox.shrink(),
                 ].indexed)
@@ -257,6 +259,9 @@ class _MusicHomePageState extends State<MusicHomePage>
 
   void _selectTab(int tab) {
     if (tab == _tab) return;
+    controller.performanceMonitor.setTab(
+      const ['home', 'library', 'downloads', 'settings'][tab],
+    );
     _searchFocusNode.unfocus();
     setState(() {
       _visitedTabs.add(tab);
@@ -419,6 +424,7 @@ class _MusicHomePageState extends State<MusicHomePage>
   void _openScreenshotImport() {
     Navigator.of(context).push(
       MaterialPageRoute<void>(
+        settings: const RouteSettings(name: 'screenshot-import'),
         builder: (_) => ScreenshotImportPage(
           controller: controller,
           openPickerOnStart: true,
@@ -1180,6 +1186,7 @@ class _HomeLibrarySection extends StatelessWidget {
   Future<void> _openList(BuildContext context, _LibraryListSpec selection) {
     return Navigator.of(context).push<void>(
       MaterialPageRoute(
+        settings: const RouteSettings(name: 'playlist-detail'),
         builder: (context) =>
             _PlaylistDetailPage(controller: controller, selection: selection),
       ),
@@ -1413,6 +1420,7 @@ class _LibraryLanding extends StatelessWidget {
             onTap: () => Navigator.push(
               context,
               MaterialPageRoute<void>(
+                settings: const RouteSettings(name: 'listening-stats'),
                 builder: (_) => ListeningStatsPage(
                   controller: controller,
                   bottomPlayer: MiniPlayer(controller: controller),
@@ -1485,6 +1493,7 @@ class _LibraryLanding extends StatelessWidget {
     }
     return Navigator.of(context).push<void>(
       MaterialPageRoute(
+        settings: const RouteSettings(name: 'playlist-detail'),
         builder: (context) =>
             _PlaylistDetailPage(controller: controller, selection: selection),
       ),
@@ -2287,6 +2296,7 @@ class _PlaylistDetailPageState extends State<_PlaylistDetailPage> {
   void _openOnlineSyncTask(OnlinePlaylistTask task) {
     Navigator.of(context).push<void>(
       MaterialPageRoute(
+        settings: const RouteSettings(name: 'online-playlist'),
         builder: (_) => OnlinePlaylistPage(
           playlist: task.playlist,
           repository: task.repository,
@@ -2905,10 +2915,17 @@ class _TrackList extends StatelessWidget {
   Widget build(BuildContext context) => StreamBuilder<MediaItem?>(
     stream: controller.mediaItemStream,
     initialData: controller.audioHandler.mediaItem.valueOrNull,
-    builder: (context, snapshot) => _buildList(context, snapshot.data?.id),
+    builder: (context, snapshot) => StreamBuilder<bool>(
+      stream: controller.playbackStateStream
+          .map((state) => state.playing)
+          .distinct(),
+      initialData: controller.audioHandler.playbackState.value.playing,
+      builder: (context, playback) =>
+          _buildList(context, snapshot.data?.id, playback.data == true),
+    ),
   );
 
-  Widget _buildList(BuildContext context, String? activeId) {
+  Widget _buildList(BuildContext context, String? activeId, bool playing) {
     final tracks = list.tracks;
     final strings = AppStringsScope.of(context);
     if (tracks.isEmpty && headerSlivers != null) {
@@ -2958,6 +2975,7 @@ class _TrackList extends StatelessWidget {
           return _TrackTile(
             key: ValueKey('track-${track.id}'),
             active: track.id == activeId,
+            playing: playing && track.id == activeId,
             controller: controller,
             list: list,
             track: track,
@@ -2988,6 +3006,7 @@ class _TrackList extends StatelessWidget {
       final track = tracks[index];
       return _TrackTile(
         active: track.id == activeId,
+        playing: playing && track.id == activeId,
         controller: controller,
         list: list,
         track: track,
@@ -3014,7 +3033,7 @@ class _TrackList extends StatelessWidget {
             child: _PlaylistSleeve(
               controller: controller,
               list: list,
-              playing: tracks.any((track) => track.id == activeId),
+              playing: playing && tracks.any((track) => track.id == activeId),
               onPlayAll: () => onPlayTrack(tracks.first, 0, tracks),
             ),
           ),
@@ -3080,6 +3099,7 @@ class _TrackTile extends StatelessWidget {
     super.key,
     required this.controller,
     this.active = false,
+    this.playing = false,
     required this.list,
     required this.track,
     required this.tracks,
@@ -3094,7 +3114,7 @@ class _TrackTile extends StatelessWidget {
     this.dragHandle,
   });
 
-  final bool active;
+  final bool active, playing;
   final MusicController controller;
   final _ResolvedLibraryList list;
   final Track track;
@@ -3143,11 +3163,12 @@ class _TrackTile extends StatelessWidget {
                 : _TrackCover(
                     track: track,
                     active: active,
+                    playing: playing,
                     preparing: isPreparing,
                     dimmed: !cached,
                     tooltip: isPreparing
                         ? strings.preparingPlayback
-                        : active
+                        : active && playing
                         ? strings.playing
                         : strings.play,
                     onPressed: isPreparing
@@ -3302,6 +3323,7 @@ class _TrackCover extends StatelessWidget {
   const _TrackCover({
     required this.track,
     required this.active,
+    required this.playing,
     required this.preparing,
     required this.dimmed,
     required this.tooltip,
@@ -3309,7 +3331,7 @@ class _TrackCover extends StatelessWidget {
   });
 
   final Track track;
-  final bool active, preparing, dimmed;
+  final bool active, playing, preparing, dimmed;
   final String tooltip;
   final VoidCallback? onPressed;
 
@@ -3352,7 +3374,7 @@ class _TrackCover extends StatelessWidget {
                               child: CircularProgressIndicator(strokeWidth: 2),
                             )
                           : EqualizerBars(
-                              playing: true,
+                              playing: playing,
                               size: 18,
                               color: Theme.of(
                                 context,

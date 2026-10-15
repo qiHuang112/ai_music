@@ -31,7 +31,7 @@ class DiagnosticsReceiver:
         if (not isinstance(document.get('operations'), list) or
                 not isinstance(document.get('listeningStats'), dict) or
                 not isinstance(document.get('app'), dict) or
-                document['app'].get('packageName') != 'com.qi.ai.music'):
+                document['app'].get('packageName') not in {'com.qi.ai.music', 'com.qi.ai.music.preview'}):
             raise ValueError('Invalid report contents')
         digest = hashlib.sha256(payload).hexdigest()
         now = datetime.now(timezone.utc).isoformat()

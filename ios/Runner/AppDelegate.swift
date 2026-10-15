@@ -1,6 +1,7 @@
 import Flutter
 import UIKit
 import Vision
+import Darwin
 
 // iOS owns the host lifecycle only. Shared app behavior lives in Dart under
 // lib/src so Android, iOS, and desktop keep one product implementation.
@@ -19,6 +20,17 @@ import Vision
     // Plugins are generated from Flutter dependencies. Register them with the
     // implicit engine instead of hand-writing native bridges for app logic.
     GeneratedPluginRegistrant.register(with: engineBridge.pluginRegistry)
+    let performance = FlutterMethodChannel(
+      name: "ai_music/performance",
+      binaryMessenger: engineBridge.applicationRegistrar.messenger()
+    )
+    performance.setMethodCallHandler { call, result in
+      guard call.method == "sample" else {
+        result(FlutterMethodNotImplemented)
+        return
+      }
+      AppPerformanceSampler.sample(result)
+    }
     // Sends a downloaded file through the system share sheet.
     let share = FlutterMethodChannel(
       name: "ai_music/share",
@@ -98,6 +110,38 @@ import Vision
           }
         }
       }
+    }
+  }
+}
+
+private enum AppPerformanceSampler {
+  private static let queue = DispatchQueue(label: "ai_music.performance", qos: .utility)
+
+  static func sample(_ result: @escaping FlutterResult) {
+    queue.async {
+      var memory = mach_task_basic_info()
+      var count = mach_msg_type_number_t(MemoryLayout<mach_task_basic_info>.size / MemoryLayout<natural_t>.size)
+      let status = withUnsafeMutablePointer(to: &memory) { pointer in
+        pointer.withMemoryRebound(to: integer_t.self, capacity: Int(count)) {
+          task_info(mach_task_self_, task_flavor_t(MACH_TASK_BASIC_INFO), $0, &count)
+        }
+      }
+      var usage = rusage()
+      guard status == KERN_SUCCESS, getrusage(RUSAGE_SELF, &usage) == 0 else {
+        DispatchQueue.main.async {
+          result(FlutterError(code: "performance_unavailable", message: "Process counters are unavailable", details: nil))
+        }
+        return
+      }
+      let cpuMs = Double(usage.ru_utime.tv_sec + usage.ru_stime.tv_sec) * 1000
+        + Double(usage.ru_utime.tv_usec + usage.ru_stime.tv_usec) / 1000
+      let counters: [String: Any] = [
+        "cpuTimeMs": cpuMs,
+        "elapsedTimeMs": ProcessInfo.processInfo.systemUptime * 1000,
+        "memoryBytes": memory.resident_size,
+        "memoryKind": "RSS",
+      ]
+      DispatchQueue.main.async { result(counters) }
     }
   }
 }

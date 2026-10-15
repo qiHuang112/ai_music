@@ -983,7 +983,14 @@ class _CachedTrackTile extends StatelessWidget {
     final messenger = ScaffoldMessenger.of(context);
     final zh = AppStringsScope.of(context).isZh;
     try {
-      await FileSharing.share(track.filePath);
+      await FileSharing.share(
+        track.filePath,
+        name: [
+          track.title,
+          track.artist,
+        ].where((s) => s.trim().isNotEmpty).join(' - '),
+        chooserTitle: zh ? '分享音频' : 'Share audio',
+      );
     } catch (_) {
       messenger.showSnackBar(
         SnackBar(content: Text(zh ? '无法发送这个文件' : 'This file cannot be sent')),

@@ -207,6 +207,47 @@ void main() {
     expect(requests, 1);
     debug.dispose();
   });
+  test('preview build does not request or install formal updates', () async {
+    final previewBridge = _Bridge(channel: 'preview');
+    final preview = AppUpdateController(
+      supported: true,
+      bridge: previewBridge,
+      cacheRoot: () async => root,
+      configFile: () async => File('${root.path}/preview-update.json'),
+    );
+    await preview.check(force: true);
+    await preview.downloadAndInstall();
+    expect(preview.hasUpdate, isFalse);
+    expect(previewBridge.installs, 0);
+    expect(requests, 1);
+    preview.dispose();
+  });
+  test('update metadata must match the installed application ID', () {
+    final preview = InstalledAppVersion(
+      name: '1.0.4',
+      code: 100,
+      builtAt: DateTime(2026, 10, 13),
+      channel: 'release',
+      packageName: 'com.qi.ai.music.preview',
+    );
+    expect(
+      () => AppRelease.parse(
+        manifest,
+        Uri.parse('http://127.0.0.1:${server.port}'),
+        preview,
+      ),
+      throwsFormatException,
+    );
+    manifest['packageName'] = preview.packageName;
+    expect(
+      AppRelease.parse(
+        manifest,
+        Uri.parse('http://127.0.0.1:${server.port}'),
+        preview,
+      ).code,
+      101,
+    );
+  });
   test(
     'pending recheck blocks previously downloaded update until success',
     () async {

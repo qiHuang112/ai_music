@@ -1,6 +1,7 @@
 # AI music
 
 - Work in `/Users/huangqi/AIHome/projects/ai_music`; use `main` by default. Create or switch branches only when the user explicitly requests it.
+- Collaboration agreement (user 2026-10-14): contributor `wangtangji29-ctrl` develops directly in `qiHuang112/ai_music` on `ui-vinyl` or other non-main branches. The maintainer alone owns updates/merges to `main`; the main-default instruction above is for the maintainer, not the contributor. Contributor handoffs must use their actual local checkout and a non-main branch, preserve local work, and push to this upstream repository instead of a personal fork.
 - Continue the Flutter LAN-sync baseline. Other clones and Native migration plans are historical, not active work.
 - Use the project-local `.agents/skills/ai-music-developer/SKILL.md` as the single entry point for development, phone self-test, independent code/release review and publication. Do not use archived legacy runbooks or maintain separate review/release role skills.
 - Product owns requirements and priorities; the developer implements, verifies and completes delivery. The fixed **AI music-代码 review** conversation is archived by user request (2026-10-10); do not restore or route work to it, or reactivate old lanes/automations.

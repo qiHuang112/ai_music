@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:ai_music/src/data/operation_log.dart';
 import 'package:ai_music/src/data/listening_stats_store.dart';
 import 'package:ai_music/src/application/diagnostics_upload_controller.dart';
+import 'package:ai_music/src/application/app_update_controller.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
@@ -52,7 +53,13 @@ void main() {
     final upload = DiagnosticsUploadController(
       stats: stats,
       captureListening: () {},
-      version: () async => null,
+      version: () async => InstalledAppVersion(
+        name: '1.0.4',
+        code: 10237,
+        builtAt: DateTime(2026, 10, 13),
+        channel: 'preview',
+        packageName: 'com.qi.ai.music.preview',
+      ),
       client: client,
       operations: operations,
     );
@@ -68,6 +75,10 @@ void main() {
       expect(upload.reportId, isNotNull);
       expect(client.payload!['listeningStats'], await stats.exportJsonFiles());
       expect(client.payload!['operations'], isNotEmpty);
+      expect(
+        (client.payload!['app'] as Map)['packageName'],
+        'com.qi.ai.music.preview',
+      );
       expect(upload.error, isNull);
       client.failUpload = true;
       await upload.upload();

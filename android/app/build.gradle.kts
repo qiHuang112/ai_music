@@ -36,6 +36,7 @@ val releaseSigningConfigured = listOf(
     releaseKeyPassword,
     releaseStorePassword,
 ).all { !it.isNullOrEmpty() }
+val previewBuild = providers.gradleProperty("aiMusicPreview").orNull == "true"
 
 android {
     buildFeatures { buildConfig = true }
@@ -50,12 +51,14 @@ android {
     }
 
     defaultConfig {
-        applicationId = "com.qi.ai.music"
+        applicationId = if (previewBuild) "com.qi.ai.music.preview" else "com.qi.ai.music"
+        manifestPlaceholders["appLabel"] = if (previewBuild) "来听·材质体验" else "来听"
         minSdk = flutter.minSdkVersion
         targetSdk = 35
         versionCode = flutter.versionCode
         versionName = flutter.versionName
         buildConfigField("long", "BUILD_TIMESTAMP", "${System.currentTimeMillis()}L")
+        buildConfigField("boolean", "IS_PREVIEW", previewBuild.toString())
     }
 
     signingConfigs {

@@ -124,7 +124,7 @@ class DiagnosticsUploadController extends ChangeNotifier {
         'reportId': id,
         'createdAt': DateTime.now().toIso8601String(),
         'app': {
-          'packageName': 'com.qi.ai.music',
+          'packageName': app?.packageName ?? 'com.qi.ai.music',
           'versionName': app?.name,
           'versionCode': app?.code,
           'channel': app?.channel,

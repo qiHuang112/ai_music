@@ -63,6 +63,7 @@ class _AppUpdateSettingState extends State<AppUpdateSetting> {
         trailing: const Icon(Icons.chevron_right),
         onTap: () => Navigator.of(context).push<void>(
           MaterialPageRoute(
+            settings: const RouteSettings(name: 'app-updates'),
             builder: (_) => AppUpdatePage(updates: widget.updates),
           ),
         ),
@@ -117,7 +118,11 @@ class _AppUpdatePageState extends State<AppUpdatePage> {
               const SizedBox(height: 24),
               if (current != null && !updates.releaseChannel)
                 Text(
-                  zh
+                  current.channel == 'preview'
+                      ? (zh
+                            ? '当前为独立体验版，请通过体验版安装包更新。'
+                            : 'Update this preview with a preview installation package.')
+                      : zh
                       ? '当前为 ${current.channel} 版本，应用内更新仅提供 release 包。调试版继续通过电脑安装。'
                       : 'This ${current.channel} build does not install release updates.',
                 ),

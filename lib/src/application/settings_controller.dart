@@ -19,6 +19,7 @@ class SettingsController {
     required int playlistDownloadConcurrency,
     required bool downloadPlaylistsOnWifi,
     required MusicQualityLevel defaultDownloadQuality,
+    bool performanceOverlayEnabled = false,
   }) {
     return settingsStore.saveSettings(
       MusicAppSettings(
@@ -30,6 +31,7 @@ class SettingsController {
         playlistDownloadConcurrency: playlistDownloadConcurrency,
         downloadPlaylistsOnWifi: downloadPlaylistsOnWifi,
         defaultDownloadQuality: defaultDownloadQuality,
+        performanceOverlayEnabled: performanceOverlayEnabled,
       ),
     );
   }

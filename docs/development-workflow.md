@@ -1,5 +1,7 @@
 # AI Music 开发工作流讨论记录
 
+2026-10-14协作约定：`wangtangji29-ctrl` 后续直接在 `qiHuang112/ai_music` 的 `ui-vinyl` 或其他非main开发分支提交，无需继续在个人fork开发。已将其fork的 `ui-vinyl` 完整同步到主仓库同名分支；main仍由维护者负责。GitHub启用仅匹配main的active规则集，限制创建、更新、删除及强推，仅仓库管理员可绕过；其他分支不受此规则集限制。协作者发起PR后由维护者决定合入main；外部开发者不适用下面维护者默认在main开发的约定。写权限邀请须由本人接受后生效。
+
 2026-10-10最新决定：开发、手机自测、代码／发布审查和交付全部集中在 [ai-music-developer skill](../.agents/skills/ai-music-developer/SKILL.md)。固定 **AI music-代码 review** 会话已归档，旧固定会话交接规则不再使用。AI Music 默认在当前工程的 `main` 上开发；用户明确要求时可以切换或创建分支，始终不创建 worktree。
 
 1. **需求卡片**：在对应功能文档中记录当前行为、失败行为和少量验收场景；用户后续修正直接更新最终要求，不让早期方案覆盖新决定。

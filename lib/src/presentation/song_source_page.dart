@@ -12,6 +12,7 @@ Future<void> showSongSourcePicker(
   Track track,
 ) => Navigator.of(context).push<void>(
   MaterialPageRoute(
+    settings: const RouteSettings(name: 'song-source'),
     builder: (_) => SongSourcePage(controller: controller, track: track),
   ),
 );

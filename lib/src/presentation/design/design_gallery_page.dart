@@ -96,9 +96,7 @@ class _DesignGalleryPageState extends State<DesignGalleryPage>
         builder: (context) {
           final inset = MediaQuery.paddingOf(context);
           return AnnotatedRegion<SystemUiOverlayStyle>(
-            value: _dark
-                ? SystemUiOverlayStyle.light
-                : SystemUiOverlayStyle.dark,
+            value: MusicAppTheme.systemOverlayStyle(brightness),
             child: Scaffold(
               body: AmbientBackdrop(
                 glow: _light?.glow(brightness),

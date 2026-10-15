@@ -8,10 +8,17 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
 
     <application
-        android:label="来听"
+        android:label="${appLabel}"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher"
         android:usesCleartextTraffic="true">
+        <provider
+            android:name=".AudioShareProvider"
+            android:authorities="${applicationId}.share"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data android:name="android.support.FILE_PROVIDER_PATHS" android:resource="@xml/share_file_paths" />
+        </provider>
         <provider
             android:name="androidx.core.content.FileProvider"
             android:authorities="${applicationId}.updates"
@@ -60,6 +67,11 @@
         <meta-data
             android:name="flutterEmbedding"
             android:value="2" />
+        <!-- Impeller GLES crashes in the Adreno driver on the Mi 10 Pro
+             when compositing the vinyl UI. Keep the glass effects on Skia. -->
+        <meta-data
+            android:name="io.flutter.embedding.android.EnableImpeller"
+            android:value="false" />
     </application>
 
     <queries>

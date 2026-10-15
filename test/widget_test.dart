@@ -1,3 +1,8 @@
+import 'package:ai_music/src/presentation/design/record_sleeve.dart';
+import 'package:ai_music/src/presentation/design/controls.dart';
+import 'package:ai_music/src/presentation/mini_player.dart';
+import 'package:ai_music/main.dart';
+import 'package:flutter/services.dart';
 import 'package:ai_music/src/data/playlist_song.dart';
 import 'package:ai_music/src/data/playlist_usage_store.dart';
 import 'package:ai_music/src/data/online_playlists.dart';
@@ -37,6 +42,47 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
+  testWidgets(
+    'every skin applies transparent contrasting system bars without an app bar and after navigation',
+    (tester) async {
+      await tester.pumpWidget(_app());
+      await tester.pumpAndSettle();
+      final controller = tester
+          .widget<MusicHomePage>(find.byType(MusicHomePage))
+          .controller;
+      await tester.pumpWidget(AiMusicApp(controller: controller));
+      await tester.pumpAndSettle();
+      for (final skin in AppThemePreference.values) {
+        await controller.saveTheme(skin);
+        await tester.pumpAndSettle();
+        void check() {
+          final style = SystemChrome.latestStyle;
+          expect(style, isNotNull, reason: skin.name);
+          expect(style!.statusBarColor, Colors.transparent, reason: skin.name);
+          expect(
+            style.statusBarIconBrightness,
+            skin.isDark ? Brightness.light : Brightness.dark,
+            reason: skin.name,
+          );
+          expect(
+            style.systemStatusBarContrastEnforced,
+            isFalse,
+            reason: skin.name,
+          );
+        }
+
+        check();
+        await tester.tap(find.byTooltip('设置'));
+        await tester.pumpAndSettle();
+        check();
+        await tester.tap(find.byTooltip('首页'));
+        await tester.pumpAndSettle();
+        check();
+      }
+      await tester.pumpWidget(const SizedBox.shrink());
+      controller.dispose();
+    },
+  );
   testWidgets('log upload is visible only after finding the LAN service', (
     tester,
   ) async {
@@ -67,6 +113,23 @@ void main() {
     upload.dispose();
     stats.dispose();
   });
+  testWidgets('reentering settings refreshes LAN discovery', (tester) async {
+    await tester.pumpWidget(_app());
+    await tester.pumpAndSettle();
+    await tester.tap(find.byTooltip('设置'));
+    await tester.pumpAndSettle();
+    final first = tester.state(find.byType(DiagnosticsUploadSetting));
+    await tester.tap(find.byTooltip('首页'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byTooltip('设置'));
+    await tester.pumpAndSettle();
+    expect(
+      tester.state(find.byType(DiagnosticsUploadSetting)),
+      isNot(same(first)),
+      reason: 'Each visit starts fresh LAN discovery and storage counts',
+    );
+  });
+
   testWidgets('limited provider is an explanation rather than a source radio', (
     tester,
   ) async {
@@ -1041,6 +1104,42 @@ void main() {
     expect(find.text('No cached music yet'), findsNothing);
   });
 
+  testWidgets('silver mini player resolves text inside its dark display', (
+    tester,
+  ) async {
+    final handler = _WidgetAudioHandler();
+    final controller = _SwipePlaybackController(handler);
+    try {
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: MusicAppTheme.create(
+            Brightness.light,
+            palette: MusicPalette.silver,
+          ),
+          home: Scaffold(body: MiniPlayer(controller: controller)),
+        ),
+      );
+      handler.emit(
+        const MediaItem(id: 'display', title: 'Display song', artist: 'Singer'),
+      );
+      await tester.pumpAndSettle();
+      final titleFinder = find.text('Display song');
+      final title = tester.widget<Text>(titleFinder);
+      final localColors = Theme.of(tester.element(titleFinder)).colorScheme;
+      expect(title.style!.color, localColors.onSurface);
+      expect(
+        title.style!.color!.computeLuminance(),
+        greaterThan(.5),
+        reason: 'The silver player has a black display window',
+      );
+      final artist = tester.widget<Text>(find.text(' - Singer'));
+      expect(artist.style!.color, localColors.onSurfaceVariant);
+    } finally {
+      await tester.pumpWidget(const SizedBox.shrink());
+      controller.dispose();
+    }
+  });
+
   testWidgets('mini player and song page swipe between songs', (tester) async {
     final handler = _WidgetAudioHandler();
     final controller = _SwipePlaybackController(handler);
@@ -1264,6 +1363,85 @@ void main() {
       expect(restoredRecent.sortOrder, PlaylistSortOrder.recentlyOpened);
       expect(tester.takeException(), isNull);
       await tester.pumpWidget(const SizedBox.shrink());
+    },
+  );
+
+  testWidgets(
+    'playlist motion follows play and pause without changing the track',
+    (tester) async {
+      final fixture = _homeLibraryFixture();
+      final handler = _WidgetAudioHandler();
+      await tester.pumpWidget(
+        _app(
+          cacheStore: fixture.cacheStore,
+          playlistStore: fixture.playlistStore,
+          audioHandler: handler,
+        ),
+      );
+      await tester.pumpAndSettle();
+      final controller = tester
+          .widget<MusicHomePage>(find.byType(MusicHomePage))
+          .controller;
+      await tester.tap(find.byKey(const ValueKey('home-playlist-road')));
+      await tester.pumpAndSettle();
+      final track = controller.cachedTracks.firstWhere(
+        (t) => t.title == 'Beta',
+      );
+      handler.emit(MediaItem(id: track.id, title: track.title));
+      handler.playbackState.add(
+        PlaybackState(
+          playing: true,
+          processingState: AudioProcessingState.ready,
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(
+        tester.widget<RecordSleeve>(find.byType(RecordSleeve)).spinning,
+        isTrue,
+      );
+      expect(
+        tester
+            .widgetList<EqualizerBars>(find.byType(EqualizerBars))
+            .every((w) => w.playing),
+        isTrue,
+      );
+      handler.playbackState.add(
+        PlaybackState(
+          playing: false,
+          processingState: AudioProcessingState.ready,
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(
+        tester.widget<RecordSleeve>(find.byType(RecordSleeve)).spinning,
+        isFalse,
+      );
+      expect(
+        tester
+            .widgetList<EqualizerBars>(find.byType(EqualizerBars))
+            .every((w) => !w.playing),
+        isTrue,
+      );
+      expect(handler.mediaItem.value!.id, track.id);
+      handler.playbackState.add(
+        PlaybackState(
+          playing: true,
+          processingState: AudioProcessingState.ready,
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(
+        tester.widget<RecordSleeve>(find.byType(RecordSleeve)).spinning,
+        isTrue,
+      );
+      expect(
+        tester
+            .widgetList<EqualizerBars>(find.byType(EqualizerBars))
+            .every((w) => w.playing),
+        isTrue,
+      );
+      await tester.pumpWidget(const SizedBox.shrink());
+      controller.dispose();
     },
   );
 
