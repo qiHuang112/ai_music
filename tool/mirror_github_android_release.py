@@ -7,10 +7,12 @@ import json
 import os
 import re
 import shutil
+import subprocess
 import tempfile
+import urllib.error
 import urllib.request
 from pathlib import Path
-from urllib.parse import urlsplit
+from urllib.parse import quote, unquote, urlsplit
 
 from android_release_archive import retain_manifest
 from publish_android_release import publish
@@ -18,6 +20,65 @@ from publish_android_release import publish
 GITHUB = 'https://github.com/qiHuang112/ai_music'
 CERT = 'f05004de4b5fa23bdd1beee45c4e7c227852129930bcd3bb1cfcff2048464843'
 ASSET_HOSTS = {'github.com', 'release-assets.githubusercontent.com', 'objects.githubusercontent.com'}
+REPOSITORY_API = 'repos/qiHuang112/ai_music'
+
+
+def github_cli():
+    # launchd's default PATH does not include Homebrew. Credentials stay in gh's
+    # existing user/keychain configuration, never in the APP or service plist.
+    for executable in (shutil.which('gh'), '/opt/homebrew/bin/gh', '/usr/local/bin/gh'):
+        if executable and Path(executable).is_file():
+            return executable
+    raise RuntimeError('GitHub CLI is required to mirror private releases')
+
+
+def github_api(endpoint, output, *, binary=False):
+    args = [github_cli(), 'api', '--hostname', 'github.com', endpoint]
+    if binary:
+        args.extend(['-H', 'Accept: application/octet-stream'])
+    result = subprocess.run(args, stdout=output, stderr=subprocess.PIPE, timeout=60)
+    if result.returncode:
+        raise RuntimeError(f'Authenticated GitHub download failed (gh exit {result.returncode})')
+    output.seek(0)
+
+
+def open_private_asset(url):
+    value = urlsplit(url)
+    prefix = '/qiHuang112/ai_music/releases/'
+    if (not asset_url(url) or value.hostname != 'github.com' or value.query or
+            not value.path.startswith(prefix)):
+        raise ValueError('Private downloads must belong to qiHuang112/ai_music')
+    path = value.path[len(prefix):]
+    if path == 'latest/download/latest.json':
+        endpoint, name = f'{REPOSITORY_API}/releases/latest', 'latest.json'
+    else:
+        parts = path.split('/')
+        if len(parts) != 3 or parts[0] != 'download':
+            raise ValueError('Unexpected private release asset URL')
+        tag, name = unquote(parts[1]), unquote(parts[2])
+        if not tag or not name or any(c in name for c in '/\\\x00'):
+            raise ValueError('Invalid private release asset name')
+        endpoint = f'{REPOSITORY_API}/releases/tags/{quote(tag, safe="")}'
+    with tempfile.TemporaryFile() as metadata:
+        github_api(endpoint, metadata)
+        release = json.load(metadata)
+    assets = [asset for asset in release.get('assets', []) if asset.get('name') == name]
+    if len(assets) != 1 or release.get('draft') or release.get('prerelease'):
+        raise ValueError('Expected one published GitHub release asset')
+    asset = assets[0]
+    limit = 64 * 1024 if name == 'latest.json' else 500 * 1024 * 1024
+    if (type(asset.get('id')) is not int or asset['id'] < 1 or
+            type(asset.get('size')) is not int or not 0 < asset['size'] <= limit):
+        raise ValueError('Invalid private release asset metadata')
+    output = tempfile.TemporaryFile()
+    try:
+        github_api(f"{REPOSITORY_API}/releases/assets/{asset['id']}", output, binary=True)
+        if os.fstat(output.fileno()).st_size != asset['size']:
+            raise ValueError('Private release asset size mismatch')
+        return output
+    except BaseException:
+        output.close()
+        raise
 
 
 def asset_url(url):
@@ -36,8 +97,14 @@ class AssetRedirects(urllib.request.HTTPRedirectHandler):
 def open_asset(url):
     if not asset_url(url):
         raise ValueError('Expected an official GitHub HTTPS asset')
-    return urllib.request.build_opener(AssetRedirects()).open(
-        urllib.request.Request(url, headers={'User-Agent': 'ai-music-lan-mirror'}), timeout=30)
+    try:
+        return urllib.request.build_opener(AssetRedirects()).open(
+            urllib.request.Request(url, headers={'User-Agent': 'ai-music-lan-mirror'}), timeout=30)
+    except urllib.error.HTTPError as error:
+        if error.code not in (401, 404):
+            raise
+        error.close()
+        return open_private_asset(url)
 
 
 def read_manifest():

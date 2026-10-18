@@ -17,6 +17,48 @@ void main() {
     expect(artworkUriFromText('file:///tmp/cover.jpg')?.scheme, 'file');
   });
 
+  test(
+    'legacy music CDN covers are upgraded securely instead of being discarded',
+    () {
+      for (final host in [
+        'y.gtimg.cn',
+        'y.qq.com.qpic.cn',
+        'p2.music.126.net',
+        'img4.kuwo.cn',
+      ]) {
+        expect(
+          artworkUriFromText('http://$host/cover.jpg?x=1'),
+          Uri.parse('https://$host/cover.jpg?x=1'),
+        );
+      }
+      for (final host in [
+        'music.126.net.evil.test',
+        'fakegtimg.cn',
+        'public.example.test',
+      ]) {
+        expect(artworkUriFromText('http://$host/cover.jpg'), isNull);
+      }
+    },
+  );
+
+  test(
+    'old cached CDN artwork survives metadata disk restoration as HTTPS',
+    () async {
+      final root = await Directory.systemTemp.createTemp('legacy_artwork_');
+      final store = MetadataCacheStore(rootProvider: () async => root);
+      try {
+        final old = Uri.parse('http://p1.music.126.net/album/cover.jpg');
+        await store.write('legacy', TrackMetadata(artworkUri: old));
+        expect(
+          (await store.read('legacy'))?.artworkUri,
+          old.replace(scheme: 'https'),
+        );
+      } finally {
+        await root.delete(recursive: true);
+      }
+    },
+  );
+
   test('metadata repository uses resolved cover url and caches it', () async {
     final root = await Directory.systemTemp.createTemp('ai_music_meta_test_');
     final cache = MetadataCacheStore(rootProvider: () async => root);

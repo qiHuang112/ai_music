@@ -1,3 +1,4 @@
+import 'app_popup_menu.dart';
 import 'playlist_sliver_header.dart';
 import 'playlist_sync_button.dart';
 import 'mini_player.dart';
@@ -39,6 +40,8 @@ import 'design/glass_tab_bar.dart';
 import 'design/record_sleeve.dart';
 import 'listening_stats_page.dart';
 import 'music_thumbnail.dart';
+import 'file_sharing.dart';
+import 'song_actions.dart';
 
 class MusicHomePage extends StatefulWidget {
   const MusicHomePage({
@@ -1289,12 +1292,12 @@ class _HomeLibraryTile extends StatelessWidget {
 }
 
 Uri? _homePlaylistArtwork(MusicController controller, MusicPlaylist playlist) {
+  for (final track in controller.tracksForPlaylist(playlist)) {
+    if (track.artworkUri != null) return track.artworkUri;
+  }
   for (final entry in playlist.entries) {
     final url = entry.song?.coverUrl ?? '';
     if (url.isNotEmpty) return Uri.tryParse(url);
-  }
-  for (final track in controller.tracksForPlaylist(playlist)) {
-    if (track.artworkUri != null) return track.artworkUri;
   }
   return null;
 }
@@ -2078,7 +2081,7 @@ class _PlaylistDetailPageState extends State<_PlaylistDetailPage> {
                       playlist: list.playlist!,
                     ),
                   if (list.canManage && list.playlist != null)
-                    PopupMenuButton<_PlaylistAction>(
+                    MusicPopupMenuButton<_PlaylistAction>(
                       key: const ValueKey('playlist-actions-menu'),
                       tooltip: strings.isZh ? '歌单操作' : 'Playlist actions',
                       icon: const Icon(Icons.more_horiz_rounded),
@@ -2259,7 +2262,7 @@ class _PlaylistDetailPageState extends State<_PlaylistDetailPage> {
                 onStartSelection: _startSelection,
                 onToggleSelection: _toggleSelection,
                 onReorder: (oldIndex, newIndex) =>
-                    _reorderDraft(oldIndex, newIndex),
+                    _reorderDraft(oldIndex, newIndex, list.selection.id),
                 headerSlivers: headerSlivers,
               );
         return PopScope(
@@ -2501,12 +2504,13 @@ class _PlaylistDetailPageState extends State<_PlaylistDetailPage> {
     return ordered;
   }
 
-  void _reorderDraft(int oldIndex, int newIndex) {
+  void _reorderDraft(int oldIndex, int newIndex, String playlistId) {
     setState(() {
       final reorderedIds = reorderIdsForReorderableListView(
         _reorderDraftTrackIds,
         oldIndex,
         newIndex,
+        pinnedIds: controller.pinnedTrackIds(playlistId).toSet(),
       );
       _reorderDraftTrackIds
         ..clear()
@@ -2758,14 +2762,18 @@ List<Track> reorderTracksForReorderableListView(
 List<String> reorderIdsForReorderableListView(
   List<String> ids,
   int oldIndex,
-  int newIndex,
-) {
+  int newIndex, {
+  Set<String> pinnedIds = const {},
+}) {
   final reordered = [...ids];
   if (oldIndex < 0 || oldIndex >= reordered.length) {
     return reordered;
   }
   final id = reordered.removeAt(oldIndex);
-  final targetIndex = newIndex.clamp(0, reordered.length).toInt();
+  final pinCount = ids.where(pinnedIds.contains).length;
+  final targetIndex = pinnedIds.contains(id)
+      ? newIndex.clamp(0, pinCount - 1).toInt()
+      : newIndex.clamp(pinCount, reordered.length).toInt();
   reordered.insert(targetIndex, id);
   return reordered;
 }
@@ -2790,7 +2798,7 @@ class _LibrarySortButton extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final strings = AppStringsScope.of(context);
-    return PopupMenuButton<_LibrarySortMode>(
+    return MusicPopupMenuButton<_LibrarySortMode>(
       tooltip: strings.sort,
       initialValue: mode,
       onSelected: onChanged,
@@ -2832,7 +2840,9 @@ List<Track> _sortLibraryTracks(
       });
       break;
   }
-  return sorted;
+  return list.canCustomSort
+      ? controller.orderPinnedTracks(sorted, list.selection.id)
+      : sorted;
 }
 
 DateTime _libraryTrackTime(
@@ -3416,7 +3426,7 @@ class _TrackActions extends StatelessWidget {
           onPressed: () => controller.toggleFavorite(track),
           icon: Icon(favorite ? Icons.favorite : Icons.favorite_border),
         ),
-        PopupMenuButton<_TrackAction>(
+        MusicPopupMenuButton<_TrackAction>(
           tooltip: strings.more,
           onSelected: (action) => _handle(context, action),
           itemBuilder: (context) {
@@ -3429,11 +3439,25 @@ class _TrackActions extends StatelessWidget {
                 value: _TrackAction.addToPlaylist,
                 child: Text(strings.addToPlaylist),
               ),
+              if (FileSharing.supported)
+                PopupMenuItem(
+                  value: _TrackAction.share,
+                  child: Text(strings.isZh ? '分享' : 'Share'),
+                ),
+              if (list.canCustomSort)
+                PopupMenuItem(
+                  value: _TrackAction.pin,
+                  child: Text(
+                    controller.isTrackPinned(track, list.selection.id)
+                        ? (strings.isZh ? '取消置顶' : 'Unpin')
+                        : (strings.isZh ? '置顶' : 'Pin to top'),
+                  ),
+                ),
               PopupMenuItem(
                 enabled: controller.canSwitchSongSource(track),
                 value: _TrackAction.switchSource,
-                child: Text(
-                  '${strings.isZh ? '歌曲来源' : 'Song source'}（${controller.songSourceLabel(track, isZh: strings.isZh)}）',
+                child: SongSourceMenuLabel(
+                  source: controller.songSourceLabel(track, isZh: strings.isZh),
                 ),
               ),
               if (list.isLocal)
@@ -3458,45 +3482,63 @@ class _TrackActions extends StatelessWidget {
   }
 
   Future<void> _handle(BuildContext context, _TrackAction action) async {
-    switch (action) {
-      case _TrackAction.addToQueue:
-        final messenger = ScaffoldMessenger.of(context);
-        final zh = AppStringsScope.of(context).isZh;
-        final added = await controller.addToQueue([track]);
-        messenger
-          ..hideCurrentSnackBar()
-          ..showSnackBar(
-            SnackBar(
-              content: Text(
-                added > 0
-                    ? (zh ? '已添加到播放列表' : 'Added to the queue')
-                    : (zh ? '已经在播放列表里' : 'Already in the queue'),
+    try {
+      switch (action) {
+        case _TrackAction.addToQueue:
+          final messenger = ScaffoldMessenger.of(context);
+          final zh = AppStringsScope.of(context).isZh;
+          final added = await controller.addToQueue([track]);
+          messenger
+            ..hideCurrentSnackBar()
+            ..showSnackBar(
+              SnackBar(
+                content: Text(
+                  added > 0
+                      ? (zh ? '已添加到播放列表' : 'Added to the queue')
+                      : (zh ? '已经在播放列表里' : 'Already in the queue'),
+                ),
               ),
-            ),
+            );
+        case _TrackAction.addToPlaylist:
+          await showAddToPlaylistSheet(context, controller, track);
+        case _TrackAction.share:
+          await shareSong(context, controller, track);
+        case _TrackAction.pin:
+          await controller.setTrackPinned(
+            track,
+            list.selection.id,
+            pinned: !controller.isTrackPinned(track, list.selection.id),
           );
-      case _TrackAction.addToPlaylist:
-        await showAddToPlaylistSheet(context, controller, track);
-      case _TrackAction.switchSource:
-        await showSongSourcePicker(context, controller, track);
-      case _TrackAction.deleteLocal:
-        final confirmed = await _confirmDeleteLocalTracks(context, [track]);
-        if (confirmed == true) {
-          await controller.deleteCachedTrack(track);
-        }
-      case _TrackAction.removeFromCurrent:
-        if (list.isFavorite) {
-          await controller.toggleFavorite(track);
-          return;
-        }
-        final playlist = list.playlist;
-        if (playlist != null) {
-          await controller.removeTrackFromPlaylist(playlist, track);
-        }
+        case _TrackAction.switchSource:
+          await showSongSourcePicker(context, controller, track);
+        case _TrackAction.deleteLocal:
+          final confirmed = await _confirmDeleteLocalTracks(context, [track]);
+          if (confirmed == true) {
+            await controller.deleteCachedTrack(track);
+          }
+        case _TrackAction.removeFromCurrent:
+          if (list.isFavorite) {
+            await controller.toggleFavorite(track);
+            return;
+          }
+          final playlist = list.playlist;
+          if (playlist != null) {
+            await controller.removeTrackFromPlaylist(playlist, track);
+          }
+      }
+    } catch (error) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(friendlyError(error))));
+      }
     }
   }
 }
 
 enum _TrackAction {
+  share,
+  pin,
   deleteLocal,
   removeFromCurrent,
   switchSource,

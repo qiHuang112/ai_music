@@ -46,12 +46,43 @@ class LibraryUseCase {
   final LibraryController libraryController;
   Future<void> _playlistMutationTail = Future.value();
   LibrarySnapshot? _latestSnapshot;
+  final _artworkByCacheId = <String, Uri>{};
+
+  bool rememberArtwork(String cacheId, Uri? uri) {
+    if (uri == null || _artworkByCacheId[cacheId] == uri) return false;
+    _artworkByCacheId[cacheId] = uri;
+    return true;
+  }
+
+  List<Track> _cachedTracks(List<CachedTrack> records) => [
+    for (final record in records)
+      trackFromCached(
+        record,
+      ).copyWith(artworkUri: _artworkByCacheId[record.cacheId]),
+  ];
 
   Future<LibrarySnapshot> loadCache() async {
     final cachedRecords = await cacheStore.listCached();
-    final cachedTracks = cachedRecords
-        .map(trackFromCached)
-        .toList(growable: false);
+    final ids = cachedRecords.map((r) => r.cacheId).toSet();
+    _artworkByCacheId.removeWhere((id, _) => !ids.contains(id));
+    // Bounded local I/O; no per-row network work or synchronous file scans.
+    for (var i = 0; i < cachedRecords.length; i += 8) {
+      await Future.wait(
+        cachedRecords.skip(i).take(8).map((record) async {
+          try {
+            final uri = await metadataRepository.cachedArtwork(record);
+            if (uri != null) {
+              _artworkByCacheId[record.cacheId] = uri;
+            } else {
+              _artworkByCacheId.remove(record.cacheId);
+            }
+          } catch (_) {
+            // An optional artwork sidecar cannot hide otherwise valid audio.
+          }
+        }),
+      );
+    }
+    final cachedTracks = _cachedTracks(cachedRecords);
     final playlistLibrary = await playlistStore.load(
       validTrackIds: libraryController.validTrackIds(cachedTracks),
     );
@@ -64,9 +95,7 @@ class LibraryUseCase {
     List<CachedTrack> cachedRecords,
     PlaylistLibrary playlistLibrary,
   ) {
-    final cachedTracks = cachedRecords
-        .map(trackFromCached)
-        .toList(growable: false);
+    final cachedTracks = _cachedTracks(cachedRecords);
     final snapshot = _snapshot(cachedRecords, cachedTracks, playlistLibrary);
     _latestSnapshot = snapshot;
     return snapshot;
@@ -131,11 +160,35 @@ class LibraryUseCase {
         return convertedEntries;
       }
 
+      List<String> convertPins(
+        List<PlaylistTrackEntry> entries,
+        List<String> pins,
+      ) {
+        final retainedIds = {
+          for (final entry in entries)
+            if (entry.onlineTrack != null) entry.trackId,
+        };
+        return [
+          for (final id in pins)
+            retainedIds.contains(id) ? id : replacements[id]?.trackId ?? id,
+        ];
+      }
+
       final library = base.playlistLibrary.copyWith(
         favoriteEntries: convert(base.playlistLibrary.favoriteEntries),
+        favoritePinnedTrackIds: convertPins(
+          base.playlistLibrary.favoriteEntries,
+          base.playlistLibrary.favoritePinnedTrackIds,
+        ),
         playlists: [
           for (final playlist in base.playlistLibrary.playlists)
-            playlist.copyWith(entries: convert(playlist.entries)),
+            playlist.copyWith(
+              entries: convert(playlist.entries),
+              pinnedTrackIds: convertPins(
+                playlist.entries,
+                playlist.pinnedTrackIds,
+              ),
+            ),
         ],
       );
       return changed ? _savePlaylistLibrary(library, current: base) : base;
@@ -921,6 +974,45 @@ class LibraryUseCase {
     });
   }
 
+  Future<LibrarySnapshot> setTrackPinned(
+    String playlistId,
+    String trackId, {
+    required bool pinned,
+    required LibrarySnapshot current,
+  }) => _enqueuePlaylistMutation(() async {
+    final base = _currentSnapshot(current);
+    final playlist = base.playlistLibrary.playlists
+        .where((p) => p.id == playlistId)
+        .firstOrNull;
+    if (playlist?.isBuiltIn == true) throw StateError('榜单由平台维护，不能置顶');
+    final entries = playlistId == favoritePlaylistId
+        ? base.playlistLibrary.favoriteEntries
+        : playlist?.entries;
+    if (entries == null || !entries.any((e) => e.trackId == trackId)) {
+      throw StateError('歌曲已不在当前列表中');
+    }
+    List<String> update(List<String> previous) => [
+      if (pinned) trackId,
+      for (final id in previous)
+        if (id != trackId) id,
+    ];
+    if (playlistId == favoritePlaylistId) {
+      return _savePlaylistLibrary(
+        base.playlistLibrary.copyWith(
+          favoritePinnedTrackIds: update(
+            base.playlistLibrary.favoritePinnedTrackIds,
+          ),
+        ),
+        current: base,
+      );
+    }
+    return _updatePlaylist(
+      playlistId,
+      current: base,
+      update: (p) => p.copyWith(pinnedTrackIds: update(p.pinnedTrackIds)),
+    );
+  });
+
   Future<LibrarySnapshot> reorderFavoriteTracks(
     List<Track> tracks, {
     required LibrarySnapshot current,
@@ -931,6 +1023,15 @@ class LibraryUseCase {
       return _savePlaylistLibrary(
         base.playlistLibrary.copyWith(
           favoriteEntries: _reorderedEntries(currentEntries, tracks),
+          favoritePinnedTrackIds: [
+            for (final track in tracks)
+              if (base.playlistLibrary.favoritePinnedTrackIds.contains(
+                track.id,
+              ))
+                track.id,
+            for (final id in base.playlistLibrary.favoritePinnedTrackIds)
+              if (!tracks.any((track) => track.id == id)) id,
+          ],
         ),
         current: base,
       );
@@ -950,6 +1051,12 @@ class LibraryUseCase {
         current: base,
         update: (item) => item.copyWith(
           entries: _reorderedEntries(item.entries, tracks),
+          pinnedTrackIds: [
+            for (final track in tracks)
+              if (item.pinnedTrackIds.contains(track.id)) track.id,
+            for (final id in item.pinnedTrackIds)
+              if (!tracks.any((track) => track.id == id)) id,
+          ],
           updatedAt: DateTime.now(),
         ),
       );
@@ -1006,12 +1113,16 @@ class LibraryUseCase {
       if (saved == null) {
         final song = entry.song;
         if (song != null) {
+          final cached =
+              cachedByRecording[SongMatchIdentity(song.title, song.artist).key];
           onlineById[entry.trackId] = Track(
             id: entry.trackId,
             title: song.title,
             artist: song.artist,
             album: '',
-            artworkUri: artworkUriFromText(song.coverUrl),
+            artworkUri:
+                _artworkByCacheId[cached?.cacheId] ??
+                artworkUriFromText(song.coverUrl),
             duration: song.durationSeconds > 0
                 ? Duration(seconds: song.durationSeconds)
                 : null,
@@ -1039,7 +1150,11 @@ class LibraryUseCase {
         album: candidate.album,
         filePath: cached?.filePath ?? '',
         sizeBytes: cached?.sizeBytes ?? 0,
-        artworkUri: artworkUriFromText(candidate.coverUrl),
+        artworkUri:
+            _artworkByCacheId[cached?.cacheId] ??
+            artworkUriFromText(candidate.coverUrl) ??
+            artworkUriFromText(cached?.music.coverUrl ?? '') ??
+            artworkUriFromText(entry.song?.coverUrl ?? ''),
         duration: candidate.duration > 0
             ? Duration(seconds: candidate.duration)
             : null,

@@ -83,17 +83,23 @@ class MusicPlaylist {
     this.lanFolderKey = '',
     this.onlineOriginKey = '',
     this.hasBeenOpened = false,
+    List<String> pinnedTrackIds = const [],
     List<String> trackIds = const [],
     List<PlaylistTrackEntry>? entries,
     required this.createdAt,
     required this.updatedAt,
-  }) : entries = entries ?? _entriesFromIds(trackIds, updatedAt);
+  }) : entries = entries ?? _entriesFromIds(trackIds, updatedAt),
+       pinnedTrackIds = _validPinnedIds(
+         pinnedTrackIds,
+         entries?.map((e) => e.trackId) ?? trackIds,
+       );
 
   final String id;
   final String name;
   final String lanFolderKey;
   final String onlineOriginKey;
   final bool hasBeenOpened;
+  final List<String> pinnedTrackIds;
   bool get isBuiltIn => id.startsWith('builtin-chart-');
   final List<PlaylistTrackEntry> entries;
   final DateTime createdAt;
@@ -109,6 +115,7 @@ class MusicPlaylist {
     String? lanFolderKey,
     String? onlineOriginKey,
     bool? hasBeenOpened,
+    List<String>? pinnedTrackIds,
     bool clearLanFolderKey = false,
     List<String>? trackIds,
     List<PlaylistTrackEntry>? entries,
@@ -124,6 +131,7 @@ class MusicPlaylist {
           ? ''
           : (lanFolderKey ?? this.lanFolderKey),
       hasBeenOpened: hasBeenOpened ?? this.hasBeenOpened,
+      pinnedTrackIds: pinnedTrackIds ?? this.pinnedTrackIds,
       entries:
           entries ??
           (trackIds == null
@@ -141,6 +149,7 @@ class MusicPlaylist {
       if (onlineOriginKey.isNotEmpty) 'onlineOriginKey': onlineOriginKey,
       if (lanFolderKey.isNotEmpty) 'lanFolderKey': lanFolderKey,
       'hasBeenOpened': hasBeenOpened,
+      if (pinnedTrackIds.isNotEmpty) 'pinnedTrackIds': pinnedTrackIds,
       'tracks': [for (final entry in entries) entry.toJson()],
       'trackIds': trackIds,
       'createdAt': createdAt.toIso8601String(),
@@ -169,6 +178,7 @@ class MusicPlaylist {
       hasBeenOpened: json['hasBeenOpened'] is bool
           ? json['hasBeenOpened'] as bool
           : true,
+      pinnedTrackIds: _readPinnedIds(json['pinnedTrackIds']),
       entries: _entriesFromJson(
         json['tracks'] ?? json['trackIds'],
         fallbackAddedAt: updatedAt,
@@ -182,16 +192,23 @@ class MusicPlaylist {
 class PlaylistLibrary {
   PlaylistLibrary({
     List<String> favoriteTrackIds = const [],
+    List<String> favoritePinnedTrackIds = const [],
     List<PlaylistTrackEntry>? favoriteEntries,
     required this.playlists,
   }) : favoriteEntries =
-           favoriteEntries ?? _entriesFromIds(favoriteTrackIds, DateTime.now());
+           favoriteEntries ?? _entriesFromIds(favoriteTrackIds, DateTime.now()),
+       favoritePinnedTrackIds = _validPinnedIds(
+         favoritePinnedTrackIds,
+         favoriteEntries?.map((e) => e.trackId) ?? favoriteTrackIds,
+       );
 
   const PlaylistLibrary.empty()
     : favoriteEntries = const [],
+      favoritePinnedTrackIds = const [],
       playlists = const [];
 
   final List<PlaylistTrackEntry> favoriteEntries;
+  final List<String> favoritePinnedTrackIds;
   final List<MusicPlaylist> playlists;
 
   List<String> get favoriteTrackIds {
@@ -200,10 +217,13 @@ class PlaylistLibrary {
 
   PlaylistLibrary copyWith({
     List<String>? favoriteTrackIds,
+    List<String>? favoritePinnedTrackIds,
     List<PlaylistTrackEntry>? favoriteEntries,
     List<MusicPlaylist>? playlists,
   }) {
     return PlaylistLibrary(
+      favoritePinnedTrackIds:
+          favoritePinnedTrackIds ?? this.favoritePinnedTrackIds,
       favoriteEntries:
           favoriteEntries ??
           (favoriteTrackIds == null
@@ -217,12 +237,15 @@ class PlaylistLibrary {
     return {
       'favoriteTracks': [for (final entry in favoriteEntries) entry.toJson()],
       'favoriteTrackIds': favoriteTrackIds,
+      if (favoritePinnedTrackIds.isNotEmpty)
+        'favoritePinnedTrackIds': favoritePinnedTrackIds,
       'playlists': [for (final playlist in playlists) playlist.toJson()],
     };
   }
 
   static PlaylistLibrary fromJson(Map<String, dynamic> json) {
     return PlaylistLibrary(
+      favoritePinnedTrackIds: _readPinnedIds(json['favoritePinnedTrackIds']),
       favoriteEntries: _entriesFromJson(
         json['favoriteTracks'] ?? json['favoriteTrackIds'],
         fallbackAddedAt: DateTime.now(),
@@ -289,6 +312,7 @@ class PlaylistStore {
     Set<String>? validTrackIds,
   ) {
     return PlaylistLibrary(
+      favoritePinnedTrackIds: library.favoritePinnedTrackIds,
       favoriteEntries: _filterValidEntries(
         library.favoriteEntries,
         validTrackIds,
@@ -383,4 +407,13 @@ List<PlaylistTrackEntry> _uniqueEntries(List<PlaylistTrackEntry> entries) {
     }
   }
   return unique;
+}
+
+List<String> _readPinnedIds(Object? value) => value is List
+    ? value.whereType<String>().toList(growable: false)
+    : const [];
+
+List<String> _validPinnedIds(List<String> pins, Iterable<String> ids) {
+  final members = ids.toSet();
+  return List.unmodifiable(pins.toSet().where(members.contains));
 }

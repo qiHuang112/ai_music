@@ -1,3 +1,4 @@
+import 'app_popup_menu.dart';
 import 'package:audio_service/audio_service.dart';
 import 'design/controls.dart';
 import 'file_sharing.dart';
@@ -846,7 +847,7 @@ class _CachedSortButton extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final strings = AppStringsScope.of(context);
-    return PopupMenuButton<_DownloadSortMode>(
+    return MusicPopupMenuButton<_DownloadSortMode>(
       tooltip: strings.sort,
       initialValue: value,
       onSelected: onChanged,

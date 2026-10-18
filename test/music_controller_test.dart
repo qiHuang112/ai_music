@@ -34,6 +34,214 @@ import 'package:flutter_test/flutter_test.dart';
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
+  test(
+    'sharing reuses complete cached audio without playback or downloading',
+    () async {
+      final f = await _SourcePreferenceFixture.create(cached: true);
+      try {
+        var requested = false;
+        final file = await f.controller.prepareTrackForSharing(
+          f.track,
+          isCancelled: () => false,
+          onCancelReady: (_) => requested = true,
+        );
+        expect(file.path, f.cache.cached.single.filePath);
+        expect(requested, isFalse);
+        expect(f.resolver.ids, isEmpty);
+        expect(f.cache.downloadIds, isEmpty);
+        expect(f.handler.playCalls, 0);
+        expect(f.handler.loadedIds, isEmpty);
+      } finally {
+        await f.close();
+      }
+    },
+  );
+
+  test(
+    'sharing keeps the per-song source when Auto has a higher quality cross-source cache',
+    () async {
+      final f = await _SourcePreferenceFixture.create(
+        manual: true,
+        cached: true,
+        initialSource: MusicDataSource.auto,
+      );
+      try {
+        final original = f.cache.cached.single;
+        final otherFile = File('${f.root.path}/other.flac');
+        await otherFile.writeAsBytes(
+          await File(original.filePath).readAsBytes(),
+        );
+        final otherMusic = ResolvedMusic.fromJson({
+          ...original.music.toJson(),
+          'source': 'flac',
+          'platform': 'wyy',
+          'id': 'other-source',
+          'quality': const MusicQuality(format: 'flac').toJson(),
+        });
+        f.cache.cached.add(
+          original.copyWith(
+            cacheId: cacheIdForResolved(otherMusic),
+            music: otherMusic,
+            filePath: otherFile.path,
+          ),
+        );
+        await f.controller.loadCache(repairLegacy: false);
+        final chosen = f
+            .controller
+            .customPlaylists
+            .single
+            .entries
+            .single
+            .onlineTrack!
+            .candidate;
+        expect(
+          (await f.controller.cachedFileForSharing(
+            f.track,
+            candidate: chosen,
+          ))?.path,
+          original.filePath,
+        );
+        expect(f.handler.playCalls, 0);
+      } finally {
+        await f.close();
+      }
+    },
+  );
+
+  test(
+    'sharing refuses a truncated cached file and streaming partials',
+    () async {
+      final f = await _SourcePreferenceFixture.create(cached: true);
+      try {
+        final record = f.cache.cached.single;
+        await File(record.filePath).writeAsBytes([1]);
+        expect(await f.controller.cachedFileForSharing(f.track), isNull);
+        f.cache.cached[0] = record.copyWith(sizeBytes: 0);
+        await f.controller.loadCache(repairLegacy: false);
+        expect(
+          await f.controller.cachedFileForSharing(
+            f.controller.cachedTracks.single,
+          ),
+          isNull,
+        );
+      } finally {
+        await f.close();
+      }
+    },
+  );
+
+  test('sharing cancelled before task creation starts no download', () async {
+    final f = await _LaitingFixture.create();
+    try {
+      final c = _candidate(id: 'share-immediate', name: 'Share');
+      await expectLater(
+        f.controller.prepareTrackForSharing(
+          const Track(
+            id: 'online',
+            title: 'Share',
+            artist: 'artist',
+            album: '',
+          ),
+          candidate: c,
+          isCancelled: () => false,
+          onCancelReady: (cancel) => cancel(),
+        ),
+        throwsA(isA<DownloadCancelledException>()),
+      );
+      expect(f.resolver.ids, isEmpty);
+      expect(f.cache.downloadIds, isEmpty);
+      expect(f.handler.playCalls, 0);
+    } finally {
+      await f.close();
+    }
+  });
+
+  for (final joined in [false, true]) {
+    test(
+      'cancelling sharing preserves another download only when joined=$joined',
+      () async {
+        final f = await _LaitingFixture.create();
+        final c = _candidate(id: 'share-cancel-$joined', name: 'Share');
+        final gate = Completer<void>();
+        f.resolver.gates[c.id] = gate;
+        void Function()? cancel;
+        Future<void>? existing;
+        try {
+          if (joined) {
+            existing = f.controller.downloadCandidate(c);
+            await _waitForMediaCondition(() => f.resolver.ids.isNotEmpty);
+          }
+          final share = f.controller.prepareTrackForSharing(
+            const Track(
+              id: 'online',
+              title: 'Share',
+              artist: 'artist',
+              album: '',
+            ),
+            candidate: c,
+            isCancelled: () => false,
+            onCancelReady: (callback) => cancel = callback,
+          );
+          final checked = expectLater(
+            share,
+            throwsA(isA<DownloadCancelledException>()),
+          );
+          await _waitForMediaCondition(
+            () => cancel != null && f.resolver.ids.isNotEmpty,
+          );
+          cancel!();
+          gate.complete();
+          await checked;
+          await existing;
+          expect(f.cache.downloadIds, joined ? [c.id] : isEmpty);
+          expect(
+            f.controller.downloadTasks.single.status,
+            joined ? DownloadTaskStatus.completed : DownloadTaskStatus.canceled,
+          );
+          expect(f.handler.playCalls, 0);
+        } finally {
+          if (!gate.isCompleted) gate.complete();
+          await f.close();
+        }
+      },
+    );
+  }
+
+  test(
+    'sharing drops a completed preparation if the source preference changes',
+    () async {
+      final f = await _LaitingFixture.create();
+      final c = _candidate(id: 'share-source-revision', name: 'Share');
+      final gate = Completer<void>();
+      f.resolver.gates[c.id] = gate;
+      try {
+        final share = f.controller.prepareTrackForSharing(
+          const Track(
+            id: 'online',
+            title: 'Share',
+            artist: 'artist',
+            album: '',
+          ),
+          candidate: c,
+          isCancelled: () => false,
+          onCancelReady: (_) {},
+        );
+        final checked = expectLater(
+          share,
+          throwsA(isA<DownloadCancelledException>()),
+        );
+        await _waitForMediaCondition(() => f.resolver.ids.isNotEmpty);
+        await f.controller.saveSource(MusicDataSource.flac);
+        gate.complete();
+        await checked;
+        expect(f.handler.playCalls, 0);
+      } finally {
+        if (!gate.isCompleted) gate.complete();
+        await f.close();
+      }
+    },
+  );
+
   for (final oldScope in ['auto-priority-v4', 'auto-match-v6']) {
     test(
       'new Auto matching ignores $oldScope cache without clearing manual cache',
@@ -528,6 +736,71 @@ void main() {
   }
 
   group('legacy QQ playlist metadata repair', () {
+    for (final useCacheId in [false, true]) {
+      test(
+        'sharing repairs legacy QQ cached identity with cache ID=$useCacheId',
+        () async {
+          final f = await _QqMetadataFixture.create(
+            useCacheId: useCacheId,
+            realDownloads: true,
+          );
+          try {
+            final stale = f.track;
+            expect(await f.controller.cachedFileForSharing(stale), isNull);
+            final file = await f.controller.prepareTrackForSharing(
+              stale,
+              isCancelled: () => false,
+              onCancelReady: (_) {},
+            );
+            expect(file.path, isNot(f.vocalFile.path));
+            expect(await file.exists(), isTrue);
+            expect(f.cache.downloadIds, ['instrumental']);
+            expect(f.repository.calls, ['42']);
+            expect(await f.vocalFile.exists(), isTrue);
+          } finally {
+            await f.close();
+          }
+        },
+      );
+    }
+
+    test(
+      'first uncached legacy QQ share completes after its own repair',
+      () async {
+        final f = await _QqMetadataFixture.create(realDownloads: true);
+        try {
+          final stale = f.track;
+          f.cache.cached.clear();
+          await f.controller.loadCache(repairLegacy: false);
+          final file = await f.controller.prepareTrackForSharing(
+            stale,
+            isCancelled: () => false,
+            onCancelReady: (_) {},
+          );
+          expect(f.repository.calls, ['42']);
+          expect(f.cache.downloadIds, ['instrumental']);
+          expect(await file.exists(), isTrue);
+        } finally {
+          await f.close();
+        }
+      },
+    );
+
+    test(
+      'sharing preserves the manually chosen legacy QQ vocal cache',
+      () async {
+        final f = await _QqMetadataFixture.create(manual: true);
+        try {
+          final file = await f.controller.cachedFileForSharing(f.track);
+          expect(file?.path, f.vocalFile.path);
+          expect(f.controller.selectedSongSource(f.track)?.id, 'vocal');
+          expect(f.cache.downloadIds, isEmpty);
+        } finally {
+          await f.close();
+        }
+      },
+    );
+
     for (final action in ['play', 'favorite']) {
       test(
         '$action does not revive vocal cache when the logical song ID is its old cache ID',
@@ -7122,6 +7395,9 @@ class _LongPlayingHandler extends _SpyAudioHandler {
 }
 
 class _StaticMetadataRepository extends TrackMetadataRepository {
+  @override
+  Future<Uri?> cachedArtwork(CachedTrack track) async => null;
+
   _StaticMetadataRepository({this.metadata = const TrackMetadata()});
 
   final TrackMetadata metadata;
@@ -7277,6 +7553,7 @@ class _MemoryPlaylistStore extends PlaylistStore {
     }
 
     return PlaylistLibrary(
+      favoritePinnedTrackIds: library.favoritePinnedTrackIds,
       favoriteEntries: filter(library.favoriteEntries),
       playlists: [
         for (final playlist in library.playlists)
@@ -7713,7 +7990,8 @@ class _SequencedSearchResolver extends _FakeMusicResolver {
 }
 
 class _DownloadCacheStore extends CachedTrackStore {
-  _DownloadCacheStore({super.rootProvider});
+  _DownloadCacheStore({super.rootProvider, this.downloadRoot});
+  final Directory? downloadRoot;
   Completer<void>? validationGate;
   final validationStarted = Completer<void>();
   @override
@@ -7738,11 +8016,14 @@ class _DownloadCacheStore extends CachedTrackStore {
     cancelToken?.throwIfCanceled();
     downloadIds.add(result.id);
     await Future<void>.delayed(const Duration(milliseconds: 10));
+    final bytes = downloadRoot == null ? null : _controllerLanMp3Bytes();
+    final path = '${downloadRoot?.path ?? '/tmp'}/${result.id}.mp3';
+    if (bytes != null) await File(path).writeAsBytes(bytes);
     final track = CachedTrack(
       cacheId: cacheIdForResolved(result),
       music: result,
-      filePath: '/tmp/${result.id}.mp3',
-      sizeBytes: 4,
+      filePath: path,
+      sizeBytes: bytes?.length ?? 4,
       fromCache: false,
     );
     cached.add(track);
@@ -8465,6 +8746,7 @@ class _QqMetadataFixture {
     bool favorite = false,
     bool useCacheId = false,
     int metadataVersion = 0,
+    bool realDownloads = false,
   }) async {
     final root = await Directory.systemTemp.createTemp('qq-legacy-metadata-');
     final file = File('${root.path}/vocal.mp3');
@@ -8489,16 +8771,20 @@ class _QqMetadataFixture {
         'timed': false,
       },
     });
-    final cache = _DownloadCacheStore(rootProvider: () async => root)
-      ..cached.add(
-        CachedTrack(
-          cacheId: cacheIdForResolved(music),
-          music: music,
-          filePath: file.path,
-          sizeBytes: bytes.length,
-          fromCache: true,
-        ),
-      );
+    final cache =
+        _DownloadCacheStore(
+            rootProvider: () async => root,
+            downloadRoot: realDownloads ? root : null,
+          )
+          ..cached.add(
+            CachedTrack(
+              cacheId: cacheIdForResolved(music),
+              music: music,
+              filePath: file.path,
+              sizeBytes: bytes.length,
+              fromCache: true,
+            ),
+          );
     final original = PlaylistSong.fromJson({
       'key': 'qq:42',
       'title': '回忆观影券',

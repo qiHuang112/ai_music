@@ -3,10 +3,11 @@ import io
 import json
 import tempfile
 import unittest
+import urllib.error
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
-from mirror_github_android_release import GITHUB, asset_url, mirror
+from mirror_github_android_release import GITHUB, asset_url, mirror, open_private_asset
 
 
 class MirrorTest(unittest.TestCase):
@@ -107,6 +108,84 @@ class MirrorTest(unittest.TestCase):
         for url in ('http://github.com/app.apk', 'https://github.com:8443/app.apk',
                     'https://user:password@github.com/app.apk', 'https://other.invalid/app.apk'):
             self.assertFalse(asset_url(url))
+
+    def test_private_release_is_mirrored_via_existing_gh_authentication(self):
+        manifest = json.dumps(self.remote).encode()
+        release = {'draft': False, 'prerelease': False, 'assets': [
+            {'id': 1, 'name': 'latest.json', 'size': len(manifest)},
+            {'id': 2, 'name': 'app.apk', 'size': len(self.payload)},
+        ]}
+        endpoints = []
+
+        def run(args, *, stdout, stderr, timeout):
+            self.assertEqual(args[:4], ['gh', 'api', '--hostname', 'github.com'])
+            endpoints.append(args[4])
+            if args[4].endswith('/assets/1'):
+                self.assertEqual(args[5:], ['-H', 'Accept: application/octet-stream'])
+                stdout.write(manifest)
+            elif args[4].endswith('/assets/2'):
+                stdout.write(self.payload)
+            else:
+                stdout.write(json.dumps(release).encode())
+            return Mock(returncode=0)
+
+        def not_found(request, timeout):
+            raise urllib.error.HTTPError(request.full_url, 404, 'Not found', {}, None)
+
+        opener = Mock()
+        opener.open.side_effect = not_found
+        verified = {**self.remote, 'url': '/releases/verified.apk'}
+        with patch('mirror_github_android_release.urllib.request.build_opener', return_value=opener), \
+                patch('mirror_github_android_release.github_cli', return_value='gh'), \
+                patch('mirror_github_android_release.subprocess.run', side_effect=run), \
+                patch('mirror_github_android_release.publish', return_value=verified):
+            self.assertEqual(mirror(self.root, 'aapt', 'apksigner'), verified)
+        self.assertEqual(endpoints, [
+            'repos/qiHuang112/ai_music/releases/latest',
+            'repos/qiHuang112/ai_music/releases/assets/1',
+            'repos/qiHuang112/ai_music/releases/tags/v1.0.3-10202',
+            'repos/qiHuang112/ai_music/releases/assets/2',
+        ])
+        self.assertEqual((self.root / 'verified.apk').read_bytes(), self.payload)
+
+    def test_private_authentication_failure_preserves_previous_release(self):
+        before = self.pointer.read_bytes()
+        opener = Mock()
+        opener.open.side_effect = urllib.error.HTTPError(GITHUB, 404, 'Not found', {}, None)
+        with patch('mirror_github_android_release.urllib.request.build_opener', return_value=opener), \
+                patch('mirror_github_android_release.github_cli', return_value='gh'), \
+                patch('mirror_github_android_release.subprocess.run', return_value=Mock(returncode=1)):
+            with self.assertRaisesRegex(RuntimeError, 'Authenticated GitHub download failed'):
+                mirror(self.root, 'aapt', 'apksigner')
+        self.assertEqual(self.pointer.read_bytes(), before)
+
+    def test_private_download_rejects_foreign_urls_and_bad_asset_metadata(self):
+        for url in ('https://github.com/other/repo/releases/download/tag/app.apk',
+                    GITHUB + '/releases/download/tag/%2Fapp.apk',
+                    GITHUB + '/releases/download/tag/app.apk?elsewhere=1',
+                    'https://objects.githubusercontent.com/app.apk'):
+            with patch('mirror_github_android_release.github_api') as api:
+                with self.assertRaises(ValueError):
+                    open_private_asset(url)
+                api.assert_not_called()
+        for assets in ([{'id': 1, 'name': 'app.apk', 'size': 1}] * 2,
+                       [{'id': 1, 'name': 'app.apk', 'size': 501 * 1024 * 1024}]):
+            def api(endpoint, output):
+                output.write(json.dumps({'assets': assets}).encode())
+                output.seek(0)
+            with patch('mirror_github_android_release.github_api', side_effect=api), \
+                    self.assertRaises(ValueError):
+                open_private_asset(GITHUB + '/releases/download/tag/app.apk')
+
+    def test_private_partial_asset_is_rejected(self):
+        def api(endpoint, output, **kwargs):
+            output.write(b'partial' if kwargs else json.dumps({'assets': [
+                {'id': 1, 'name': 'app.apk', 'size': 100},
+            ]}).encode())
+            output.seek(0)
+        with patch('mirror_github_android_release.github_api', side_effect=api), \
+                self.assertRaisesRegex(ValueError, 'size mismatch'):
+            open_private_asset(GITHUB + '/releases/download/tag/app.apk')
 
 
 if __name__ == '__main__':

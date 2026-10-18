@@ -1,3 +1,6 @@
+import 'app_popup_menu.dart';
+import 'file_sharing.dart';
+import 'song_actions.dart';
 import 'dart:async';
 import 'dart:math';
 
@@ -302,7 +305,7 @@ class _ListeningStatsPageState extends State<ListeningStatsPage> {
                       zh ? '排行榜' : 'Rankings',
                       style: Theme.of(context).textTheme.titleMedium,
                     ),
-                    PopupMenuButton<bool>(
+                    MusicPopupMenuButton<bool>(
                       tooltip: zh ? '排行方式' : 'Ranking order',
                       initialValue: _byTime,
                       onSelected: (value) => setState(() => _byTime = value),
@@ -697,7 +700,10 @@ class _ListeningRankTile extends StatelessWidget {
                 style: TextStyle(color: Theme.of(context).colorScheme.primary),
               ),
             ),
-            MusicThumbnail(uri: Uri.tryParse(rank.artwork), size: 40),
+            MusicThumbnail(
+              uri: track?.artworkUri ?? Uri.tryParse(rank.artwork),
+              size: 40,
+            ),
           ],
         ),
       ),
@@ -768,7 +774,7 @@ class _ListeningSongMenu extends StatelessWidget {
         icon: const Icon(Icons.info_outline),
       );
     }
-    return PopupMenuButton<String>(
+    return MusicPopupMenuButton<String>(
       tooltip: strings.more,
       onSelected: (choice) async {
         if (choice == 'favorite') {
@@ -788,6 +794,9 @@ class _ListeningSongMenu extends StatelessWidget {
             }
           }
         }
+        if (choice == 'share' && context.mounted) {
+          await shareSong(context, controller, t);
+        }
         if (choice == 'add' && context.mounted) {
           await showAddToPlaylistSheet(context, controller, t);
         }
@@ -805,11 +814,16 @@ class _ListeningSongMenu extends StatelessWidget {
           ),
         ),
         PopupMenuItem(value: 'add', child: Text(strings.addToPlaylist)),
+        if (FileSharing.supported)
+          PopupMenuItem(
+            value: 'share',
+            child: Text(strings.isZh ? '分享' : 'Share'),
+          ),
         PopupMenuItem(
           value: 'source',
           enabled: controller.canSwitchSongSource(t),
-          child: Text(
-            '${strings.isZh ? '歌曲来源' : 'Song source'}（${controller.songSourceLabel(t, isZh: strings.isZh)}）',
+          child: SongSourceMenuLabel(
+            source: controller.songSourceLabel(t, isZh: strings.isZh),
           ),
         ),
       ],
@@ -906,7 +920,9 @@ class _ListeningHistoryPage extends StatelessWidget {
                     return ListTile(
                       contentPadding: EdgeInsets.zero,
                       leading: MusicThumbnail(
-                        uri: Uri.tryParse(record.song.artwork),
+                        uri:
+                            track?.artworkUri ??
+                            Uri.tryParse(record.song.artwork),
                         size: 44,
                       ),
                       title: Text(

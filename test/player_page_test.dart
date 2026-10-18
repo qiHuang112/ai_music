@@ -832,6 +832,9 @@ class _SpyAudioHandler extends MusicAudioHandler {
 }
 
 class _StaticMetadataRepository extends TrackMetadataRepository {
+  @override
+  Future<Uri?> cachedArtwork(CachedTrack track) async => null;
+
   _StaticMetadataRepository({required this.metadata});
 
   final TrackMetadata metadata;
@@ -846,6 +849,9 @@ class _StaticMetadataRepository extends TrackMetadataRepository {
 }
 
 class _UpgradingMetadataRepository extends TrackMetadataRepository {
+  @override
+  Future<Uri?> cachedArtwork(CachedTrack track) async => null;
+
   final Completer<TrackMetadata> _upgrade = Completer<TrackMetadata>();
   int upgradeCalls = 0;
 
@@ -876,6 +882,9 @@ class _UpgradingMetadataRepository extends TrackMetadataRepository {
 }
 
 class _RetryMetadataRepository extends TrackMetadataRepository {
+  @override
+  Future<Uri?> cachedArtwork(CachedTrack track) async => null;
+
   int bypassLoadCount = 0;
 
   @override

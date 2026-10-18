@@ -1,5 +1,9 @@
 # Android 自动发布与更新
 
+2026-10-18访问状态更新：用户已将GitHub仓库设为private，仅保留自己和现有协作者。匿名仓库及`releases/latest/download/latest.json`实测404，原APP的匿名GitHub下载／外网更新兜底随之不可用；下面关于公开Release下载的描述为私有化之前的历史行为。当前Mac LAN服务实测仍200并提供已归档10251，大小／哈希指向未变。现有镜像脚本使用未认证HTTP，后续同步私有Release需要补认证支持，不能再宣称现有公开下载路径可完成新版本镜像；不得为恢复下载自行将仓库公开。本次没有改动APP、构建或发布新版本。
+
+2026-10-18本轮发布补充：Mac镜像在匿名下载返回401／404时改用本机已登录GitHub CLI，从固定qiHuang112/ai_music API按实际Release资产ID认证下载；凭据保留在gh现有用户／钥匙串配置，不放进APP、源码或LaunchAgent。仅接受原仓库正式资产，拒绝外部地址／重复资产／截断文件，继续核对大小、SHA-256、包名、ABI、版本及原release证书，失败不切latest。launchd无Homebrew PATH时使用已安装gh的固定路径。本机已实测认证读取现有10251元数据，后续CI完成再核对新包和局域网完整下载；外网匿名GitHub兜底仍因private不可用，仓库不改公开。
+
 ## 独立材质体验包（2026-10-13）
 
 用户要求改包名并在77安装release体验。显式设置 `ORG_GRADLE_PROJECT_aiMusicPreview=true` 后构建arm64 release，包名为 `com.qi.ai.music.preview`，桌面名为「来听·材质体验」；未设置时继续构建原包名「来听」。体验包使用现有release签名、独立数据目录，可与原应用并存，不消费正式版更新通道。日志上报记录实际包名。该本地试用不发布到GitHub或切换LAN latest，APK与校验信息单独永久保存在 `releases/ai_music/android/previews/`。

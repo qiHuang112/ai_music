@@ -101,8 +101,8 @@ void main() {
       await tester.pumpAndSettle();
       await tester.tap(find.byTooltip('更多').last);
       await tester.pumpAndSettle();
-      expect(find.text('歌曲来源（布谷YY）'), findsOneWidget);
-      await tester.tap(find.text('歌曲来源（布谷YY）'));
+      expect(find.text('切换来源（布谷YY）'), findsOneWidget);
+      await tester.tap(find.text('切换来源（布谷YY）'));
       await tester.pumpAndSettle();
       expect(find.byType(SongSourcePage), findsOneWidget);
       expect(controller.searches, [MusicDataSource.auto]);

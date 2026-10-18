@@ -1,3 +1,4 @@
+import 'app_popup_menu.dart';
 import 'app_theme.dart';
 import 'design/ambient_backdrop.dart';
 import 'package:flutter/material.dart';
@@ -189,7 +190,7 @@ class DateFilterButton extends StatelessWidget {
         : range != null && range.start != range.end
         ? (zh ? '日期范围' : 'Date range')
         : dateGroupLabel(range?.start, zh: zh);
-    return PopupMenuButton<String>(
+    return MusicPopupMenuButton<String>(
       tooltip: zh ? '按日期筛选' : 'Filter by date',
       onSelected: (choice) => _pick(context, choice),
       itemBuilder: (_) => [

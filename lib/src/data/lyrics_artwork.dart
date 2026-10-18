@@ -109,6 +109,17 @@ class TrackMetadataRepository {
   final Map<String, Future<TrackMetadata>> _pendingLyricsPrefetch = {};
   final Map<String, Future<TrackMetadata>> _pendingTimedUpgrade = {};
 
+  /// Read existing artwork only. Rendering library rows must not search sources.
+  Future<Uri?> cachedArtwork(CachedTrack track) async {
+    final path = track.artworkPath.trim();
+    if (path.isNotEmpty && await File(path).exists()) return Uri.file(path);
+    final uri = (await _cacheStore.read(track.cacheId))?.artworkUri;
+    if (uri?.isScheme('file') == true && !await File.fromUri(uri!).exists()) {
+      return null;
+    }
+    return uri;
+  }
+
   static const Duration lyricsMissTtl = Duration(minutes: 30);
 
   Future<TrackMetadata> load(CachedTrack track) async {
@@ -806,6 +817,19 @@ Uri? artworkUriFromText(String value) {
   final uri = Uri.tryParse(trimmed);
   if (uri == null || !uri.hasScheme) {
     return null;
+  }
+  // Old QQ/NetEase/Kuwo imports and metadata can retain HTTP CDN links.
+  // Normalize only known image domains; arbitrary HTTP remains unsupported.
+  if (uri.isScheme('http')) {
+    final host = uri.host.toLowerCase();
+    if (const [
+      'music.126.net',
+      'gtimg.cn',
+      'qpic.cn',
+      'kuwo.cn',
+    ].any((domain) => host == domain || host.endsWith('.$domain'))) {
+      return uri.replace(scheme: 'https');
+    }
   }
   return const {'file', 'https'}.contains(uri.scheme.toLowerCase())
       ? uri

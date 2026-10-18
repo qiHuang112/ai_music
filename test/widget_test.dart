@@ -1,3 +1,4 @@
+import 'package:ai_music/src/presentation/song_actions.dart';
 import 'package:ai_music/src/presentation/design/record_sleeve.dart';
 import 'package:ai_music/src/presentation/design/controls.dart';
 import 'package:ai_music/src/presentation/mini_player.dart';
@@ -42,6 +43,111 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
+  testWidgets(
+    'create playlist stays centered and avoids overlapping entrance and keyboard motion',
+    (tester) async {
+      tester.view.physicalSize = const Size(400, 800);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      addTearDown(tester.view.resetViewInsets);
+      await tester.pumpWidget(_app());
+      await tester.pumpAndSettle();
+      await tester.tap(find.byTooltip('音乐库'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byTooltip('新建歌单'));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 40));
+      expect(tester.testTextInput.isVisible, isFalse);
+      await tester.pumpAndSettle();
+      expect(tester.testTextInput.isVisible, isTrue);
+      final surface = find
+          .descendant(of: find.byType(Dialog), matching: find.byType(Material))
+          .first;
+      expect(tester.getCenter(surface).dy, closeTo(400, .5));
+      var previousY = tester.getCenter(surface).dy;
+      for (final inset in [80.0, 160.0, 240.0, 320.0]) {
+        tester.view.viewInsets = FakeViewPadding(bottom: inset);
+        await tester.pump();
+        for (var frame = 0; frame < 2; frame++) {
+          await tester.pump(const Duration(milliseconds: 16));
+          final y = tester.getCenter(surface).dy;
+          expect(y, lessThanOrEqualTo(previousY));
+          expect(y, greaterThanOrEqualTo((800 - inset) / 2));
+          previousY = y;
+        }
+      }
+      await tester.pumpAndSettle();
+      expect(tester.getCenter(surface).dy, closeTo(240, .5));
+      tester.testTextInput.hide();
+      tester.view.viewInsets = FakeViewPadding.zero;
+      await tester.pumpAndSettle();
+      expect(tester.getCenter(surface).dy, closeTo(400, .5));
+      expect(tester.testTextInput.isVisible, isFalse);
+      expect(tester.takeException(), isNull);
+      await tester.enterText(find.byType(TextField).last, '稳定歌单');
+      await tester.tap(find.text('创建'));
+      await tester.pumpAndSettle();
+      expect(find.text('稳定歌单'), findsOneWidget);
+    },
+  );
+
+  testWidgets(
+    'playlist more offers share, source switch and persistent pin toggle',
+    (tester) async {
+      final f = _homeLibraryFixture();
+      f.playlistStore.library = f.playlistStore.library.copyWith(
+        playlists: [
+          f.playlistStore.library.playlists.single.copyWith(
+            entries: [
+              ...f.playlistStore.library.playlists.single.entries,
+              f.playlistStore.library.favoriteEntries.single,
+            ],
+          ),
+        ],
+      );
+      await tester.pumpWidget(
+        _app(cacheStore: f.cacheStore, playlistStore: f.playlistStore),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.byTooltip('音乐库'));
+      await tester.pumpAndSettle();
+      final controller = tester
+          .widget<MusicHomePage>(find.byType(MusicHomePage))
+          .controller;
+      await tester.tap(find.text('Road'));
+      await tester.pumpAndSettle();
+      final tracks = controller.tracksForPlaylist(
+        controller.customPlaylists.single,
+      );
+      await tester.tap(find.byTooltip('更多').last);
+      await tester.pumpAndSettle();
+      expect(find.text('分享'), findsOneWidget);
+      expect(find.byType(SongSourceMenuLabel), findsOneWidget);
+      expect(find.textContaining('切换来源（'), findsOneWidget);
+      expect(find.byIcon(Icons.swap_horiz_rounded), findsNothing);
+      expect(find.byIcon(Icons.chevron_right_rounded), findsNothing);
+      expect(find.byIcon(Icons.vertical_align_top_rounded), findsNothing);
+      await tester.tap(find.text('置顶'));
+      await tester.pumpAndSettle();
+      expect(controller.isTrackPinned(tracks.last, 'road'), isTrue);
+      expect(find.byIcon(Icons.push_pin_rounded), findsNothing);
+      expect(
+        tester.getTopLeft(find.text(tracks.last.title)).dy,
+        lessThan(tester.getTopLeft(find.text(tracks.first.title)).dy),
+      );
+      await tester.tap(find.byTooltip('更多').first);
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('取消置顶'));
+      await tester.pumpAndSettle();
+      expect(controller.pinnedTrackIds('road'), isEmpty);
+      expect(
+        tester.getTopLeft(find.text(tracks.first.title)).dy,
+        lessThan(tester.getTopLeft(find.text(tracks.last.title)).dy),
+      );
+    },
+  );
+
   testWidgets(
     'every skin applies transparent contrasting system bars without an app bar and after navigation',
     (tester) async {
@@ -4547,6 +4653,9 @@ class _RecordingPlaylistDownloadController extends MusicController {
 }
 
 class _FakeMetadataRepository extends TrackMetadataRepository {
+  @override
+  Future<Uri?> cachedArtwork(CachedTrack track) async => null;
+
   final deletedIds = <String>[];
 
   @override
@@ -4653,6 +4762,7 @@ class _FakePlaylistStore extends PlaylistStore {
     }
 
     return PlaylistLibrary(
+      favoritePinnedTrackIds: library.favoritePinnedTrackIds,
       favoriteEntries: filter(library.favoriteEntries),
       playlists: [
         for (final playlist in library.playlists)

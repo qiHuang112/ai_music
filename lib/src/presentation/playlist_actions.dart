@@ -187,6 +187,9 @@ class _PlaylistNameDialog extends StatefulWidget {
 
 class _PlaylistNameDialogState extends State<_PlaylistNameDialog> {
   late final TextEditingController _controller;
+  final _focusNode = FocusNode();
+  Animation<double>? _routeAnimation;
+  bool _focusScheduled = false;
 
   @override
   void initState() {
@@ -195,7 +198,35 @@ class _PlaylistNameDialogState extends State<_PlaylistNameDialog> {
   }
 
   @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final animation = ModalRoute.of(context)?.animation;
+    if (!identical(animation, _routeAnimation)) {
+      _routeAnimation?.removeStatusListener(_onRouteStatus);
+      _routeAnimation = animation;
+      animation?.addStatusListener(_onRouteStatus);
+    }
+    if (animation == null || animation.status == AnimationStatus.completed) {
+      _focusAfterOpening();
+    }
+  }
+
+  void _onRouteStatus(AnimationStatus status) {
+    if (status == AnimationStatus.completed) _focusAfterOpening();
+  }
+
+  void _focusAfterOpening() {
+    if (_focusScheduled) return;
+    _focusScheduled = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _focusNode.requestFocus();
+    });
+  }
+
+  @override
   void dispose() {
+    _routeAnimation?.removeStatusListener(_onRouteStatus);
+    _focusNode.dispose();
     _controller.dispose();
     super.dispose();
   }
@@ -203,10 +234,11 @@ class _PlaylistNameDialogState extends State<_PlaylistNameDialog> {
   @override
   Widget build(BuildContext context) {
     return AlertDialog(
+      scrollable: true,
       title: Text(widget.title),
       content: TextField(
         controller: _controller,
-        autofocus: true,
+        focusNode: _focusNode,
         textInputAction: TextInputAction.done,
         decoration: InputDecoration(
           labelText: AppStringsScope.of(context).playlistName,

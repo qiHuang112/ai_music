@@ -1813,6 +1813,105 @@ class MusicController extends ChangeNotifier {
     return File(cached.filePath);
   }
 
+  /// Complete audio only; a partially buffered playback file is never shared.
+  Future<File?> cachedFileForSharing(
+    Track track, {
+    MusicSearchCandidate? candidate,
+  }) async {
+    track = await _withFreshOriginalMetadata(track);
+    // Repair can invalidate an automatic source while retaining its old cache
+    // ID as the logical playlist ID. That old recording is no longer reusable.
+    if (candidate == null &&
+        _songEntry(track.id)?.song != null &&
+        _candidateForOnlineTrack(track.id) == null) {
+      return null;
+    }
+    final record = candidate == null
+        ? _cachedRecordForTrack(track)
+        : _cachedRecordForCandidate(
+            candidate,
+            sourceMode: _sourceModeForTrack(track),
+          );
+    if (record != null && record.sizeBytes > 0) {
+      final file = File(record.filePath);
+      if (await file.exists() && await file.length() == record.sizeBytes) {
+        return file;
+      }
+    }
+    // A local-only item can come from an external library without a source entry.
+    if (record == null &&
+        candidate == null &&
+        !canSwitchSongSource(track) &&
+        track.filePath.isNotEmpty) {
+      final file = File(track.filePath);
+      if (!file.path.endsWith('.part') &&
+          await file.exists() &&
+          await file.length() > 0) {
+        return file;
+      }
+    }
+    return null;
+  }
+
+  Future<File> prepareTrackForSharing(
+    Track track, {
+    MusicSearchCandidate? candidate,
+    required bool Function() isCancelled,
+    required void Function(VoidCallback cancel) onCancelReady,
+  }) async {
+    final existing = await cachedFileForSharing(track, candidate: candidate);
+    if (isCancelled() || _isDisposed) throw const DownloadCancelledException();
+    if (existing != null) return existing;
+    final revision = _songSourceRevisions[track.id] ?? 0;
+    final preferenceRevision = _sourcePreferenceRevision;
+    final mode = _sourceModeForTrack(track);
+    final selected = candidate ?? await _ensureSongCandidate(track);
+    if (isCancelled() || _isDisposed) throw const DownloadCancelledException();
+    final taskId = downloadQueue.taskIdForCandidate(selected);
+    final ownsTask =
+        !_downloadsInFlight.containsKey(taskId) &&
+        !downloadQueue.hasActiveToken(taskId);
+    var cancellationRequested = false;
+    var cancellationSent = false;
+    void cancelWhenStarted() {
+      if (ownsTask &&
+          !cancellationSent &&
+          (cancellationRequested || isCancelled()) &&
+          downloadQueue.hasActiveToken(taskId)) {
+        cancellationSent = true;
+        cancelDownload(taskId);
+      }
+    }
+
+    addListener(cancelWhenStarted);
+    try {
+      onCancelReady(() {
+        cancellationRequested = true;
+        cancelWhenStarted();
+      });
+      if (isCancelled() || cancellationRequested || _isDisposed) {
+        throw const DownloadCancelledException();
+      }
+      await downloadCandidateAndWait(
+        selected,
+        sourceMode: mode,
+        requireExactIdentity: true,
+      );
+    } finally {
+      removeListener(cancelWhenStarted);
+    }
+    if (isCancelled() ||
+        cancellationRequested ||
+        _isDisposed ||
+        preferenceRevision != _sourcePreferenceRevision ||
+        revision != (_songSourceRevisions[track.id] ?? 0)) {
+      throw const DownloadCancelledException();
+    }
+    final file = await cachedFileForSharing(track, candidate: selected);
+    if (file == null) throw StateError('无法准备完整音频，请重试');
+    return file;
+  }
+
   MusicSearchCandidate? _candidateForOnlineTrack(String id) =>
       _pendingSongSources[id]?.candidate ??
       _onlineTrackForId(id)?.candidate ??
@@ -3812,6 +3911,52 @@ class MusicController extends ChangeNotifier {
     notifyListeners();
   }
 
+  List<String> pinnedTrackIds(String playlistId) =>
+      playlistId == favoritePlaylistId
+      ? _playlistLibrary.favoritePinnedTrackIds
+      : _playlistLibrary.playlists
+                .where((p) => p.id == playlistId)
+                .firstOrNull
+                ?.pinnedTrackIds ??
+            const [];
+
+  bool isTrackPinned(Track track, String playlistId) =>
+      pinnedTrackIds(playlistId).contains(track.id);
+
+  List<Track> orderPinnedTracks(List<Track> tracks, String playlistId) {
+    final pins = pinnedTrackIds(playlistId);
+    if (pins.isEmpty) return tracks;
+    final byId = {for (final t in tracks) t.id: t};
+    final pinnedIds = pins.toSet();
+    return [
+      for (final id in pins)
+        if (byId[id] != null) byId[id]!,
+      for (final t in tracks)
+        if (!pinnedIds.contains(t.id)) t,
+    ];
+  }
+
+  Future<void> setTrackPinned(
+    Track track,
+    String playlistId, {
+    required bool pinned,
+  }) async {
+    _applyLibrarySnapshot(
+      await libraryUseCase.setTrackPinned(
+        playlistId,
+        track.id,
+        pinned: pinned,
+        current: _librarySnapshot,
+      ),
+    );
+    OperationLog.event('playlist.pin', {
+      'playlistId': playlistId,
+      'trackId': track.id,
+      'pinned': pinned,
+    });
+    if (!_isDisposed) notifyListeners();
+  }
+
   Future<void> reorderFavoriteTracks(List<Track> tracks) async {
     _applyLibrarySnapshot(
       await libraryUseCase.reorderFavoriteTracks(
@@ -4120,6 +4265,10 @@ class MusicController extends ChangeNotifier {
     notifyListeners();
     try {
       final metadata = await metadataUseCase.load(cached);
+      if (!_isDisposed &&
+          _rememberLibraryArtwork(cached, metadata.artworkUri)) {
+        notifyListeners();
+      }
       if (!_isActiveMetadataRequest(request, track)) {
         return;
       }
@@ -4175,10 +4324,25 @@ class MusicController extends ChangeNotifier {
 
   Future<void> _primeMetadataForCached(CachedTrack cached) async {
     try {
-      await metadataUseCase.load(cached);
+      final metadata = await metadataUseCase.load(cached);
+      if (!_isDisposed &&
+          _rememberLibraryArtwork(cached, metadata.artworkUri)) {
+        notifyListeners();
+      }
     } catch (_) {
       // 下载主流程不能因为封面/歌词兜底失败而失败；播放页仍会展示可读 metadataError。
     }
+  }
+
+  bool _rememberLibraryArtwork(CachedTrack cached, Uri? artwork) {
+    if (!_cachedRecords.any((r) => r.cacheId == cached.cacheId) ||
+        !libraryUseCase.rememberArtwork(cached.cacheId, artwork)) {
+      return false;
+    }
+    _applyLibrarySnapshot(
+      libraryUseCase.applyCachedRecords(_cachedRecords, _playlistLibrary),
+    );
+    return true;
   }
 
   CachedTrack? _cachedRecordForTrack(Track track) {

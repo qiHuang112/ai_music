@@ -1,5 +1,7 @@
 # AI Music 开发工作流讨论记录
 
+2026-10-18最新访问决定：用户取消版权／免责声明草稿，改为私有仓库，仅自己qiHuang112和现有协作者wangtangji29-ctrl可见。已核验private、仅owner/admin与该协作者/write、无待接受邀请；对方继续非main分支开发、main由维护者维护的协作约定保持。GitHub当前套餐对私有库规则集返回需Pro的403，main实际protected=false，因此下面2026-10-14的“active保护”是当时结果，现不能当作仍由服务端强制。若需要恢复服务端保护，须启用支持私有仓库规则的套餐；未自行降低其write角色。其旧公开fork已脱离主仓库、仍公开，我方无管理权限，需由其自行设私有。仓库设置调整不触发源码提交／APP发布。
+
 2026-10-14协作约定：`wangtangji29-ctrl` 后续直接在 `qiHuang112/ai_music` 的 `ui-vinyl` 或其他非main开发分支提交，无需继续在个人fork开发。已将其fork的 `ui-vinyl` 完整同步到主仓库同名分支；main仍由维护者负责。GitHub启用仅匹配main的active规则集，限制创建、更新、删除及强推，仅仓库管理员可绕过；其他分支不受此规则集限制。协作者发起PR后由维护者决定合入main；外部开发者不适用下面维护者默认在main开发的约定。写权限邀请须由本人接受后生效。
 
 2026-10-10最新决定：开发、手机自测、代码／发布审查和交付全部集中在 [ai-music-developer skill](../.agents/skills/ai-music-developer/SKILL.md)。固定 **AI music-代码 review** 会话已归档，旧固定会话交接规则不再使用。AI Music 默认在当前工程的 `main` 上开发；用户明确要求时可以切换或创建分支，始终不创建 worktree。

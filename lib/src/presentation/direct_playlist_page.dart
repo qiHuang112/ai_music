@@ -1,3 +1,4 @@
+import 'app_popup_menu.dart';
 import 'playlist_sliver_header.dart';
 import 'mini_player.dart';
 import 'app_theme.dart';
@@ -181,7 +182,7 @@ class _DirectPlaylistPageState extends State<DirectPlaylistPage> {
     final detail = _detail;
     final actions = <Widget>[
       if (detail != null)
-        PopupMenuButton<_PlaylistAction>(
+        MusicPopupMenuButton<_PlaylistAction>(
           key: const Key('direct-playlist-actions'),
           tooltip: zh ? '歌单操作' : 'Playlist actions',
           enabled: !_saving,
