@@ -330,13 +330,13 @@ void main() {
       );
       final request = state.search('sleep');
       await Future<void>.delayed(Duration.zero);
-      expect(state.items.length, 1);
+      expect(state.items.length, 2);
       expect(state.isLoading, true);
       pending.completeError(StateError('offline'));
       await request;
       expect(state.errors, {OnlinePlaylistSource.qq});
       await state.retry(OnlinePlaylistSource.qq);
-      expect(state.items.length, 2);
+      expect(state.items.length, 3);
       expect(state.errors, isEmpty);
       state.dispose();
     },
@@ -365,7 +365,7 @@ void main() {
       completer.completeError(StateError('old failure'));
     }
     await old;
-    expect(state.items.map((item) => item.id), ['new', 'new']);
+    expect(state.items.map((item) => item.id), ['new', 'new', 'new']);
     expect(state.errors, isEmpty);
     final another = state.search('old');
     state.clear();
@@ -404,11 +404,11 @@ void main() {
       );
       await state.search('query');
       await state.loadMore();
-      expect(state.items.length, 3);
+      expect(state.items.length, 5);
       fail = false;
       await state.retry(OnlinePlaylistSource.qq);
       expect(calls.where((call) => call == 'qq:2').length, 2);
-      expect(state.items.length, 4);
+      expect(state.items.length, 6);
       expect(state.hasMore, false);
       state.dispose();
     },

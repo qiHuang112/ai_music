@@ -1,8 +1,11 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart' show ScrollCacheExtent;
 
 import '../data/song_comments.dart';
 import 'app_localizations.dart';
+import 'app_popup_menu.dart';
 import 'app_theme.dart';
 import 'comment_text.dart';
 
@@ -16,33 +19,49 @@ class SongCommentsPage extends StatefulWidget {
 }
 
 class _SongCommentsPageState extends State<SongCommentsPage> {
-  SongCommentPlatform _platform = SongCommentPlatform.netease;
+  // null is the default combined view; platform state is shared with filters.
+  SongCommentPlatform? _platform;
   final _pages = {
     for (final platform in SongCommentPlatform.values)
       platform: _CommentsViewState(),
   };
-  final _scrollControllers = <SongCommentPlatform, ScrollController>{};
-  _CommentsViewState get _page => _pages[_platform]!;
+  final _scrollControllers = <SongCommentPlatform?, ScrollController>{};
+  final _offsets = <SongCommentPlatform?, double>{};
+  final _combined = <({SongCommentPlatform platform, SongComment comment})>[];
   bool get zh => AppStringsScope.of(context).isZh;
   SongCommentsRepository get repository =>
       widget.repository ?? SongCommentsRepository.shared;
+  Iterable<SongCommentPlatform> get _visiblePlatforms =>
+      _platform == null ? SongCommentPlatform.values : [_platform!];
+  List<({SongCommentPlatform platform, SongComment comment})> get _comments =>
+      _platform == null
+      ? _combined
+      : [
+          for (final comment in _pages[_platform]!.comments)
+            (platform: _platform!, comment: comment),
+        ];
 
   @override
   void initState() {
     super.initState();
-    for (final platform in SongCommentPlatform.values) {
+    for (final platform in <SongCommentPlatform?>[
+      null,
+      ...SongCommentPlatform.values,
+    ]) {
       _scrollControllers[platform] = ScrollController()
         ..addListener(() {
-          final controller = _scrollControllers[platform]!;
+          final scroll = _scrollControllers[platform]!;
           if (_platform == platform &&
-              controller.hasClients &&
-              controller.position.extentAfter <
-                  controller.position.viewportDimension.clamp(480.0, 1200.0)) {
-            _loadMore(platform);
+              scroll.hasClients &&
+              scroll.position.extentAfter <
+                  scroll.position.viewportDimension.clamp(480.0, 1200.0)) {
+            unawaited(_loadMoreVisible());
           }
         });
     }
-    _load();
+    for (final platform in SongCommentPlatform.values) {
+      unawaited(_load(platform));
+    }
   }
 
   @override
@@ -53,24 +72,46 @@ class _SongCommentsPageState extends State<SongCommentsPage> {
     super.dispose();
   }
 
-  void _selectPlatform(SongCommentPlatform platform) {
+  void _selectPlatform(SongCommentPlatform? platform) {
+    if (_platform == platform) return;
     final current = _scrollControllers[_platform]!;
-    if (current.hasClients) _page.scrollOffset = current.offset;
+    if (current.hasClients) _offsets[_platform] = current.offset;
     setState(() => _platform = platform);
-    _load();
+    for (final source in _visiblePlatforms) {
+      unawaited(_load(source));
+    }
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted || _platform != platform) return;
-      final controller = _scrollControllers[platform]!;
-      if (controller.hasClients) {
-        controller.jumpTo(
-          _page.scrollOffset.clamp(0, controller.position.maxScrollExtent),
+      final scroll = _scrollControllers[platform]!;
+      if (scroll.hasClients) {
+        scroll.jumpTo(
+          (_offsets[platform] ?? 0).clamp(0, scroll.position.maxScrollExtent),
         );
       }
     });
   }
 
-  Future<void> _load({bool refresh = false}) async {
-    final platform = _platform;
+  void _appendCombined(
+    SongCommentPlatform platform,
+    List<SongComment> comments, {
+    bool replace = false,
+  }) {
+    if (replace) _combined.removeWhere((entry) => entry.platform == platform);
+    final seen = _combined
+        .map((entry) => (entry.platform, entry.comment.id))
+        .toSet();
+    // Append completed batches without moving comments already being read.
+    for (final comment in comments) {
+      if (seen.add((platform, comment.id))) {
+        _combined.add((platform: platform, comment: comment));
+      }
+    }
+  }
+
+  Future<void> _load(
+    SongCommentPlatform platform, {
+    bool refresh = false,
+  }) async {
     final page = _pages[platform]!;
     if (page.loading || (!refresh && page.result != null)) return;
     final request = ++page.request;
@@ -79,31 +120,63 @@ class _SongCommentsPageState extends State<SongCommentsPage> {
       page.loadingMore = false;
       page.moreFailed = false;
     });
-    final result = await repository.load(
-      widget.query,
-      platform,
-      refresh: refresh,
-    );
+    SongCommentsResult result;
+    try {
+      result = await repository.load(widget.query, platform, refresh: refresh);
+    } catch (_) {
+      result = SongCommentsResult(
+        platform: platform,
+        status: SongCommentsStatus.unavailable,
+        pageUrl: widget.query.searchUrl(platform),
+      );
+    }
     if (!mounted || request != page.request) return;
     setState(() {
       page.result = result;
       page.loading = false;
-      // An offline refresh must not throw away pages the reader already has.
       if (result.stale && page.comments.isNotEmpty) return;
       page.comments = _unique(result.comments);
       page.nextPage = 1;
       page.nextCursor = result.nextCursor;
       page.hasMore = result.hasMore && page.comments.isNotEmpty;
+      _appendCombined(platform, page.comments, replace: true);
     });
     if (refresh && !result.stale) {
-      page.scrollOffset = 0;
+      _offsets[platform] = 0;
       WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (!mounted || request != page.request) return;
-        final controller = _scrollControllers[platform]!;
-        if (controller.hasClients) controller.jumpTo(0);
+        if (!mounted || request != page.request || _platform != platform) {
+          return;
+        }
+        final scroll = _scrollControllers[platform]!;
+        if (scroll.hasClients) scroll.jumpTo(0);
       });
     }
   }
+
+  Future<void> _refresh() async {
+    final platform = _platform;
+    final sources = _visiblePlatforms.toList();
+    await Future.wait([
+      for (final source in sources) _load(source, refresh: true),
+    ]);
+    if (!mounted || _platform != platform) return;
+    // An offline refresh keeps all loaded pages and the reading position.
+    if (sources.every(
+      (source) =>
+          _pages[source]!.result?.stale == true ||
+          _pages[source]!.comments.isEmpty,
+    )) {
+      return;
+    }
+    _offsets[platform] = 0;
+    final scroll = _scrollControllers[platform]!;
+    if (scroll.hasClients) scroll.jumpTo(0);
+  }
+
+  Future<void> _loadMoreVisible({bool retry = false}) => Future.wait([
+    for (final platform in _visiblePlatforms.toList())
+      _loadMore(platform, retry: retry),
+  ]);
 
   Future<void> _loadMore(
     SongCommentPlatform platform, {
@@ -122,12 +195,21 @@ class _SongCommentsPageState extends State<SongCommentsPage> {
       page.loadingMore = true;
       page.moreFailed = false;
     });
-    final result = await repository.load(
-      widget.query,
-      platform,
-      page: nextPage,
-      cursor: page.nextCursor,
-    );
+    SongCommentsResult result;
+    try {
+      result = await repository.load(
+        widget.query,
+        platform,
+        page: nextPage,
+        cursor: page.nextCursor,
+      );
+    } catch (_) {
+      result = SongCommentsResult(
+        platform: platform,
+        status: SongCommentsStatus.unavailable,
+        pageUrl: widget.query.searchUrl(platform),
+      );
+    }
     if (!mounted || request != page.request) return;
     setState(() {
       page.loadingMore = false;
@@ -136,17 +218,18 @@ class _SongCommentsPageState extends State<SongCommentsPage> {
         return;
       }
       final comments = _unique([...page.comments, ...result.comments]);
-      // Stop a repeated upstream page from causing an endless scroll loop.
       page.hasMore = result.hasMore && comments.length > page.comments.length;
       page.comments = comments;
       page.nextPage = nextPage + 1;
       page.nextCursor = result.nextCursor;
+      _appendCombined(platform, result.comments);
     });
   }
 
   @override
   Widget build(BuildContext context) {
-    final result = _page.result;
+    final comments = _comments;
+    final loading = _visiblePlatforms.any((source) => _pages[source]!.loading);
     return Scaffold(
       appBar: AppBar(
         title: Text(zh ? '歌曲热评' : 'Song comments'),
@@ -154,8 +237,36 @@ class _SongCommentsPageState extends State<SongCommentsPage> {
           IconButton(
             key: const Key('comments-refresh'),
             tooltip: zh ? '刷新热评' : 'Refresh comments',
-            onPressed: _page.loading ? null : () => _load(refresh: true),
+            onPressed: loading ? null : _refresh,
             icon: const Icon(Icons.refresh_rounded),
+          ),
+          MusicPopupMenuButton<String>(
+            key: const Key('comments-more'),
+            tooltip: zh ? '更多' : 'More',
+            icon: const Icon(Icons.more_vert_rounded),
+            initialValue: _platform?.name ?? 'all',
+            onSelected: (value) => _selectPlatform(
+              value == 'all' ? null : SongCommentPlatform.values.byName(value),
+            ),
+            itemBuilder: (_) => [
+              CheckedPopupMenuItem(
+                value: 'all',
+                checked: _platform == null,
+                child: Text(
+                  zh ? '全部展示' : 'All platforms',
+                  key: const ValueKey('comments-platform-all'),
+                ),
+              ),
+              for (final platform in SongCommentPlatform.values)
+                CheckedPopupMenuItem(
+                  value: platform.name,
+                  checked: _platform == platform,
+                  child: Text(
+                    platform.label,
+                    key: ValueKey('comments-platform-${platform.name}'),
+                  ),
+                ),
+            ],
           ),
         ],
       ),
@@ -163,265 +274,71 @@ class _SongCommentsPageState extends State<SongCommentsPage> {
         child: Center(
           child: ConstrainedBox(
             constraints: const BoxConstraints(maxWidth: 720),
-            child: LayoutBuilder(
-              builder: (context, constraints) {
-                final compact = constraints.maxHeight < 320;
-                return Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    Padding(
-                      padding: EdgeInsets.fromLTRB(
-                        MusicUi.pagePadding,
-                        compact ? 0 : 8,
-                        MusicUi.pagePadding,
-                        12,
-                      ),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            widget.query.title,
-                            style: Theme.of(context).textTheme.titleLarge,
-                            maxLines: compact ? 1 : 2,
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                          const SizedBox(height: 4),
-                          Text(
-                            widget.query.artist,
-                            style: Theme.of(context).textTheme.bodyMedium
-                                ?.copyWith(
-                                  color: Theme.of(
-                                    context,
-                                  ).colorScheme.onSurfaceVariant,
-                                ),
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                          SizedBox(height: compact ? 8 : 18),
-                          SegmentedButton<SongCommentPlatform>(
-                            showSelectedIcon: false,
-                            expandedInsets: EdgeInsets.zero,
-                            style: ButtonStyle(
-                              minimumSize: const WidgetStatePropertyAll(
-                                Size(0, 48),
-                              ),
-                              padding: const WidgetStatePropertyAll(
-                                EdgeInsets.symmetric(
-                                  horizontal: 8,
-                                  vertical: 12,
-                                ),
-                              ),
-                              textStyle: WidgetStatePropertyAll(
-                                Theme.of(context).textTheme.bodyMedium
-                                    ?.copyWith(fontWeight: FontWeight.w600),
-                              ),
-                              backgroundColor: WidgetStateProperty.resolveWith(
-                                (states) =>
-                                    states.contains(WidgetState.selected)
-                                    ? Theme.of(
-                                        context,
-                                      ).colorScheme.secondaryContainer
-                                    : Theme.of(context).colorScheme.surface,
-                              ),
-                              foregroundColor: WidgetStateProperty.resolveWith(
-                                (states) =>
-                                    states.contains(WidgetState.selected)
-                                    ? Theme.of(context).colorScheme.primary
-                                    : Theme.of(
-                                        context,
-                                      ).colorScheme.onSurfaceVariant,
-                              ),
-                              side: WidgetStatePropertyAll(
-                                BorderSide(
-                                  color: Theme.of(
-                                    context,
-                                  ).colorScheme.outlineVariant,
-                                ),
-                              ),
-                              shape: WidgetStatePropertyAll(
-                                RoundedRectangleBorder(
-                                  borderRadius: BorderRadius.circular(
-                                    MusicUi.coverRadius,
-                                  ),
-                                ),
-                              ),
-                            ),
-                            segments: [
-                              for (final platform in SongCommentPlatform.values)
-                                ButtonSegment(
-                                  value: platform,
-                                  label: Text(
-                                    platform.label,
-                                    key: ValueKey(
-                                      'comments-platform-${platform.name}',
-                                    ),
-                                  ),
-                                ),
-                            ],
-                            selected: {_platform},
-                            onSelectionChanged: (selected) =>
-                                _selectPlatform(selected.single),
-                          ),
-                        ],
-                      ),
-                    ),
-                    Expanded(
-                      child: _page.loading
-                          ? _CommentsPlaceholder(
-                              label: zh
-                                  ? '正在查找这首歌的热评…'
-                                  : 'Finding comments for this song…',
-                            )
-                          : result == null ||
-                                result.status != SongCommentsStatus.ready ||
-                                _page.comments.isEmpty
-                          ? _empty(result)
-                          : ListView.separated(
-                              key: PageStorageKey(
-                                'comments-list-${_platform.name}',
-                              ),
-                              controller: _scrollControllers[_platform],
-                              scrollCacheExtent:
-                                  const ScrollCacheExtent.viewport(1),
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: MusicUi.pagePadding,
-                                vertical: 4,
-                              ),
-                              itemCount:
-                                  _page.comments.length +
-                                  (result.stale ? 1 : 0) +
-                                  1,
-                              separatorBuilder: (_, _) => Divider(
-                                height: 1,
-                                color: Theme.of(
-                                  context,
-                                ).colorScheme.outlineVariant,
-                              ),
-                              itemBuilder: (context, index) {
-                                if (result.stale && index == 0) {
-                                  return Padding(
-                                    padding: const EdgeInsets.symmetric(
-                                      vertical: 12,
-                                    ),
-                                    child: Text(
-                                      zh
-                                          ? '暂时无法更新，显示上次缓存的热评'
-                                          : 'Could not refresh. Showing cached comments.',
-                                      style: Theme.of(
-                                        context,
-                                      ).textTheme.bodySmall,
-                                    ),
-                                  );
-                                }
-                                final commentIndex =
-                                    index - (result.stale ? 1 : 0);
-                                if (commentIndex == _page.comments.length) {
-                                  return _paginationFooter();
-                                }
-                                return _CommentEntry(
-                                  key: ValueKey(
-                                    '${_platform.name}-${_page.comments[commentIndex].id}',
-                                  ),
-                                  comment: _page.comments[commentIndex],
-                                );
-                              },
-                            ),
-                    ),
-                  ],
-                );
-              },
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _paginationFooter() => ConstrainedBox(
-    constraints: const BoxConstraints(minHeight: 88),
-    child: Padding(
-      padding: const EdgeInsets.symmetric(vertical: 20),
-      child: Center(
-        child: _page.loadingMore
-            ? Wrap(
-                alignment: WrapAlignment.center,
-                crossAxisAlignment: WrapCrossAlignment.center,
-                spacing: 12,
-                runSpacing: 8,
-                children: [
-                  const SizedBox.square(
-                    dimension: 18,
-                    child: CircularProgressIndicator(strokeWidth: 2),
-                  ),
-                  Text(
-                    zh ? '正在加载更多热评…' : 'Loading more comments…',
-                    style: Theme.of(context).textTheme.bodySmall,
-                    textAlign: TextAlign.center,
-                  ),
-                ],
-              )
-            : _page.moreFailed
-            ? TextButton(
-                key: const Key('comments-more-retry'),
-                onPressed: () => _loadMore(_platform, retry: true),
-                child: Text(zh ? '加载失败，点击重试' : 'Could not load more. Retry'),
-              )
-            : _page.hasMore
-            ? TextButton(
-                key: const Key('comments-load-more'),
-                onPressed: () => _loadMore(_platform),
-                child: Text(zh ? '加载更多热评' : 'Load more comments'),
-              )
-            : Text(
-                zh ? '已显示全部热评' : 'All hot comments loaded',
-                style: Theme.of(context).textTheme.bodySmall,
-                textAlign: TextAlign.center,
-              ),
-      ),
-    ),
-  );
-
-  Widget _empty(SongCommentsResult? result) {
-    final message = switch (result?.status) {
-      SongCommentsStatus.noMatch =>
-        zh
-            ? '还没有找到歌名、歌手与版本一致的歌曲'
-            : 'No matching song, artist and version found.',
-      SongCommentsStatus.ready =>
-        zh ? '这首歌暂时没有公开热评' : 'No public hot comments for this song yet.',
-      _ =>
-        zh
-            ? '暂时无法读取热评\n请稍后重试'
-            : 'Comments are unavailable.\nPlease retry later.',
-    };
-    return LayoutBuilder(
-      builder: (context, constraints) => SingleChildScrollView(
-        child: ConstrainedBox(
-          constraints: BoxConstraints(minHeight: constraints.maxHeight),
-          child: Padding(
-            padding: const EdgeInsets.all(MusicUi.pagePadding),
             child: Column(
-              mainAxisSize: MainAxisSize.min,
-              mainAxisAlignment: MainAxisAlignment.center,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                Icon(
-                  Icons.chat_bubble_outline_rounded,
-                  size: 42,
-                  color: Theme.of(context).colorScheme.outline,
-                ),
-                const SizedBox(height: 16),
-                Text(
-                  message,
-                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                    color: Theme.of(context).colorScheme.onSurfaceVariant,
-                    height: 1.6,
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(
+                    MusicUi.pagePadding,
+                    8,
+                    MusicUi.pagePadding,
+                    12,
                   ),
-                  textAlign: TextAlign.center,
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        widget.query.title,
+                        style: Theme.of(context).textTheme.titleLarge,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        widget.query.artist,
+                        style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                          color: Theme.of(context).colorScheme.onSurfaceVariant,
+                        ),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ],
+                  ),
                 ),
-                const SizedBox(height: 12),
-                TextButton(
-                  onPressed: () => _load(refresh: true),
-                  child: Text(zh ? '重试' : 'Retry'),
+                Expanded(
+                  child: comments.isEmpty && loading
+                      ? _CommentsPlaceholder(
+                          label: zh
+                              ? '正在查找这首歌的热评…'
+                              : 'Finding comments for this song…',
+                        )
+                      : ListView.separated(
+                          key: PageStorageKey(
+                            'comments-list-${_platform?.name ?? 'all'}',
+                          ),
+                          controller: _scrollControllers[_platform],
+                          scrollCacheExtent: const ScrollCacheExtent.viewport(
+                            1,
+                          ),
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: MusicUi.pagePadding,
+                            vertical: 4,
+                          ),
+                          itemCount: comments.length + 1,
+                          separatorBuilder: (_, _) => Divider(
+                            height: 1,
+                            color: Theme.of(context).colorScheme.outlineVariant,
+                          ),
+                          itemBuilder: (_, index) => index == comments.length
+                              ? _footer()
+                              : _CommentEntry(
+                                  key: ValueKey(
+                                    '${comments[index].platform.name}-${comments[index].comment.id}',
+                                  ),
+                                  comment: comments[index].comment,
+                                  platform: comments[index].platform,
+                                ),
+                        ),
                 ),
               ],
             ),
@@ -429,6 +346,95 @@ class _SongCommentsPageState extends State<SongCommentsPage> {
         ),
       ),
     );
+  }
+
+  Widget _footer() {
+    final sources = _visiblePlatforms.toList();
+    final loading = sources.any(
+      (source) => _pages[source]!.loading || _pages[source]!.loadingMore,
+    );
+    final more = sources.any(
+      (source) => _pages[source]!.hasMore && !_pages[source]!.moreFailed,
+    );
+    final failed = sources.any((source) => _pages[source]!.moreFailed);
+    final unavailable = sources.any(
+      (source) =>
+          _pages[source]!.result?.status == SongCommentsStatus.unavailable,
+    );
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 20),
+      child: Column(
+        children: [
+          for (final source in sources)
+            if (_pages[source]!.result case final result?
+                when result.stale ||
+                    result.status != SongCommentsStatus.ready ||
+                    _pages[source]!.comments.isEmpty)
+              Padding(
+                padding: const EdgeInsets.symmetric(vertical: 8),
+                child: Column(
+                  children: [
+                    Text(
+                      '${source.label}：${_sourceMessage(result)}',
+                      textAlign: TextAlign.center,
+                      style: Theme.of(context).textTheme.bodySmall,
+                    ),
+                    if (result.status != SongCommentsStatus.ready ||
+                        result.stale)
+                      TextButton(
+                        key: ValueKey('comments-retry-${source.name}'),
+                        onPressed: () => _load(source, refresh: true),
+                        child: Text(zh ? '重试' : 'Retry'),
+                      ),
+                  ],
+                ),
+              ),
+          if (loading) ...[
+            const SizedBox.square(
+              dimension: 18,
+              child: CircularProgressIndicator(strokeWidth: 2),
+            ),
+            const SizedBox(height: 8),
+            Text(zh ? '正在加载热评…' : 'Loading comments…'),
+          ],
+          if (failed)
+            TextButton(
+              key: const Key('comments-more-retry'),
+              onPressed: () => _loadMoreVisible(retry: true),
+              child: Text(zh ? '加载失败，点击重试' : 'Could not load more. Retry'),
+            ),
+          if (more && !loading)
+            TextButton(
+              key: const Key('comments-load-more'),
+              onPressed: _loadMoreVisible,
+              child: Text(zh ? '加载更多热评' : 'Load more comments'),
+            ),
+          if (!loading &&
+              !more &&
+              !failed &&
+              !unavailable &&
+              _comments.isNotEmpty)
+            Text(
+              zh ? '已显示全部热评' : 'All hot comments loaded',
+              style: Theme.of(context).textTheme.bodySmall,
+            ),
+        ],
+      ),
+    );
+  }
+
+  String _sourceMessage(SongCommentsResult result) {
+    if (result.stale) {
+      return zh ? '暂时无法更新，显示上次缓存的热评' : 'Showing cached comments.';
+    }
+    return switch (result.status) {
+      SongCommentsStatus.noMatch =>
+        zh ? '还没有找到歌名、歌手与版本一致的歌曲' : 'No matching recording found.',
+      SongCommentsStatus.ready =>
+        zh ? '这首歌暂时没有公开热评' : 'No public hot comments yet.',
+      _ =>
+        zh ? '暂时无法读取热评，请稍后重试' : 'Comments are unavailable. Please retry later.',
+    };
   }
 }
 
@@ -443,7 +449,6 @@ class _CommentsViewState {
   int request = 0;
   int nextPage = 1;
   String? nextCursor;
-  double scrollOffset = 0;
   bool hasMore = false;
   bool loading = false;
   bool loadingMore = false;
@@ -451,8 +456,13 @@ class _CommentsViewState {
 }
 
 class _CommentEntry extends StatelessWidget {
-  const _CommentEntry({super.key, required this.comment});
+  const _CommentEntry({
+    super.key,
+    required this.comment,
+    required this.platform,
+  });
   final SongComment comment;
+  final SongCommentPlatform platform;
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -519,6 +529,13 @@ class _CommentEntry extends StatelessWidget {
             child: Text(
               displayCommentText(comment.content),
               style: theme.textTheme.bodyLarge?.copyWith(height: 1.65),
+            ),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            zh ? '来自${platform.label}' : 'From ${platform.label}',
+            style: theme.textTheme.bodySmall?.copyWith(
+              color: theme.colorScheme.onSurfaceVariant,
             ),
           ),
         ],

@@ -9,283 +9,381 @@ const _query = SongCommentQuery(title: '不再犹豫', artist: 'Beyond');
 
 void main() {
   testWidgets(
-    'comments load lazily per platform and out of order replies do not replace selected source',
+    'offline combined refresh preserves loaded pages and reading position',
     (tester) async {
       final repo = _Repository();
-      await tester.pumpWidget(
-        MaterialApp(
-          home: SongCommentsPage(query: _query, repository: repo),
-        ),
-      );
-      expect(repo.calls, [SongCommentPlatform.netease]);
-      await tester.tap(find.byKey(const ValueKey('comments-platform-qq')));
+      await _mount(tester, repo);
+      repo
+          .last(SongCommentPlatform.netease)
+          .complete(
+            _page(
+              List.generate(15, (i) => '$i'),
+              SongCommentPlatform.netease,
+              more: true,
+            ),
+          );
+      await tester.pumpAndSettle();
+      var list = tester.widget<ListView>(find.byType(ListView));
+      list.controller!.jumpTo(list.controller!.position.maxScrollExtent);
       await tester.pump();
-      expect(repo.calls, [SongCommentPlatform.netease, SongCommentPlatform.qq]);
-      repo.qq.complete(_result(SongCommentPlatform.qq, 'QQ热评正文'));
+      final pending = repo.last(SongCommentPlatform.netease);
+      expect(pending.page, 1);
+      list.controller!.jumpTo(list.controller!.position.maxScrollExtent);
+      await tester.pump();
+      expect(
+        repo.last(SongCommentPlatform.netease),
+        same(pending),
+        reason: 'one request per in-flight page',
+      );
+      pending.complete(_page(['extra'], SongCommentPlatform.netease));
       await tester.pumpAndSettle();
-      expect(find.text('QQ热评正文'), findsOneWidget);
-      repo.ne.complete(_result(SongCommentPlatform.netease, '网易热评正文'));
+      list = tester.widget<ListView>(find.byType(ListView));
+      final offset = list.controller!.offset;
+      await tester.tap(find.byKey(const Key('comments-refresh')));
+      await tester.pump();
+      repo
+          .last(SongCommentPlatform.netease)
+          .complete(
+            SongCommentsResult(
+              platform: SongCommentPlatform.netease,
+              status: SongCommentsStatus.ready,
+              pageUrl: _query.searchUrl(SongCommentPlatform.netease),
+              stale: true,
+              comments: const [
+                SongComment(id: '0', author: '', content: '评论0', likes: 1),
+              ],
+            ),
+          );
       await tester.pumpAndSettle();
-      expect(find.text('QQ热评正文'), findsOneWidget);
-      expect(find.text('网易热评正文'), findsNothing);
-      await tester.tap(find.byKey(const ValueKey('comments-platform-netease')));
-      await tester.pumpAndSettle();
-      expect(find.text('网易热评正文'), findsOneWidget);
-      expect(repo.calls.length, 2);
+      list = tester.widget<ListView>(find.byType(ListView));
+      expect(list.controller!.offset, offset);
+      expect(list.semanticChildCount, 17);
     },
   );
 
-  testWidgets('no match can be retried within the comments page', (
+  testWidgets(
+    'late responses after leaving the combined page do not update disposed state',
+    (tester) async {
+      final repo = _Repository(controlled: SongCommentPlatform.values.toSet());
+      await _mount(tester, repo);
+      await tester.pumpWidget(const SizedBox.shrink());
+      for (final source in SongCommentPlatform.values) {
+        repo.last(source).complete(_page(['late'], source));
+      }
+      await tester.pump();
+      expect(tester.takeException(), isNull);
+    },
+  );
+
+  testWidgets(
+    'default all loads three sources independently and labels every comment',
+    (tester) async {
+      final repo = _Repository(controlled: SongCommentPlatform.values.toSet());
+      await _mount(tester, repo);
+      expect(repo.requests.map((r) => r.platform), SongCommentPlatform.values);
+      repo
+          .last(SongCommentPlatform.qq)
+          .complete(_page(['qq'], SongCommentPlatform.qq));
+      await tester.pump();
+      expect(find.text('评论qq'), findsOneWidget);
+      expect(find.text('来自QQ 音乐'), findsOneWidget);
+      repo
+          .last(SongCommentPlatform.netease)
+          .complete(_page(['ne'], SongCommentPlatform.netease));
+      repo
+          .last(SongCommentPlatform.qishui)
+          .complete(_page(['qs'], SongCommentPlatform.qishui));
+      await tester.pumpAndSettle();
+      for (final source in SongCommentPlatform.values) {
+        expect(find.text('来自${source.label}'), findsOneWidget);
+      }
+      expect(find.byType(SegmentedButton<SongCommentPlatform>), findsNothing);
+      expect(tester.takeException(), isNull);
+    },
+  );
+
+  testWidgets('same comment ID on different platforms remains distinct', (
+    tester,
+  ) async {
+    final repo = _Repository(controlled: SongCommentPlatform.values.toSet());
+    await _mount(tester, repo);
+    for (final source in SongCommentPlatform.values) {
+      repo.last(source).complete(_page(['same', 'same'], source));
+    }
+    await tester.pumpAndSettle();
+    expect(find.text('评论same'), findsNWidgets(3));
+  });
+
+  testWidgets(
+    'more menu filters an existing combined list without refetching',
+    (tester) async {
+      final repo = _Repository(controlled: SongCommentPlatform.values.toSet());
+      await _mount(tester, repo);
+      for (final source in SongCommentPlatform.values) {
+        repo.last(source).complete(_page([source.name], source));
+      }
+      await tester.pumpAndSettle();
+      await _select(tester, 'qishui');
+      expect(find.text('评论qishui'), findsOneWidget);
+      expect(find.text('评论qq'), findsNothing);
+      await _select(tester, 'all');
+      expect(find.text('评论qq'), findsOneWidget);
+      expect(repo.requests, hasLength(3));
+    },
+  );
+
+  testWidgets(
+    'one failed source can retry while other source comments stay visible',
+    (tester) async {
+      final repo = _Repository();
+      await _mount(tester, repo);
+      repo
+          .last(SongCommentPlatform.netease)
+          .complete(_unavailable(SongCommentPlatform.netease));
+      await tester.pumpAndSettle();
+      expect(find.textContaining('暂时无法读取热评'), findsOneWidget);
+      await tester.tap(find.byKey(const ValueKey('comments-retry-netease')));
+      await tester.pump();
+      repo
+          .last(SongCommentPlatform.netease)
+          .complete(_page(['recovered'], SongCommentPlatform.netease));
+      await tester.pumpAndSettle();
+      expect(find.text('评论recovered'), findsOneWidget);
+      expect(
+        repo.requests.where((r) => r.platform == SongCommentPlatform.qq),
+        hasLength(1),
+      );
+      expect(
+        repo.requests.where((r) => r.platform == SongCommentPlatform.qishui),
+        hasLength(1),
+      );
+    },
+  );
+
+  testWidgets(
+    'single-source paging keeps cursor and deduplicates pinned comments on retry',
+    (tester) async {
+      final repo = _Repository(controlled: {SongCommentPlatform.qishui});
+      await _mount(tester, repo);
+      repo
+          .last(SongCommentPlatform.qishui)
+          .complete(
+            _page(
+              ['pinned'],
+              SongCommentPlatform.qishui,
+              more: true,
+              cursor: '20',
+            ),
+          );
+      await tester.pumpAndSettle();
+      await _select(tester, 'qishui');
+      await tester.tap(find.byKey(const Key('comments-load-more')));
+      await tester.pump();
+      expect(repo.last(SongCommentPlatform.qishui).cursor, '20');
+      repo
+          .last(SongCommentPlatform.qishui)
+          .complete(_unavailable(SongCommentPlatform.qishui));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('comments-more-retry')));
+      await tester.pump();
+      expect(repo.last(SongCommentPlatform.qishui).cursor, '20');
+      expect(repo.last(SongCommentPlatform.qishui).page, 1);
+      repo
+          .last(SongCommentPlatform.qishui)
+          .complete(_page(['pinned', 'next'], SongCommentPlatform.qishui));
+      await tester.pumpAndSettle();
+      expect(find.text('评论pinned'), findsOneWidget);
+      expect(find.text('评论next'), findsOneWidget);
+    },
+  );
+
+  testWidgets(
+    'all-source pagination uses each platform cursor and does not mix IDs',
+    (tester) async {
+      final repo = _Repository(controlled: SongCommentPlatform.values.toSet());
+      await _mount(tester, repo);
+      for (final source in SongCommentPlatform.values) {
+        repo
+            .last(source)
+            .complete(
+              _page(
+                [source.name],
+                source,
+                more: true,
+                cursor: 'cursor-${source.name}',
+              ),
+            );
+      }
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('comments-load-more')));
+      await tester.pump();
+      for (final source in SongCommentPlatform.values) {
+        final next = repo.last(source);
+        expect(next.page, 1);
+        expect(next.cursor, 'cursor-${source.name}');
+        next.complete(_page(['new'], source));
+      }
+      await tester.pumpAndSettle();
+      final list = tester.widget<ListView>(find.byType(ListView));
+      expect(
+        list.semanticChildCount,
+        7,
+        reason:
+            'three first-page entries plus three source-scoped new IDs and footer',
+      );
+    },
+  );
+
+  testWidgets('late pagination cannot replace a refreshed first page', (
     tester,
   ) async {
     final repo = _Repository();
-    await tester.pumpWidget(
-      MaterialApp(
-        home: SongCommentsPage(query: _query, repository: repo),
-      ),
-    );
-    repo.ne.complete(
-      SongCommentsResult(
-        platform: SongCommentPlatform.netease,
-        status: SongCommentsStatus.noMatch,
-        pageUrl: _query.searchUrl(SongCommentPlatform.netease),
-      ),
-    );
-    await tester.pumpAndSettle();
-    expect(find.textContaining('还没有找到'), findsOneWidget);
-    await tester.tap(find.text('重试'));
-    await tester.pumpAndSettle();
-    expect(repo.calls.length, 2);
-    expect(tester.takeException(), isNull);
-  });
-
-  testWidgets(
-    'comments remain scrollable on a narrow screen with enlarged text',
-    (tester) async {
-      await tester.binding.setSurfaceSize(const Size(320, 500));
-      addTearDown(() => tester.binding.setSurfaceSize(null));
-      final repo = _Repository();
-      await tester.pumpWidget(
-        MaterialApp(
-          home: MediaQuery(
-            data: const MediaQueryData(
-              size: Size(320, 500),
-              textScaler: TextScaler.linear(1.6),
-            ),
-            child: SongCommentsPage(query: _query, repository: repo),
-          ),
-        ),
-      );
-      repo.ne.complete(_result(SongCommentPlatform.netease, '很长的一条公开热评。' * 50));
-      await tester.pumpAndSettle();
-      expect(find.byType(ListView), findsOneWidget);
-      await tester.drag(find.byType(ListView), const Offset(0, -160));
-      await tester.pumpAndSettle();
-      expect(tester.takeException(), isNull);
-    },
-  );
-
-  testWidgets('paging failure keeps comments and retries the same cursor', (
-    tester,
-  ) async {
-    final repo = _PagedRepository();
-    await tester.pumpWidget(
-      MaterialApp(
-        home: SongCommentsPage(query: _query, repository: repo),
-      ),
-    );
-    repo.requests.single.complete(
-      _pageResult(['one'], hasMore: true, cursor: 'c1'),
-    );
+    await _mount(tester, repo);
+    repo
+        .last(SongCommentPlatform.netease)
+        .complete(_page(['old'], SongCommentPlatform.netease, more: true));
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(const Key('comments-load-more')));
     await tester.pump();
-    expect(repo.requests.length, 2);
-    expect(repo.requests.last.page, 1);
-    expect(repo.requests.last.cursor, 'c1');
-    expect(find.text('评论one'), findsOneWidget);
-    repo.requests.last.complete(
-      SongCommentsResult(
-        platform: SongCommentPlatform.netease,
-        status: SongCommentsStatus.unavailable,
-        pageUrl: _query.searchUrl(SongCommentPlatform.netease),
-      ),
-    );
-    await tester.pumpAndSettle();
-    expect(find.text('评论one'), findsOneWidget);
-    await tester.tap(find.byKey(const Key('comments-more-retry')));
-    await tester.pump();
-    expect(repo.requests.last.page, 1);
-    expect(repo.requests.last.cursor, 'c1');
-    repo.requests.last.complete(_pageResult(['one', 'two']));
-    await tester.pumpAndSettle();
-    expect(find.text('评论one'), findsOneWidget);
-    expect(find.text('评论two'), findsOneWidget);
-    expect(find.text('已显示全部热评'), findsOneWidget);
-    expect(tester.takeException(), isNull);
-  });
-
-  testWidgets('late next page does not replace the refreshed first page', (
-    tester,
-  ) async {
-    final repo = _PagedRepository();
-    await tester.pumpWidget(
-      MaterialApp(
-        home: SongCommentsPage(query: _query, repository: repo),
-      ),
-    );
-    repo.requests.single.complete(_pageResult(['old'], hasMore: true));
-    await tester.pumpAndSettle();
-    await tester.tap(find.byKey(const Key('comments-load-more')));
-    await tester.pump();
-    final oldPage = repo.requests.last;
+    final oldPage = repo.last(SongCommentPlatform.netease);
     await tester.tap(find.byKey(const Key('comments-refresh')));
     await tester.pump();
-    expect(repo.requests.last.refresh, isTrue);
-    repo.requests.last.complete(_pageResult(['fresh']));
+    expect(repo.last(SongCommentPlatform.netease).refresh, true);
+    repo
+        .last(SongCommentPlatform.netease)
+        .complete(_page(['fresh'], SongCommentPlatform.netease));
     await tester.pumpAndSettle();
-    oldPage.complete(_pageResult(['late']));
+    oldPage.complete(_page(['late'], SongCommentPlatform.netease));
     await tester.pumpAndSettle();
     expect(find.text('评论fresh'), findsOneWidget);
-    expect(find.text('评论old'), findsNothing);
     expect(find.text('评论late'), findsNothing);
-  });
-
-  testWidgets('platform switches keep pending pages isolated and reuse them', (
-    tester,
-  ) async {
-    final repo = _PagedRepository();
-    await tester.pumpWidget(
-      MaterialApp(
-        home: SongCommentsPage(query: _query, repository: repo),
-      ),
-    );
-    repo.requests.single.complete(_pageResult(['ne1'], hasMore: true));
-    await tester.pumpAndSettle();
-    await tester.tap(find.byKey(const Key('comments-load-more')));
-    await tester.pump();
-    final pendingNetease = repo.requests.last;
-    await tester.tap(find.byKey(const ValueKey('comments-platform-qq')));
-    await tester.pump();
-    repo.requests.last.complete(
-      _pageResult(['qq'], platform: SongCommentPlatform.qq),
-    );
-    await tester.pumpAndSettle();
-    pendingNetease.complete(_pageResult(['ne2']));
-    await tester.pumpAndSettle();
-    expect(find.text('评论qq'), findsOneWidget);
-    expect(find.text('评论ne2'), findsNothing);
-    await tester.tap(find.byKey(const ValueKey('comments-platform-netease')));
-    await tester.pumpAndSettle();
-    expect(find.text('评论ne1'), findsOneWidget);
-    expect(find.text('评论ne2'), findsOneWidget);
-    expect(repo.requests.length, 3);
+    expect(find.text('评论old'), findsNothing);
   });
 
   testWidgets(
-    'scrolling to the bottom loads once and retains each platform position',
+    'combined and individual views retain independent reading positions',
     (tester) async {
-      final repo = _PagedRepository();
-      await tester.pumpWidget(
-        MaterialApp(
-          home: SongCommentsPage(query: _query, repository: repo),
-        ),
-      );
-      repo.requests.single.complete(
-        _pageResult(List.generate(10, (index) => 'ne$index'), hasMore: true),
-      );
+      final repo = _Repository();
+      await _mount(tester, repo);
+      repo
+          .last(SongCommentPlatform.netease)
+          .complete(
+            _page(List.generate(25, (i) => '$i'), SongCommentPlatform.netease),
+          );
       await tester.pumpAndSettle();
       final list = tester.widget<ListView>(find.byType(ListView));
-      list.controller!.jumpTo(list.controller!.position.maxScrollExtent);
+      list.controller!.jumpTo(500);
       await tester.pump();
-      expect(repo.requests.length, 2);
-      list.controller!.jumpTo(list.controller!.position.maxScrollExtent);
-      await tester.pump();
-      expect(repo.requests.length, 2);
-      repo.requests.last.complete(_pageResult(['next']));
-      await tester.pumpAndSettle();
-      final offset = list.controller!.offset;
-      await tester.tap(find.byKey(const ValueKey('comments-platform-qq')));
-      await tester.pump();
-      repo.requests.last.complete(
-        _pageResult(['qq'], platform: SongCommentPlatform.qq),
-      );
-      await tester.pumpAndSettle();
-      await tester.tap(find.byKey(const ValueKey('comments-platform-netease')));
-      await tester.pumpAndSettle();
+      await _select(tester, 'qq');
+      await _select(tester, 'all');
       expect(
         tester.widget<ListView>(find.byType(ListView)).controller!.offset,
-        offset,
+        500,
       );
-      expect(repo.requests.length, 3);
-      expect(tester.takeException(), isNull);
+      expect(repo.requests, hasLength(3));
     },
   );
-}
 
-SongCommentsResult _result(SongCommentPlatform platform, String text) =>
-    SongCommentsResult(
-      platform: platform,
-      status: SongCommentsStatus.ready,
-      pageUrl: _query.searchUrl(platform),
-      comments: [
-        SongComment(
-          id: '1',
-          author: '音乐听众',
-          content: text,
-          likes: 25,
-          createdAt: DateTime(2026, 10, 8),
-        ),
-      ],
+  testWidgets('opening a new comments page always defaults to all', (
+    tester,
+  ) async {
+    final repo = _Repository(controlled: {});
+    await _mount(tester, repo);
+    await tester.pumpAndSettle();
+    await _select(tester, 'qq');
+    await tester.pumpWidget(const SizedBox.shrink());
+    await _mount(tester, repo);
+    await tester.pumpAndSettle();
+    expect(
+      find.byKey(const PageStorageKey('comments-list-all')),
+      findsOneWidget,
     );
+  });
 
-class _Repository extends SongCommentsRepository {
-  final calls = <SongCommentPlatform>[];
-  final ne = Completer<SongCommentsResult>();
-  final qq = Completer<SongCommentsResult>();
-  @override
-  Future<SongCommentsResult> load(
-    SongCommentQuery query,
-    SongCommentPlatform platform, {
-    bool refresh = false,
-    int page = 0,
-    String? cursor,
-  }) {
-    calls.add(platform);
-    return platform == SongCommentPlatform.netease ? ne.future : qq.future;
-  }
+  testWidgets('combined comments and menu fit narrow large-text layouts', (
+    tester,
+  ) async {
+    await tester.binding.setSurfaceSize(const Size(320, 500));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    final repo = _Repository();
+    await tester.pumpWidget(
+      MaterialApp(
+        home: MediaQuery(
+          data: const MediaQueryData(
+            size: Size(320, 500),
+            textScaler: TextScaler.linear(1.6),
+          ),
+          child: SongCommentsPage(query: _query, repository: repo),
+        ),
+      ),
+    );
+    repo
+        .last(SongCommentPlatform.netease)
+        .complete(_page(['很长的公开评论。' * 40], SongCommentPlatform.netease));
+    await tester.pumpAndSettle();
+    await tester.drag(find.byType(ListView), const Offset(0, -180));
+    await tester.pumpAndSettle();
+    await _select(tester, 'qishui');
+    expect(tester.takeException(), isNull);
+  });
 }
 
-SongCommentsResult _pageResult(
-  List<String> ids, {
-  SongCommentPlatform platform = SongCommentPlatform.netease,
-  bool hasMore = false,
+Future<void> _mount(WidgetTester tester, _Repository repo) => tester.pumpWidget(
+  MaterialApp(
+    home: SongCommentsPage(query: _query, repository: repo),
+  ),
+);
+Future<void> _select(WidgetTester tester, String platform) async {
+  await tester.tap(find.byKey(const Key('comments-more')));
+  await tester.pumpAndSettle();
+  await tester.tap(
+    find.ancestor(
+      of: find.byKey(ValueKey('comments-platform-$platform')),
+      matching: find.byType(CheckedPopupMenuItem<String>),
+    ),
+  );
+  await tester.pumpAndSettle();
+}
+
+SongCommentsResult _page(
+  List<String> ids,
+  SongCommentPlatform platform, {
+  bool more = false,
   String? cursor,
 }) => SongCommentsResult(
   platform: platform,
   status: SongCommentsStatus.ready,
   pageUrl: _query.searchUrl(platform),
-  hasMore: hasMore,
+  hasMore: more,
   nextCursor: cursor,
   comments: [
     for (final id in ids)
       SongComment(id: id, author: '听众', content: '评论$id', likes: 1),
   ],
 );
+SongCommentsResult _unavailable(SongCommentPlatform platform) =>
+    SongCommentsResult(
+      platform: platform,
+      status: SongCommentsStatus.unavailable,
+      pageUrl: _query.searchUrl(platform),
+    );
 
-class _CommentRequest {
-  _CommentRequest(this.platform, this.page, this.cursor, this.refresh);
-  final _completer = Completer<SongCommentsResult>();
-  Future<SongCommentsResult> get future => _completer.future;
-  void complete(SongCommentsResult result) => _completer.complete(result);
+class _Request {
+  _Request(this.platform, this.page, this.cursor, this.refresh);
   final SongCommentPlatform platform;
   final int page;
   final String? cursor;
   final bool refresh;
+  final pending = Completer<SongCommentsResult>();
+  void complete(SongCommentsResult result) => pending.complete(result);
 }
 
-class _PagedRepository extends SongCommentsRepository {
-  final requests = <_CommentRequest>[];
+class _Repository extends SongCommentsRepository {
+  _Repository({this.controlled = const {SongCommentPlatform.netease}});
+  final Set<SongCommentPlatform> controlled;
+  final requests = <_Request>[];
+  _Request last(SongCommentPlatform platform) =>
+      requests.lastWhere((r) => r.platform == platform);
   @override
   Future<SongCommentsResult> load(
     SongCommentQuery query,
@@ -294,8 +392,9 @@ class _PagedRepository extends SongCommentsRepository {
     int page = 0,
     String? cursor,
   }) {
-    final request = _CommentRequest(platform, page, cursor, refresh);
+    final request = _Request(platform, page, cursor, refresh);
     requests.add(request);
-    return request.future;
+    if (!controlled.contains(platform)) request.complete(_page([], platform));
+    return request.pending.future;
   }
 }

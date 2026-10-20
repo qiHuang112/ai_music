@@ -4,11 +4,16 @@ import 'dart:math' as math;
 
 import 'resolver_http_client.dart';
 import 'resolver_models.dart';
+import 'qishui_api.dart';
 
-enum OnlinePlaylistSource { netease, qq }
+enum OnlinePlaylistSource { netease, qq, qishui }
 
 extension OnlinePlaylistSourceLabel on OnlinePlaylistSource {
-  String get label => this == OnlinePlaylistSource.qq ? 'QQ 音乐' : '网易云音乐';
+  String get label => switch (this) {
+    OnlinePlaylistSource.netease => '网易云音乐',
+    OnlinePlaylistSource.qq => 'QQ 音乐',
+    OnlinePlaylistSource.qishui => '汽水音乐',
+  };
 }
 
 class OnlinePlaylist {
@@ -89,6 +94,37 @@ class OnlinePlaylistRepository {
       return const OnlinePlaylistSearchPage(items: [], hasMore: false);
     }
     if (page < 1) throw ArgumentError.value(page, 'page');
+    if (source == OnlinePlaylistSource.qishui) {
+      final data = await QishuiApi(
+        httpClient: _http,
+      ).search('playlist', query.trim(), offset: (page - 1) * pageSize);
+      final rows = qishuiSearchRows(data, 'playlists');
+      final group = (data['result_groups'] as List)
+          .map(qishuiMap)
+          .where((g) => g['id'] == 'playlists')
+          .firstOrNull;
+      return OnlinePlaylistSearchPage(
+        items: [
+          for (final row in rows)
+            if (qishuiMap(qishuiMap(row['entity'])['playlist']) case final item
+                when _text(item['id']).isNotEmpty &&
+                    _text(item['title']).isNotEmpty)
+              OnlinePlaylist(
+                source: source,
+                id: _text(item['id']),
+                name: _text(item['title']),
+                creator:
+                    _text(qishuiMap(item['owner'])['public_name']).isNotEmpty
+                    ? _text(qishuiMap(item['owner'])['public_name'])
+                    : _text(qishuiMap(item['owner'])['nickname']),
+                trackCount: _int(item['count_tracks']),
+                coverUrl: qishuiCover(item['url_cover']),
+                description: _text(item['desc']),
+              ),
+        ],
+        hasMore: rows.isNotEmpty && group?['has_more'] == true,
+      );
+    }
     if (source == OnlinePlaylistSource.qq) {
       final data = await _qq(
         'music.search.SearchCgiService',
@@ -202,6 +238,64 @@ class OnlinePlaylistRepository {
     });
     void checkCanceled() {
       if (isCanceled?.call() ?? false) throw StateError('Canceled');
+    }
+
+    if (playlist.source == OnlinePlaylistSource.qishui) {
+      final api = QishuiApi(httpClient: _http);
+      final songs = <OnlinePlaylistSong>[];
+      final ids = <String>{};
+      final cursors = <String>{};
+      var cursor = '0';
+      var total = playlist.trackCount;
+      for (var window = 0; window < _maximumSongs; window += 100) {
+        checkCanceled();
+        if (!cursors.add(cursor)) {
+          throw const FormatException('Repeated Qishui cursor');
+        }
+        final data = await api.playlist(playlist.id, cursor);
+        checkCanceled();
+        final metadata = qishuiMap(data['playlist']);
+        if (_text(metadata['id']) != playlist.id ||
+            data['media_resources'] is! List) {
+          throw const FormatException('Missing Qishui playlist tracks');
+        }
+        total = math.max(total, _int(metadata['count_tracks']));
+        for (final raw in data['media_resources'] as List) {
+          final row = qishuiMap(raw);
+          if (row['type'] != 'track') continue;
+          final track = qishuiMap(
+            qishuiMap(qishuiMap(row['entity'])['track_wrapper'])['track'],
+          );
+          final id = _text(track['id']);
+          if (id.isEmpty || _text(track['name']).isEmpty || !ids.add(id)) {
+            continue;
+          }
+          songs.add(
+            OnlinePlaylistSong(
+              id: id,
+              title: _text(track['name']),
+              artist: qishuiArtists(track['artists']),
+              durationSeconds: (_int(track['duration']) / 1000).round(),
+            ),
+          );
+        }
+        onProgress?.call(songs.length, math.max(total, songs.length));
+        // The API omits protobuf false fields on the last page.
+        if (data['has_more'] == null || data['has_more'] == false) {
+          return OnlinePlaylistDetail(
+            songs: songs,
+            total: math.max(total, songs.length),
+          );
+        }
+        final next = _text(data['next_cursor']);
+        if (data['has_more'] != true ||
+            next.isEmpty ||
+            cursors.contains(next)) {
+          throw const FormatException('Invalid Qishui playlist pagination');
+        }
+        cursor = next;
+      }
+      throw StateError('Qishui playlist exceeds supported size');
     }
 
     if (playlist.source == OnlinePlaylistSource.qq) {

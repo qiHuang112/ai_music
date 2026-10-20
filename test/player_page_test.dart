@@ -17,6 +17,7 @@ import 'package:ai_music/src/domain/music_models.dart';
 import 'package:ai_music/src/playback/music_audio_handler.dart';
 import 'package:ai_music/src/presentation/app_localizations.dart';
 import 'package:ai_music/src/presentation/player_page.dart';
+import 'package:ai_music/src/presentation/mini_player.dart';
 import 'package:ai_music/src/presentation/playback_queue.dart';
 import 'package:ai_music/src/presentation/song_comments_page.dart';
 import 'package:ai_music/src/presentation/song_cache_progress.dart';
@@ -25,6 +26,249 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
+  testWidgets('restored playback uses the normal paused UI until play', (
+    tester,
+  ) async {
+    await tester.binding.setSurfaceSize(const Size(360, 1000));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    final cached = _cachedTrack();
+    final handler = _SpyAudioHandler();
+    final controller = MusicController(
+      songSearchCache: SongSearchCache.memory(),
+      downloadHistoryStore: MemoryDownloadHistory(),
+      connectivityChanges: const Stream.empty(),
+      audioHandler: handler,
+      resolver: _FakeMusicResolver(),
+      cacheStore: _FakeCacheStore(cached: [cached]),
+      playlistStore: _FakePlaylistStore(),
+      settingsStore: _FakeSettingsStore(),
+      metadataRepository: _StaticMetadataRepository(
+        metadata: const TrackMetadata(lyricsStatus: LyricsStatus.notFound),
+      ),
+    );
+    try {
+      await controller.initialize();
+      await controller.playTrack(
+        trackFromCached(cached),
+        playlistId: favoritePlaylistId,
+      );
+      handler.awaiting = true;
+      handler.playbackState.add(PlaybackState(playing: false));
+      Widget app(Widget child) => AppStringsScope(
+        language: AppLanguage.zh,
+        child: MaterialApp(
+          theme: MusicAppTheme.create(Brightness.light),
+          home: MediaQuery(
+            data: const MediaQueryData(
+              size: Size(360, 1000),
+              textScaler: TextScaler.linear(1.6),
+            ),
+            child: child,
+          ),
+        ),
+      );
+      await tester.pumpWidget(
+        app(Scaffold(body: MiniPlayer(controller: controller))),
+      );
+      await tester.pump();
+      expect(find.textContaining('待播放'), findsNothing);
+      final miniRect = tester.getRect(
+        find.byKey(const ValueKey('mini-player-card')),
+      );
+      handler.awaiting = false;
+      handler.playbackState.add(PlaybackState(playing: false));
+      await tester.pump();
+      expect(
+        tester.getRect(find.byKey(const ValueKey('mini-player-card'))),
+        miniRect,
+      );
+      handler.awaiting = true;
+      expect(handler.playbackState.value.playing, isFalse);
+      expect(tester.takeException(), isNull);
+      await tester.pumpWidget(app(PlayerPage(controller: controller)));
+      await tester.pump();
+      expect(find.textContaining('待播放'), findsNothing);
+      expect(find.text('正在播放'), findsOneWidget);
+      await tester.tap(find.byTooltip('当前队列'));
+      await tester.pumpAndSettle();
+      expect(find.text('当前队列 · 1'), findsOneWidget);
+      expect(find.textContaining('待播放'), findsNothing);
+      Navigator.of(tester.element(find.byType(PlaybackQueue))).pop();
+      await tester.pumpAndSettle();
+      expect(handler.playbackState.value.playing, isFalse);
+      expect(tester.takeException(), isNull);
+      await controller.play();
+      await tester.pump();
+      expect(find.textContaining('待播放'), findsNothing);
+      expect(handler.playbackState.value.playing, isTrue);
+    } finally {
+      await tester.pumpWidget(const SizedBox.shrink());
+      controller.dispose();
+      await handler.dispose();
+    }
+  });
+
+  testWidgets(
+    'opening timed lyrics starts at the current line on the first frame',
+    (tester) async {
+      final cached = _cachedTrack();
+      final handler = _SpyAudioHandler()
+        ..position = const Duration(seconds: 150);
+      final controller = MusicController(
+        songSearchCache: SongSearchCache.memory(),
+        downloadHistoryStore: MemoryDownloadHistory(),
+        connectivityChanges: const Stream.empty(),
+        audioHandler: handler,
+        resolver: _FakeMusicResolver(),
+        cacheStore: _FakeCacheStore(cached: [cached]),
+        playlistStore: _FakePlaylistStore(),
+        settingsStore: _FakeSettingsStore(),
+        metadataRepository: _StaticMetadataRepository(
+          metadata: TrackMetadata(
+            lyrics: [
+              for (var i = 0; i < 30; i++)
+                LyricLine(
+                  time: Duration(seconds: i * 10),
+                  text: '歌词$i',
+                ),
+            ],
+          ),
+        ),
+      );
+      try {
+        await controller.initialize();
+        final track = trackFromCached(cached);
+        await controller.playTrack(track);
+        handler.emit(mediaItemFromTrack(track));
+        await controller.loadMetadataForCurrentTrack();
+        await tester.pumpWidget(
+          MaterialApp(
+            home: Scaffold(
+              body: SizedBox(
+                height: 360,
+                child: LyricsPanelForTesting(controller: controller),
+              ),
+            ),
+          ),
+        );
+        final scroll = tester.state<ScrollableState>(find.byType(Scrollable));
+        expect(scroll.position.pixels, 15 * 48);
+        await tester.pump(const Duration(milliseconds: 300));
+        expect(scroll.position.pixels, 15 * 48);
+        expect(tester.takeException(), isNull);
+      } finally {
+        await tester.pumpWidget(const SizedBox.shrink());
+        controller.dispose();
+      }
+    },
+  );
+
+  for (final status in [
+    LyricsStatus.available,
+    LyricsStatus.notFound,
+    LyricsStatus.failed,
+    LyricsStatus.unknown,
+  ]) {
+    testWidgets(
+      'lyrics $status keeps player layout stable and same-track work shared',
+      (tester) async {
+        await tester.binding.setSurfaceSize(const Size(360, 1000));
+        addTearDown(() => tester.binding.setSurfaceSize(null));
+        final cached = _cachedTrack();
+        final handler = _SpyAudioHandler();
+        final metadata = _DeferredMetadataRepository();
+        final controller = MusicController(
+          songSearchCache: SongSearchCache.memory(),
+          downloadHistoryStore: MemoryDownloadHistory(),
+          connectivityChanges: const Stream.empty(),
+          audioHandler: handler,
+          resolver: _FakeMusicResolver(),
+          cacheStore: _FakeCacheStore(cached: [cached]),
+          playlistStore: _FakePlaylistStore(),
+          settingsStore: _FakeSettingsStore(),
+          metadataRepository: metadata,
+        );
+        try {
+          await controller.initialize();
+          final track = trackFromCached(cached);
+          await controller.playTrack(track);
+          handler.emit(mediaItemFromTrack(track));
+          final first = controller.loadMetadataForCurrentTrack();
+          final second = controller.loadMetadataForCurrentTrack();
+          await tester.pumpWidget(
+            AppStringsScope(
+              language: AppLanguage.zh,
+              child: MaterialApp(
+                theme: MusicAppTheme.create(Brightness.light),
+                home: MediaQuery(
+                  data: const MediaQueryData(
+                    size: Size(360, 1000),
+                    textScaler: TextScaler.linear(1.6),
+                  ),
+                  child: PlayerPage(controller: controller),
+                ),
+              ),
+            ),
+          );
+          await tester.pump();
+          final preview = find.byKey(const ValueKey('lyrics-preview'));
+          final position = find.byKey(ValueKey('player-position-${track.id}'));
+          final before = tester.getRect(preview);
+          final sliderBefore = tester.getRect(position);
+          expect(controller.isLoadingMetadata, true);
+          expect(metadata.calls, 1);
+          metadata.pending.complete(
+            TrackMetadata(
+              lyricsStatus: status,
+              lyrics: status == LyricsStatus.available
+                  ? const [
+                      LyricLine(time: Duration(seconds: 1), text: '第一句'),
+                      LyricLine(time: Duration(seconds: 2), text: '第二句'),
+                      LyricLine(time: Duration(seconds: 3), text: '第三句'),
+                    ]
+                  : const [],
+            ),
+          );
+          await Future.wait([first, second]);
+          await tester.pump();
+          expect(tester.getRect(preview), before);
+          expect(tester.getRect(position), sliderBefore);
+          expect(tester.takeException(), isNull);
+          if (status == LyricsStatus.notFound) {
+            expect(find.text('暂无歌词'), findsOneWidget);
+            expect(find.text('重新获取歌词'), findsNothing);
+          } else if (status == LyricsStatus.failed) {
+            expect(find.text('歌词加载失败'), findsOneWidget);
+            expect(find.text('重新获取歌词'), findsOneWidget);
+          }
+          if (status == LyricsStatus.unknown) {
+            expect(find.text('暂无歌词'), findsNothing);
+          }
+          if (status == LyricsStatus.available ||
+              status == LyricsStatus.notFound) {
+            await controller.loadMetadataForCurrentTrack();
+            expect(
+              metadata.calls,
+              status == LyricsStatus.available ? 1 : 2,
+              reason: 'confirmed-empty lyrics recheck local data when reopened',
+            );
+            await tester.ensureVisible(preview);
+            await tester.tap(preview);
+            await tester.pumpAndSettle();
+            if (status == LyricsStatus.notFound) {
+              expect(find.text('暂无歌词'), findsOneWidget);
+              expect(find.text('重新获取歌词'), findsNothing);
+            }
+            expect(metadata.calls, status == LyricsStatus.available ? 1 : 2);
+          }
+        } finally {
+          await tester.pumpWidget(const SizedBox.shrink());
+          controller.dispose();
+        }
+      },
+    );
+  }
+
   testWidgets(
     'changing from artwork to no artwork does not notify during build',
     (tester) async {
@@ -215,8 +459,7 @@ void main() {
           find.byKey(const ValueKey('lyrics-preview')),
         );
         await tester.tap(find.byKey(const ValueKey('lyrics-preview')));
-        await tester.pump();
-        await tester.pump(const Duration(milliseconds: 350));
+        await tester.pumpAndSettle();
         expect(find.byIcon(Icons.stop), findsNothing);
         await tester.tap(find.byKey(const ValueKey('player-queue')));
         await tester.pump();
@@ -657,7 +900,7 @@ void main() {
     }
   });
 
-  testWidgets('missing lyrics panel can retry metadata recovery', (
+  testWidgets('failed lyrics panel can retry metadata recovery', (
     tester,
   ) async {
     final cached = _cachedTrack();
@@ -704,7 +947,7 @@ void main() {
       );
       await tester.pump();
 
-      expect(find.text('暂无歌词'), findsOneWidget);
+      expect(find.text('歌词加载失败'), findsOneWidget);
       expect(find.text('重新获取歌词'), findsOneWidget);
 
       await tester.tap(find.text('重新获取歌词'));
@@ -773,6 +1016,10 @@ void main() {
 }
 
 class _SpyAudioHandler extends MusicAudioHandler {
+  bool awaiting = false;
+  @override
+  bool get isAwaitingPlayback => awaiting;
+  Duration position = Duration.zero;
   final seekedPositions = <Duration>[];
   final positions = StreamController<Duration>.broadcast();
 
@@ -780,7 +1027,7 @@ class _SpyAudioHandler extends MusicAudioHandler {
   Stream<Duration> get positionStream => positions.stream;
 
   @override
-  Duration get currentPosition => Duration.zero;
+  Duration get currentPosition => position;
 
   @override
   Duration get currentBufferedPosition => playbackState.value.bufferedPosition;
@@ -806,6 +1053,7 @@ class _SpyAudioHandler extends MusicAudioHandler {
 
   @override
   Future<void> play() async {
+    awaiting = false;
     playbackState.add(playbackState.value.copyWith(playing: true));
   }
 
@@ -846,6 +1094,18 @@ class _StaticMetadataRepository extends TrackMetadataRepository {
 
   @override
   Future<TrackMetadata> upgradeTimedLyrics(CachedTrack track) async => metadata;
+}
+
+class _DeferredMetadataRepository extends TrackMetadataRepository {
+  final pending = Completer<TrackMetadata>();
+  int calls = 0;
+  @override
+  Future<Uri?> cachedArtwork(CachedTrack track) async => null;
+  @override
+  Future<TrackMetadata> load(CachedTrack track) {
+    calls++;
+    return pending.future;
+  }
 }
 
 class _UpgradingMetadataRepository extends TrackMetadataRepository {
@@ -889,7 +1149,7 @@ class _RetryMetadataRepository extends TrackMetadataRepository {
 
   @override
   Future<TrackMetadata> load(CachedTrack track) async {
-    return const TrackMetadata();
+    return const TrackMetadata(lyricsStatus: LyricsStatus.failed);
   }
 
   @override

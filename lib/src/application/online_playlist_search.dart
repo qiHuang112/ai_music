@@ -17,13 +17,18 @@ class OnlinePlaylistSearch extends ChangeNotifier {
   bool get isLoading => loading.isNotEmpty;
   bool get hasMore => _more.values.any((value) => value);
   List<OnlinePlaylist> get items {
-    final ne = _items[OnlinePlaylistSource.netease] ?? [];
-    final qq = _items[OnlinePlaylistSource.qq] ?? [];
+    final sources = [
+      for (final source in OnlinePlaylistSource.values)
+        _items[source] ?? <OnlinePlaylist>[],
+    ];
+    final longest = sources.fold<int>(
+      0,
+      (n, rows) => rows.length > n ? rows.length : n,
+    );
     return [
-      for (var i = 0; i < ne.length || i < qq.length; i++) ...[
-        if (i < ne.length) ne[i],
-        if (i < qq.length) qq[i],
-      ],
+      for (var i = 0; i < longest; i++)
+        for (final rows in sources)
+          if (i < rows.length) rows[i],
     ];
   }
 

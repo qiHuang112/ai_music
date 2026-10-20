@@ -66,16 +66,20 @@ class Track {
   }
 }
 
+enum LyricsStatus { unknown, available, notFound, failed }
+
 class TrackMetadata {
   const TrackMetadata({
     this.artworkUri,
     this.lyrics = const [],
     this.source = '',
+    this.lyricsStatus = LyricsStatus.unknown,
   });
 
   final Uri? artworkUri;
   final List<LyricLine> lyrics;
   final String source;
+  final LyricsStatus lyricsStatus;
 
   bool get hasArtwork => artworkUri != null;
 
@@ -85,11 +89,13 @@ class TrackMetadata {
     Uri? artworkUri,
     List<LyricLine>? lyrics,
     String? source,
+    LyricsStatus? lyricsStatus,
   }) {
     return TrackMetadata(
       artworkUri: artworkUri ?? this.artworkUri,
       lyrics: lyrics ?? this.lyrics,
       source: source ?? this.source,
+      lyricsStatus: lyricsStatus ?? this.lyricsStatus,
     );
   }
 }

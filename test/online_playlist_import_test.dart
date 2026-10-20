@@ -31,6 +31,79 @@ void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
   testWidgets(
+    'source playlist locates a cached current song after async detail loading',
+    (tester) async {
+      final songs = List.generate(
+        120,
+        (i) => OnlinePlaylistSong(
+          id: '$i',
+          title: 'Source song $i',
+          artist: 'Artist',
+        ),
+      );
+      final controller = _PlayingSourceController(
+        _Store(),
+        const Track(
+          id: 'cached',
+          title: 'Source song 97',
+          artist: 'Artist',
+          album: '',
+        ),
+      );
+      final repository = _DelayedLocationRepository();
+      try {
+        await tester.pumpWidget(
+          MaterialApp(
+            home: DirectPlaylistPage(
+              playlist: _playlist,
+              repository: repository,
+              controller: controller,
+              onOpenPlaylist: (_) {},
+            ),
+          ),
+        );
+        await tester.pump();
+        expect(find.byType(CircularProgressIndicator), findsOneWidget);
+        repository.detail.complete(
+          OnlinePlaylistDetail(songs: songs, total: songs.length),
+        );
+        await tester.pumpAndSettle();
+        expect(
+          find.byKey(const ValueKey('direct-song-97')).hitTestable(),
+          findsOneWidget,
+        );
+        final scroll = tester
+            .state<ScrollableState>(find.byType(Scrollable).first)
+            .position;
+        await tester.drag(find.byType(CustomScrollView), const Offset(0, 300));
+        await tester.pumpAndSettle();
+        final offset = scroll.pixels;
+        controller.notifyListeners();
+        await tester.pumpAndSettle();
+        expect(scroll.pixels, offset);
+        expect(
+          controller.indexOfCurrentOnlineSong(OnlinePlaylistSource.netease, [
+            const OnlinePlaylistSong(
+              id: 'wrong-artist',
+              title: 'Source song 97',
+              artist: 'Other',
+            ),
+            const OnlinePlaylistSong(
+              id: 'wrong-version',
+              title: 'Source song 97 (Live)',
+              artist: 'Artist',
+            ),
+          ]),
+          -1,
+        );
+        expect(tester.takeException(), isNull);
+      } finally {
+        await _unmount(tester, controller);
+      }
+    },
+  );
+
+  testWidgets(
     'source picker re-searches and lets user select at narrow width',
     (tester) async {
       tester.view.physicalSize = const Size(320, 700);
@@ -1483,16 +1556,17 @@ void main() {
       await tester.enterText(find.byType(TextField), '睡前');
       await tester.tap(find.byTooltip('搜歌单'));
       await tester.pumpAndSettle();
-      expect(repo.searchCalls, 2);
-      expect(find.text('睡前歌单'), findsNWidgets(2));
+      expect(repo.searchCalls, 3);
+      expect(find.text('睡前歌单'), findsNWidgets(3));
       expect(find.textContaining('网易云音乐 ·'), findsOneWidget);
       expect(find.textContaining('QQ 音乐 ·'), findsOneWidget);
+      expect(find.textContaining('汽水音乐 ·'), findsOneWidget);
       await tester.tap(find.byKey(const ValueKey('search-mode-toggle')));
       await tester.pumpAndSettle();
       expect(find.text('睡前歌单'), findsNothing);
       expect(
         repo.searchCalls,
-        2,
+        3,
       ); // Switching submits a song search without another playlist search.
       await tester.tap(find.byKey(const ValueKey('search-mode-toggle')));
       await tester.pumpAndSettle();
@@ -1971,4 +2045,21 @@ class _LongRepository extends _Repository {
     ],
     total: 40,
   );
+}
+
+class _PlayingSourceController extends _Controller {
+  _PlayingSourceController(super.store, this.playing);
+  final Track playing;
+  @override
+  Track? get currentTrack => playing;
+}
+
+class _DelayedLocationRepository extends _Repository {
+  final detail = Completer<OnlinePlaylistDetail>();
+  @override
+  Future<OnlinePlaylistDetail> load(
+    OnlinePlaylist playlist, {
+    bool Function()? isCanceled,
+    void Function(int, int)? onProgress,
+  }) => detail.future;
 }

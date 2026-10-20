@@ -4,11 +4,334 @@ import 'package:ai_music/src/playback/music_audio_handler.dart';
 import 'package:ai_music/src/playback/shuffle_skip_planner.dart';
 import 'package:audio_service/audio_service.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:flutter/services.dart';
 import 'package:just_audio/just_audio.dart';
 import 'package:just_audio_platform_interface/just_audio_platform_interface.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
+
+  for (final edit in ['append', 'move', 'remove']) {
+    for (final fail in [false, true]) {
+      test('queue $edit waits for restored prepare (failure: $fail)', () async {
+        final original = JustAudioPlatform.instance;
+        final gate = Completer<void>();
+        final platform = _TestJustAudioPlatform()..loadGate = gate;
+        if (fail) {
+          platform.loadError = PlatformException(
+            code: '500',
+            message: 'offline',
+          );
+        }
+        JustAudioPlatform.instance = platform;
+        final handler = MusicAudioHandler();
+        PlayableAudio item(String id) => PlayableAudio(
+          mediaItem: MediaItem(id: id, title: id),
+          source: AudioSource.uri(Uri.parse('https://example.test/$id.mp3')),
+        );
+        try {
+          await handler.restoreQueue(
+            [item('a'), item('b'), item('c')],
+            initialIndex: 1,
+            initialPosition: const Duration(seconds: 38),
+          );
+          final play = handler.play();
+          for (
+            var i = 0;
+            i < 100 && platform._players.values.every((p) => p.loads.isEmpty);
+            i++
+          ) {
+            await Future<void>.delayed(const Duration(milliseconds: 1));
+          }
+          final mutation = switch (edit) {
+            'append' => handler.appendQueue([item('d')]),
+            'move' => handler.moveQueueItem(0, 2),
+            _ => handler.removeQueueItemAt(0),
+          };
+          await Future<void>.delayed(Duration.zero);
+          expect(handler.queue.value.map((m) => m.id), ['a', 'b', 'c']);
+          gate.complete();
+          await play;
+          await mutation;
+          await Future<void>.delayed(const Duration(milliseconds: 10));
+          expect(handler.mediaItem.value?.id, 'b');
+          expect(handler.currentPosition.inMilliseconds, closeTo(38000, 1000));
+          expect(handler.queue.value[handler.currentQueueIndex!].id, 'b');
+          expect(platform._players.values.single.playCalls, fail ? 0 : 1);
+          if (fail) {
+            expect(handler.isAwaitingPlayback, isTrue);
+            await handler.play();
+            await Future<void>.delayed(const Duration(milliseconds: 10));
+            expect(
+              platform._players.values.single.loads.last.initialPosition,
+              const Duration(seconds: 38),
+            );
+            expect(platform._players.values.single.playCalls, 1);
+          }
+        } finally {
+          if (!gate.isCompleted) gate.complete();
+          await handler.dispose();
+          JustAudioPlatform.instance = original;
+        }
+      });
+    }
+  }
+
+  for (final fail in [false, true]) {
+    test(
+      'restored checkpoint survives preparing and pause (failure: $fail)',
+      () async {
+        final original = JustAudioPlatform.instance;
+        final gate = Completer<void>();
+        final platform = _TestJustAudioPlatform()..loadGate = gate;
+        if (fail) {
+          platform.loadError = PlatformException(
+            code: '500',
+            message: 'offline',
+          );
+        }
+        JustAudioPlatform.instance = platform;
+        final handler = MusicAudioHandler();
+        try {
+          await handler.restoreQueue(
+            [
+              PlayableAudio(
+                mediaItem: const MediaItem(id: 'saved', title: 'Saved'),
+                source: AudioSource.uri(
+                  Uri.parse('https://example.test/saved.mp3'),
+                ),
+              ),
+            ],
+            initialIndex: 0,
+            initialPosition: const Duration(seconds: 38),
+          );
+          final play = handler.play();
+          for (
+            var i = 0;
+            i < 100 && platform._players.values.every((p) => p.loads.isEmpty);
+            i++
+          ) {
+            await Future<void>.delayed(const Duration(milliseconds: 1));
+          }
+          // Both persistence consumers and the system progress must keep the
+          // restored checkpoint while native audio still reports position zero.
+          await Future<void>.delayed(const Duration(milliseconds: 150));
+          expect(handler.currentPosition, const Duration(seconds: 38));
+          expect(
+            handler.playbackState.value.updatePosition,
+            const Duration(seconds: 38),
+          );
+          await handler
+              .play(); // Duplicate taps cannot start another preparation.
+          expect(platform._players.values.single.loads, hasLength(1));
+          await handler.pause();
+          gate.complete();
+          await play;
+          expect(handler.currentPosition, const Duration(seconds: 38));
+          expect(handler.playbackState.value.playing, isFalse);
+          expect(platform._players.values.single.playCalls, 0);
+          if (fail) {
+            expect(handler.isAwaitingPlayback, isTrue);
+            expect(
+              handler.playbackState.value.processingState,
+              AudioProcessingState.error,
+            );
+            await handler.play();
+            await Future<void>.delayed(const Duration(milliseconds: 10));
+            expect(
+              platform._players.values.single.loads.last.initialPosition,
+              const Duration(seconds: 38),
+            );
+            expect(platform._players.values.single.playCalls, 1);
+          }
+        } finally {
+          if (!gate.isCompleted) gate.complete();
+          await handler.dispose();
+          JustAudioPlatform.instance = original;
+        }
+      },
+    );
+  }
+
+  test(
+    'pause while preparing restored audio cancels the pending play',
+    () async {
+      final original = JustAudioPlatform.instance;
+      final gate = Completer<void>();
+      final platform = _TestJustAudioPlatform()..loadGate = gate;
+      JustAudioPlatform.instance = platform;
+      final handler = MusicAudioHandler();
+      try {
+        await handler.restoreQueue(
+          [
+            PlayableAudio(
+              mediaItem: const MediaItem(id: 'saved', title: 'Saved'),
+              source: AudioSource.uri(
+                Uri.parse('https://example.test/saved.mp3'),
+              ),
+            ),
+          ],
+          initialIndex: 0,
+          initialPosition: const Duration(seconds: 38),
+        );
+        final play = handler.play();
+        for (
+          var i = 0;
+          i < 100 && platform._players.values.every((p) => p.loads.isEmpty);
+          i++
+        ) {
+          await Future<void>.delayed(const Duration(milliseconds: 1));
+        }
+        expect(platform._players.values.single.loads, hasLength(1));
+        await handler.pause();
+        gate.complete();
+        await play;
+        expect(platform._players.values.single.playCalls, 0);
+        expect(handler.playbackState.value.playing, isFalse);
+      } finally {
+        if (!gate.isCompleted) gate.complete();
+        await handler.dispose();
+        JustAudioPlatform.instance = original;
+      }
+    },
+  );
+
+  test(
+    'failed first resume retains saved position and allows explicit retry',
+    () async {
+      final original = JustAudioPlatform.instance;
+      final platform = _TestJustAudioPlatform()
+        ..loadError = PlatformException(code: '500', message: 'offline');
+      JustAudioPlatform.instance = platform;
+      final handler = MusicAudioHandler();
+      try {
+        await handler.restoreQueue(
+          [
+            PlayableAudio(
+              mediaItem: const MediaItem(id: 'saved', title: 'Saved'),
+              source: AudioSource.uri(
+                Uri.parse('https://example.test/saved.mp3'),
+              ),
+            ),
+          ],
+          initialIndex: 0,
+          initialPosition: const Duration(seconds: 38),
+        );
+        await handler.play();
+        expect(handler.isAwaitingPlayback, isTrue);
+        expect(handler.mediaItem.value?.id, 'saved');
+        expect(handler.currentPosition, const Duration(seconds: 38));
+        expect(handler.playbackState.value.playing, isFalse);
+        expect(
+          handler.playbackState.value.processingState,
+          AudioProcessingState.error,
+        );
+        expect(platform._players.values.every((p) => p.playCalls == 0), isTrue);
+        await handler.play();
+        await Future<void>.delayed(const Duration(milliseconds: 10));
+        expect(handler.isAwaitingPlayback, isFalse);
+        expect(
+          platform._players.values.single.loads.last.initialPosition,
+          const Duration(seconds: 38),
+        );
+        expect(platform._players.values.single.playCalls, 1);
+      } finally {
+        await handler.dispose();
+        JustAudioPlatform.instance = original;
+      }
+    },
+  );
+
+  test(
+    'restores unloaded queue and position without playback, then resumes on demand',
+    () async {
+      final original = JustAudioPlatform.instance;
+      final platform = _TestJustAudioPlatform();
+      JustAudioPlatform.instance = platform;
+      final handler = MusicAudioHandler();
+      try {
+        final items = [
+          for (final id in ['a', 'b', 'c'])
+            PlayableAudio(
+              mediaItem: MediaItem(
+                id: id,
+                title: id,
+                duration: const Duration(minutes: 3),
+              ),
+              source: AudioSource.uri(
+                Uri.parse('https://example.test/$id.mp3'),
+              ),
+            ),
+        ];
+        await handler.restoreQueue(
+          items,
+          initialIndex: 1,
+          initialPosition: const Duration(seconds: 47),
+        );
+        await Future<void>.delayed(Duration.zero);
+        expect(handler.isAwaitingPlayback, isTrue);
+        expect(handler.mediaItem.value?.id, 'b');
+        expect(handler.currentPosition, const Duration(seconds: 47));
+        expect(handler.playbackState.value.playing, isFalse);
+        expect(handler.hasConsistentPlaybackItem, isFalse);
+        expect(platform._players.values.expand((p) => p.loads), isEmpty);
+        await handler.moveQueueItem(0, 2);
+        expect(handler.queue.value.map((m) => m.id), ['b', 'c', 'a']);
+        expect(handler.currentQueueIndex, 0);
+        await handler.seek(const Duration(seconds: 52));
+        expect(handler.currentPosition, const Duration(seconds: 52));
+        await handler.play();
+        await Future<void>.delayed(const Duration(milliseconds: 10));
+        expect(handler.isAwaitingPlayback, isFalse);
+        final native = platform._players.values.single;
+        expect(native.loads.single.initialIndex, 0);
+        expect(
+          native.loads.single.initialPosition,
+          const Duration(seconds: 52),
+        );
+        expect(native.playCalls, 1);
+        await handler.skipToNext();
+        expect(handler.mediaItem.value?.id, 'c');
+      } finally {
+        await handler.dispose();
+        JustAudioPlatform.instance = original;
+      }
+    },
+  );
+
+  test('next and previous remain pending until play is requested', () async {
+    final handler = MusicAudioHandler();
+    try {
+      await handler.restoreQueue(
+        [
+          for (final id in ['a', 'b', 'c'])
+            PlayableAudio(
+              mediaItem: MediaItem(id: id, title: id),
+              source: AudioSource.uri(
+                Uri.parse('https://example.test/$id.mp3'),
+              ),
+            ),
+        ],
+        initialIndex: 1,
+        initialPosition: const Duration(seconds: 12),
+      );
+      await handler.skipToNext();
+      expect(handler.mediaItem.value?.id, 'c');
+      expect(handler.currentPosition, Duration.zero);
+      expect(handler.isAwaitingPlayback, isTrue);
+      expect(handler.playbackState.value.playing, isFalse);
+      await handler.skipToPrevious();
+      expect(handler.mediaItem.value?.id, 'b');
+      await handler.removeQueueItemsAt([0, 1]);
+      expect(handler.queue.value.map((m) => m.id), ['b', 'c']);
+      expect(handler.currentQueueIndex, 0);
+      await handler.clearQueue();
+      expect(handler.queue.value, isEmpty);
+      expect(handler.isAwaitingPlayback, isFalse);
+    } finally {
+      await handler.dispose();
+    }
+  });
 
   test(
     'entering random restarts skipped choices, reapplying it preserves them',
@@ -544,10 +867,20 @@ void main() {
 
 class _TestJustAudioPlatform extends JustAudioPlatform {
   final _players = <String, _TestAudioPlayerPlatform>{};
+  Object? loadError;
+  Completer<void>? loadGate;
 
   @override
   Future<AudioPlayerPlatform> init(InitRequest request) async {
-    final player = _TestAudioPlayerPlatform(request.id);
+    final player = _TestAudioPlayerPlatform(
+      request.id,
+      beforeLoad: () async {
+        final error = loadError;
+        loadError = null;
+        await loadGate?.future;
+        if (error != null) throw error;
+      },
+    );
     _players[request.id] = player;
     return player;
   }
@@ -562,10 +895,14 @@ class _TestJustAudioPlatform extends JustAudioPlatform {
 }
 
 class _TestAudioPlayerPlatform extends AudioPlayerPlatform {
-  _TestAudioPlayerPlatform(super.id);
+  _TestAudioPlayerPlatform(super.id, {this.beforeLoad});
+  final Future<void> Function()? beforeLoad;
 
   final _events = StreamController<PlaybackEventMessage>.broadcast();
   int? _index;
+  Duration _position = Duration.zero;
+  final loads = <LoadRequest>[];
+  int playCalls = 0;
   Completer<void>? seekGate;
   Completer<void>? removeGate;
   final removeStarted = Completer<void>();
@@ -580,6 +917,9 @@ class _TestAudioPlayerPlatform extends AudioPlayerPlatform {
 
   @override
   Future<LoadResponse> load(LoadRequest request) async {
+    loads.add(request);
+    await beforeLoad?.call();
+    _position = request.initialPosition ?? Duration.zero;
     _index = request.initialIndex ?? 0;
     _emit();
     return LoadResponse(duration: null);
@@ -590,6 +930,7 @@ class _TestAudioPlayerPlatform extends AudioPlayerPlatform {
     if (!seekStarted.isCompleted) seekStarted.complete();
     if (seekGate != null) await seekGate!.future;
     _index = request.index ?? _index;
+    _position = request.position ?? Duration.zero;
     _emit();
     return SeekResponse();
   }
@@ -636,7 +977,10 @@ class _TestAudioPlayerPlatform extends AudioPlayerPlatform {
   }
 
   @override
-  Future<PlayResponse> play(PlayRequest request) async => PlayResponse();
+  Future<PlayResponse> play(PlayRequest request) async {
+    playCalls++;
+    return PlayResponse();
+  }
 
   @override
   Future<SetVolumeResponse> setVolume(SetVolumeRequest request) async =>
@@ -661,7 +1005,7 @@ class _TestAudioPlayerPlatform extends AudioPlayerPlatform {
     _events.add(
       PlaybackEventMessage(
         processingState: ProcessingStateMessage.ready,
-        updatePosition: Duration.zero,
+        updatePosition: _position,
         updateTime: DateTime.now(),
         bufferedPosition: Duration.zero,
         duration: null,

@@ -508,7 +508,10 @@ void main() {
   );
 
   group('original duration and optional ID recovery', () {
-    for (final platform in SongCommentPlatform.values) {
+    for (final platform in [
+      SongCommentPlatform.netease,
+      SongCommentPlatform.qq,
+    ]) {
       test(
         'Keyword uses its 210-second original identity despite 130-second Kuwo source on ${platform.name}',
         () async {
@@ -690,7 +693,10 @@ void main() {
       },
     );
 
-    for (final platform in SongCommentPlatform.values) {
+    for (final platform in [
+      SongCommentPlatform.netease,
+      SongCommentPlatform.qq,
+    ]) {
       for (final wrongArtist in [false, true]) {
         test(
           'optional ${platform.name} ID failure falls back to strict search (wrong artist: $wrongArtist)',

@@ -1,3 +1,4 @@
+import 'package:ai_music/src/data/playback_session_store.dart';
 import 'package:ai_music/src/data/music_charts.dart';
 import 'package:ai_music/src/data/operation_log.dart';
 import 'package:ai_music/src/data/auto_source_health.dart';
@@ -33,6 +34,230 @@ import 'package:flutter_test/flutter_test.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
+
+  for (final favorites in [false, true]) {
+    test(
+      'restores ${favorites ? 'favorites' : 'playlist'} queue and progress in pending state',
+      () async {
+        final root = await Directory.systemTemp.createTemp('controller-resume');
+        final records = [
+          for (final id in ['resume-a', 'resume-b', 'resume-c'])
+            _cachedTrack(
+              id: id,
+              name: id,
+            ).copyWith(filePath: '${root.path}/$id.mp3'),
+        ];
+        for (final r in records) {
+          await File(r.filePath).writeAsBytes([1, 2, 3, 4]);
+        }
+        final owner = favorites ? favoritePlaylistId : 'resume-list';
+        final entries = [
+          for (final r in records)
+            PlaylistTrackEntry(trackId: r.cacheId, addedAt: DateTime(2026)),
+        ];
+        final library = _MemoryPlaylistStore()
+          ..library = PlaylistLibrary(
+            favoriteEntries: favorites ? entries : [],
+            playlists: favorites
+                ? []
+                : [
+                    MusicPlaylist(
+                      id: owner,
+                      name: 'Resume list',
+                      entries: entries,
+                      createdAt: DateTime(2026),
+                      updatedAt: DateTime(2026),
+                    ),
+                  ],
+          );
+        final session = PlaybackSessionStore(rootProvider: () async => root);
+        MusicController make(_SessionAudioHandler handler) => MusicController(
+          audioHandler: handler,
+          resolver: _DelayedMusicResolver(),
+          cacheStore: _FakeCacheStore(cached: records),
+          playlistStore: library,
+          settingsStore: _FakeSettingsStore(),
+          metadataRepository: _StaticMetadataRepository(),
+          songSearchCache: SongSearchCache.memory(),
+          downloadHistoryStore: MemoryDownloadHistory(),
+          playbackSessionStore: session,
+          connectivityChanges: const Stream.empty(),
+        );
+        final firstHandler = _SessionAudioHandler();
+        final first = make(firstHandler);
+        var firstDisposed = false;
+        final secondHandler = _SessionAudioHandler();
+        MusicController? second;
+        try {
+          await first.initialize();
+          final tracks = favorites
+              ? first.favoriteTracks
+              : first.tracksForPlaylist(first.customPlaylists.single);
+          await first.playTrack(
+            tracks[1],
+            index: 1,
+            queueTracks: tracks,
+            playlistId: owner,
+          );
+          firstHandler.currentPositionOverride = const Duration(seconds: 47);
+          await first.flushPlaybackSession();
+          first.dispose();
+          firstDisposed = true;
+          // A newer library order must not replace the actual previous queue.
+          library.library = library.library.copyWith(
+            favoriteEntries: favorites
+                ? entries.reversed.toList()
+                : library.library.favoriteEntries,
+            playlists: favorites
+                ? []
+                : [
+                    library.library.playlists.single.copyWith(
+                      entries: entries.reversed.toList(),
+                    ),
+                  ],
+          );
+          second = make(secondHandler);
+          await second.initialize();
+          expect(second.isAwaitingPlayback, isTrue);
+          expect(second.playbackPlaylistId, owner);
+          expect(second.currentTrack?.id, tracks[1].id);
+          expect(second.queueTracks.map((t) => t.id), tracks.map((t) => t.id));
+          expect(secondHandler.currentPosition, const Duration(seconds: 47));
+          expect(secondHandler.playCalls, 0);
+          expect(secondHandler.loadedIds, tracks.map((t) => t.id));
+          await second.play();
+          expect(secondHandler.playCalls, 1);
+          expect(second.isAwaitingPlayback, isFalse);
+          await second.playQueueItem(tracks[2].id);
+          expect(second.currentTrack?.id, tracks[2].id);
+          expect(second.playbackPlaylistId, owner);
+          // A queued edit must wait outside the load lock so clear can cancel
+          // the first-resume preparation, without writing the old queue back.
+          secondHandler.preparationGate = Completer<void>();
+          final edit = second.moveQueueItem(tracks[0].id, 2);
+          await Future<void>.delayed(Duration.zero);
+          await second.clearQueue().timeout(const Duration(seconds: 1));
+          await edit;
+          expect(second.queueTracks, isEmpty);
+          await second.flushPlaybackSession();
+          expect(await session.load(), isNull);
+        } finally {
+          if (!firstDisposed) first.dispose();
+          second?.dispose();
+          await firstHandler.dispose();
+          await secondHandler.dispose();
+          // Dispose submits a final snapshot before the storage directory goes away.
+          await session.load();
+          await root.delete(recursive: true);
+        }
+      },
+    );
+  }
+
+  for (final cachedAudio in [false, true]) {
+    for (final switchAway in [false, true]) {
+      test(
+        'deferred playlist lyrics update when source becomes ready (cached: $cachedAudio, switch away: $switchAway)',
+        () async {
+          final root = await Directory.systemTemp.createTemp('deferred-lyrics');
+          final audio = File('${root.path}/cached.mp3');
+          await audio.writeAsBytes([1]);
+          final handler = _SpyAudioHandler();
+          final metadata = _IdentityMetadataRepository();
+          final controller = MusicController(
+            songSearchCache: SongSearchCache.memory(),
+            audioHandler: handler,
+            resolver: _LazySongResolver(),
+            playlistStore: _MemoryPlaylistStore(),
+            cacheStore: _FakeCacheStore(
+              cached: cachedAudio
+                  ? [
+                      CachedTrack(
+                        cacheId: 'cached-preview-audio',
+                        music: await _DelayedMusicResolver().resolve(
+                          _candidate(id: 'first', name: '默认第一首'),
+                        ),
+                        filePath: audio.path,
+                        sizeBytes: 1,
+                        fromCache: true,
+                      ),
+                    ]
+                  : [],
+            ),
+            settingsStore: _FakeSettingsStore(),
+            metadataRepository: metadata,
+            downloadHistoryStore: MemoryDownloadHistory(),
+            connectivityChanges: const Stream.empty(),
+          );
+          try {
+            await controller.initialize();
+            const origin = OnlinePlaylist(
+              source: OnlinePlaylistSource.netease,
+              id: 'late',
+              name: '新歌单',
+              creator: '',
+              trackCount: 2,
+            );
+            const songs = [
+              OnlinePlaylistSong(id: 'one', title: '第一首', artist: 'artist'),
+              OnlinePlaylistSong(id: 'two', title: '第二首', artist: 'artist'),
+            ];
+            await controller.playOnlinePlaylistSong(
+              origin,
+              songs.first,
+              queueSongs: songs,
+            );
+            await controller.loadMetadataForCurrentTrack();
+            final firstLyrics = controller.currentLyrics.single.text;
+            expect(
+              controller.indexOfCurrentOnlineSong(origin.source, songs),
+              0,
+            );
+            expect(
+              controller.indexOfCurrentOnlineSong(
+                OnlinePlaylistSource.qq,
+                songs,
+              ),
+              -1,
+            );
+
+            final second = handler.loadedItems[1];
+            // The native player announces a deferred item before resolving audio.
+            handler.emit(second.mediaItem);
+            await Future<void>.delayed(Duration.zero);
+            expect(controller.currentLyrics, isEmpty);
+            expect(
+              controller.currentMetadata.lyricsStatus,
+              LyricsStatus.unknown,
+            );
+            final preparing = (second.source as DeferredStreamingAudioSource)
+                .prepare();
+            if (switchAway) {
+              handler.emit(handler.loadedItems.first.mediaItem);
+              await controller.loadMetadataForCurrentTrack();
+            }
+            await preparing;
+            await Future<void>.delayed(const Duration(milliseconds: 10));
+            if (switchAway) {
+              expect(controller.currentTrack?.id, handler.loadedIds.first);
+              expect(controller.currentLyrics.single.text, firstLyrics);
+            } else {
+              expect(controller.currentTrack?.id, second.mediaItem.id);
+              expect(
+                controller.currentLyrics,
+                isNotEmpty,
+                reason: 'lyrics must arrive without switching away and back',
+              );
+            }
+          } finally {
+            controller.dispose();
+            await handler.dispose();
+            await root.delete(recursive: true);
+          }
+        },
+      );
+    }
+  }
 
   test(
     'sharing reuses complete cached audio without playback or downloading',
@@ -7432,6 +7657,19 @@ class _StaticMetadataRepository extends TrackMetadataRepository {
   }
 }
 
+class _IdentityMetadataRepository extends _StaticMetadataRepository {
+  @override
+  Future<TrackMetadata> load(CachedTrack track) async => TrackMetadata(
+    lyrics: [
+      LyricLine(
+        time: const Duration(seconds: 1),
+        text: '${track.music.id}:${track.music.name}',
+      ),
+    ],
+    lyricsStatus: LyricsStatus.available,
+  );
+}
+
 class _RetryingTimedMetadataRepository extends _StaticMetadataRepository {
   _RetryingTimedMetadataRepository()
     : super(
@@ -8916,5 +9154,46 @@ class _CancellableSearchProbe extends _FakeMusicResolver
         isComplete: true,
       );
     }
+  }
+}
+
+class _SessionAudioHandler extends _SpyAudioHandler {
+  Completer<void>? preparationGate;
+  @override
+  Future<void> waitForRestorePreparation() async {
+    await preparationGate?.future;
+  }
+
+  @override
+  Future<void> stop() async {
+    final gate = preparationGate;
+    if (gate != null && !gate.isCompleted) gate.complete();
+    await super.stop();
+  }
+
+  bool pending = false;
+  @override
+  bool get isAwaitingPlayback => pending;
+  @override
+  Future<void> restoreQueue(
+    List<PlayableAudio> items, {
+    required int initialIndex,
+    required Duration initialPosition,
+  }) async {
+    pending = true;
+    await super.loadQueue(
+      items,
+      initialIndex: initialIndex,
+      initialPosition: initialPosition,
+      playWhenReady: false,
+    );
+    currentPositionOverride = initialPosition;
+    currentQueueIndexOverride = initialIndex;
+  }
+
+  @override
+  Future<void> play() async {
+    pending = false;
+    await super.play();
   }
 }

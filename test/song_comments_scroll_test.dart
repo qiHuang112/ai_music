@@ -244,6 +244,13 @@ class _SlowCommentsRepository extends SongCommentsRepository {
     int page = 0,
     String? cursor,
   }) async {
+    if (platform != SongCommentPlatform.netease) {
+      return SongCommentsResult(
+        platform: platform,
+        status: SongCommentsStatus.ready,
+        pageUrl: query.searchUrl(platform),
+      );
+    }
     if (page == 0) return _page([0, 1, 2, 3, 4, 5], hasMore: true);
     nextPageCalls++;
     return nextPage.future;

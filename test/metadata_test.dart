@@ -8,6 +8,73 @@ import 'package:ai_music/src/domain/music_models.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
+  test(
+    'transient lyric failures remain retryable and later success wins',
+    () async {
+      final root = await Directory.systemTemp.createTemp('lyrics_status_');
+      try {
+        var status = HttpStatus.serviceUnavailable;
+        var calls = 0;
+        final provider = LrcApiLyricsProvider(
+          httpClient: _FakeResolverHttp(
+            onGet: (uri, _) async {
+              calls++;
+              return ResolverHttpResponse(
+                statusCode: status,
+                body: '',
+                finalUrl: uri,
+              );
+            },
+          ),
+        );
+        final repository = TrackMetadataRepository(
+          cacheStore: MetadataCacheStore(rootProvider: () async => root),
+          providers: [provider],
+        );
+        final track = _cachedTrack();
+        expect(
+          (await repository.load(track)).lyricsStatus,
+          LyricsStatus.failed,
+        );
+        status = HttpStatus.notFound;
+        expect(
+          (await repository.load(track)).lyricsStatus,
+          LyricsStatus.notFound,
+        );
+        expect(
+          calls,
+          4,
+          reason: 'a failed request must not activate the miss TTL',
+        );
+        expect(
+          (await repository.load(track)).lyricsStatus,
+          LyricsStatus.notFound,
+        );
+        expect(calls, 4, reason: 'a confirmed miss keeps its normal TTL');
+
+        final fallback = TrackMetadataRepository(
+          cacheStore: MetadataCacheStore(rootProvider: () async => root),
+          providers: [
+            const _StaticMetadataProvider(
+              TrackMetadata(lyricsStatus: LyricsStatus.failed),
+            ),
+            const _StaticMetadataProvider(
+              TrackMetadata(
+                lyrics: [LyricLine(time: Duration(seconds: 1), text: '后续来源')],
+              ),
+            ),
+          ],
+        );
+        expect(
+          (await fallback.load(track)).lyricsStatus,
+          LyricsStatus.available,
+        );
+      } finally {
+        await root.delete(recursive: true);
+      }
+    },
+  );
+
   test('artwork URI only accepts local files or HTTPS', () {
     expect(artworkUriFromText('http://public.example.test/cover.jpg'), isNull);
     expect(

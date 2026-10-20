@@ -60,29 +60,36 @@ void main() {
       );
       await tester.pumpAndSettle();
       expect(tester.takeException(), isNull);
-      expect(repository.calls, [SongCommentPlatform.netease]);
+      expect(repository.calls, SongCommentPlatform.values);
 
       // Both controls must be reachable at the actual viewport size, rather
       // than merely present below an overflowing fixed-height header.
-      final qq = find.byKey(const ValueKey('comments-platform-qq'));
+      await tester.tap(find.byKey(const Key('comments-more')));
+      await tester.pumpAndSettle();
+      final qq = find.ancestor(
+        of: find.byKey(const ValueKey('comments-platform-qq')),
+        matching: find.byType(CheckedPopupMenuItem<String>),
+      );
       expect(qq.hitTestable(), findsOneWidget);
       await tester.tap(qq);
       await tester.pumpAndSettle();
-      expect(repository.calls, [
-        SongCommentPlatform.netease,
-        SongCommentPlatform.qq,
-      ]);
+      expect(repository.calls, SongCommentPlatform.values);
       expect(
         find.text(repository.content(SongCommentPlatform.qq, 0)),
         findsOneWidget,
       );
       expect(tester.takeException(), isNull);
 
-      final netease = find.byKey(const ValueKey('comments-platform-netease'));
+      await tester.tap(find.byKey(const Key('comments-more')));
+      await tester.pumpAndSettle();
+      final netease = find.ancestor(
+        of: find.byKey(const ValueKey('comments-platform-netease')),
+        matching: find.byType(CheckedPopupMenuItem<String>),
+      );
       expect(netease.hitTestable(), findsOneWidget);
       await tester.tap(netease);
       await tester.pumpAndSettle();
-      expect(repository.calls.length, 2);
+      expect(repository.calls.length, 3);
       expect(
         find.text(repository.content(SongCommentPlatform.netease, 0)),
         findsOneWidget,

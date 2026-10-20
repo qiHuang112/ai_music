@@ -5,6 +5,7 @@ import 'package:audio_service/audio_service.dart';
 import 'package:audio_session/audio_session.dart';
 import 'package:flutter/services.dart';
 import 'package:just_audio/just_audio.dart';
+import 'package:rxdart/rxdart.dart';
 
 import '../platform/platform_detection.dart';
 import 'playback_index_tracker.dart';
@@ -27,6 +28,7 @@ class MusicAudioHandler extends BaseAudioHandler
       );
     }
     _playbackEventSubscription = _player.playbackEventStream.listen((event) {
+      if (_awaitingPlayback) return;
       // Use the same native event for metadata and queueIndex. The derived
       // currentIndex stream can lag, especially with fast release callbacks.
       _handleCurrentIndexChanged(event.currentIndex);
@@ -61,8 +63,25 @@ class MusicAudioHandler extends BaseAudioHandler
   bool _editingQueue = false;
   bool _loadingQueue = false;
   int _queueRevision = 0;
+  int _queueLoadRevision = 0;
   bool _shuffleModeEnabled = false;
   bool _isCurrentFavorite = false;
+  bool _awaitingPlayback = false;
+  int? _preparingRestoreRevision;
+  Completer<void>? _restorePreparation;
+  int _pendingIndex = 0;
+  Duration _pendingPosition = Duration.zero;
+  final _pendingPositions = PublishSubject<Duration>();
+
+  bool get isAwaitingPlayback => _awaitingPlayback;
+
+  Future<void> waitForRestorePreparation() async {
+    await _restorePreparation?.future;
+  }
+
+  void cancelRestorePlaybackRequest() {
+    if (_restorePreparation != null) recordPlaybackIntent();
+  }
 
   int _playbackIntentRevision = 0;
   int get playbackIntentRevision => _playbackIntentRevision;
@@ -71,10 +90,16 @@ class MusicAudioHandler extends BaseAudioHandler
   /// Overrides that handle these commands must preserve this notification.
   void recordPlaybackIntent() => _playbackIntentRevision++;
 
-  Duration get currentPosition => _player.position;
+  Duration get currentPosition =>
+      _awaitingPlayback || _preparingRestoreRevision != null
+      ? _pendingPosition
+      : _player.position;
   Duration get currentBufferedPosition => _player.bufferedPosition;
   double get currentSpeed => _player.speed;
-  int? get currentQueueIndex => _player.playbackEvent.currentIndex;
+  int? get currentQueueIndex =>
+      _awaitingPlayback || _preparingRestoreRevision != null
+      ? _pendingIndex
+      : _player.playbackEvent.currentIndex;
   int? get nextQueueIndex {
     final current = mediaItem.value;
     if (_shuffleModeEnabled && current != null) {
@@ -97,9 +122,15 @@ class MusicAudioHandler extends BaseAudioHandler
     return _player.loopMode == LoopMode.all && _items.length > 1 ? 0 : null;
   }
 
-  Stream<Duration> get positionStream => _player.positionStream;
+  Stream<Duration> get positionStream => Rx.merge([
+    _player.positionStream.where(
+      (_) => !_awaitingPlayback && _preparingRestoreRevision == null,
+    ),
+    _pendingPositions.stream,
+  ]);
   bool get hasConsistentPlaybackItem =>
       !_loadingQueue &&
+      !_awaitingPlayback &&
       _player.currentIndex != null &&
       _player.currentIndex! >= 0 &&
       _player.currentIndex! < _items.length &&
@@ -122,10 +153,42 @@ class MusicAudioHandler extends BaseAudioHandler
     int initialIndex = 0,
     Duration initialPosition = Duration.zero,
     bool playWhenReady = true,
+  }) => _loadQueue(
+    items,
+    initialIndex: initialIndex,
+    initialPosition: initialPosition,
+    playWhenReady: playWhenReady,
+  );
+
+  Future<void> restoreQueue(
+    List<PlayableAudio> items, {
+    required int initialIndex,
+    required Duration initialPosition,
+  }) => _loadQueue(
+    items,
+    initialIndex: initialIndex,
+    initialPosition: initialPosition,
+    playWhenReady: false,
+    preload: false,
+  );
+
+  Future<void> _loadQueue(
+    List<PlayableAudio> items, {
+    int initialIndex = 0,
+    Duration initialPosition = Duration.zero,
+    bool playWhenReady = true,
+    bool preload = true,
   }) async {
     // App 内播放器、通知栏、锁屏和耳机按键都消费 audio_service 队列，不能绕过这里直接播。
     _loadingQueue = true;
     _queueRevision += 1;
+    _queueLoadRevision = _queueRevision;
+    if (_preparingRestoreRevision != _queueRevision) {
+      _invalidateRestorePreparation();
+    }
+    _awaitingPlayback = !preload && items.isNotEmpty;
+    _pendingIndex = initialIndex.clamp(0, items.isEmpty ? 0 : items.length - 1);
+    _pendingPosition = initialPosition;
     var safeIndex = 0;
     try {
       _items = List<PlayableAudio>.unmodifiable(items);
@@ -150,13 +213,20 @@ class MusicAudioHandler extends BaseAudioHandler
         [for (final item in _items) item.source],
         initialIndex: safeIndex,
         initialPosition: initialPosition,
+        preload: preload,
       );
     } finally {
       _loadingQueue = false;
     }
-    final actualIndex = _player.playbackEvent.currentIndex ?? safeIndex;
+    final actualIndex = _awaitingPlayback
+        ? safeIndex
+        : _player.playbackEvent.currentIndex ?? safeIndex;
     _publishCurrentItem(actualIndex.clamp(0, _items.length - 1));
-    playbackState.add(_transformEvent(_player.playbackEvent));
+    if (_awaitingPlayback) {
+      _publishPendingState();
+    } else {
+      playbackState.add(_transformEvent(_player.playbackEvent));
+    }
     if (playWhenReady) {
       await play();
     }
@@ -165,6 +235,9 @@ class MusicAudioHandler extends BaseAudioHandler
   /// Adds newly recognized playlist songs without resetting the current
   /// source, position, or playback state.
   Future<void> appendQueue(List<PlayableAudio> additions) async {
+    if (_restorePreparation != null && !await _waitForRestorePreparation()) {
+      return;
+    }
     if (additions.isEmpty) return;
     _beginQueueEdit();
     try {
@@ -182,7 +255,10 @@ class MusicAudioHandler extends BaseAudioHandler
   /// current source. The currently playing item is handled by the controller
   /// after playback advances.
   Future<void> replaceQueueItemAt(int index, PlayableAudio replacement) async {
-    if (index < 0 || index >= _items.length || index == _player.currentIndex) {
+    if (_restorePreparation != null && !await _waitForRestorePreparation()) {
+      return;
+    }
+    if (index < 0 || index >= _items.length || index == currentQueueIndex) {
       throw RangeError.index(index, _items);
     }
     _beginQueueEdit();
@@ -201,7 +277,10 @@ class MusicAudioHandler extends BaseAudioHandler
 
   @override
   Future<void> removeQueueItemAt(int index) async {
-    if (index < 0 || index >= _items.length || index == _player.currentIndex) {
+    if (_restorePreparation != null && !await _waitForRestorePreparation()) {
+      return;
+    }
+    if (index < 0 || index >= _items.length || index == currentQueueIndex) {
       throw RangeError.index(index, _items);
     }
     _beginQueueEdit();
@@ -220,7 +299,10 @@ class MusicAudioHandler extends BaseAudioHandler
   /// Removes several items in one edit: contiguous runs go out together and
   /// the queue is published once. The playing item is left alone.
   Future<void> removeQueueItemsAt(Iterable<int> indexes) async {
-    final current = _player.currentIndex;
+    if (_restorePreparation != null && !await _waitForRestorePreparation()) {
+      return;
+    }
+    final current = currentQueueIndex;
     final doomed = {
       for (final index in indexes)
         if (index >= 0 && index < _items.length && index != current) index,
@@ -269,11 +351,14 @@ class MusicAudioHandler extends BaseAudioHandler
   /// Moves an item that is not the one playing. The playing source keeps its
   /// position and state; only its index may shift.
   Future<void> moveQueueItem(int from, int to) async {
+    if (_restorePreparation != null && !await _waitForRestorePreparation()) {
+      return;
+    }
     if (from < 0 ||
         from >= _items.length ||
         to < 0 ||
         to >= _items.length ||
-        from == _player.currentIndex) {
+        from == currentQueueIndex) {
       throw RangeError.index(from, _items);
     }
     if (from == to) return;
@@ -297,6 +382,20 @@ class MusicAudioHandler extends BaseAudioHandler
     _indexTracker.reset();
   }
 
+  Future<bool> _waitForRestorePreparation() async {
+    final preparation = _restorePreparation;
+    final revision = _queueLoadRevision;
+    await preparation?.future;
+    return revision == _queueLoadRevision;
+  }
+
+  void _invalidateRestorePreparation() {
+    _preparingRestoreRevision = null;
+    final preparation = _restorePreparation;
+    _restorePreparation = null;
+    if (preparation != null && !preparation.isCompleted) preparation.complete();
+  }
+
   Future<void> _finishQueueEdit() async {
     // just_audio may complete the mutation before its queued index callback.
     // Keep that structural index shift out of automatic shuffle detection.
@@ -313,6 +412,14 @@ class MusicAudioHandler extends BaseAudioHandler
   }
 
   void _publishCurrentIfChanged() {
+    if (_awaitingPlayback) {
+      final index = _items.indexWhere(
+        (item) => item.mediaItem.id == mediaItem.value?.id,
+      );
+      if (index >= 0) _pendingIndex = index;
+      _publishPendingState();
+      return;
+    }
     final index = _player.playbackEvent.currentIndex;
     if (index == null || index < 0 || index >= _items.length) return;
     if (mediaItem.value?.id != _items[index].mediaItem.id) {
@@ -324,7 +431,7 @@ class MusicAudioHandler extends BaseAudioHandler
   }
 
   Future<void> updateCurrentMediaItem(MediaItem updated) async {
-    final index = _player.currentIndex;
+    final index = currentQueueIndex;
     if (index == null || index < 0 || index >= _items.length) {
       return;
     }
@@ -351,6 +458,13 @@ class MusicAudioHandler extends BaseAudioHandler
     if (index == -1) {
       return;
     }
+    if (_awaitingPlayback) {
+      _pendingIndex = index;
+      _pendingPosition = position;
+      _publishCurrentItem(index);
+      _publishPendingState();
+      return;
+    }
     _indexTracker.markManualTarget(
       currentIndex: _player.currentIndex,
       targetIndex: index,
@@ -360,20 +474,65 @@ class MusicAudioHandler extends BaseAudioHandler
   }
 
   @override
-  Future<void> play() {
+  Future<void> play() async {
     OperationLog.event('playback.play', {'trackId': mediaItem.value?.id});
+    if (_preparingRestoreRevision != null) return;
+    if (_awaitingPlayback) {
+      final intent = _playbackIntentRevision;
+      final revision = _queueRevision + 1;
+      final index = _pendingIndex;
+      final position = _pendingPosition;
+      final preparation = Completer<void>();
+      _restorePreparation = preparation;
+      _preparingRestoreRevision = revision;
+      try {
+        await _loadQueue(
+          _items,
+          initialIndex: index,
+          initialPosition: position,
+          playWhenReady: false,
+        );
+      } catch (error) {
+        if (_queueRevision == revision) {
+          // Keep the saved position available for an explicit retry when a
+          // restored online source cannot be prepared (for example, offline).
+          _awaitingPlayback = true;
+          _pendingIndex = index;
+          _pendingPosition = position;
+          _publishCurrentItem(index);
+          _publishPendingState();
+          _publishPlaybackFailure(error);
+        }
+        return;
+      } finally {
+        if (_preparingRestoreRevision == revision) {
+          _preparingRestoreRevision = null;
+        }
+        if (identical(_restorePreparation, preparation)) {
+          _restorePreparation = null;
+        }
+        if (!preparation.isCompleted) preparation.complete();
+      }
+      if (_queueRevision != revision || _playbackIntentRevision != intent) {
+        return;
+      }
+    }
     unawaited(
       _player.play().catchError((Object error, StackTrace stack) {
-        playbackState.add(
-          playbackState.value.copyWith(
-            processingState: AudioProcessingState.error,
-            playing: false,
-            errorMessage: error.toString(),
-          ),
-        );
+        _publishPlaybackFailure(error);
       }),
     );
     return Future<void>.value();
+  }
+
+  void _publishPlaybackFailure(Object error) {
+    playbackState.add(
+      playbackState.value.copyWith(
+        processingState: AudioProcessingState.error,
+        playing: false,
+        errorMessage: error.toString(),
+      ),
+    );
   }
 
   @override
@@ -388,6 +547,11 @@ class MusicAudioHandler extends BaseAudioHandler
     OperationLog.event('playback.seek', {
       'positionMs': position.inMilliseconds,
     });
+    if (_awaitingPlayback) {
+      _pendingPosition = position;
+      _publishPendingState();
+      return Future.value();
+    }
     return _player.seek(position);
   }
 
@@ -398,6 +562,10 @@ class MusicAudioHandler extends BaseAudioHandler
     });
     recordPlaybackIntent();
     if (index < 0 || index >= _items.length) {
+      return;
+    }
+    if (_awaitingPlayback) {
+      _selectPending(index);
       return;
     }
     _indexTracker.markManualTarget(
@@ -412,6 +580,19 @@ class MusicAudioHandler extends BaseAudioHandler
   Future<void> skipToNext() async {
     OperationLog.event('playback.next', {'trackId': mediaItem.value?.id});
     recordPlaybackIntent();
+    if (_awaitingPlayback) {
+      var next = _manualAdjacentIndex(1);
+      if (_shuffleModeEnabled && _items.length > 1) {
+        final id = _shuffleSkipPlanner.nextAfter(
+          _items[_pendingIndex].mediaItem.id,
+          position: _pendingPosition,
+        );
+        final index = _items.indexWhere((item) => item.mediaItem.id == id);
+        if (index >= 0) next = index;
+      }
+      if (next != null) _selectPending(next);
+      return;
+    }
     if (_shuffleModeEnabled && _items.length > 1) {
       final index = _player.playbackEvent.currentIndex;
       final current = index == null || index < 0 || index >= _items.length
@@ -450,6 +631,11 @@ class MusicAudioHandler extends BaseAudioHandler
   Future<void> skipToPrevious() async {
     OperationLog.event('playback.previous', {'trackId': mediaItem.value?.id});
     recordPlaybackIntent();
+    if (_awaitingPlayback) {
+      final previous = _manualAdjacentIndex(-1);
+      if (previous != null) _selectPending(previous);
+      return;
+    }
     final previousIndex = _manualAdjacentIndex(-1);
     if (previousIndex == null) return;
     _indexTracker.markManualTarget(
@@ -554,6 +740,10 @@ class MusicAudioHandler extends BaseAudioHandler
   Future<void> stop() async {
     OperationLog.event('playback.stop', {'trackId': mediaItem.value?.id});
     recordPlaybackIntent();
+    _queueRevision++;
+    _queueLoadRevision = _queueRevision;
+    _invalidateRestorePreparation();
+    _awaitingPlayback = false;
     _indexTracker.pendingShuffleRedirectIndex = null;
     await _player.stop();
     playbackState.add(
@@ -566,6 +756,10 @@ class MusicAudioHandler extends BaseAudioHandler
   }
 
   Future<void> dispose() async {
+    _queueRevision++;
+    _queueLoadRevision = _queueRevision;
+    _invalidateRestorePreparation();
+    unawaited(_pendingPositions.close());
     _indexTracker.pendingShuffleRedirectIndex = null;
     await _playbackEventSubscription.cancel();
     await _durationSubscription.cancel();
@@ -577,6 +771,7 @@ class MusicAudioHandler extends BaseAudioHandler
   }
 
   void _handleCurrentIndexChanged(int? index) {
+    if (_awaitingPlayback) return;
     if (_editingQueue || _loadingQueue) return;
     if (index == null || index < 0 || index >= _items.length) {
       _indexTracker.markPublished(null);
@@ -662,7 +857,30 @@ class MusicAudioHandler extends BaseAudioHandler
     unawaited(_syncOhosMediaItem(item));
   }
 
+  void _selectPending(int index) {
+    _pendingIndex = index;
+    _pendingPosition = Duration.zero;
+    _publishCurrentItem(index);
+    _publishPendingState();
+  }
+
+  void _publishPendingState() {
+    _pendingPositions.add(_pendingPosition);
+    playbackState.add(
+      playbackState.value.copyWith(
+        playing: false,
+        processingState: AudioProcessingState.idle,
+        updatePosition: _pendingPosition,
+        bufferedPosition: Duration.zero,
+        speed: 1,
+        queueIndex: _pendingIndex,
+        controls: _mediaControls(),
+      ),
+    );
+  }
+
   void _publishDuration(Duration? duration) {
+    if (_awaitingPlayback) return;
     if (duration == null) {
       return;
     }
@@ -677,6 +895,7 @@ class MusicAudioHandler extends BaseAudioHandler
   }
 
   MediaItem _withKnownDuration(MediaItem item) {
+    if (_awaitingPlayback) return item;
     final duration = _player.duration;
     if (duration == null || item.duration == duration) {
       return item;
@@ -812,7 +1031,7 @@ class MusicAudioHandler extends BaseAudioHandler
         ProcessingState.completed: AudioProcessingState.completed,
       }[_player.processingState]!,
       playing: _player.playing,
-      updatePosition: _player.position,
+      updatePosition: currentPosition,
       bufferedPosition: _player.bufferedPosition,
       speed: _player.speed,
       queueIndex: _loadingQueue || _editingQueue
@@ -875,7 +1094,7 @@ class MusicAudioHandler extends BaseAudioHandler
   }
 
   int? _manualAdjacentIndex(int offset) {
-    final index = _player.currentIndex;
+    final index = currentQueueIndex;
     if (index == null || _items.isEmpty) {
       return null;
     }

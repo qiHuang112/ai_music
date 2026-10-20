@@ -9,11 +9,16 @@ import 'json_file_store.dart';
 import 'playlist_song.dart';
 import 'resolver_http_client.dart';
 import 'resolver_models.dart';
+import 'qishui_api.dart';
 
-enum SongCommentPlatform { netease, qq }
+enum SongCommentPlatform { netease, qq, qishui }
 
 extension SongCommentPlatformLabel on SongCommentPlatform {
-  String get label => this == SongCommentPlatform.qq ? 'QQ 音乐' : '网易云音乐';
+  String get label => switch (this) {
+    SongCommentPlatform.netease => '网易云音乐',
+    SongCommentPlatform.qq => 'QQ 音乐',
+    SongCommentPlatform.qishui => '汽水音乐',
+  };
 }
 
 class SongCommentQuery {
@@ -77,7 +82,9 @@ class SongCommentQuery {
   String get searchText => '$title $artist'.trim();
 
   Uri searchUrl(SongCommentPlatform platform) =>
-      platform == SongCommentPlatform.qq
+      platform == SongCommentPlatform.qishui
+      ? Uri.https('www.qishui.com', '/', {'q': searchText})
+      : platform == SongCommentPlatform.qq
       ? Uri.https('y.qq.com', '/n/ryqq/search', {'w': searchText})
       : Uri.https('music.163.com', '/').replace(
           fragment: '/search/m/?s=${Uri.encodeComponent(searchText)}&type=1',
@@ -109,7 +116,10 @@ class CommentSong {
   final String album;
   final int durationSeconds;
 
-  Uri url(SongCommentPlatform platform) => platform == SongCommentPlatform.qq
+  Uri url(SongCommentPlatform platform) =>
+      platform == SongCommentPlatform.qishui
+      ? Uri.https('music.douyin.com', '/qishui/share/track', {'track_id': id})
+      : platform == SongCommentPlatform.qq
       ? Uri.https(
           'y.qq.com',
           '/n/ryqq/songDetail/${webId.isEmpty ? id : webId}',
@@ -233,7 +243,9 @@ class SongCommentsRepository {
     if (page < 0) throw ArgumentError.value(page, 'page');
     await _loadCache();
     final key = query.key(platform);
-    cursor = platform == SongCommentPlatform.qq && page > 0 ? cursor : null;
+    cursor = platform != SongCommentPlatform.netease && page > 0
+        ? cursor
+        : null;
     final pageKey = (key, page, cursor);
     var generation = _generations[key] ?? 0;
     final pending = _pending[pageKey];
@@ -255,7 +267,8 @@ class SongCommentsRepository {
       if ((_generations[key] ?? 0) != generation) {
         return _unavailable(query, platform);
       }
-      if (platform == SongCommentPlatform.qq && (cursor?.isEmpty ?? true)) {
+      if (platform != SongCommentPlatform.netease &&
+          (cursor?.isEmpty ?? true)) {
         return _unavailable(query, platform);
       }
       final joined = _pending[pageKey];
@@ -320,43 +333,54 @@ class SongCommentsRepository {
           pageUrl: query.searchUrl(platform),
         );
       }
-      final response = await _request(
-        platform,
-        (http, headers) => http.get(
-          platform == SongCommentPlatform.netease
-              ? Uri.https(
-                  'music.163.com',
-                  '/api/v1/resource/hotcomments/R_SO_4_${song!.id}',
-                  {'limit': '20', 'offset': '${page * 20}'},
-                )
-              : Uri.https('u.y.qq.com', '/cgi-bin/musicu.fcg', {
-                  'format': 'json',
-                  'data': jsonEncode({
-                    'comm': {'ct': 24, 'cv': 0, 'format': 'json', 'uin': 0},
-                    'request': {
-                      'module': 'music.globalComment.CommentRead',
-                      'method': 'GetHotCommentList',
-                      'param': {
-                        'BizType': 1,
-                        'BizId': song!.id,
-                        'LastCommentSeqNo': cursor ?? '',
-                        'PageSize': 20,
-                        'PageNum': page,
-                        'HotType': 1,
-                        'WithAirborne': 0,
-                        'PicEnable': 1,
+      final String commentsBody;
+      if (platform == SongCommentPlatform.qishui) {
+        commentsBody = jsonEncode(
+          await QishuiApi(
+            httpClient: _http,
+          ).comments(song.id, cursor ?? '0').timeout(requestTimeout),
+        );
+      } else {
+        final response = await _request(
+          platform,
+          (http, headers) => http.get(
+            platform == SongCommentPlatform.netease
+                ? Uri.https(
+                    'music.163.com',
+                    '/api/v1/resource/hotcomments/R_SO_4_${song!.id}',
+                    {'limit': '20', 'offset': '${page * 20}'},
+                  )
+                : Uri.https('u.y.qq.com', '/cgi-bin/musicu.fcg', {
+                    'format': 'json',
+                    'data': jsonEncode({
+                      'comm': {'ct': 24, 'cv': 0, 'format': 'json', 'uin': 0},
+                      'request': {
+                        'module': 'music.globalComment.CommentRead',
+                        'method': 'GetHotCommentList',
+                        'param': {
+                          'BizType': 1,
+                          'BizId': song!.id,
+                          'LastCommentSeqNo': cursor ?? '',
+                          'PageSize': 20,
+                          'PageNum': page,
+                          'HotType': 1,
+                          'WithAirborne': 0,
+                          'PicEnable': 1,
+                        },
                       },
-                    },
+                    }),
                   }),
-                }),
-          headers: headers,
-        ),
-      );
+            headers: headers,
+          ),
+        );
+        commentsBody = response.body;
+      }
       if (!isCurrent()) return _unavailable(query, platform);
-      final parsed = _parseCommentsPage(response.body, platform);
+      final parsed = _parseCommentsPage(commentsBody, platform);
       final hasMore =
           parsed.hasMore &&
-          (platform != SongCommentPlatform.qq || parsed.nextCursor != cursor);
+          (platform == SongCommentPlatform.netease ||
+              parsed.nextCursor != cursor);
       final entry = _CacheEntry(
         song,
         parsed.comments,
@@ -421,6 +445,31 @@ class SongCommentsRepository {
     SongCommentPlatform platform,
   ) async {
     if (_normalize(query.title).isEmpty || _normalize(query.artist).isEmpty) {
+      return null;
+    }
+    if (platform == SongCommentPlatform.qishui) {
+      final api = QishuiApi(httpClient: _http);
+      final timer = Stopwatch()..start();
+      for (var page = 0; page < 2; page++) {
+        final remaining = requestTimeout - timer.elapsed;
+        if (remaining <= Duration.zero) {
+          throw TimeoutException('Qishui song search');
+        }
+        final data = await api
+            .search('track', query.searchText, offset: page * 20)
+            .timeout(remaining);
+        final rows = qishuiSearchRows(data, 'tracks');
+        final match = selectCommentSong(query, [
+          for (final row in rows)
+            _song(qishuiMap(qishuiMap(row['entity'])['track']), platform),
+        ]);
+        if (match != null) return match;
+        final group = (data['result_groups'] as List)
+            .map(qishuiMap)
+            .where((g) => g['id'] == 'tracks')
+            .firstOrNull;
+        if (rows.isEmpty || group?['has_more'] != true) break;
+      }
       return null;
     }
     final knownId = query.platformIds[platform];
@@ -791,6 +840,55 @@ class _CommentsPage {
 }
 
 _CommentsPage _parseCommentsPage(String body, SongCommentPlatform platform) {
+  if (platform == SongCommentPlatform.qishui) {
+    final root = _map(jsonDecode(body));
+    final code =
+        root['status_code'] ?? _map(root['status_info'])['status_code'];
+    if (code != null && _int(code) != 0) {
+      throw const FormatException('Qishui comments unavailable');
+    }
+    // Empty repeated fields can be absent in an otherwise successful response.
+    final raw = root['comments'];
+    final List rows;
+    if (raw is List) {
+      rows = raw;
+    } else if (raw == null &&
+        root.containsKey('count') &&
+        _int(root['count']) == 0) {
+      rows = const [];
+    } else {
+      throw const FormatException('Missing Qishui comments');
+    }
+    final comments = <SongComment>[];
+    final seen = <String>{};
+    for (final value in rows.take(20)) {
+      final row = _map(value);
+      final id = _text(row['id']);
+      final text = _text(row['content']);
+      if (id.isEmpty || text.isEmpty || !seen.add(id)) continue;
+      final seconds = _int(row['time_created']);
+      comments.add(
+        SongComment(
+          id: id,
+          author: _text(_map(row['user'])['nickname']),
+          content: text,
+          likes: _int(row['count_digged']).clamp(0, 1 << 53),
+          createdAt: seconds > 0
+              ? DateTime.fromMillisecondsSinceEpoch(seconds * 1000)
+              : null,
+        ),
+      );
+    }
+    comments.sort((a, b) => b.likes.compareTo(a.likes));
+    final cursor = _text(root['cursor']);
+    final more =
+        root['has_more'] == true && comments.isNotEmpty && cursor.isNotEmpty;
+    return _CommentsPage(
+      List.unmodifiable(comments),
+      more,
+      more ? cursor : null,
+    );
+  }
   final root = _decode(body, platform);
   final qq = platform == SongCommentPlatform.qq;
   final modernQq = qq && root.containsKey('request');
@@ -864,6 +962,15 @@ _CommentsPage _parseCommentsPage(String body, SongCommentPlatform platform) {
 }
 
 CommentSong _song(Map<String, dynamic> row, SongCommentPlatform platform) {
+  if (platform == SongCommentPlatform.qishui) {
+    return CommentSong(
+      id: _text(row['id']),
+      title: _text(row['name']),
+      artist: qishuiArtists(row['artists']),
+      album: _text(_map(row['album'])['name']),
+      durationSeconds: (_int(row['duration']) / 1000).round(),
+    );
+  }
   final qq = platform == SongCommentPlatform.qq;
   final artists = row[qq ? 'singer' : 'artists'] ?? row['ar'];
   final album = _map(row['album'] ?? row['al']);
@@ -951,6 +1058,7 @@ Set<String> _artists(String text) => text
     .where((s) => s.isNotEmpty)
     .toSet();
 SongCommentPlatform? _platform(String value) => switch (value.toLowerCase()) {
+  'qishui' || 'soda' || 'luna' => SongCommentPlatform.qishui,
   'qq' || 'tencent' => SongCommentPlatform.qq,
   'netease' || 'wyy' => SongCommentPlatform.netease,
   _ => null,

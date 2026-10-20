@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'dart:ui';
 import 'src/data/operation_log.dart';
+import 'src/data/playback_session_store.dart';
 
 import 'src/application/music_controller.dart';
 import 'src/domain/app_brand.dart';
@@ -51,7 +52,10 @@ Future<void> main() async {
   };
   final audioHandler = await _createAudioHandler();
   await audioHandler.configure();
-  final controller = MusicController(audioHandler: audioHandler);
+  final controller = MusicController(
+    audioHandler: audioHandler,
+    playbackSessionStore: PlaybackSessionStore(),
+  );
   // Know the saved look before the first frame. Otherwise the app opens in
   // the default dark theme and visibly fades to the user's light one.
   try {

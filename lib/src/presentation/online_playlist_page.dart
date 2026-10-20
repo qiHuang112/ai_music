@@ -1,4 +1,5 @@
 import 'playlist_sliver_header.dart';
+import 'initial_song_scroll.dart';
 import 'music_thumbnail.dart';
 import 'app_theme.dart';
 import 'dart:async';
@@ -55,8 +56,8 @@ class OnlinePlaylistSearchPanel extends StatelessWidget {
                   child: Text(
                     search.query.isEmpty
                         ? (zh
-                              ? '搜索网易云、QQ 音乐的歌单'
-                              : 'Search NetEase and QQ Music playlists')
+                              ? '搜索网易云、QQ、汽水音乐的歌单'
+                              : 'Search NetEase, QQ and Qishui playlists')
                         : search.isLoading
                         ? (zh ? '正在搜歌单…' : 'Searching playlists…')
                         : search.errors.isNotEmpty
@@ -305,82 +306,93 @@ class _OnlinePlaylistPageState extends State<OnlinePlaylistPage> {
               : Column(
                   children: [
                     Expanded(
-                      child: PlaylistScrollView(
-                        slivers: [
-                          PlaylistSliverHeader(
-                            title: widget.playlist.name,
-                            actions: actions,
-                          ),
-                          SliverToBoxAdapter(
-                            child: Column(
-                              children: [
-                                ListTile(
-                                  leading: _PlaylistCover(
-                                    url: widget.playlist.coverUrl,
+                      child: InitialSongScroll(
+                        targetIndex: widget.controller.indexOfCurrentOnlineSong(
+                          widget.playlist.source,
+                          detail!.songs,
+                        ),
+                        builder: (context, scrollController, anchor) => PlaylistScrollView(
+                          controller: scrollController,
+                          slivers: [
+                            PlaylistSliverHeader(
+                              title: widget.playlist.name,
+                              actions: actions,
+                            ),
+                            SliverToBoxAdapter(
+                              child: Column(
+                                children: [
+                                  ListTile(
+                                    leading: _PlaylistCover(
+                                      url: widget.playlist.coverUrl,
+                                    ),
+                                    title: Text(widget.playlist.source.label),
+                                    subtitle: Text(
+                                      '${widget.playlist.creator} · ${detail.total} ${zh ? '首' : 'songs'}',
+                                    ),
                                   ),
-                                  title: Text(widget.playlist.source.label),
-                                  subtitle: Text(
-                                    '${widget.playlist.creator} · ${detail!.total} ${zh ? '首' : 'songs'}',
+                                  if (_notice != null) _Message(text: _notice!),
+                                  if (_task.autoSyncError)
+                                    _Message(
+                                      text: _task.destination == null
+                                          ? (zh
+                                                ? '新建歌单失败，匹配结果已保留，请重试。'
+                                                : 'Could not create playlist. Matches are retained; retry.')
+                                          : (zh
+                                                ? '自动同步失败，匹配结果已保留，请重试同步。'
+                                                : 'Auto sync failed. Matches are retained; retry.'),
+                                    ),
+                                  if (_busy) ...[
+                                    LinearProgressIndicator(
+                                      value:
+                                          _task.saving || _task.matchTotal == 0
+                                          ? null
+                                          : _task.completed / _task.matchTotal,
+                                    ),
+                                    Wrap(
+                                      alignment: WrapAlignment.center,
+                                      crossAxisAlignment:
+                                          WrapCrossAlignment.center,
+                                      children: [
+                                        Text(
+                                          _task.saving
+                                              ? (zh ? '正在保存…' : 'Saving…')
+                                              : (zh
+                                                    ? '正在匹配 ${_task.completed} / ${_task.matchTotal}'
+                                                    : 'Matching ${_task.completed} / ${_task.matchTotal}'),
+                                        ),
+                                        if (_task.matching)
+                                          TextButton(
+                                            onPressed: _cancel,
+                                            child: Text(zh ? '暂停' : 'Pause'),
+                                          ),
+                                      ],
+                                    ),
+                                  ],
+                                ],
+                              ),
+                            ),
+                            if (detail.songs.isEmpty)
+                              SliverFillRemaining(
+                                hasScrollBody: false,
+                                child: Center(
+                                  child: Text(
+                                    zh
+                                        ? '没有可导入的歌曲'
+                                        : 'No songs available to import',
                                   ),
                                 ),
-                                if (_notice != null) _Message(text: _notice!),
-                                if (_task.autoSyncError)
-                                  _Message(
-                                    text: _task.destination == null
-                                        ? (zh
-                                              ? '新建歌单失败，匹配结果已保留，请重试。'
-                                              : 'Could not create playlist. Matches are retained; retry.')
-                                        : (zh
-                                              ? '自动同步失败，匹配结果已保留，请重试同步。'
-                                              : 'Auto sync failed. Matches are retained; retry.'),
-                                  ),
-                                if (_busy) ...[
-                                  LinearProgressIndicator(
-                                    value: _task.saving || _task.matchTotal == 0
-                                        ? null
-                                        : _task.completed / _task.matchTotal,
-                                  ),
-                                  Wrap(
-                                    alignment: WrapAlignment.center,
-                                    crossAxisAlignment:
-                                        WrapCrossAlignment.center,
-                                    children: [
-                                      Text(
-                                        _task.saving
-                                            ? (zh ? '正在保存…' : 'Saving…')
-                                            : (zh
-                                                  ? '正在匹配 ${_task.completed} / ${_task.matchTotal}'
-                                                  : 'Matching ${_task.completed} / ${_task.matchTotal}'),
-                                      ),
-                                      if (_task.matching)
-                                        TextButton(
-                                          onPressed: _cancel,
-                                          child: Text(zh ? '暂停' : 'Pause'),
-                                        ),
-                                    ],
-                                  ),
-                                ],
-                              ],
-                            ),
-                          ),
-                          if (detail.songs.isEmpty)
-                            SliverFillRemaining(
-                              hasScrollBody: false,
-                              child: Center(
-                                child: Text(
-                                  zh
-                                      ? '没有可导入的歌曲'
-                                      : 'No songs available to import',
+                              )
+                            else
+                              SliverList.builder(
+                                itemCount: detail.songs.length,
+                                itemBuilder: (context, index) => anchor(
+                                  index,
+                                  detail.songs[index].id,
+                                  _songRow(index, detail.songs[index]),
                                 ),
                               ),
-                            )
-                          else
-                            SliverList.builder(
-                              itemCount: detail.songs.length,
-                              itemBuilder: (context, index) =>
-                                  _songRow(index, detail.songs[index]),
-                            ),
-                        ],
+                          ],
+                        ),
                       ),
                     ),
                     Padding(

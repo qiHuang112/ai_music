@@ -1,3 +1,4 @@
+import 'initial_song_scroll.dart';
 import 'app_popup_menu.dart';
 import 'playlist_sliver_header.dart';
 import 'playlist_sync_button.dart';
@@ -2319,7 +2320,9 @@ class _PlaylistDetailPageState extends State<_PlaylistDetailPage> {
         track,
         index: index,
         queueTracks: tracks,
-        playlistId: widget.selection.kind == _LibraryListKind.custom
+        playlistId:
+            widget.selection.kind == _LibraryListKind.custom ||
+                widget.selection.kind == _LibraryListKind.favorite
             ? widget.selection.id
             : null,
       );
@@ -2935,11 +2938,32 @@ class _TrackList extends StatelessWidget {
     ),
   );
 
-  Widget _buildList(BuildContext context, String? activeId, bool playing) {
+  Widget _buildList(BuildContext context, String? activeId, bool playing) =>
+      InitialSongScroll(
+        targetIndex: list.isLocal
+            ? null
+            : controller.indexOfCurrentSong(list.tracks),
+        builder: (context, scrollController, anchor) => _buildPositionedList(
+          context,
+          activeId,
+          playing,
+          scrollController,
+          anchor,
+        ),
+      );
+
+  Widget _buildPositionedList(
+    BuildContext context,
+    String? activeId,
+    bool playing,
+    ScrollController scrollController,
+    SongRowAnchor anchor,
+  ) {
     final tracks = list.tracks;
     final strings = AppStringsScope.of(context);
     if (tracks.isEmpty && headerSlivers != null) {
       return PlaylistScrollView(
+        controller: scrollController,
         slivers: [
           ...headerSlivers!,
           SliverFillRemaining(
@@ -2968,6 +2992,7 @@ class _TrackList extends StatelessWidget {
     }
     if (canReorder) {
       return ReorderableListView.builder(
+        scrollController: scrollController,
         buildDefaultDragHandles: false,
         padding: MusicUi.scrollInsets(
           context,
@@ -2982,29 +3007,33 @@ class _TrackList extends StatelessWidget {
         ),
         itemBuilder: (context, index) {
           final track = tracks[index];
-          return _TrackTile(
-            key: ValueKey('track-${track.id}'),
-            active: track.id == activeId,
-            playing: playing && track.id == activeId,
-            controller: controller,
-            list: list,
-            track: track,
-            tracks: tracks,
-            index: index,
-            isSelecting: isSelecting,
-            isReorderEditing: isReorderEditing,
-            selected: selectedTrackIds.contains(track.id),
-            isPreparing: preparingTrackId == track.id,
-            onPlayTrack: onPlayTrack,
-            onStartSelection: onStartSelection,
-            onToggleSelection: onToggleSelection,
-            dragHandle: ReorderableDragStartListener(
+          return anchor(
+            index,
+            track.id,
+            _TrackTile(
+              key: ValueKey('track-${track.id}'),
+              active: track.id == activeId,
+              playing: playing && track.id == activeId,
+              controller: controller,
+              list: list,
+              track: track,
+              tracks: tracks,
               index: index,
-              child: Tooltip(
-                message: strings.dragToReorder,
-                child: const Padding(
-                  padding: EdgeInsets.all(12),
-                  child: Icon(Icons.drag_handle),
+              isSelecting: isSelecting,
+              isReorderEditing: isReorderEditing,
+              selected: selectedTrackIds.contains(track.id),
+              isPreparing: preparingTrackId == track.id,
+              onPlayTrack: onPlayTrack,
+              onStartSelection: onStartSelection,
+              onToggleSelection: onToggleSelection,
+              dragHandle: ReorderableDragStartListener(
+                index: index,
+                child: Tooltip(
+                  message: strings.dragToReorder,
+                  child: const Padding(
+                    padding: EdgeInsets.all(12),
+                    child: Icon(Icons.drag_handle),
+                  ),
                 ),
               ),
             ),
@@ -3014,26 +3043,31 @@ class _TrackList extends StatelessWidget {
     }
     Widget tile(BuildContext context, int index) {
       final track = tracks[index];
-      return _TrackTile(
-        active: track.id == activeId,
-        playing: playing && track.id == activeId,
-        controller: controller,
-        list: list,
-        track: track,
-        tracks: tracks,
-        index: index,
-        isSelecting: isSelecting,
-        isReorderEditing: isReorderEditing,
-        selected: selectedTrackIds.contains(track.id),
-        isPreparing: preparingTrackId == track.id,
-        onPlayTrack: onPlayTrack,
-        onStartSelection: onStartSelection,
-        onToggleSelection: onToggleSelection,
+      return anchor(
+        index,
+        track.id,
+        _TrackTile(
+          active: track.id == activeId,
+          playing: playing && track.id == activeId,
+          controller: controller,
+          list: list,
+          track: track,
+          tracks: tracks,
+          index: index,
+          isSelecting: isSelecting,
+          isReorderEditing: isReorderEditing,
+          selected: selectedTrackIds.contains(track.id),
+          isPreparing: preparingTrackId == track.id,
+          onPlayTrack: onPlayTrack,
+          onStartSelection: onStartSelection,
+          onToggleSelection: onToggleSelection,
+        ),
       );
     }
 
     if (headerSlivers != null) {
       return PlaylistScrollView(
+        controller: scrollController,
         key: PageStorageKey('playlist-scroll-${list.playlist!.id}'),
         keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
         slivers: [
@@ -3064,6 +3098,7 @@ class _TrackList extends StatelessWidget {
 
     if (groupByDate) {
       return CustomScrollView(
+        controller: scrollController,
         slivers: [
           const SliverToBoxAdapter(child: SizedBox(height: 8)),
           for (final group in groupByDateHierarchy(
@@ -3093,6 +3128,7 @@ class _TrackList extends StatelessWidget {
       );
     }
     return ListView.separated(
+      controller: scrollController,
       padding: MusicUi.scrollInsets(
         context,
         base: const EdgeInsets.fromLTRB(12, 8, 12, 16),

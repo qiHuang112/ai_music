@@ -235,9 +235,9 @@ class TrackMetadataRepository {
         metadata.lyrics,
         repairExistingOnly: true,
       );
-      return metadata;
+      return metadata.copyWith(lyricsStatus: LyricsStatus.available);
     }
-    // 歌词搜索失败通常是来源短时间内确实无结果；半小时内不重复打网络请求。
+    // Cache a confirmed miss, while transient failures remain retryable.
     final lyricsMissActive =
         !bypassLyricsMiss && _hasFreshLyricsMiss(track.cacheId);
     for (final provider in _providers) {
@@ -249,7 +249,17 @@ class TrackMetadataRepository {
       )) {
         continue;
       }
-      final next = await provider.find(track);
+      TrackMetadata next;
+      try {
+        next = await provider.find(track);
+      } catch (_) {
+        // An optional provider failing must not hide a later successful lyric.
+        if (provider is ArtworkMetadataProvider &&
+            provider is! LyricsMetadataProvider) {
+          continue;
+        }
+        next = const TrackMetadata(lyricsStatus: LyricsStatus.failed);
+      }
       if (!metadata.hasLyrics && next.hasLyrics) {
         await _writeLyricsSidecar(track, next.lyrics);
       }
@@ -260,8 +270,14 @@ class TrackMetadataRepository {
     }
     if (metadata.hasLyrics) {
       _lyricsMissUntil.remove(track.cacheId);
-    } else if (!lyricsMissActive) {
-      _lyricsMissUntil[track.cacheId] = _now().add(lyricsMissTtl);
+      metadata = metadata.copyWith(lyricsStatus: LyricsStatus.available);
+    } else if (metadata.lyricsStatus == LyricsStatus.failed) {
+      _lyricsMissUntil.remove(track.cacheId);
+    } else {
+      metadata = metadata.copyWith(lyricsStatus: LyricsStatus.notFound);
+      if (!lyricsMissActive) {
+        _lyricsMissUntil[track.cacheId] = _now().add(lyricsMissTtl);
+      }
     }
     await _cacheStore.write(track.cacheId, metadata);
     return metadata;
@@ -287,6 +303,9 @@ class TrackMetadataRepository {
       artworkUri: current.artworkUri ?? next.artworkUri,
       lyrics: current.lyrics.isNotEmpty ? current.lyrics : next.lyrics,
       source: current.source.isNotEmpty ? current.source : next.source,
+      lyricsStatus: current.lyricsStatus == LyricsStatus.failed
+          ? LyricsStatus.failed
+          : next.lyricsStatus,
     );
   }
 
@@ -450,8 +469,7 @@ class FlacLyricsProvider
       try {
         return await _find(track);
       } catch (_) {
-        // A missing lyric must never prevent local audio playback.
-        return const TrackMetadata();
+        return const TrackMetadata(lyricsStatus: LyricsStatus.failed);
       } finally {
         _pending.remove(track.cacheId);
       }
@@ -485,7 +503,9 @@ class FlacLyricsProvider
       'time': candidate.raw['time']?.toString() ?? '',
       'sign': candidate.raw['sign']?.toString() ?? '',
     });
-    if (response['code'] != 0) return const TrackMetadata();
+    if (response['code'] != 0) {
+      return const TrackMetadata(lyricsStatus: LyricsStatus.failed);
+    }
     return _metadataFromFlacLyricResponse(response, 'flac:getLyric');
   }
 }
@@ -514,7 +534,7 @@ class BuguyyKuwoLyricsProvider
       try {
         return await _find(track, resource);
       } catch (_) {
-        return const TrackMetadata();
+        return const TrackMetadata(lyricsStatus: LyricsStatus.failed);
       } finally {
         _pending.remove(track.cacheId);
       }
@@ -529,6 +549,7 @@ class BuguyyKuwoLyricsProvider
       pages: 1,
     );
     var probed = 0;
+    var failed = false;
     final seen = <String>{};
     for (final query in [music.name, '${music.artist} ${music.name}']) {
       final candidates = await resolver.searchFirstPages(query);
@@ -558,6 +579,10 @@ class BuguyyKuwoLyricsProvider
             'time': candidate.raw['time']?.toString() ?? '',
             'sign': candidate.raw['sign']?.toString() ?? '',
           });
+          if (urlResponse['code'] != 0) {
+            failed = true;
+            continue;
+          }
           final url = asStringMap(urlResponse['data'])['url']?.toString() ?? '';
           if (_kuwoMediaResource(url) != resource) continue;
           final lyricResponse = await _challenge.postFlacApi('getLyric', {
@@ -571,12 +596,15 @@ class BuguyyKuwoLyricsProvider
             'flac:getLyric:matched-kuwo-audio',
           );
         } catch (_) {
-          // One failed candidate does not establish a media match.
+          // Keep trying other matches, but do not cache failures as absent lyrics.
+          failed = true;
         }
       }
       if (probed >= 5) break;
     }
-    return const TrackMetadata();
+    return TrackMetadata(
+      lyricsStatus: failed ? LyricsStatus.failed : LyricsStatus.notFound,
+    );
   }
 }
 
@@ -613,14 +641,17 @@ TrackMetadata _metadataFromFlacLyricResponse(
   Map<String, dynamic> response,
   String source,
 ) {
-  if (response['code'] != 0) return const TrackMetadata();
+  if (response['code'] != 0) {
+    return const TrackMetadata(lyricsStatus: LyricsStatus.failed);
+  }
   final content = response['data'];
+  if (content == null || content == '') return const TrackMetadata();
   if (content is! String ||
       RegExp(
         r'<\s*/?\s*[a-z][^>]*>|&lt;\s*/?\s*[a-z][^&]*&gt;',
         caseSensitive: false,
       ).hasMatch(content)) {
-    return const TrackMetadata();
+    return const TrackMetadata(lyricsStatus: LyricsStatus.failed);
   }
   return TrackMetadata(lyrics: parseLrcLines(content), source: source);
 }
@@ -653,7 +684,7 @@ class BuguyyLyricsProvider
         }
       }
     } catch (_) {
-      return const TrackMetadata();
+      return const TrackMetadata(lyricsStatus: LyricsStatus.failed);
     }
     return const TrackMetadata();
   }
@@ -702,16 +733,22 @@ class LrcApiLyricsProvider
 
   @override
   Future<TrackMetadata> find(CachedTrack track) async {
+    var failed = false;
     try {
       final single = await _get('/api/v1/lyrics/single', track);
       final singleLines = parseLrcLines(single.body);
       if (single.ok && singleLines.isNotEmpty) {
         return TrackMetadata(lyrics: singleLines, source: 'lrcapi');
       }
+      failed = !single.ok && single.statusCode != 404;
 
       final advance = await _get('/api/v1/lyrics/advance', track);
       if (!advance.ok) {
-        return const TrackMetadata();
+        return TrackMetadata(
+          lyricsStatus: failed || advance.statusCode != 404
+              ? LyricsStatus.failed
+              : LyricsStatus.notFound,
+        );
       }
       final decoded = jsonDecode(advance.body);
       final lyricsText = extractLyricsText(decoded);
@@ -720,9 +757,11 @@ class LrcApiLyricsProvider
         return TrackMetadata(lyrics: advanceLines, source: 'lrcapi');
       }
     } catch (_) {
-      return const TrackMetadata();
+      return const TrackMetadata(lyricsStatus: LyricsStatus.failed);
     }
-    return const TrackMetadata();
+    return TrackMetadata(
+      lyricsStatus: failed ? LyricsStatus.failed : LyricsStatus.notFound,
+    );
   }
 
   Future<ResolverHttpResponse> _get(String path, CachedTrack track) {

@@ -866,12 +866,24 @@ class _LyricsPreview extends StatelessWidget {
       ),
       child: Container(
         width: double.infinity,
-        constraints: const BoxConstraints(minHeight: 82),
+        height: _lyricsPreviewHeight(context),
         padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
         child: _LyricsPreviewContent(controller: controller),
       ),
     );
   }
+}
+
+double _lyricsPreviewHeight(BuildContext context) {
+  final style = Theme.of(context).textTheme.bodyMedium!.copyWith(fontSize: 16);
+  final painter = TextPainter(
+    text: TextSpan(text: '歌词', style: style),
+    textDirection: Directionality.of(context),
+    textScaler: MediaQuery.textScalerOf(context),
+  )..layout();
+  final height = (painter.height + 4) * 3 + 20;
+  painter.dispose();
+  return height < 100 ? 100 : height;
 }
 
 class _LyricsPreviewContent extends StatelessWidget {
@@ -883,7 +895,9 @@ class _LyricsPreviewContent extends StatelessWidget {
   Widget build(BuildContext context) {
     final colors = Theme.of(context).colorScheme;
     final lyrics = controller.currentLyrics;
-    if (controller.isLoadingMetadata && lyrics.isEmpty) {
+    if (controller.isLoadingMetadata &&
+        lyrics.isEmpty &&
+        controller.currentMetadata.lyricsStatus != LyricsStatus.notFound) {
       return const Center(
         child: SizedBox.square(
           dimension: 18,
@@ -896,6 +910,7 @@ class _LyricsPreviewContent extends StatelessWidget {
     }
     return StreamBuilder<Duration>(
       stream: controller.positionStream,
+      initialData: controller.audioHandler.currentPosition,
       builder: (context, snapshot) {
         final synchronized = _hasTimedLyrics(lyrics);
         final rows = synchronized
@@ -909,6 +924,7 @@ class _LyricsPreviewContent extends StatelessWidget {
               ];
         return Column(
           mainAxisSize: MainAxisSize.min,
+          mainAxisAlignment: MainAxisAlignment.center,
           children: [
             for (final row in rows)
               Padding(
@@ -978,31 +994,41 @@ class _MissingLyricsContentState extends State<_MissingLyricsContent> {
     final strings = AppStringsScope.of(context);
     final colors = Theme.of(context).colorScheme;
     final loading = widget.controller.isLoadingMetadata;
+    final failed =
+        widget.controller.metadataError != null ||
+        widget.controller.currentMetadata.lyricsStatus == LyricsStatus.failed;
     return Column(
       mainAxisSize: MainAxisSize.min,
       children: [
         Text(
-          widget.controller.metadataError ?? strings.noLyrics,
+          failed
+              ? strings.lyricsLoadFailed
+              : widget.controller.currentMetadata.lyricsStatus ==
+                    LyricsStatus.unknown
+              ? strings.fetchingLyrics
+              : strings.noLyrics,
           textAlign: TextAlign.center,
           style: Theme.of(
             context,
           ).textTheme.bodyMedium?.copyWith(color: colors.onSurfaceVariant),
         ),
-        const SizedBox(height: 10),
-        OutlinedButton.icon(
-          onPressed: loading
-              ? null
-              : () => widget.controller.recoverMetadataForCurrentTrack(
-                  bypassLyricsMiss: true,
-                ),
-          icon: loading
-              ? const SizedBox.square(
-                  dimension: 16,
-                  child: CircularProgressIndicator(strokeWidth: 2),
-                )
-              : const Icon(Icons.refresh),
-          label: Text(loading ? strings.fetchingLyrics : strings.retryLyrics),
-        ),
+        if (failed) ...[
+          const SizedBox(height: 10),
+          OutlinedButton.icon(
+            onPressed: loading
+                ? null
+                : () => widget.controller.recoverMetadataForCurrentTrack(
+                    bypassLyricsMiss: true,
+                  ),
+            icon: loading
+                ? const SizedBox.square(
+                    dimension: 16,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : const Icon(Icons.refresh),
+            label: Text(loading ? strings.fetchingLyrics : strings.retryLyrics),
+          ),
+        ],
       ],
     );
   }
@@ -1012,7 +1038,10 @@ class _MissingLyricsContentState extends State<_MissingLyricsContent> {
     if (trackId == null ||
         _autoRequestedTrackId == trackId ||
         widget.controller.currentLyrics.isNotEmpty ||
-        widget.controller.isLoadingMetadata) {
+        widget.controller.isLoadingMetadata ||
+        widget.controller.metadataError != null ||
+        widget.controller.currentMetadata.lyricsStatus !=
+            LyricsStatus.unknown) {
       return;
     }
     _autoRequestedTrackId = trackId;
@@ -1056,7 +1085,7 @@ class _LyricsPanel extends StatefulWidget {
 class _LyricsPanelState extends State<_LyricsPanel> {
   static const _itemExtent = 48.0;
 
-  final _scrollController = ScrollController();
+  var _scrollController = ScrollController();
   final _followState = LyricFollowState();
   bool _userScrolling = false;
   int? _previewIndex;
@@ -1074,7 +1103,9 @@ class _LyricsPanelState extends State<_LyricsPanel> {
   @override
   Widget build(BuildContext context) {
     final lyrics = controller.currentLyrics;
-    if (controller.isLoadingMetadata && lyrics.isEmpty) {
+    if (controller.isLoadingMetadata &&
+        lyrics.isEmpty &&
+        controller.currentMetadata.lyricsStatus != LyricsStatus.notFound) {
       return _wrapContent(const Center(child: CircularProgressIndicator()));
     }
     if (lyrics.isEmpty) {
@@ -1106,10 +1137,11 @@ class _LyricsPanelState extends State<_LyricsPanel> {
               .clamp(0.0, 1000.0);
           return StreamBuilder<Duration>(
             stream: widget.positionStream ?? controller.positionStream,
+            initialData: controller.audioHandler.currentPosition,
             builder: (context, snapshot) {
-              _resetFollowStateIfLyricsChanged(lyrics);
               final position = snapshot.data ?? Duration.zero;
               final activeIndex = _activeLyricIndex(lyrics, position);
+              _resetFollowStateIfLyricsChanged(lyrics, activeIndex);
               if (!_userScrolling) {
                 _previewIndex = activeIndex;
               }
@@ -1219,10 +1251,19 @@ class _LyricsPanelState extends State<_LyricsPanel> {
     });
   }
 
-  void _resetFollowStateIfLyricsChanged(List<LyricLine> lyrics) {
+  void _resetFollowStateIfLyricsChanged(
+    List<LyricLine> lyrics,
+    int activeIndex,
+  ) {
     if (!identical(_followLyrics, lyrics)) {
       _followLyrics = lyrics;
       _followState.reset();
+      if (!_scrollController.hasClients) {
+        _scrollController.dispose();
+        _scrollController = ScrollController(
+          initialScrollOffset: activeIndex * _itemExtent,
+        );
+      }
     }
   }
 

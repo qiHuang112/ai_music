@@ -11,6 +11,7 @@ import 'app_theme.dart';
 import 'design/controls.dart';
 import 'music_thumbnail.dart';
 import 'playlist_actions.dart';
+import 'initial_song_scroll.dart';
 
 Future<void> showPlaybackQueue(
   BuildContext context,
@@ -168,15 +169,20 @@ class _PlaybackQueueState extends State<PlaybackQueue> {
                       child: Row(
                         children: [
                           Expanded(
-                            child: Text(
-                              _selecting
-                                  ? (strings.isZh
-                                        ? '已选 ${_picked.length} 首'
-                                        : '${_picked.length} selected')
-                                  : (strings.isZh
-                                        ? '当前队列 · ${items.length}'
-                                        : 'Play queue · ${items.length}'),
-                              style: Theme.of(context).textTheme.titleLarge,
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  _selecting
+                                      ? (strings.isZh
+                                            ? '已选 ${_picked.length} 首'
+                                            : '${_picked.length} selected')
+                                      : (strings.isZh
+                                            ? '当前队列 · ${items.length}'
+                                            : 'Play queue · ${items.length}'),
+                                  style: Theme.of(context).textTheme.titleLarge,
+                                ),
+                              ],
                             ),
                           ),
                           if (_selecting) ...[
@@ -246,109 +252,127 @@ class _PlaybackQueueState extends State<PlaybackQueue> {
                         ),
                       ),
                     Expanded(
-                      child: items.isEmpty
-                          ? Center(child: Text(strings.nothingPlaying))
-                          : ReorderableListView.builder(
-                              buildDefaultDragHandles: false,
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 12,
-                                vertical: 8,
-                              ),
-                              itemCount: items.length,
-                              // flutter_ohos does not support onReorderItem
-                              // yet.
-                              // ignore: deprecated_member_use
-                              onReorder: (from, to) =>
-                                  _reorder(items, from, to),
-                              itemBuilder: (context, index) {
-                                final item = items[index];
-                                final active = currentId == item.id;
-                                final picked = _picked.contains(item.id);
-                                void toggle() => setState(() {
-                                  picked
-                                      ? _picked.remove(item.id)
-                                      : _picked.add(item.id);
-                                });
-                                return ListTile(
-                                  key: ValueKey('queue-item-${item.id}'),
-                                  selected: active,
-                                  selectedTileColor: colors.secondaryContainer,
-                                  contentPadding:
-                                      const EdgeInsetsDirectional.only(
-                                        start: 12,
-                                        end: 4,
-                                      ),
-                                  leading: _selecting
-                                      ? Checkbox(
-                                          value: picked,
-                                          onChanged: (_) => toggle(),
-                                        )
-                                      : _QueueCover(
-                                          controller: controller,
-                                          item: item,
-                                          active: active,
-                                        ),
-                                  title: Text(
-                                    item.title,
-                                    maxLines: 1,
-                                    overflow: TextOverflow.ellipsis,
-                                  ),
-                                  subtitle: Text(
-                                    item.artist ?? '',
-                                    maxLines: 1,
-                                    overflow: TextOverflow.ellipsis,
-                                  ),
-                                  trailing: _pending == item.id
-                                      ? const Padding(
-                                          padding: EdgeInsets.all(14),
-                                          child: SizedBox.square(
-                                            dimension: 20,
-                                            child: CircularProgressIndicator(
-                                              strokeWidth: 2,
-                                            ),
+                      child: InitialSongScroll(
+                        ready: items.isNotEmpty,
+                        targetIndex: items.indexWhere(
+                          (item) => item.id == currentId,
+                        ),
+                        builder: (context, scrollController, anchor) =>
+                            items.isEmpty
+                            ? Center(child: Text(strings.nothingPlaying))
+                            : ReorderableListView.builder(
+                                scrollController: scrollController,
+                                buildDefaultDragHandles: false,
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 12,
+                                  vertical: 8,
+                                ),
+                                itemCount: items.length,
+                                // flutter_ohos does not support onReorderItem
+                                // yet.
+                                // ignore: deprecated_member_use
+                                onReorder: (from, to) =>
+                                    _reorder(items, from, to),
+                                itemBuilder: (context, index) {
+                                  final item = items[index];
+                                  final active = currentId == item.id;
+                                  final picked = _picked.contains(item.id);
+                                  void toggle() => setState(() {
+                                    picked
+                                        ? _picked.remove(item.id)
+                                        : _picked.add(item.id);
+                                  });
+                                  return anchor(
+                                    index,
+                                    item.id,
+                                    ListTile(
+                                      key: ValueKey('queue-item-${item.id}'),
+                                      selected: active,
+                                      selectedTileColor:
+                                          colors.secondaryContainer,
+                                      contentPadding:
+                                          const EdgeInsetsDirectional.only(
+                                            start: 12,
+                                            end: 4,
                                           ),
-                                        )
-                                      : active || _selecting
-                                      ? null
-                                      : Row(
-                                          mainAxisSize: MainAxisSize.min,
-                                          children: [
-                                            IconButton(
-                                              tooltip: strings.isZh
-                                                  ? '从队列移除'
-                                                  : 'Remove from queue',
-                                              onPressed: () =>
-                                                  _remove([item.id]),
-                                              icon: Icon(
-                                                Icons.close_rounded,
-                                                size: 20,
-                                                color: colors.onSurfaceVariant,
-                                              ),
+                                      leading: _selecting
+                                          ? Checkbox(
+                                              value: picked,
+                                              onChanged: (_) => toggle(),
+                                            )
+                                          : _QueueCover(
+                                              controller: controller,
+                                              item: item,
+                                              active: active,
                                             ),
-                                            ReorderableDragStartListener(
-                                              index: index,
-                                              child: Tooltip(
-                                                message: strings.dragToReorder,
-                                                child: Padding(
-                                                  padding: const EdgeInsets.all(
-                                                    12,
-                                                  ),
-                                                  child: Icon(
-                                                    Icons.drag_handle_rounded,
+                                      title: Text(
+                                        item.title,
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                      ),
+                                      subtitle: Text(
+                                        item.artist ?? '',
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                      ),
+                                      trailing: _pending == item.id
+                                          ? const Padding(
+                                              padding: EdgeInsets.all(14),
+                                              child: SizedBox.square(
+                                                dimension: 20,
+                                                child:
+                                                    CircularProgressIndicator(
+                                                      strokeWidth: 2,
+                                                    ),
+                                              ),
+                                            )
+                                          : active || _selecting
+                                          ? null
+                                          : Row(
+                                              mainAxisSize: MainAxisSize.min,
+                                              children: [
+                                                IconButton(
+                                                  tooltip: strings.isZh
+                                                      ? '从队列移除'
+                                                      : 'Remove from queue',
+                                                  onPressed: () =>
+                                                      _remove([item.id]),
+                                                  icon: Icon(
+                                                    Icons.close_rounded,
+                                                    size: 20,
                                                     color:
                                                         colors.onSurfaceVariant,
                                                   ),
                                                 ),
-                                              ),
+                                                ReorderableDragStartListener(
+                                                  index: index,
+                                                  child: Tooltip(
+                                                    message:
+                                                        strings.dragToReorder,
+                                                    child: Padding(
+                                                      padding:
+                                                          const EdgeInsets.all(
+                                                            12,
+                                                          ),
+                                                      child: Icon(
+                                                        Icons
+                                                            .drag_handle_rounded,
+                                                        color: colors
+                                                            .onSurfaceVariant,
+                                                      ),
+                                                    ),
+                                                  ),
+                                                ),
+                                              ],
                                             ),
-                                          ],
-                                        ),
-                                  onTap: _selecting
-                                      ? toggle
-                                      : () => _select(item.id),
-                                );
-                              },
-                            ),
+                                      onTap: _selecting
+                                          ? toggle
+                                          : () => _select(item.id),
+                                    ),
+                                  );
+                                },
+                              ),
+                      ),
                     ),
                     // The main thing to do with a selection sits at the
                     // bottom, within reach of the thumb.

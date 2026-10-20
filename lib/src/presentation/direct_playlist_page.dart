@@ -8,6 +8,7 @@ import '../application/music_controller.dart';
 import '../data/music_playlists.dart';
 import '../data/online_playlists.dart';
 import 'app_localizations.dart';
+import 'initial_song_scroll.dart';
 
 class DirectPlaylistPage extends StatefulWidget {
   const DirectPlaylistPage({
@@ -279,78 +280,92 @@ class _DirectPlaylistPageState extends State<DirectPlaylistPage> {
                     ],
                   ),
                 )
-              : PlaylistScrollView(
-                  slivers: [
-                    PlaylistSliverHeader(
-                      title: widget.playlist.name,
-                      actions: actions,
-                    ),
-                    SliverToBoxAdapter(
-                      child: Column(
-                        children: [
-                          ListTile(
-                            leading: MusicThumbnail(
-                              uri: Uri.tryParse(widget.playlist.coverUrl),
-                              label: widget.playlist.name,
-                              size: 48,
-                            ),
-                            title: Text(widget.playlist.source.label),
-                            subtitle: Text(
-                              '${widget.playlist.creator} · ${detail.songs.length} ${zh ? '首' : 'songs'}',
+              : InitialSongScroll(
+                  targetIndex: widget.controller.indexOfCurrentOnlineSong(
+                    widget.playlist.source,
+                    detail.songs,
+                  ),
+                  builder: (context, scrollController, anchor) =>
+                      PlaylistScrollView(
+                        controller: scrollController,
+                        slivers: [
+                          PlaylistSliverHeader(
+                            title: widget.playlist.name,
+                            actions: actions,
+                          ),
+                          SliverToBoxAdapter(
+                            child: Column(
+                              children: [
+                                ListTile(
+                                  leading: MusicThumbnail(
+                                    uri: Uri.tryParse(widget.playlist.coverUrl),
+                                    label: widget.playlist.name,
+                                    size: 48,
+                                  ),
+                                  title: Text(widget.playlist.source.label),
+                                  subtitle: Text(
+                                    '${widget.playlist.creator} · ${detail.songs.length} ${zh ? '首' : 'songs'}',
+                                  ),
+                                ),
+                                if (_error != null)
+                                  Padding(
+                                    padding: const EdgeInsets.all(12),
+                                    child: Text(_error!),
+                                  ),
+                                if (_saving) const LinearProgressIndicator(),
+                              ],
                             ),
                           ),
-                          if (_error != null)
-                            Padding(
-                              padding: const EdgeInsets.all(12),
-                              child: Text(_error!),
+                          SliverList.builder(
+                            itemCount: detail.songs.length,
+                            itemBuilder: (context, i) {
+                              final song = detail.songs[i];
+                              return anchor(
+                                i,
+                                song.id,
+                                ListTile(
+                                  key: ValueKey('direct-song-$i'),
+                                  onTap: _playingIndex == i
+                                      ? null
+                                      : () => _play(i),
+                                  leading: IconButton(
+                                    key: ValueKey('direct-play-song-$i'),
+                                    tooltip: zh ? '播放' : 'Play',
+                                    onPressed: _playingIndex == i
+                                        ? null
+                                        : () => _play(i),
+                                    icon: _playingIndex == i
+                                        ? const SizedBox.square(
+                                            dimension: 20,
+                                            child: CircularProgressIndicator(
+                                              strokeWidth: 2,
+                                            ),
+                                          )
+                                        : const Icon(Icons.play_arrow_rounded),
+                                  ),
+                                  title: Text(
+                                    song.title,
+                                    maxLines: 2,
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                  subtitle: Text(
+                                    song.artist,
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                ),
+                              );
+                            },
+                          ),
+                          SliverToBoxAdapter(
+                            child: Builder(
+                              builder: (context) => SizedBox(
+                                height: MusicUi.scrollInsets(context).bottom,
+                              ),
                             ),
-                          if (_saving) const LinearProgressIndicator(),
+                          ),
                         ],
                       ),
-                    ),
-                    SliverList.builder(
-                      itemCount: detail.songs.length,
-                      itemBuilder: (context, i) {
-                        final song = detail.songs[i];
-                        return ListTile(
-                          key: ValueKey('direct-song-$i'),
-                          onTap: _playingIndex == i ? null : () => _play(i),
-                          leading: IconButton(
-                            key: ValueKey('direct-play-song-$i'),
-                            tooltip: zh ? '播放' : 'Play',
-                            onPressed: _playingIndex == i
-                                ? null
-                                : () => _play(i),
-                            icon: _playingIndex == i
-                                ? const SizedBox.square(
-                                    dimension: 20,
-                                    child: CircularProgressIndicator(
-                                      strokeWidth: 2,
-                                    ),
-                                  )
-                                : const Icon(Icons.play_arrow_rounded),
-                          ),
-                          title: Text(
-                            song.title,
-                            maxLines: 2,
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                          subtitle: Text(
-                            song.artist,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                        );
-                      },
-                    ),
-                    SliverToBoxAdapter(
-                      child: Builder(
-                        builder: (context) => SizedBox(
-                          height: MusicUi.scrollInsets(context).bottom,
-                        ),
-                      ),
-                    ),
-                  ],
                 ),
         ),
       ),

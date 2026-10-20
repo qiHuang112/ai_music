@@ -10,9 +10,11 @@ class PlaylistScrollView extends StatefulWidget {
   const PlaylistScrollView({
     super.key,
     required this.slivers,
+    this.controller,
     this.keyboardDismissBehavior = ScrollViewKeyboardDismissBehavior.manual,
   });
   final List<Widget> slivers;
+  final ScrollController? controller;
   final ScrollViewKeyboardDismissBehavior keyboardDismissBehavior;
 
   @override
@@ -79,6 +81,7 @@ class _PlaylistScrollViewState extends State<PlaylistScrollView> {
       NotificationListener<ScrollNotification>(
         onNotification: _onScroll,
         child: CustomScrollView(
+          controller: widget.controller,
           keyboardDismissBehavior: widget.keyboardDismissBehavior,
           slivers: [
             for (final sliver in widget.slivers)

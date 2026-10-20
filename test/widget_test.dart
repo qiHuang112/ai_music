@@ -43,6 +43,33 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
+  testWidgets('playing from favorites records its source for cold restore', (
+    tester,
+  ) async {
+    final f = _homeLibraryFixture();
+    final controller = _ControlledPlaybackController(
+      f.playlistStore,
+      cacheStore: f.cacheStore,
+    );
+    try {
+      await tester.pumpWidget(_app(playbackController: controller));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('home-favorites-entry')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Alpha'));
+      await tester.pump();
+      expect(controller.playlistIds, [favoritePlaylistId]);
+      controller.pending.single.complete();
+      await tester.pumpAndSettle();
+    } finally {
+      for (final pending in controller.pending) {
+        if (!pending.isCompleted) pending.complete();
+      }
+      await tester.pumpWidget(const SizedBox.shrink());
+      controller.dispose();
+    }
+  });
+
   testWidgets(
     'create playlist stays centered and avoids overlapping entrance and keyboard motion',
     (tester) async {
@@ -1751,8 +1778,8 @@ void main() {
     expect(find.text('周杰伦歌曲'), findsOneWidget);
     await tester.tap(toggle);
     await tester.pumpAndSettle();
-    expect(playlists.queries, ['周杰伦', '周杰伦']);
-    expect(find.text('周杰伦歌单'), findsNWidgets(2));
+    expect(playlists.queries, ['周杰伦', '周杰伦', '周杰伦']);
+    expect(find.text('周杰伦歌单'), findsNWidgets(3));
     expect(find.text('周杰伦歌曲'), findsNothing);
     expect(history.entries(SearchHistoryKind.song), ['周杰伦']);
     expect(history.entries(SearchHistoryKind.playlist), ['周杰伦']);
@@ -1950,6 +1977,170 @@ void main() {
     );
     expect(cancel, findsNothing);
   });
+
+  testWidgets(
+    'opening a long queue locates current song once and reopens at the new song',
+    (tester) async {
+      final handler = _WidgetAudioHandler();
+      final controller = _QueueUiController(handler);
+      final items = List.generate(
+        200,
+        (i) => MediaItem(id: '$i', title: 'Queue song $i', artist: 'Artist'),
+      );
+      Widget app() => AppStringsScope(
+        language: AppLanguage.zh,
+        child: MaterialApp(
+          home: Builder(
+            builder: (context) => Scaffold(
+              body: TextButton(
+                onPressed: () => showPlaybackQueue(context, controller),
+                child: const Text('Open queue'),
+              ),
+            ),
+          ),
+        ),
+      );
+      try {
+        await tester.pumpWidget(app());
+        await tester.pumpAndSettle();
+        handler.queue.add(items);
+        handler.emit(items[160]);
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('Open queue'));
+        await tester.pumpAndSettle();
+        expect(
+          find.byKey(const ValueKey('queue-item-160')).hitTestable(),
+          findsOneWidget,
+        );
+        final scroll = tester
+            .state<ScrollableState>(find.byType(Scrollable).first)
+            .position;
+        await tester.drag(
+          find.byType(ReorderableListView),
+          const Offset(0, 300),
+        );
+        await tester.pumpAndSettle();
+        final offset = scroll.pixels;
+        handler.emit(items[180]);
+        handler.queue.add([...items]);
+        await tester.pumpAndSettle();
+        expect(scroll.pixels, offset);
+        Navigator.of(tester.element(find.byType(PlaybackQueue))).pop();
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('Open queue'));
+        await tester.pumpAndSettle();
+        expect(
+          find.byKey(const ValueKey('queue-item-180')).hitTestable(),
+          findsOneWidget,
+        );
+        expect(tester.takeException(), isNull);
+      } finally {
+        await tester.pumpWidget(const SizedBox());
+        controller.dispose();
+        unawaited(controller.positions.close());
+        unawaited(handler.dispose());
+      }
+    },
+  );
+
+  testWidgets(
+    'opening a saved long playlist locates current song and preserves browsing',
+    (tester) async {
+      final records = List.generate(180, (i) {
+        final music = _resolvedMusic(
+          id: 'locate-$i',
+          name: 'Locate song $i',
+          artist: 'Artist',
+        );
+        return CachedTrack(
+          cacheId: cacheIdForResolved(music),
+          music: music,
+          filePath: '/tmp/locate-$i.mp3',
+          sizeBytes: 4,
+          fromCache: true,
+        );
+      });
+      final fixture = _homeLibraryFixture();
+      fixture.cacheStore.cached
+        ..clear()
+        ..addAll(records);
+      fixture.playlistStore.library = PlaylistLibrary(
+        playlists: [
+          MusicPlaylist(
+            id: 'long',
+            name: 'Locate playlist',
+            createdAt: DateTime(2026),
+            updatedAt: DateTime(2026),
+            entries: [
+              for (final record in records)
+                PlaylistTrackEntry(
+                  trackId: record.cacheId,
+                  addedAt: DateTime(2026),
+                ),
+            ],
+          ),
+        ],
+      );
+      final handler = _WidgetAudioHandler();
+      final controller = _QueueUiController(handler, fixture: fixture);
+      try {
+        await tester.pumpWidget(_app(playbackController: controller));
+        await tester.pumpAndSettle();
+        handler.emit(
+          MediaItem(id: records[150].cacheId, title: records[150].music.name),
+        );
+        await tester.pumpAndSettle();
+        await tester.tap(find.byTooltip('音乐库'));
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('Locate playlist'));
+        await tester.pumpAndSettle();
+        expect(
+          find
+              .descendant(
+                of: find.byType(CustomScrollView).last,
+                matching: find.text('Locate song 150'),
+              )
+              .hitTestable(),
+          findsOneWidget,
+        );
+        final view = find.byType(CustomScrollView).last;
+        final scroll = tester
+            .state<ScrollableState>(
+              find
+                  .descendant(of: view, matching: find.byType(Scrollable))
+                  .first,
+            )
+            .position;
+        await tester.drag(view, const Offset(0, 350));
+        await tester.pumpAndSettle();
+        final offset = scroll.pixels;
+        handler.emit(
+          MediaItem(id: records[165].cacheId, title: records[165].music.name),
+        );
+        await tester.pumpAndSettle();
+        expect(scroll.pixels, offset);
+        await tester.pageBack();
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('Locate playlist'));
+        await tester.pumpAndSettle();
+        expect(
+          find
+              .descendant(
+                of: find.byType(CustomScrollView).last,
+                matching: find.text('Locate song 165'),
+              )
+              .hitTestable(),
+          findsOneWidget,
+        );
+        expect(tester.takeException(), isNull);
+      } finally {
+        await tester.pumpWidget(const SizedBox());
+        controller.dispose();
+        unawaited(controller.positions.close());
+        unawaited(handler.dispose());
+      }
+    },
+  );
 
   testWidgets('queue sheet reorders, removes, batch-removes and clears', (
     tester,
@@ -4531,18 +4722,21 @@ class _MemorySearchHistoryStore extends SearchHistoryStore {
 }
 
 class _ControlledPlaybackController extends MusicController {
-  _ControlledPlaybackController(_FakePlaylistStore playlists)
-    : super(
-        downloadHistoryStore: MemoryDownloadHistory(),
-        audioHandler: MusicAudioHandler(),
-        resolver: _FakeMusicResolver(),
-        cacheStore: _FakeCacheStore(),
-        playlistStore: playlists,
-        settingsStore: _FakeSettingsStore(),
-        metadataRepository: _FakeMetadataRepository(),
-      );
+  _ControlledPlaybackController(
+    _FakePlaylistStore playlists, {
+    _FakeCacheStore? cacheStore,
+  }) : super(
+         downloadHistoryStore: MemoryDownloadHistory(),
+         audioHandler: MusicAudioHandler(),
+         resolver: _FakeMusicResolver(),
+         cacheStore: cacheStore ?? _FakeCacheStore(),
+         playlistStore: playlists,
+         settingsStore: _FakeSettingsStore(),
+         metadataRepository: _FakeMetadataRepository(),
+       );
 
   final pending = <Completer<void>>[];
+  final playlistIds = <String?>[];
 
   @override
   Future<void> playTrack(
@@ -4552,6 +4746,7 @@ class _ControlledPlaybackController extends MusicController {
     String? playlistId,
   }) {
     final completion = Completer<void>();
+    playlistIds.add(playlistId);
     pending.add(completion);
     return completion.future;
   }

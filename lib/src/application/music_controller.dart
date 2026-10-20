@@ -14,7 +14,9 @@ import 'dart:io';
 import 'package:audio_service/audio_service.dart';
 import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:crypto/crypto.dart';
+import 'package:flutter/widgets.dart';
 import 'package:flutter/foundation.dart';
+import '../data/playback_session_store.dart';
 import 'package:just_audio/just_audio.dart';
 
 import '../data/lyrics_artwork.dart';
@@ -100,7 +102,7 @@ class PlaylistDownloadProgress {
 ///
 /// 搜索、下载、播放、歌单和元数据的核心流程分别下沉到 use case。
 /// 这里保留 ChangeNotifier 状态，是为了让页面只依赖一个稳定入口。
-class MusicController extends ChangeNotifier {
+class MusicController extends ChangeNotifier with WidgetsBindingObserver {
   MusicController({
     required this.audioHandler,
     MusicResolver? resolver,
@@ -120,7 +122,9 @@ class MusicController extends ChangeNotifier {
     AppUpdateController? appUpdates,
     SongSearchCache? songSearchCache,
     OnlinePlaylistRepository? playlistMetadataRepository,
+    PlaybackSessionStore? playbackSessionStore,
   }) : _resolver = resolver ?? RemoteMusicResolver(),
+       _playbackSessionStore = playbackSessionStore,
        _cacheStore = cacheStore ?? CachedTrackStore(),
        _playlistMetadataRepository =
            playlistMetadataRepository ?? OnlinePlaylistRepository(),
@@ -208,6 +212,7 @@ class MusicController extends ChangeNotifier {
     );
     String? lastPlaybackStatus;
     _playbackSubscription = audioHandler.playbackState.listen((state) {
+      _schedulePlaybackSave();
       final status =
           '${state.processingState.name}:${state.playing}:${state.errorMessage}';
       if (status != lastPlaybackStatus) {
@@ -237,6 +242,177 @@ class MusicController extends ChangeNotifier {
   }
 
   final OnlinePlaylistRepository _playlistMetadataRepository;
+  final PlaybackSessionStore? _playbackSessionStore;
+  bool _playbackSessionReady = false;
+  bool _playbackSessionInitialized = false;
+  Timer? _playbackSaveDebounce, _playbackCheckpointTimer;
+  StreamSubscription<List<MediaItem>>? _sessionQueueSubscription;
+  String? _restoredOriginName;
+
+  bool get isAwaitingPlayback => audioHandler.isAwaitingPlayback;
+  String? get playbackPlaylistId => _queuePlaylistId;
+  String? get playbackOriginName => _queuePlaylistId == favoritePlaylistId
+      ? (language == AppLanguage.zh ? '我的收藏' : 'My favorites')
+      : allPlaylists.where((p) => p.id == _queuePlaylistId).firstOrNull?.name ??
+            _restoredOriginName;
+
+  PlaybackSession? _capturePlaybackSession() {
+    final current = audioHandler.mediaItem.value;
+    if (current == null || !_activeQueueTracks.any((t) => t.id == current.id)) {
+      return null;
+    }
+    return PlaybackSession(
+      tracks: [
+        for (final t in _activeQueueTracks)
+          t.id == current.id
+              ? t.copyWith(
+                  duration: current.duration,
+                  artworkUri: current.artUri,
+                )
+              : t,
+      ],
+      entries: [
+        for (final t in _activeQueueTracks)
+          if (_songEntry(t.id) case final entry?)
+            entry
+          else if (_adHocPlayCandidates[t.id] case final candidate?)
+            PlaylistTrackEntry(
+              trackId: t.id,
+              addedAt: DateTime(1970),
+              onlineTrack: SavedOnlineTrack(candidate: candidate),
+            ),
+      ],
+      currentId: current.id,
+      position: audioHandler.currentPosition,
+      playlistId: _queuePlaylistId,
+      followingPlaylistId: _activePlaylistId,
+      originName: playbackOriginName,
+      mode: playbackMode,
+      removedIds: Set.of(_userRemovedQueueIds),
+    );
+  }
+
+  Future<void> _savePlaybackSession(PlaybackSession? snapshot) async {
+    if (snapshot == null) return;
+    try {
+      await _playbackSessionStore?.save(snapshot);
+    } catch (error) {
+      OperationLog.event('playback.session.save.failed', {
+        'error': error.toString(),
+      });
+    }
+  }
+
+  Future<void> flushPlaybackSession() async {
+    if (!_playbackSessionReady || _isDisposed) return;
+    _playbackSaveDebounce?.cancel();
+    await _savePlaybackSession(_capturePlaybackSession());
+  }
+
+  void _schedulePlaybackSave() {
+    if (!_playbackSessionReady || _isDisposed) return;
+    _playbackSaveDebounce?.cancel();
+    _playbackSaveDebounce = Timer(
+      const Duration(milliseconds: 50),
+      () => unawaited(flushPlaybackSession()),
+    );
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state != AppLifecycleState.resumed) unawaited(flushPlaybackSession());
+  }
+
+  Future<void> _initializePlaybackSession(int request) async {
+    final store = _playbackSessionStore;
+    if (store == null || _playbackSessionInitialized || _isDisposed) return;
+    _playbackSessionInitialized = true;
+    try {
+      final saved = await store.load();
+      if (saved != null &&
+          !_isDisposed &&
+          request == _playRequest &&
+          audioHandler.mediaItem.value == null) {
+        final fresh = {
+          for (final t in [...cachedTracks, ...onlineTracks]) t.id: t,
+        };
+        final entries = {for (final e in saved.entries) e.trackId: e};
+        final tracks = <Track>[];
+        for (final old in saved.tracks) {
+          var track = fresh[old.id] ?? old;
+          if (old.duration != null && old.duration! > Duration.zero) {
+            track = track.copyWith(duration: old.duration);
+          }
+          final entry = _librarySongEntry(old.id) ?? entries[old.id];
+          if (entry?.onlineTrack != null || entry?.song != null) {
+            track = track.copyWith(filePath: '', source: '');
+          } else if (track.source.isEmpty &&
+              (track.filePath.isEmpty ||
+                  !await File(track.filePath).exists())) {
+            continue;
+          }
+          tracks.add(track);
+        }
+        if (!_isDisposed &&
+            request == _playRequest &&
+            audioHandler.mediaItem.value == null &&
+            tracks.isNotEmpty) {
+          var index = tracks.indexWhere((t) => t.id == saved.currentId);
+          final position = index < 0 ? Duration.zero : saved.position;
+          if (index < 0) index = 0;
+          final prior = _playLoadTail;
+          final done = Completer<void>();
+          _playLoadTail = done.future;
+          await prior;
+          try {
+            if (!_isDisposed &&
+                request == _playRequest &&
+                audioHandler.mediaItem.value == null) {
+              _activeQueueTracks = tracks;
+              _queueSongEntries.addAll(entries);
+              _queuePlaylistId = saved.playlistId;
+              _activePlaylistId = saved.followingPlaylistId;
+              _restoredOriginName = saved.originName;
+              _userRemovedQueueIds.addAll(saved.removedIds);
+              playbackMode = saved.mode;
+              await playbackUseCase.restoreQueue(
+                tracks,
+                index: index,
+                position: position,
+              );
+              await setPlaybackMode(playbackMode);
+              OperationLog.event('playback.session.restored', {
+                'trackId': tracks[index].id,
+                'playlistId': saved.playlistId,
+                'queueLength': tracks.length,
+                'positionMs': position.inMilliseconds,
+                'playing': false,
+              });
+            }
+          } finally {
+            done.complete();
+          }
+        }
+      }
+    } catch (error) {
+      OperationLog.event('playback.session.restore.failed', {
+        'error': error.toString(),
+      });
+    }
+    if (_isDisposed) return;
+    _playbackSessionReady = true;
+    addListener(_schedulePlaybackSave);
+    WidgetsBinding.instance.addObserver(this);
+    _sessionQueueSubscription = audioHandler.queue.listen(
+      (_) => _schedulePlaybackSave(),
+    );
+    _playbackCheckpointTimer = Timer.periodic(const Duration(seconds: 2), (_) {
+      if (audioHandler.playbackState.value.playing) {
+        unawaited(flushPlaybackSession());
+      }
+    });
+  }
+
   final _originalMetadataRepairs = <String, Future<void>>{};
 
   final MusicAudioHandler audioHandler;
@@ -435,6 +611,7 @@ class MusicController extends ChangeNotifier {
   int _searchRequest = 0;
   String? _activeSearchKey;
   String? _metadataTrackId;
+  final _metadataLoads = <(String, int, int), Future<void>>{};
   final Set<String> _autoMetadataRecoveryAttempted = {};
   final Set<String> _timedLyricsUpgradeAttempted = {};
   bool _legacyRepairRunning = false;
@@ -529,6 +706,58 @@ class MusicController extends ChangeNotifier {
     return _trackForMediaId(item.id);
   }
 
+  int indexOfCurrentSong(List<Track> tracks) {
+    final current = currentTrack;
+    if (current == null) return -1;
+    final exact = tracks.indexWhere((track) => track.id == current.id);
+    if (exact >= 0) return exact;
+    final original = originalSongForTrack(current);
+    if (original != null) {
+      final ids = {
+        for (final entry in [
+          ..._playlistLibrary.favoriteEntries,
+          for (final playlist in _playlistLibrary.playlists)
+            ...playlist.entries,
+          ..._queueSongEntries.values,
+        ])
+          if (entry.song?.key == original.key) entry.trackId,
+      };
+      final byOriginal = tracks.indexWhere((track) => ids.contains(track.id));
+      if (byOriginal >= 0) return byOriginal;
+    }
+    final cached = _cachedRecordForTrack(current);
+    if (cached == null) return -1;
+    return tracks.indexWhere(
+      (track) =>
+          track.id == cached.cacheId ||
+          _cachedRecordForTrack(track)?.cacheId == cached.cacheId,
+    );
+  }
+
+  int indexOfCurrentOnlineSong(
+    OnlinePlaylistSource source,
+    List<OnlinePlaylistSong> songs,
+  ) {
+    final current = currentTrack;
+    if (current == null) return -1;
+    final original = originalSongForTrack(current);
+    if (original != null) {
+      return songs.indexWhere(
+        (song) => original.key == '${source.name}:${song.id}',
+      );
+    }
+    // A standalone cached track may not carry its original playlist ID.
+    // Keep the full title (including version) and artist comparison strict.
+    return songs.indexWhere(
+      (song) =>
+          current.title.trim().toLowerCase() ==
+              song.title.trim().toLowerCase() &&
+          current.artist.trim().isNotEmpty &&
+          current.artist.trim().toLowerCase() ==
+              song.artist.trim().toLowerCase(),
+    );
+  }
+
   Track? _trackForMediaId(String id) => [
     ..._activeQueueTracks,
     ...cachedTracks,
@@ -588,6 +817,7 @@ class MusicController extends ChangeNotifier {
   }
 
   Future<void> initialize() async {
+    final playbackRequest = _playRequest;
     unawaited(listeningStats.load());
     unawaited(appUpdates.check());
     unawaited(_loadPlaylistUsage());
@@ -607,6 +837,7 @@ class MusicController extends ChangeNotifier {
     defaultDownloadQuality = settings.defaultDownloadQuality;
     await _cacheStore.cleanupTemporaryFiles();
     await loadCache();
+    await _initializePlaybackSession(playbackRequest);
     notifyListeners();
   }
 
@@ -1465,6 +1696,7 @@ class MusicController extends ChangeNotifier {
         request == _playRequest &&
         !_isDisposed &&
         (recoveryIsCurrent?.call() ?? true);
+    audioHandler.cancelRestorePlaybackRequest();
     await _playbackPrefetch.cancel();
     if (!isCurrent()) return;
     final hadEntry = _songEntry(track.id) != null;
@@ -1505,6 +1737,7 @@ class MusicController extends ChangeNotifier {
       for (final track in previousQueue) track.id: ?_queueSongEntries[track.id],
     };
     final previousQueuePlaylist = _queuePlaylistId;
+    final previousOriginName = _restoredOriginName;
     final previousActivePlaylist = _activePlaylistId;
     final previousRetired = Set.of(_retiredQueueTrackIds);
     final previousUserRemoved = Set.of(_userRemovedQueueIds);
@@ -1555,6 +1788,7 @@ class MusicController extends ChangeNotifier {
       loadingQueue = queue;
       _activeQueueTracks = queue;
       _queuePlaylistId = selectedPlaylistId;
+      if (!selectFromQueue) _restoredOriginName = null;
       _loadingOnlineTrackId = preparedSource == null ? null : prepared.id;
       final loaded = await playbackUseCase.playTrack(
         prepared,
@@ -1593,6 +1827,7 @@ class MusicController extends ChangeNotifier {
           audioHandler.mediaItem.value?.id == previousMediaId) {
         _activeQueueTracks = previousQueue;
         _queuePlaylistId = previousQueuePlaylist;
+        _restoredOriginName = previousOriginName;
         _activePlaylistId = previousActivePlaylist;
         _retiredQueueTrackIds
           ..clear()
@@ -1655,12 +1890,17 @@ class MusicController extends ChangeNotifier {
   /// Queue edits wait their turn behind loads and background appends, so two
   /// of them never rewrite the source list at once.
   Future<void> _editQueue(Future<void> Function() edit) async {
+    final request = _playRequest;
+    // Do not own the load lock while waiting for first-resume preparation:
+    // stop/new selection must be able to cancel it and release this waiter.
+    await audioHandler.waitForRestorePreparation();
+    if (_isDisposed || request != _playRequest) return;
     final prior = _playLoadTail;
     final done = Completer<void>();
     _playLoadTail = done.future;
     await prior;
     try {
-      if (_isDisposed) return;
+      if (_isDisposed || request != _playRequest) return;
       await edit();
       _lyricsPrefetchQueueKey = null;
       _maybePrefetchNext();
@@ -1789,10 +2029,20 @@ class MusicController extends ChangeNotifier {
     _replaceQueueSongEntries(const {});
     _activeQueueTracks = const [];
     _queuePlaylistId = null;
+    _restoredOriginName = null;
     _lyricsPrefetchQueueKey = null;
     _lyricsPrefetchRequest += 1;
     await _playLoadTail;
     await playbackUseCase.stop();
+    if (_playbackSessionReady && _activeQueueTracks.isEmpty) {
+      try {
+        await _playbackSessionStore?.save(null);
+      } catch (error) {
+        OperationLog.event('playback.session.save.failed', {
+          'error': error.toString(),
+        });
+      }
+    }
   }
 
   Future<File> _prepareOnlineTrack(Track track) async {
@@ -2456,12 +2706,16 @@ class MusicController extends ChangeNotifier {
       );
       await loadMetadataForCurrentTrack();
     } else {
+      final playRequest = _playRequest;
+      await audioHandler.waitForRestorePreparation();
+      if (_isDisposed || playRequest != _playRequest) return;
       final prior = _playLoadTail;
       final done = Completer<void>();
       _playLoadTail = done.future;
       await prior;
       try {
-        if ((_songSourceRevisions[track.id] ?? 0) != revision ||
+        if (playRequest != _playRequest ||
+            (_songSourceRevisions[track.id] ?? 0) != revision ||
             _activePlaylistId != playlistId) {
           return;
         }
@@ -2500,6 +2754,9 @@ class MusicController extends ChangeNotifier {
       sourceMode: _sourceModeForTrack(track),
     );
     if (cached != null && await File(cached.filePath).exists()) {
+      // Native playback announces a deferred item before this cached-source
+      // branch finishes matching it. Lyrics must be notified here as well.
+      _metadataRecordReady(track.id);
       return OnDemandAudioSource(
         tag: mediaItemFromTrack(track),
         prepare: () async => File(cached.filePath),
@@ -2553,6 +2810,7 @@ class MusicController extends ChangeNotifier {
       fromCache: false,
       playbackCache: true,
     );
+    _metadataRecordReady(track.id);
     if (await target.exists()) {
       prefetchToken?.check();
       final recovered = await _cacheStore.finishPlaybackCache(resolved, target);
@@ -2883,6 +3141,7 @@ class MusicController extends ChangeNotifier {
           if (record == null) return;
           try {
             await metadataUseCase.prefetchLyrics(record);
+            _metadataRecordReady(track.id);
           } catch (_) {
             // Lyrics prefetch is best effort and never interrupts playback.
           }
@@ -3002,6 +3261,11 @@ class MusicController extends ChangeNotifier {
   Future<void> loadMetadataForCurrentTrack() async {
     final track = currentTrack;
     if (track == null) {
+      return;
+    }
+    if (_metadataTrackId == track.id &&
+        !isLoadingMetadata &&
+        currentMetadata.hasLyrics) {
       return;
     }
     await _loadMetadataForTrack(track);
@@ -3314,6 +3578,7 @@ class MusicController extends ChangeNotifier {
   ) async {
     if (_activePlaylistId != playlist.id) return;
     final request = _playRequest;
+    await audioHandler.waitForRestorePreparation();
     final prior = _playLoadTail;
     final done = Completer<void>();
     _playLoadTail = done.future;
@@ -3389,6 +3654,7 @@ class MusicController extends ChangeNotifier {
   ) async {
     if (_activePlaylistId != playlist.id) return;
     final request = _playRequest;
+    await audioHandler.waitForRestorePreparation();
     final prior = _playLoadTail;
     final done = Completer<void>();
     _playLoadTail = done.future;
@@ -4072,6 +4338,11 @@ class MusicController extends ChangeNotifier {
     _applyLibrarySnapshot(
       libraryUseCase.applyCachedRecords(records, _playlistLibrary),
     );
+    final track = currentTrack;
+    if (track != null &&
+        _cachedRecordForTrack(track)?.cacheId == record.cacheId) {
+      _metadataRecordReady(track.id);
+    }
   }
 
   CachedTrack? _cachedRecordForCandidate(
@@ -4169,6 +4440,7 @@ class MusicController extends ChangeNotifier {
   }
 
   void _handleMediaItemChanged(MediaItem? item) {
+    _schedulePlaybackSave();
     if (item != null &&
         _activePlaylistId != null &&
         _retiredQueueTrackIds.isNotEmpty &&
@@ -4214,6 +4486,7 @@ class MusicController extends ChangeNotifier {
     _retiredQueueCleanupRunning = true;
     final request = _playRequest;
     final playlistId = _activePlaylistId;
+    await audioHandler.waitForRestorePreparation();
     final prior = _playLoadTail;
     final done = Completer<void>();
     _playLoadTail = done.future;
@@ -4244,11 +4517,33 @@ class MusicController extends ChangeNotifier {
     }
   }
 
-  Future<void> _loadMetadataForTrack(Track track) async {
+  Future<void> _loadMetadataForTrack(Track track) {
+    final key = (
+      track.id,
+      _songSourceRevisions[track.id] ?? 0,
+      _sourcePreferenceRevision,
+    );
+    final pending = _metadataLoads[key];
+    if (pending != null && _metadataTrackId == track.id) return pending;
+    final work = _loadMetadataForTrackNow(track);
+    _metadataLoads[key] = work;
+    return work.whenComplete(() {
+      if (identical(_metadataLoads[key], work)) {
+        _metadataLoads.remove(key);
+      }
+    });
+  }
+
+  Future<void> _loadMetadataForTrackNow(Track track) async {
+    final sameTrack = _metadataTrackId == track.id;
     _metadataTrackId = track.id;
     // 切歌时歌词/封面请求可能晚返回；request id 保证只写入当前歌曲的结果。
     final request = ++_metadataRequest;
     final cached = _cachedRecordForTrack(track);
+    OperationLog.event('lyrics.load', {
+      'trackId': track.id,
+      'recordReady': cached != null,
+    });
     if (cached == null) {
       if (!_isActiveMetadataRequest(request, track)) {
         return;
@@ -4259,7 +4554,9 @@ class MusicController extends ChangeNotifier {
       notifyListeners();
       return;
     }
-    currentMetadata = TrackMetadata(artworkUri: track.artworkUri);
+    if (!sameTrack) {
+      currentMetadata = TrackMetadata(artworkUri: track.artworkUri);
+    }
     metadataError = null;
     isLoadingMetadata = true;
     notifyListeners();
@@ -4273,6 +4570,11 @@ class MusicController extends ChangeNotifier {
         return;
       }
       currentMetadata = metadata;
+      OperationLog.event('lyrics.loaded', {
+        'trackId': track.id,
+        'status': metadata.lyricsStatus.name,
+        'lines': metadata.lyrics.length,
+      });
       if (cached.music.source == MusicDataSource.buguyy &&
           metadata.hasLyrics &&
           !metadata.lyrics.any((line) => line.time > Duration.zero) &&
@@ -4323,8 +4625,27 @@ class MusicController extends ChangeNotifier {
   }
 
   Future<void> _primeMetadataForCached(CachedTrack cached) async {
+    final track = currentTrack;
+    final revision = _songSourceRevisions[track?.id] ?? 0;
+    final sourceRevision = _sourcePreferenceRevision;
     try {
       final metadata = await metadataUseCase.load(cached);
+      if (!_isDisposed &&
+          metadata.hasLyrics &&
+          !currentMetadata.hasLyrics &&
+          track != null &&
+          currentTrack?.id == track.id &&
+          (_songSourceRevisions[track.id] ?? 0) == revision &&
+          _sourcePreferenceRevision == sourceRevision &&
+          _cachedRecordForTrack(track)?.cacheId == cached.cacheId) {
+        // A background cache fill must reach the current player immediately.
+        _metadataRequest++;
+        _metadataTrackId = track.id;
+        currentMetadata = metadata;
+        metadataError = null;
+        isLoadingMetadata = false;
+        notifyListeners();
+      }
       if (!_isDisposed &&
           _rememberLibraryArtwork(cached, metadata.artworkUri)) {
         notifyListeners();
@@ -4364,13 +4685,43 @@ class MusicController extends ChangeNotifier {
 
   Future<void> autoRecoverMetadataForCurrentTrack() async {
     final track = currentTrack;
-    if (track == null || currentLyrics.isNotEmpty || isLoadingMetadata) {
+    if (track == null ||
+        currentLyrics.isNotEmpty ||
+        isLoadingMetadata ||
+        currentMetadata.lyricsStatus != LyricsStatus.unknown ||
+        metadataError != null) {
       return;
     }
+    // A deferred queue item has no resolvable metadata until audio preparation
+    // completes. Its ready event will trigger loading, without spending retry.
+    if (_cachedRecordForTrack(track) == null) return;
     if (!_autoMetadataRecoveryAttempted.add(track.id)) {
       return;
     }
     await recoverMetadataForCurrentTrack();
+  }
+
+  void _metadataRecordReady(String trackId) {
+    final track = currentTrack;
+    if (_isDisposed || track == null || track.id != trackId) return;
+    final key = (
+      trackId,
+      _songSourceRevisions[trackId] ?? 0,
+      _sourcePreferenceRevision,
+    );
+    unawaited(() async {
+      final pending = _metadataLoads[key];
+      if (pending != null) await pending;
+      if (_isDisposed ||
+          currentTrack?.id != trackId ||
+          (_songSourceRevisions[trackId] ?? 0) != key.$2 ||
+          _sourcePreferenceRevision != key.$3 ||
+          (_metadataTrackId == trackId && currentMetadata.hasLyrics)) {
+        return;
+      }
+      OperationLog.event('lyrics.record.ready', {'trackId': trackId});
+      await _loadMetadataForTrack(track);
+    }());
   }
 
   Future<void> recoverMetadataForCurrentTrack({
@@ -4566,6 +4917,15 @@ class MusicController extends ChangeNotifier {
 
   @override
   void dispose() {
+    if (_playbackSessionReady) {
+      unawaited(_savePlaybackSession(_capturePlaybackSession()));
+      _playbackSessionReady = false;
+      removeListener(_schedulePlaybackSave);
+      WidgetsBinding.instance.removeObserver(this);
+    }
+    _playbackSaveDebounce?.cancel();
+    _playbackCheckpointTimer?.cancel();
+    unawaited(_sessionQueueSubscription?.cancel());
     performanceMonitor.dispose();
     unawaited(_listeningRecorder.close());
     appUpdates.dispose();

@@ -31,6 +31,20 @@ class PlaybackUseCase {
     _lastQueueSignature = null;
   }
 
+  Future<void> restoreQueue(
+    List<Track> tracks, {
+    required int index,
+    required Duration position,
+  }) async {
+    await audioHandler.restoreQueue(
+      [for (final track in tracks) _playableFromTrack(track)],
+      initialIndex: index,
+      initialPosition: position,
+    );
+    _lastRequestedTrackId = tracks[index].id;
+    _lastQueueSignature = _queueSignature(tracks);
+  }
+
   Future<bool> playTrack(
     Track track, {
     int? index,

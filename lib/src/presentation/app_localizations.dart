@@ -210,6 +210,7 @@ class AppStrings {
       isZh ? '清除搜索后可调整顺序' : 'Clear search to adjust order';
   String get lyrics => isZh ? '歌词' : 'Lyrics';
   String get noLyrics => isZh ? '暂无歌词' : 'No lyrics yet';
+  String get lyricsLoadFailed => isZh ? '歌词加载失败' : 'Could not load lyrics';
   String get retryLyrics => isZh ? '重新获取歌词' : 'Fetch lyrics again';
   String get fetchingLyrics => isZh ? '正在获取歌词' : 'Fetching lyrics';
   String get nowPlaying => isZh ? '正在播放' : 'Now playing';
