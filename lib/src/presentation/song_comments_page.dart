@@ -365,30 +365,24 @@ class _SongCommentsPageState extends State<SongCommentsPage> {
       padding: const EdgeInsets.symmetric(vertical: 20),
       child: Column(
         children: [
-          for (final source in sources)
-            if (_pages[source]!.result case final result?
-                when result.stale ||
-                    result.status != SongCommentsStatus.ready ||
-                    _pages[source]!.comments.isEmpty)
-              Padding(
-                padding: const EdgeInsets.symmetric(vertical: 8),
-                child: Column(
-                  children: [
-                    Text(
-                      '${source.label}：${_sourceMessage(result)}',
-                      textAlign: TextAlign.center,
-                      style: Theme.of(context).textTheme.bodySmall,
-                    ),
-                    if (result.status != SongCommentsStatus.ready ||
-                        result.stale)
-                      TextButton(
-                        key: ValueKey('comments-retry-${source.name}'),
-                        onPressed: () => _load(source, refresh: true),
-                        child: Text(zh ? '重试' : 'Retry'),
-                      ),
-                  ],
-                ),
+          if (_comments.isEmpty && !loading) ...[
+            Text(
+              _emptyMessage(sources),
+              key: const Key('comments-empty-message'),
+              textAlign: TextAlign.center,
+              style: Theme.of(context).textTheme.bodySmall,
+            ),
+            if (sources.any(
+              (source) =>
+                  _pages[source]!.result?.status != SongCommentsStatus.ready ||
+                  _pages[source]!.result?.stale == true,
+            ))
+              TextButton(
+                key: ValueKey('comments-retry-${_platform?.name ?? 'all'}'),
+                onPressed: _refresh,
+                child: Text(zh ? '重试' : 'Retry'),
               ),
+          ],
           if (loading) ...[
             const SizedBox.square(
               dimension: 18,
@@ -401,9 +395,9 @@ class _SongCommentsPageState extends State<SongCommentsPage> {
             TextButton(
               key: const Key('comments-more-retry'),
               onPressed: () => _loadMoreVisible(retry: true),
-              child: Text(zh ? '加载失败，点击重试' : 'Could not load more. Retry'),
+              child: Text(zh ? '加载更多热评' : 'Load more comments'),
             ),
-          if (more && !loading)
+          if (more && !loading && !failed)
             TextButton(
               key: const Key('comments-load-more'),
               onPressed: _loadMoreVisible,
@@ -423,18 +417,19 @@ class _SongCommentsPageState extends State<SongCommentsPage> {
     );
   }
 
-  String _sourceMessage(SongCommentsResult result) {
-    if (result.stale) {
-      return zh ? '暂时无法更新，显示上次缓存的热评' : 'Showing cached comments.';
+  String _emptyMessage(List<SongCommentPlatform> sources) {
+    final results = [for (final source in sources) _pages[source]!.result];
+    if (results.any(
+      (r) => r?.status == SongCommentsStatus.unavailable || r?.stale == true,
+    )) {
+      return zh
+          ? '暂时无法读取热评，请稍后重试'
+          : 'Comments are unavailable. Please retry later.';
     }
-    return switch (result.status) {
-      SongCommentsStatus.noMatch =>
-        zh ? '还没有找到歌名、歌手与版本一致的歌曲' : 'No matching recording found.',
-      SongCommentsStatus.ready =>
-        zh ? '这首歌暂时没有公开热评' : 'No public hot comments yet.',
-      _ =>
-        zh ? '暂时无法读取热评，请稍后重试' : 'Comments are unavailable. Please retry later.',
-    };
+    if (results.every((r) => r?.status == SongCommentsStatus.noMatch)) {
+      return zh ? '还没有找到歌名、歌手与版本一致的歌曲' : 'No matching recording found.';
+    }
+    return zh ? '这首歌暂时没有公开热评' : 'No public hot comments yet.';
   }
 }
 

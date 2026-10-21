@@ -13,6 +13,121 @@ import 'package:flutter_test/flutter_test.dart';
 
 void main() {
   test(
+    'new cached favorite keeps its source after clearing playback audio',
+    () async {
+      final f = await _Fixture.create();
+      f.cache.record = f.cache.record.copyWith(playbackCache: true);
+      final before = await f.useCase.loadCache();
+      final music = f.cache.record.music;
+      final saved = SavedOnlineTrack(
+        candidate: MusicSearchCandidate(
+          query: music.query,
+          source: music.source,
+          platform: music.platform,
+          keyword: music.name,
+          page: 1,
+          id: music.id,
+          name: music.name,
+          artist: music.artist,
+          album: music.album,
+          duration: 0,
+          link: '',
+          coverUrl: music.coverUrl,
+          qualities: [music.quality],
+          score: 0,
+          raw: const {},
+        ),
+      );
+      final added = await f.useCase.toggleFavorite(
+        before.cachedTracks.single,
+        current: before,
+        onlineTrack: saved,
+      );
+      expect(added.playlistLibrary.favoriteTrackIds, contains('physical'));
+      await f.useCase.preservePlaybackReferences(current: added);
+      f.cache.present = false;
+      final restored = await f.newUseCase().loadCache();
+      final favorite = restored.playlistLibrary.favoriteEntries.singleWhere(
+        (e) => e.trackId == 'physical',
+      );
+      expect(favorite.onlineTrack?.candidate.id, music.id);
+      expect(favorite.song?.title, music.name);
+      expect(restored.favoriteTracks.any((t) => t.id == 'physical'), isTrue);
+      expect(
+        restored.playlistLibrary.favoriteTrackIds,
+        containsAll(['a', 'b', 'c']),
+      );
+    },
+  );
+
+  test(
+    'cached song favorite survives the real playlist disk round trip',
+    () async {
+      final f = await _Fixture.create();
+      const music = ResolvedMusic(
+        query: '寻常岁月诗 蓝安Lane',
+        source: MusicDataSource.flac,
+        platform: 'kuwo',
+        id: '659943118',
+        name: '寻常岁月诗',
+        artist: '蓝安Lane',
+        album: '',
+        url: 'https://audio.test/song.mp3',
+        quality: MusicQuality(format: 'mp3', bitrate: '320'),
+      );
+      f.cache.record = f.cache.record.copyWith(
+        music: music,
+        cacheId: cacheIdForResolved(music),
+      );
+      final before = await f.useCase.loadCache();
+      final saved = SavedOnlineTrack(
+        candidate: MusicSearchCandidate(
+          query: music.query,
+          source: music.source,
+          platform: music.platform,
+          keyword: music.name,
+          page: 1,
+          id: music.id,
+          name: music.name,
+          artist: music.artist,
+          album: music.album,
+          duration: 0,
+          link: '',
+          coverUrl: music.coverUrl,
+          qualities: [music.quality],
+          score: 0,
+          raw: const {},
+        ),
+      );
+      final track = before.cachedTracks.single;
+      expect(track.id, isNot(saved.trackId));
+      final added = await f.useCase.toggleFavorite(
+        track,
+        current: before,
+        onlineTrack: saved,
+      );
+      expect(added.playlistLibrary.favoriteTrackIds, contains(track.id));
+      expect(
+        (await f.newUseCase().loadCache()).favoriteTracks.map((t) => t.id),
+        contains(track.id),
+      );
+      final removed = await f.useCase.toggleFavorite(
+        track,
+        current: added,
+        onlineTrack: saved,
+      );
+      expect(
+        removed.playlistLibrary.favoriteTrackIds,
+        isNot(contains(track.id)),
+      );
+      expect(
+        removed.playlistLibrary.favoriteTrackIds,
+        containsAll(['a', 'b', 'c']),
+      );
+    },
+  );
+
+  test(
     'pins survive disk restart independently without changing entry order or dates',
     () async {
       final f = await _Fixture.create();

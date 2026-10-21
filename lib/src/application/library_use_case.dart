@@ -240,12 +240,28 @@ class LibraryUseCase {
             onlineTrack ??
             _onlineForTrack(base.playlistLibrary, track.id) ??
             sourceEntry?.onlineTrack;
+        // Keep the cache ID as the logical song ID and persist its original
+        // metadata separately from the selected online playback source.
+        final cachedOriginal = online != null && online.trackId != track.id
+            ? base.cachedTracks.where((t) => t.id == track.id).firstOrNull
+            : null;
+        final original =
+            sourceEntry?.song ??
+            (cachedOriginal == null
+                ? null
+                : PlaylistSong(
+                    key: 'cache:${cachedOriginal.id}',
+                    title: cachedOriginal.title,
+                    artist: cachedOriginal.artist,
+                    coverUrl: cachedOriginal.artworkUri?.toString() ?? '',
+                    durationSeconds: cachedOriginal.duration?.inSeconds ?? 0,
+                  ));
         entries.add(
           PlaylistTrackEntry(
             trackId: track.id,
             addedAt: DateTime.now(),
             onlineTrack: online,
-            song: sourceEntry?.song,
+            song: original,
             manualSource: sourceEntry?.manualSource ?? false,
           ),
         );

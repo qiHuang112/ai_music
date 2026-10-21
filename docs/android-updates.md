@@ -1,5 +1,7 @@
 # Android 自动发布与更新
 
+2026-10-21本轮正式发布完成：提交37f5455／同提交CI39453992563，正式1.0.4／10266原包名com.qi.ai.music、来听、可信release签名保持。GitHub与Mac LAN完整APK 18141764字节，SHA256 `89e9fd693baa91b2d3577eb0fd6c894d6ee86f5bbf73f0135eec092e796dd08f`及sourceCommit一致；Mac仅镜像CI字节。181历史包保留，原180包未变；77体验10265普通暂停样式已自测，正式更新从APP进行。见[发布记录](worklog/2026-10-21.md)。
+
 2026-10-18访问状态更新：用户已将GitHub仓库设为private，仅保留自己和现有协作者。匿名仓库及`releases/latest/download/latest.json`实测404，原APP的匿名GitHub下载／外网更新兜底随之不可用；下面关于公开Release下载的描述为私有化之前的历史行为。当前Mac LAN服务实测仍200并提供已归档10251，大小／哈希指向未变。现有镜像脚本使用未认证HTTP，后续同步私有Release需要补认证支持，不能再宣称现有公开下载路径可完成新版本镜像；不得为恢复下载自行将仓库公开。本次没有改动APP、构建或发布新版本。
 
 2026-10-18本轮发布补充：Mac镜像在匿名下载返回401／404时改用本机已登录GitHub CLI，从固定qiHuang112/ai_music API按实际Release资产ID认证下载；凭据保留在gh现有用户／钥匙串配置，不放进APP、源码或LaunchAgent。仅接受原仓库正式资产，拒绝外部地址／重复资产／截断文件，继续核对大小、SHA-256、包名、ABI、版本及原release证书，失败不切latest。launchd无Homebrew PATH时使用已安装gh的固定路径。本机已实测认证读取现有10251元数据，同提交CI39098062729成功发布10256，已认证下载并核对新包及LAN完整APK（18115808字节／SHA256 5d0fd41edcbbd085ec016da89b840c5e59eb0d957206eeb72421a8d886d59f12）；外网匿名GitHub兜底仍因private不可用，仓库不改公开。

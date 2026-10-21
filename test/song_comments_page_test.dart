@@ -132,33 +132,120 @@ void main() {
     },
   );
 
-  testWidgets(
-    'one failed source can retry while other source comments stay visible',
-    (tester) async {
-      final repo = _Repository();
-      await _mount(tester, repo);
+  testWidgets('one readable platform hides all other source status messages', (
+    tester,
+  ) async {
+    final repo = _Repository(controlled: SongCommentPlatform.values.toSet());
+    await _mount(tester, repo);
+    repo
+        .last(SongCommentPlatform.netease)
+        .complete(_unavailable(SongCommentPlatform.netease));
+    repo
+        .last(SongCommentPlatform.qishui)
+        .complete(_unavailable(SongCommentPlatform.qishui));
+    await tester.pump();
+    expect(find.byKey(const Key('comments-empty-message')), findsNothing);
+    repo
+        .last(SongCommentPlatform.qq)
+        .complete(_page(['qq'], SongCommentPlatform.qq));
+    await tester.pumpAndSettle();
+    expect(find.text('评论qq'), findsOneWidget);
+    expect(find.textContaining('暂时无法读取'), findsNothing);
+    expect(find.text('重试'), findsNothing);
+    // An explicit failed-platform filter still offers that platform's retry.
+    await _select(tester, 'netease');
+    expect(
+      find.byKey(const ValueKey('comments-retry-netease')),
+      findsOneWidget,
+    );
+    await tester.tap(find.byKey(const ValueKey('comments-retry-netease')));
+    await tester.pump();
+    repo
+        .last(SongCommentPlatform.netease)
+        .complete(_page(['recovered'], SongCommentPlatform.netease));
+    await tester.pumpAndSettle();
+    expect(find.text('评论recovered'), findsOneWidget);
+    expect(
+      repo.requests.where((r) => r.platform == SongCommentPlatform.qq),
+      hasLength(1),
+    );
+    expect(
+      repo.requests.where((r) => r.platform == SongCommentPlatform.qishui),
+      hasLength(1),
+    );
+  });
+
+  testWidgets('all source failures collapse to one message and one retry', (
+    tester,
+  ) async {
+    final repo = _Repository(controlled: SongCommentPlatform.values.toSet());
+    await _mount(tester, repo);
+    for (final source in SongCommentPlatform.values) {
+      repo.last(source).complete(_unavailable(source));
+    }
+    await tester.pumpAndSettle();
+    expect(find.textContaining('暂时无法读取'), findsOneWidget);
+    expect(find.text('重试'), findsOneWidget);
+    await tester.tap(find.byKey(const ValueKey('comments-retry-all')));
+    await tester.pump();
+    for (final source in SongCommentPlatform.values) {
+      expect(repo.last(source).refresh, isTrue);
       repo
-          .last(SongCommentPlatform.netease)
-          .complete(_unavailable(SongCommentPlatform.netease));
-      await tester.pumpAndSettle();
-      expect(find.textContaining('暂时无法读取热评'), findsOneWidget);
-      await tester.tap(find.byKey(const ValueKey('comments-retry-netease')));
-      await tester.pump();
-      repo
-          .last(SongCommentPlatform.netease)
-          .complete(_page(['recovered'], SongCommentPlatform.netease));
-      await tester.pumpAndSettle();
-      expect(find.text('评论recovered'), findsOneWidget);
-      expect(
-        repo.requests.where((r) => r.platform == SongCommentPlatform.qq),
-        hasLength(1),
-      );
-      expect(
-        repo.requests.where((r) => r.platform == SongCommentPlatform.qishui),
-        hasLength(1),
-      );
-    },
-  );
+          .last(source)
+          .complete(
+            _page(source == SongCommentPlatform.qq ? ['ok'] : [], source),
+          );
+    }
+    await tester.pumpAndSettle();
+    expect(find.text('评论ok'), findsOneWidget);
+    expect(find.byKey(const Key('comments-empty-message')), findsNothing);
+  });
+
+  testWidgets('empty public results show one empty state without an error', (
+    tester,
+  ) async {
+    final repo = _Repository(controlled: {});
+    await _mount(tester, repo);
+    await tester.pumpAndSettle();
+    expect(find.text('这首歌暂时没有公开热评'), findsOneWidget);
+    expect(find.textContaining('暂时无法读取'), findsNothing);
+    expect(find.text('重试'), findsNothing);
+  });
+
+  testWidgets('readable cached comments hide unavailable platform notices', (
+    tester,
+  ) async {
+    final repo = _Repository(controlled: SongCommentPlatform.values.toSet());
+    await _mount(tester, repo);
+    repo
+        .last(SongCommentPlatform.netease)
+        .complete(
+          SongCommentsResult(
+            platform: SongCommentPlatform.netease,
+            status: SongCommentsStatus.ready,
+            pageUrl: _query.searchUrl(SongCommentPlatform.netease),
+            stale: true,
+            comments: const [
+              SongComment(
+                id: 'cached',
+                author: '听众',
+                content: '已有缓存热评',
+                likes: 1,
+              ),
+            ],
+          ),
+        );
+    repo
+        .last(SongCommentPlatform.qq)
+        .complete(_unavailable(SongCommentPlatform.qq));
+    repo
+        .last(SongCommentPlatform.qishui)
+        .complete(_unavailable(SongCommentPlatform.qishui));
+    await tester.pumpAndSettle();
+    expect(find.text('已有缓存热评'), findsOneWidget);
+    expect(find.byKey(const Key('comments-empty-message')), findsNothing);
+    expect(find.text('重试'), findsNothing);
+  });
 
   testWidgets(
     'single-source paging keeps cursor and deduplicates pinned comments on retry',
