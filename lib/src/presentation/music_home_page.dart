@@ -3355,7 +3355,7 @@ class _TrackList extends StatelessWidget {
   }
 }
 
-class _TrackTile extends StatelessWidget {
+class _TrackTile extends StatefulWidget {
   const _TrackTile({
     super.key,
     required this.controller,
@@ -3391,13 +3391,38 @@ class _TrackTile extends StatelessWidget {
   final Widget? dragHandle;
 
   @override
+  State<_TrackTile> createState() => _TrackTileState();
+}
+
+class _TrackTileState extends State<_TrackTile> {
+  // Route/focus updates can rebuild the row while its menu is open. Keep the
+  // button state alive so PopupMenuButton can deliver the selected action.
+  final menuKey = GlobalKey<PopupMenuButtonState<_TrackAction>>();
+
+  @override
   Widget build(BuildContext context) {
+    final _TrackTile(
+      :controller,
+      :active,
+      :playing,
+      :list,
+      :track,
+      :tracks,
+      :index,
+      :isSelecting,
+      :isReorderEditing,
+      :selected,
+      :isPreparing,
+      :onPlayTrack,
+      :onStartSelection,
+      :onToggleSelection,
+      :dragHandle,
+    ) = widget;
     final strings = AppStringsScope.of(context);
     final needsSourceReview =
         !isSelecting &&
         !isReorderEditing &&
         controller.songSourceNeedsReview(track);
-    final menuKey = GlobalKey<PopupMenuButtonState<_TrackAction>>();
     return SongCacheProgressRow(
       controller: controller,
       track: track,

@@ -1,5 +1,7 @@
 # AI Music 开发工作流讨论记录
 
+2026-10-25追加决定：用户已验收ui-vinyl的Mac重设计，明确要求合入main、恢复公开仓库、main自动打包并将Mac发布到GitHub Release。仓库已恢复public，Actions和main触发保持启用；本次按明确授权执行GitHub CI发布。Android任务保留原签名发布，新增Mac任务复用同提交的最终版本号并向同一Release上传Universal ZIP及独立macos-latest.json；不替换Android元数据。日常本地开发与未要求GitHub发布的“走流程”仍沿用下面的精简路径。
+
 2026-10-21最新决定：用户指出“走流程”耗时过长，改为**只review本次改动及必要调用处，复用已有正式release APK，直接发布局域网并做一次完整下载校验**。默认不重跑全量测试、不重复安装／构建、不触发云端CI，不逐个扫描历史包或审计未改的发布工具；已有测试／手机验收和审查结论沿用，只有新增修改、具体疑点或缺失正确正式包才补必要动作。保留原包名／名称／签名、用户数据、历史包和发布原子性；preview不能冒充正式包。Git提交／推送、GitHub发布与CI另按明确请求执行；当前工作流仍监听main推送，默认不执行会间接触发CI的push。已同步唯一[开发skill](../.agents/skills/ai-music-developer/SKILL.md)及AGENTS；仅改规则不发布。
 
 2026-10-18最新访问决定：用户取消版权／免责声明草稿，改为私有仓库，仅自己qiHuang112和现有协作者wangtangji29-ctrl可见。已核验private、仅owner/admin与该协作者/write、无待接受邀请；对方继续非main分支开发、main由维护者维护的协作约定保持。GitHub当前套餐对私有库规则集返回需Pro的403，main实际protected=false，因此下面2026-10-14的“active保护”是当时结果，现不能当作仍由服务端强制。若需要恢复服务端保护，须启用支持私有仓库规则的套餐；未自行降低其write角色。其旧公开fork已脱离主仓库、仍公开，我方无管理权限，需由其自行设私有。仓库设置调整不触发源码提交／APP发布。
