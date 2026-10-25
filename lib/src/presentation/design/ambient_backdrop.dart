@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 
 import '../app_theme.dart';
+import '../desktop_scope.dart';
 import 'ambient_clock.dart';
 import 'paper_texture.dart';
 
@@ -250,7 +251,12 @@ class _RenderBackdropSlice extends RenderProxyBox {
     while (page != null && page is! _RenderBackdropScope) {
       page = page.parent;
     }
-    final origin = localToGlobal(Offset.zero, ancestor: page);
+    // On the Mac pages fade rather than slide and sit beside the sidebar, so
+    // the slice shows the window's backdrop where it actually is.
+    final origin = localToGlobal(
+      Offset.zero,
+      ancestor: isMacMusicDesktop ? null : page,
+    );
     context.canvas
       ..save()
       ..clipRect(offset & size)

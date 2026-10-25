@@ -3,6 +3,7 @@ import 'dart:ui';
 import 'package:flutter/material.dart';
 
 import '../app_theme.dart';
+import '../desktop_scope.dart';
 
 /// How much of the room shows through.
 enum GlassLevel {
@@ -50,10 +51,14 @@ class GlassSurface extends StatelessWidget {
     if (skin == MusicSkin.riso) return _paper(context, palette);
     if (skin == MusicSkin.silver) return _metal(context, palette);
     final base = tint ?? palette.glass;
+    // On the Mac the aurora's bright curtains move behind every panel, and
+    // a live blur over them flickers whenever the pointer makes the window
+    // redraw between their frames. There the ice is frosted instead.
+    final live = blur && !(isMacMusicDesktop && skin == MusicSkin.aurora);
     // Milk glass is nearly opaque; ice lets more through.
     final lift = switch (skin) {
       MusicSkin.berry => .14,
-      MusicSkin.aurora => -.08,
+      MusicSkin.aurora => live ? -.08 : .2,
       _ => 0.0,
     };
     Widget surface = CustomPaint(
@@ -82,7 +87,7 @@ class GlassSurface extends StatelessWidget {
         child: Padding(padding: padding, child: child),
       ),
     );
-    if (blur) {
+    if (live) {
       surface = BackdropFilter(
         filter: ImageFilter.compose(
           outer: ImageFilter.blur(sigmaX: level.sigma, sigmaY: level.sigma),

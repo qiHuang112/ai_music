@@ -19,6 +19,8 @@ import 'swipe_to_skip.dart';
 import 'song_source_page.dart';
 import 'song_actions.dart';
 import 'desktop_scope.dart';
+import 'desktop_ui.dart';
+import 'desktop_window.dart';
 import 'song_comments_page.dart';
 
 class PlayerPage extends StatefulWidget {
@@ -73,10 +75,14 @@ class DesktopNowPlaying extends StatefulWidget {
     required this.controller,
     required this.onClose,
     required this.detail,
+    this.leadingInset = 0,
   });
   final MusicController controller;
   final VoidCallback onClose;
   final Widget detail;
+
+  /// Room on the left of the top row for the window's traffic lights.
+  final double leadingInset;
   @override
   State<DesktopNowPlaying> createState() => _DesktopNowPlayingState();
 }
@@ -93,117 +99,179 @@ class _DesktopNowPlayingState extends State<DesktopNowPlaying> {
   Widget build(BuildContext context) {
     final controller = widget.controller;
     final strings = AppStringsScope.of(context);
+    final zh = strings.isZh;
+    final track = controller.currentTrack;
     return _PlayerBackdrop(
       controller: controller,
       closeOnSwipe: false,
-      child: Column(
-        children: [
-          Padding(
-            padding: const EdgeInsets.fromLTRB(18, 8, 20, 0),
-            child: Row(
-              children: [
-                TextButton.icon(
-                  onPressed: widget.onClose,
-                  icon: const Icon(Icons.keyboard_arrow_down),
-                  label: Text(strings.isZh ? '返回歌单' : 'Back'),
-                ),
-                const Spacer(),
-                if (controller.currentTrack != null)
-                  IconButton(
-                    tooltip: controller.isFavorite(controller.currentTrack!)
-                        ? strings.removeFromFavorites
-                        : strings.addToFavorites,
-                    onPressed: () =>
-                        controller.toggleFavorite(controller.currentTrack!),
-                    icon: Icon(
-                      controller.isFavorite(controller.currentTrack!)
-                          ? Icons.favorite
-                          : Icons.favorite_border,
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(24, 0, 24, 0),
+        child: Column(
+          children: [
+            // The window's titlebar while the player is open: it drags the
+            // window, and the lights sit at its left.
+            SizedBox(
+              height: 56,
+              child: Stack(
+                children: [
+                  const Positioned.fill(child: DesktopWindowDragArea()),
+                  Padding(
+                    padding: EdgeInsets.only(left: widget.leadingInset, top: 4),
+                    child: Row(
+                      children: [
+                        DesktopToolButton(
+                          icon: Icons.keyboard_arrow_down_rounded,
+                          tooltip: zh ? '收起（Esc）' : 'Close (Esc)',
+                          size: 34,
+                          iconSize: 24,
+                          onPressed: widget.onClose,
+                        ),
+                        const SizedBox(width: 8),
+                        Text(
+                          zh ? '正在播放' : 'NOW PLAYING',
+                          style: MusicType.eyebrow(context),
+                        ),
+                        const Spacer(),
+                        if (track != null) ...[
+                          DesktopToolButton(
+                            tooltip: controller.isFavorite(track)
+                                ? strings.removeFromFavorites
+                                : strings.addToFavorites,
+                            onPressed: () => controller.toggleFavorite(track),
+                            icon: controller.isFavorite(track)
+                                ? Icons.favorite_rounded
+                                : Icons.favorite_border_rounded,
+                            color: controller.isFavorite(track)
+                                ? Theme.of(context).colorScheme.primary
+                                : null,
+                          ),
+                          const SizedBox(width: 4),
+                          DesktopToolButton(
+                            tooltip: strings.addToPlaylist,
+                            onPressed: () => showAddToPlaylistSheet(
+                              context,
+                              controller,
+                              track,
+                            ),
+                            icon: Icons.playlist_add_rounded,
+                          ),
+                        ],
+                      ],
                     ),
                   ),
-              ],
+                ],
+              ),
             ),
-          ),
-          Expanded(
-            child: Row(
-              children: [
-                Expanded(
-                  child: StreamBuilder<MediaItem?>(
-                    stream: controller.mediaItemStream,
-                    initialData: controller.audioHandler.mediaItem.value,
-                    builder: (context, media) => StreamBuilder<PlaybackState>(
-                      stream: controller.playbackStateStream,
-                      initialData: controller.audioHandler.playbackState.value,
-                      builder: (context, state) {
-                        final item = media.data;
-                        if (item == null) {
-                          return Center(child: Text(strings.nothingPlaying));
-                        }
-                        return Center(
-                          child: SingleChildScrollView(
-                            padding: const EdgeInsets.all(24),
-                            child: Column(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                _Artwork(
-                                  uri:
-                                      item.artUri ??
-                                      controller.currentArtworkUri,
-                                  controller: controller,
-                                  playing: state.data?.playing ?? false,
-                                  cueing: false,
-                                  swipe: _disc,
+            Expanded(
+              child: Row(
+                children: [
+                  Expanded(
+                    flex: 11,
+                    child: StreamBuilder<MediaItem?>(
+                      stream: controller.mediaItemStream,
+                      initialData: controller.audioHandler.mediaItem.value,
+                      builder: (context, media) => StreamBuilder<PlaybackState>(
+                        stream: controller.playbackStateStream,
+                        initialData:
+                            controller.audioHandler.playbackState.value,
+                        builder: (context, state) {
+                          final item = media.data;
+                          if (item == null) {
+                            return Center(child: Text(strings.nothingPlaying));
+                          }
+                          return LayoutBuilder(
+                            builder: (context, constraints) => Center(
+                              child: SingleChildScrollView(
+                                padding: const EdgeInsets.symmetric(
+                                  vertical: 16,
                                 ),
-                                const SizedBox(height: 22),
-                                Text(
-                                  item.title,
-                                  textAlign: TextAlign.center,
-                                  maxLines: 2,
-                                  overflow: TextOverflow.ellipsis,
-                                  style: MusicType.masthead(context, size: 26),
-                                ),
-                                const SizedBox(height: 6),
-                                Text(
-                                  item.artist ?? '',
-                                  textAlign: TextAlign.center,
-                                  style: Theme.of(context).textTheme.bodyLarge,
-                                ),
-                                const SizedBox(height: 12),
-                                if (controller.currentTrack != null &&
-                                    controller.canSwitchSongSource(
-                                      controller.currentTrack!,
-                                    ))
-                                  TextButton(
-                                    onPressed: () => showSongSourcePicker(
-                                      context,
-                                      controller,
-                                      controller.currentTrack!,
+                                child: Column(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    _Artwork(
+                                      uri:
+                                          item.artUri ??
+                                          controller.currentArtworkUri,
+                                      controller: controller,
+                                      playing: state.data?.playing ?? false,
+                                      cueing: false,
+                                      swipe: _disc,
+                                      maxWidth: [
+                                        constraints.maxWidth * .8,
+                                        constraints.maxHeight - 150,
+                                        440.0,
+                                      ].reduce((a, b) => a < b ? a : b),
                                     ),
-                                    child: SongSourceMenuLabel(
-                                      source: controller.songSourceLabel(
-                                        controller.currentTrack!,
-                                        isZh: strings.isZh,
+                                    const SizedBox(height: 22),
+                                    Text(
+                                      item.title,
+                                      textAlign: TextAlign.center,
+                                      maxLines: 2,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: MusicType.masthead(
+                                        context,
+                                        size: 32,
                                       ),
                                     ),
-                                  ),
-                              ],
+                                    const SizedBox(height: 8),
+                                    Text(
+                                      [
+                                        if ((item.artist ?? '').isNotEmpty)
+                                          item.artist!,
+                                        if ((item.album ?? '').isNotEmpty)
+                                          item.album!,
+                                      ].join('  ·  '),
+                                      textAlign: TextAlign.center,
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: TextStyle(
+                                        fontSize: 15,
+                                        color: DesktopUi.muted(context),
+                                      ),
+                                    ),
+                                    const SizedBox(height: 10),
+                                    if (track != null &&
+                                        controller.canSwitchSongSource(track))
+                                      TextButton(
+                                        onPressed: () => showSongSourcePicker(
+                                          context,
+                                          controller,
+                                          track,
+                                        ),
+                                        child: SongSourceMenuLabel(
+                                          source: controller.songSourceLabel(
+                                            track,
+                                            isZh: zh,
+                                          ),
+                                        ),
+                                      ),
+                                  ],
+                                ),
+                              ),
                             ),
-                          ),
-                        );
-                      },
+                          );
+                        },
+                      ),
                     ),
                   ),
-                ),
-                Expanded(
-                  child: Padding(
-                    padding: const EdgeInsets.fromLTRB(8, 6, 24, 18),
-                    child: widget.detail,
+                  const SizedBox(width: 24),
+                  Expanded(
+                    flex: 10,
+                    child: Padding(
+                      padding: const EdgeInsets.fromLTRB(0, 4, 8, 16),
+                      child: Center(
+                        child: ConstrainedBox(
+                          constraints: const BoxConstraints(maxWidth: 540),
+                          child: widget.detail,
+                        ),
+                      ),
+                    ),
                   ),
-                ),
-              ],
+                ],
+              ),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }
@@ -437,12 +505,16 @@ class _Artwork extends StatelessWidget {
     required this.playing,
     required this.cueing,
     required this.swipe,
+    this.maxWidth,
   });
 
   final Uri? uri;
   final MusicController controller;
   final bool playing, cueing;
   final _DiscSwipe swipe;
+
+  /// The Mac window has room for a larger deck than a phone.
+  final double? maxWidth;
 
   @override
   Widget build(BuildContext context) {
@@ -463,10 +535,12 @@ class _Artwork extends StatelessWidget {
       child: ConstrainedBox(
         constraints: BoxConstraints(
           // Sized so the whole player fits one screen without scrolling.
-          maxWidth: (MediaQuery.sizeOf(context).height * .35).clamp(
-            180.0,
-            MusicUi.playerCoverMaxWidth,
-          ),
+          maxWidth:
+              maxWidth ??
+              (MediaQuery.sizeOf(context).height * .35).clamp(
+                180.0,
+                MusicUi.playerCoverMaxWidth,
+              ),
         ),
         child: _DiscCarousel(
           swipe: swipe,
@@ -1644,9 +1718,10 @@ class DesktopPlaybackModeButton extends StatelessWidget {
   const DesktopPlaybackModeButton({super.key, required this.controller});
   final MusicController controller;
   @override
-  Widget build(BuildContext context) => IconButton(
+  Widget build(BuildContext context) => DesktopToolButton(
     tooltip: _modeTooltip(AppStringsScope.of(context), controller.playbackMode),
     onPressed: controller.cyclePlaybackMode,
-    icon: Icon(_modeIcon(controller.playbackMode), size: 20),
+    icon: _modeIcon(controller.playbackMode),
+    active: controller.playbackMode != PlaybackMode.sequential,
   );
 }

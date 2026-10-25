@@ -7,6 +7,8 @@ import '../data/music_resolver.dart';
 import '../data/music_settings.dart';
 import 'app_localizations.dart';
 import 'app_update_page.dart';
+import 'design/glass_surface.dart';
+import 'desktop_ui.dart';
 import '../application/diagnostics_upload_controller.dart';
 
 /// Desktop settings keep the categories visible while changing their content.
@@ -35,81 +37,149 @@ class _DesktopSettingsPageState extends State<DesktopSettingsPage> {
             'Concurrency',
             'LAN',
           ];
-    return Row(
+    const icons = [
+      Icons.tune_rounded,
+      Icons.palette_outlined,
+      Icons.translate_rounded,
+      Icons.cloud_outlined,
+      Icons.high_quality_outlined,
+      Icons.sync_alt_rounded,
+      Icons.lan_outlined,
+    ];
+    final colors = Theme.of(context).colorScheme;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        SizedBox(
-          width: 124,
-          child: ListView(
-            padding: const EdgeInsets.only(top: 20),
-            children: [
-              for (var i = 0; i < titles.length; i++)
-                ListTile(
-                  dense: true,
-                  selected: i == _index,
-                  title: Text(titles[i]),
-                  onTap: () => setState(() {
-                    _index = i;
-                    _visited.add(i);
-                  }),
-                ),
-            ],
+        Padding(
+          padding: const EdgeInsets.fromLTRB(32, 2, 32, 18),
+          child: Text(
+            strings.settings,
+            style: MusicType.masthead(context, size: 34),
           ),
         ),
         Expanded(
-          child: IndexedStack(
-            index: _index,
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              for (var i = 0; i < titles.length; i++)
-                if (!_visited.contains(i))
-                  const SizedBox.shrink()
-                else
-                  switch (i) {
-                    0 => Scaffold(
-                      appBar: AppBar(title: Text(strings.settings)),
-                      body: ListView(
-                        padding: const EdgeInsets.all(16),
-                        children: [
-                          DiagnosticsUploadSetting(controller: c.diagnostics),
-                          _PlaybackCacheSetting(controller: c),
-                          ListTile(
-                            leading: const Icon(Icons.insights_outlined),
-                            title: Text(
-                              strings.isZh
-                                  ? '清空听歌统计'
-                                  : 'Clear listening history',
-                            ),
-                            subtitle: Text(
-                              strings.isZh
-                                  ? '只清空统计，保留歌曲和歌单'
-                                  : 'Keep songs and playlists',
-                            ),
-                            onTap: () => confirmClearListeningStats(context, c),
+              SizedBox(
+                width: 196,
+                child: ListView(
+                  padding: const EdgeInsets.fromLTRB(20, 0, 12, 20),
+                  children: [
+                    for (var i = 0; i < titles.length; i++)
+                      Padding(
+                        padding: const EdgeInsets.only(bottom: 2),
+                        child: DesktopRow(
+                          selected: i == _index,
+                          height: 34,
+                          onTap: () => setState(() {
+                            _index = i;
+                            _visited.add(i);
+                          }),
+                          child: Row(
+                            children: [
+                              Icon(icons[i], size: 17, color: colors.primary),
+                              const SizedBox(width: 10),
+                              Expanded(
+                                child: Text(
+                                  titles[i],
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: TextStyle(
+                                    fontSize: 13.5,
+                                    fontWeight: i == _index
+                                        ? FontWeight.w600
+                                        : FontWeight.w500,
+                                    color: colors.onSurface,
+                                  ),
+                                ),
+                              ),
+                            ],
                           ),
-                          ListTile(
-                            leading: const Icon(Icons.download_done),
-                            title: Text(
-                              strings.isZh ? '已下载歌曲' : 'Downloaded songs',
-                            ),
-                            subtitle: Text('${c.manuallyDownloadedSongCount}'),
-                          ),
-                          SwitchListTile(
-                            secondary: const Icon(Icons.speed),
-                            title: Text(
-                              strings.isZh ? '性能悬浮窗' : 'Performance overlay',
-                            ),
-                            value: c.performanceOverlayEnabled,
-                            onChanged: c.savePerformanceOverlayEnabled,
-                          ),
-                        ],
+                        ),
                       ),
+                  ],
+                ),
+              ),
+              Expanded(
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(4, 0, 24, 20),
+                  child: GlassSurface(
+                    level: GlassLevel.thin,
+                    borderRadius: BorderRadius.circular(18),
+                    child: IndexedStack(
+                      index: _index,
+                      children: [
+                        for (var i = 0; i < titles.length; i++)
+                          if (!_visited.contains(i))
+                            const SizedBox.shrink()
+                          else
+                            switch (i) {
+                              0 => Scaffold(
+                                appBar: AppBar(title: Text(titles[0])),
+                                body: ListView(
+                                  padding: const EdgeInsets.all(16),
+                                  children: [
+                                    DiagnosticsUploadSetting(
+                                      controller: c.diagnostics,
+                                    ),
+                                    _PlaybackCacheSetting(controller: c),
+                                    ListTile(
+                                      leading: const Icon(
+                                        Icons.insights_outlined,
+                                      ),
+                                      title: Text(
+                                        strings.isZh
+                                            ? '清空听歌统计'
+                                            : 'Clear listening history',
+                                      ),
+                                      subtitle: Text(
+                                        strings.isZh
+                                            ? '只清空统计，保留歌曲和歌单'
+                                            : 'Keep songs and playlists',
+                                      ),
+                                      onTap: () => confirmClearListeningStats(
+                                        context,
+                                        c,
+                                      ),
+                                    ),
+                                    ListTile(
+                                      leading: const Icon(Icons.download_done),
+                                      title: Text(
+                                        strings.isZh
+                                            ? '已下载歌曲'
+                                            : 'Downloaded songs',
+                                      ),
+                                      subtitle: Text(
+                                        '${c.manuallyDownloadedSongCount}',
+                                      ),
+                                    ),
+                                    SwitchListTile(
+                                      secondary: const Icon(Icons.speed),
+                                      title: Text(
+                                        strings.isZh
+                                            ? '性能悬浮窗'
+                                            : 'Performance overlay',
+                                      ),
+                                      value: c.performanceOverlayEnabled,
+                                      onChanged:
+                                          c.savePerformanceOverlayEnabled,
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              1 => ThemeSettingsPage(controller: c),
+                              2 => LanguageSettingsPage(controller: c),
+                              3 => SourceSettingsPage(controller: c),
+                              4 => _DownloadQualityPage(controller: c),
+                              5 => _ConcurrencySettingsPage(controller: c),
+                              _ => LanLibrarySettingsPage(controller: c),
+                            },
+                      ],
                     ),
-                    1 => ThemeSettingsPage(controller: c),
-                    2 => LanguageSettingsPage(controller: c),
-                    3 => SourceSettingsPage(controller: c),
-                    4 => _DownloadQualityPage(controller: c),
-                    5 => _ConcurrencySettingsPage(controller: c),
-                    _ => LanLibrarySettingsPage(controller: c),
-                  },
+                  ),
+                ),
+              ),
             ],
           ),
         ),

@@ -2956,6 +2956,11 @@ class MusicController extends ChangeNotifier with WidgetsBindingObserver {
 
   Future<int> playbackCacheBytes() => _cacheStore.playbackCacheBytes();
 
+  /// Whether [track] is a kept download, not just audio cached for playback.
+  bool isDownloaded(Track track) => _cachedRecords.any(
+    (record) => record.cacheId == track.id && !record.playbackCache,
+  );
+
   int get manuallyDownloadedSongCount {
     final ids = <String>{};
     for (final record in _cachedRecords) {

@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 
 import '../domain/music_models.dart';
 import 'app_localizations.dart';
+import 'desktop_scope.dart';
 
 class ListSearchField extends StatelessWidget {
   const ListSearchField({
@@ -12,7 +13,12 @@ class ListSearchField extends StatelessWidget {
     this.focusNode,
     this.emptySuffix,
     this.hintText,
+    this.padding,
   });
+
+  /// Defaults to the page gutter; on the Mac it lines up with the page
+  /// title and is slimmer.
+  final EdgeInsetsGeometry? padding;
 
   final TextEditingController controller;
   final ValueChanged<String> onChanged;
@@ -23,21 +29,30 @@ class ListSearchField extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final strings = AppStringsScope.of(context);
+    final desktop = DesktopMusicScope.maybeOf(context) != null;
     return Padding(
-      padding: const EdgeInsets.fromLTRB(
-        MusicUi.pagePadding,
-        8,
-        MusicUi.pagePadding,
-        8,
-      ),
+      padding:
+          padding ??
+          (desktop
+              ? const EdgeInsets.fromLTRB(32, 4, 32, 10)
+              : const EdgeInsets.fromLTRB(
+                  MusicUi.pagePadding,
+                  8,
+                  MusicUi.pagePadding,
+                  8,
+                )),
       child: TextField(
+        style: desktop ? const TextStyle(fontSize: 13.5) : null,
         controller: controller,
         focusNode: focusNode,
         textInputAction: TextInputAction.search,
         onChanged: onChanged,
         decoration: InputDecoration(
           hintText: hintText ?? strings.listSearchHint,
-          prefixIcon: const Icon(Icons.search),
+          prefixIcon: Icon(Icons.search, size: desktop ? 18 : null),
+          contentPadding: desktop
+              ? const EdgeInsets.symmetric(vertical: 9)
+              : null,
           suffixIcon: controller.text.isEmpty
               ? emptySuffix
               : IconButton(

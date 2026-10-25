@@ -1,5 +1,8 @@
 import 'package:ai_music/src/presentation/desktop_music_shell.dart';
+import 'package:ai_music/src/presentation/desktop_mini_player.dart';
 import 'package:ai_music/src/presentation/desktop_scope.dart';
+import 'package:ai_music/src/presentation/desktop_window.dart';
+import 'package:flutter/gestures.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter/foundation.dart';
 import 'package:ai_music/src/presentation/app_theme.dart';
@@ -98,7 +101,7 @@ void main() {
       expect(find.byType(DesktopPlaybackBar), findsOneWidget);
       expect(find.bySemanticsLabel('首页'), findsOneWidget);
       final bar = tester.getRect(find.byType(DesktopPlaybackBar));
-      await tester.tap(find.text('队列'));
+      await tester.tap(find.byTooltip('队列'));
       await tester.pumpAndSettle();
       expect(find.byType(DesktopPlaybackQueue), findsOneWidget);
       expect(tester.getRect(find.byType(DesktopPlaybackBar)), bar);
@@ -125,7 +128,22 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.byType(DesktopNowPlaying), findsOneWidget);
       expect(tester.takeException(), isNull);
+      // ⌘[ goes back out of the player, as Esc does.
+      await tester.sendKeyDownEvent(LogicalKeyboardKey.metaLeft);
+      await tester.sendKeyEvent(LogicalKeyboardKey.bracketLeft);
+      await tester.sendKeyUpEvent(LogicalKeyboardKey.metaLeft);
+      await tester.pumpAndSettle();
+      expect(find.byType(DesktopNowPlaying), findsNothing);
+      scope.openPlayer();
+      await tester.pumpAndSettle();
       await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+      await tester.pumpAndSettle();
+      expect(find.byType(DesktopNowPlaying), findsNothing);
+      // The sidebar's search row focuses the home search.
+      await tester.tap(find.byKey(const ValueKey('desktop-sidebar-search')));
+      await tester.pumpAndSettle();
+      expect(field.hasFocus, isTrue);
+      field.unfocus();
       await tester.pumpAndSettle();
       await tester.sendKeyDownEvent(LogicalKeyboardKey.metaLeft);
       await tester.sendKeyEvent(LogicalKeyboardKey.comma);
@@ -149,6 +167,92 @@ void main() {
       semantics.dispose();
       await tester.pumpWidget(const SizedBox.shrink());
       field.dispose();
+      controller.dispose();
+      await handler.dispose();
+      debugDefaultTargetPlatformOverride = null;
+    },
+  );
+
+  testWidgets(
+    'mini player strip shows the song, and the controls under the pointer',
+    (tester) async {
+      debugDefaultTargetPlatformOverride = TargetPlatform.macOS;
+      addTearDown(() => debugDefaultTargetPlatformOverride = null);
+      final handler = _SpyAudioHandler();
+      final cached = _cachedTrack();
+      final controller = MusicController(
+        songSearchCache: SongSearchCache.memory(),
+        downloadHistoryStore: MemoryDownloadHistory(),
+        connectivityChanges: const Stream.empty(),
+        audioHandler: handler,
+        resolver: _FakeMusicResolver(),
+        cacheStore: _FakeCacheStore(cached: [cached]),
+        playlistStore: _FakePlaylistStore(),
+        settingsStore: _FakeSettingsStore(),
+        metadataRepository: _StaticMetadataRepository(
+          metadata: const TrackMetadata(lyricsStatus: LyricsStatus.notFound),
+        ),
+      );
+      await controller.initialize();
+      await controller.playTrack(trackFromCached(cached));
+      handler.playbackState.add(PlaybackState(playing: false));
+      var lyrics = 0, expand = 0, shape = 0;
+      Offset? menu;
+      Widget mini(Size size) => AppStringsScope(
+        language: AppLanguage.zh,
+        child: MaterialApp(
+          theme: MusicAppTheme.create(Brightness.dark),
+          home: Center(
+            child: SizedBox.fromSize(
+              size: size,
+              child: DesktopMiniPlayer(
+                controller: controller,
+                lyrics: true,
+                onLyricsButton: () => lyrics++,
+                onToggleShape: () => shape++,
+                onExpand: () => expand++,
+                onMenu: (at) => menu = at,
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pumpWidget(mini(DesktopWindow.miniStrip));
+      await tester.pump();
+      expect(find.text('测试歌'), findsOneWidget);
+      expect(find.byKey(const ValueKey('mini-transport')), findsNothing);
+
+      final mouse = await tester.createGesture(kind: PointerDeviceKind.mouse);
+      await mouse.addPointer(location: Offset.zero);
+      addTearDown(mouse.removePointer);
+      await mouse.moveTo(tester.getCenter(find.byType(DesktopMiniPlayer)));
+      await tester.pumpAndSettle();
+      expect(find.byKey(const ValueKey('mini-transport')), findsOneWidget);
+      await tester.tap(find.byKey(const ValueKey('mini-play')));
+      await tester.pump();
+      expect(handler.playbackState.value.playing, isTrue);
+      await tester.tap(find.byKey(const ValueKey('mini-lyrics')));
+      await tester.tap(find.byKey(const ValueKey('mini-expand')));
+      // The cover folds and unfolds the player, as NetEase's does.
+      await tester.tap(find.byKey(const ValueKey('mini-cover')));
+      expect((lyrics, expand, shape), (1, 1, 1));
+      // A right click opens the song's menu where it was clicked.
+      final at = tester.getCenter(find.byType(DesktopMiniPlayer));
+      await tester.tapAt(at, buttons: kSecondaryButton);
+      expect(menu, at);
+
+      // The square keeps its bars hidden until the pointer comes in.
+      await mouse.moveTo(Offset.zero);
+      await tester.pumpWidget(mini(DesktopWindow.miniSquare));
+      await tester.pumpAndSettle();
+      expect(find.text('暂无歌词'), findsOneWidget);
+      await mouse.moveTo(tester.getCenter(find.byType(DesktopMiniPlayer)));
+      await tester.pumpAndSettle();
+      menu = null;
+      await tester.tap(find.byKey(const ValueKey('mini-more')));
+      expect(menu, isNotNull);
+      expect(tester.takeException(), isNull);
+      await tester.pumpWidget(const SizedBox.shrink());
       controller.dispose();
       await handler.dispose();
       debugDefaultTargetPlatformOverride = null;

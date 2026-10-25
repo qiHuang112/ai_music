@@ -1,4 +1,6 @@
 import 'initial_song_scroll.dart';
+import 'desktop_home.dart';
+import 'desktop_ui.dart';
 import 'desktop_music_shell.dart';
 import 'desktop_scope.dart';
 import 'app_popup_menu.dart';
@@ -176,13 +178,7 @@ class _MusicHomePageState extends State<MusicHomePage>
           return DesktopMusicShell(
             key: _desktopKey,
             controller: controller,
-            home: Scaffold(
-              appBar: AppBar(
-                title: Text(strings.homeLibraryTitle),
-                titleTextStyle: MusicType.masthead(context, size: 30),
-              ),
-              body: _homeTab(strings),
-            ),
+            home: Scaffold(body: _homeTab(strings)),
             library: _LibraryPage(controller: controller),
             downloads: DownloadManagerPage(
               controller: controller,
@@ -190,6 +186,7 @@ class _MusicHomePageState extends State<MusicHomePage>
             ),
             settings: DesktopSettingsPage(controller: controller),
             focusSearch: _searchFocusNode.requestFocus,
+            searchFor: _searchFromHistory,
             playlistBuilder: (id) {
               if (id == favoritePlaylistId) {
                 return _PlaylistDetailPage(
@@ -321,27 +318,75 @@ class _MusicHomePageState extends State<MusicHomePage>
   }
 
   Widget _homeTab(AppStrings strings) {
+    final searchHeader = _SearchHeader(
+      dense: isMacMusicDesktop,
+      controller: _searchController,
+      focusNode: _searchFocusNode,
+      playlistMode: _playlistMode,
+      onToggleMode: _toggleSearchMode,
+      isSearching: _playlistMode
+          ? _playlistSearch.isLoading
+          : controller.isSearching,
+      onChanged: _handleSearchChanged,
+      onSearch: () => _submitSearch(_searchController.text),
+      onSubmitted: _submitSearch,
+      onImportScreenshots: _openScreenshotImport,
+      onCancel: () {
+        _searchFocusNode.unfocus();
+        _clearSearchInputAndState();
+      },
+    );
     return SafeArea(
       bottom: false,
       child: Column(
         children: [
-          _SearchHeader(
-            controller: _searchController,
-            focusNode: _searchFocusNode,
-            playlistMode: _playlistMode,
-            onToggleMode: _toggleSearchMode,
-            isSearching: _playlistMode
-                ? _playlistSearch.isLoading
-                : controller.isSearching,
-            onChanged: _handleSearchChanged,
-            onSearch: () => _submitSearch(_searchController.text),
-            onSubmitted: _submitSearch,
-            onImportScreenshots: _openScreenshotImport,
-            onCancel: () {
-              _searchFocusNode.unfocus();
-              _clearSearchInputAndState();
-            },
-          ),
+          if (isMacMusicDesktop)
+            // Mac: the page title on the left and the search on the right,
+            // or under it when a side panel leaves the page narrow.
+            Padding(
+              padding: const EdgeInsets.fromLTRB(32, 2, 32, 22),
+              child: LayoutBuilder(
+                builder: (context, constraints) {
+                  final title = Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        desktopGreeting(strings.isZh),
+                        style: MusicType.eyebrow(context),
+                      ),
+                      const SizedBox(height: 6),
+                      Text(
+                        strings.homeLibraryTitle,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: MusicType.masthead(context, size: 34),
+                      ),
+                    ],
+                  );
+                  if (constraints.maxWidth < 700) {
+                    return Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        title,
+                        const SizedBox(height: 16),
+                        searchHeader,
+                      ],
+                    );
+                  }
+                  return Row(
+                    crossAxisAlignment: CrossAxisAlignment.end,
+                    children: [
+                      Expanded(child: title),
+                      const SizedBox(width: 24),
+                      SizedBox(width: 440, child: searchHeader),
+                    ],
+                  );
+                },
+              ),
+            )
+          else
+            searchHeader,
           if (_searchFocusNode.hasFocus)
             Expanded(
               child: _SearchHistoryPanel(
@@ -668,8 +713,11 @@ class _SearchHeader extends StatelessWidget {
     required this.onCancel,
     required this.onToggleMode,
     this.playlistMode = false,
+    this.dense = false,
   });
 
+  /// Mac proportions: a slimmer field that sits beside the page title.
+  final bool dense;
   final TextEditingController controller;
   final FocusNode focusNode;
   final bool isSearching;
@@ -691,11 +739,14 @@ class _SearchHeader extends StatelessWidget {
     return Material(
       type: MaterialType.transparency,
       child: Padding(
-        padding: const EdgeInsets.fromLTRB(20, 4, 20, 16),
+        padding: dense
+            ? EdgeInsets.zero
+            : const EdgeInsets.fromLTRB(20, 4, 20, 16),
         child: Row(
           children: [
             Expanded(
               child: TextField(
+                style: dense ? const TextStyle(fontSize: 14) : null,
                 controller: controller,
                 focusNode: focusNode,
                 textInputAction: TextInputAction.search,
@@ -709,7 +760,9 @@ class _SearchHeader extends StatelessWidget {
                       : strings.searchHint,
                   filled: true,
                   fillColor: colors.surfaceContainerHighest,
-                  contentPadding: const EdgeInsets.symmetric(vertical: 14),
+                  contentPadding: EdgeInsets.symmetric(
+                    vertical: dense ? 11 : 14,
+                  ),
                   prefixIcon: IconButton(
                     key: const ValueKey('search-mode-toggle'),
                     tooltip: playlistMode
@@ -723,7 +776,7 @@ class _SearchHeader extends StatelessWidget {
                     style: IconButton.styleFrom(
                       foregroundColor: colors.primary,
                       padding: const EdgeInsets.symmetric(horizontal: 8),
-                      minimumSize: const Size(76, 48),
+                      minimumSize: Size(76, dense ? 38 : 48),
                       shape: RoundedRectangleBorder(
                         borderRadius: BorderRadius.circular(
                           MusicUi.fieldRadius,
@@ -803,9 +856,9 @@ class _SearchHeader extends StatelessWidget {
                 backgroundColor: colors.primaryContainer,
                 foregroundColor: colors.onPrimaryContainer,
                 disabledBackgroundColor: colors.surfaceContainerHighest,
-                minimumSize: const Size(48, 50),
+                minimumSize: dense ? const Size(42, 42) : const Size(48, 50),
                 shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(15),
+                  borderRadius: BorderRadius.circular(dense ? 12 : 15),
                 ),
               ),
               icon: isSearching
@@ -1087,6 +1140,25 @@ class _SearchBody extends StatelessWidget {
     }
     if (!showDefaultLibrary) {
       return const _SearchEmptyPrompt();
+    }
+    if (DesktopMusicScope.maybeOf(context) != null) {
+      Future<void> open(_LibraryListSpec selection) =>
+          Navigator.of(context).push<void>(
+            MaterialPageRoute(
+              settings: const RouteSettings(name: 'playlist-detail'),
+              builder: (context) => _PlaylistDetailPage(
+                controller: controller,
+                selection: selection,
+              ),
+            ),
+          );
+      return DesktopHomeDashboard(
+        controller: controller,
+        onOpenFavorites: () => open(_LibraryListSpec.favorite()),
+        onOpenPlaylist: (playlist) => open(_LibraryListSpec.custom(playlist)),
+        onOpenLibrary: onOpenLibrary,
+        onOpenChart: onOpenChart,
+      );
     }
     return ListView(
       padding: MusicUi.scrollInsets(
@@ -1432,15 +1504,36 @@ class _LibraryLanding extends StatelessWidget {
   Widget _buildContent(BuildContext context) {
     final playlists = _playlistsWithActiveSyncFirst(controller);
     final strings = AppStringsScope.of(context);
+    final desktop = DesktopMusicScope.maybeOf(context) != null;
+    // The Mac shows playlists as sleeves on a shelf.
+    Widget sleeves(List<MusicPlaylist> playlists) => DesktopSleeveGrid(
+      cards: [
+        for (final playlist in playlists)
+          DesktopSleeveCard(
+            key: ValueKey('library-playlist-${playlist.id}'),
+            title: playlist.name,
+            subtitle: _playlistSyncLabel(controller, playlist, strings).isEmpty
+                ? strings.songCount(playlist.entries.length)
+                : _playlistSyncLabel(controller, playlist, strings),
+            artwork: playlistArtworkUri(controller, playlist),
+            onTap: () => _openList(context, _LibraryListSpec.custom(playlist)),
+          ),
+      ],
+    );
+    final heading = desktop
+        ? DesktopUi.sectionTitle(context)
+        : Theme.of(context).textTheme.titleMedium;
     return ListView(
       padding: MusicUi.scrollInsets(
         context,
-        base: const EdgeInsets.fromLTRB(
-          MusicUi.pagePadding,
-          12,
-          MusicUi.pagePadding,
-          24,
-        ),
+        base: desktop
+            ? const EdgeInsets.fromLTRB(32, 8, 32, 32)
+            : const EdgeInsets.fromLTRB(
+                MusicUi.pagePadding,
+                12,
+                MusicUi.pagePadding,
+                24,
+              ),
       ),
       children: [
         if (controller.isLoadingCache) ...[
@@ -1496,14 +1589,13 @@ class _LibraryLanding extends StatelessWidget {
             ),
           ),
         ),
-        const SizedBox(height: 24),
-        Text(
-          strings.customPlaylists,
-          style: Theme.of(context).textTheme.titleMedium,
-        ),
-        const SizedBox(height: 8),
+        SizedBox(height: desktop ? 30 : 24),
+        Text(strings.customPlaylists, style: heading),
+        SizedBox(height: desktop ? 14 : 8),
         if (playlists.isEmpty)
           const _EmptyCustomPlaylists()
+        else if (desktop)
+          sleeves(playlists)
         else
           for (final playlist in playlists) ...[
             _CustomPlaylistTile(
@@ -1517,25 +1609,23 @@ class _LibraryLanding extends StatelessWidget {
           ],
         const SizedBox(height: 24),
         if (controller.builtInPlaylists.isNotEmpty) ...[
-          Text(
-            strings.isZh ? '榜单歌单' : 'Charts',
-            style: Theme.of(context).textTheme.titleMedium,
-          ),
-          const SizedBox(height: 8),
-          for (final playlist in controller.builtInPlaylists)
-            _CustomPlaylistTile(
-              playlist: playlist,
-              artwork: _homePlaylistArtwork(controller, playlist),
-              subtitle: _homePlaylistSubtitle(controller, playlist, strings),
-              onTap: () =>
-                  _openList(context, _LibraryListSpec.custom(playlist)),
-            ),
+          if (desktop) const SizedBox(height: 6),
+          Text(strings.isZh ? '榜单歌单' : 'Charts', style: heading),
+          SizedBox(height: desktop ? 14 : 8),
+          if (desktop)
+            sleeves(controller.builtInPlaylists)
+          else
+            for (final playlist in controller.builtInPlaylists)
+              _CustomPlaylistTile(
+                playlist: playlist,
+                artwork: _homePlaylistArtwork(controller, playlist),
+                subtitle: _homePlaylistSubtitle(controller, playlist, strings),
+                onTap: () =>
+                    _openList(context, _LibraryListSpec.custom(playlist)),
+              ),
           const SizedBox(height: 24),
         ],
-        Text(
-          strings.isZh ? '匹配歌单' : 'Matching playlists',
-          style: Theme.of(context).textTheme.titleMedium,
-        ),
+        Text(strings.isZh ? '匹配歌单' : 'Matching playlists', style: heading),
         const SizedBox(height: 8),
         OnlinePlaylistTaskList(
           controller: controller,
@@ -2111,8 +2201,15 @@ class _PlaylistDetailPageState extends State<_PlaylistDetailPage> {
             (rawList.isFavorite &&
                 effectiveSortMode == _LibrarySortMode.custom);
         final canReorder = _isReorderEditing && !hasActiveFilter && !selecting;
-        final immersive = list.playlist != null && !_isReorderEditing;
         final desktop = DesktopMusicScope.maybeOf(context) != null;
+        // On the Mac every list opens under its own header with the sleeve,
+        // except the date-grouped local list.
+        final desktopHero =
+            desktop &&
+            !_isReorderEditing &&
+            !(rawList.isLocal && effectiveSortMode == _LibrarySortMode.time);
+        final immersive =
+            desktopHero || (list.playlist != null && !_isReorderEditing);
         final appBar = _isReorderEditing
             ? _reorderEditAppBar(context, list)
             : selecting
@@ -2235,6 +2332,39 @@ class _PlaylistDetailPageState extends State<_PlaylistDetailPage> {
                     ),
                 ],
               );
+        final searchField = ListSearchField(
+          padding: desktopHero ? EdgeInsets.zero : null,
+          controller: _searchController,
+          focusNode: _searchFocusNode,
+          onChanged: (value) => setState(() {
+            _query = value;
+            _collapsedDates.clear();
+          }),
+          emptySuffix:
+              (list.canManage || list.isBuiltIn) &&
+                  list.playlist != null &&
+                  sortedTracks.isNotEmpty &&
+                  !_searchFocusNode.hasFocus
+              ? Padding(
+                  padding: const EdgeInsets.only(right: 4),
+                  child: IconButton(
+                    key: const ValueKey('download-all-playlist'),
+                    tooltip: controller.isPlaylistDownloading(list.playlist!)
+                        ? strings.downloadingPlaylist
+                        : strings.downloadAllPlaylist,
+                    onPressed: controller.isPlaylistDownloading(list.playlist!)
+                        ? null
+                        : () => _downloadAllPlaylist(list.playlist!),
+                    icon: controller.isPlaylistDownloading(list.playlist!)
+                        ? const SizedBox.square(
+                            dimension: 20,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : const Icon(Icons.download_for_offline_outlined),
+                  ),
+                )
+              : null,
+        );
         final headerChildren = <Widget>[
           if (widget.refreshing) const LinearProgressIndicator(),
           if (widget.refreshError != null)
@@ -2246,43 +2376,7 @@ class _PlaylistDetailPageState extends State<_PlaylistDetailPage> {
                 strings.isZh ? '暂时显示上次保存的榜单' : 'Showing the last saved chart',
               ),
             ),
-          if (!_isReorderEditing)
-            ListSearchField(
-              controller: _searchController,
-              focusNode: _searchFocusNode,
-              onChanged: (value) => setState(() {
-                _query = value;
-                _collapsedDates.clear();
-              }),
-              emptySuffix:
-                  (list.canManage || list.isBuiltIn) &&
-                      list.playlist != null &&
-                      sortedTracks.isNotEmpty &&
-                      !_searchFocusNode.hasFocus
-                  ? Padding(
-                      padding: const EdgeInsets.only(right: 4),
-                      child: IconButton(
-                        key: const ValueKey('download-all-playlist'),
-                        tooltip:
-                            controller.isPlaylistDownloading(list.playlist!)
-                            ? strings.downloadingPlaylist
-                            : strings.downloadAllPlaylist,
-                        onPressed:
-                            controller.isPlaylistDownloading(list.playlist!)
-                            ? null
-                            : () => _downloadAllPlaylist(list.playlist!),
-                        icon: controller.isPlaylistDownloading(list.playlist!)
-                            ? const SizedBox.square(
-                                dimension: 20,
-                                child: CircularProgressIndicator(
-                                  strokeWidth: 2,
-                                ),
-                              )
-                            : const Icon(Icons.download_for_offline_outlined),
-                      ),
-                    )
-                  : null,
-            ),
+          if (!_isReorderEditing && !desktopHero) searchField,
           if (list.canManage && list.playlist != null)
             PlaylistSourceProgress(
               controller: controller,
@@ -2304,7 +2398,29 @@ class _PlaylistDetailPageState extends State<_PlaylistDetailPage> {
               ),
             ),
         ];
-        final headerSlivers = immersive
+        final headerSlivers = desktopHero
+            ? <Widget>[
+                SliverToBoxAdapter(
+                  child: _DesktopListHero(
+                    controller: controller,
+                    list: list,
+                    note: widget.chartUpdatedAt == null
+                        ? null
+                        : strings.chartUpdated(widget.chartUpdatedAt!),
+                    actions: selecting ? const [] : appBar.actions ?? const [],
+                    search: _isReorderEditing ? null : searchField,
+                    onPlayAll: sortedTracks.isEmpty
+                        ? null
+                        : () => unawaited(
+                            _playFromList(sortedTracks.first, 0, sortedTracks),
+                          ),
+                  ),
+                ),
+                SliverToBoxAdapter(child: Column(children: headerChildren)),
+                if (list.tracks.isNotEmpty)
+                  const SliverToBoxAdapter(child: _DesktopTrackHeader()),
+              ]
+            : immersive
             ? <Widget>[
                 PlaylistSliverHeader(
                   title: list.title,
@@ -2366,7 +2482,8 @@ class _PlaylistDetailPageState extends State<_PlaylistDetailPage> {
           },
           child: Scaffold(
             extendBody: true,
-            appBar: immersive ? null : appBar,
+            // On the Mac a selection keeps its bar above the header.
+            appBar: immersive && !(desktopHero && selecting) ? null : appBar,
             body: SafeArea(
               top: !immersive,
               bottom: false,
@@ -3156,31 +3273,38 @@ class _TrackList extends StatelessWidget {
       );
     }
 
+    final desktop = DesktopMusicScope.maybeOf(context) != null;
     if (headerSlivers != null) {
       return PlaylistScrollView(
         controller: scrollController,
-        key: PageStorageKey('playlist-scroll-${list.playlist!.id}'),
+        key: PageStorageKey('playlist-scroll-${list.selection.id}'),
         keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
         slivers: [
           ...headerSlivers!,
           // Always present: rows must not jump when selection or search starts.
-          SliverToBoxAdapter(
-            child: _PlaylistSleeve(
-              controller: controller,
-              list: list,
-              playing: playing && tracks.any((track) => track.id == activeId),
-              onPlayAll: () => onPlayTrack(tracks.first, 0, tracks),
+          // The Mac header carries its own sleeve.
+          if (!desktop)
+            SliverToBoxAdapter(
+              child: _PlaylistSleeve(
+                controller: controller,
+                list: list,
+                playing: playing && tracks.any((track) => track.id == activeId),
+                onPlayAll: () => onPlayTrack(tracks.first, 0, tracks),
+              ),
             ),
-          ),
           SliverPadding(
             padding: MusicUi.scrollInsets(
               context,
-              base: const EdgeInsets.fromLTRB(12, 8, 12, 16),
+              base: desktop
+                  ? const EdgeInsets.fromLTRB(20, 2, 20, 24)
+                  : const EdgeInsets.fromLTRB(12, 8, 12, 16),
             ),
             sliver: SliverList.separated(
               itemCount: tracks.length,
               itemBuilder: tile,
-              separatorBuilder: (_, _) => const Divider(height: 1),
+              separatorBuilder: (_, _) => desktop
+                  ? const SizedBox(height: 1)
+                  : const Divider(height: 1),
             ),
           ),
         ],
@@ -3296,99 +3420,125 @@ class _TrackTile extends StatelessWidget {
                 ? null
                 : () => onPlayTrack(track, index, tracks),
             onContextMenu: () => menuKey.currentState?.showButtonMenu(),
-            builder: (tap, desktopSelected) => ListTile(
-              selected: selected || desktopSelected,
-              contentPadding: const EdgeInsets.symmetric(
-                horizontal: 8,
-                vertical: 6,
-              ),
-              leading: isReorderEditing
-                  ? const Icon(Icons.music_note_outlined)
-                  : isSelecting
-                  ? Checkbox(
-                      value: selected,
-                      onChanged: (_) => onToggleSelection(track),
-                    )
-                  : _TrackCover(
-                      track: track,
-                      active: active,
-                      playing: playing,
-                      preparing: isPreparing,
-                      dimmed: !cached,
-                      tooltip: isPreparing
-                          ? strings.preparingPlayback
-                          : active && playing
-                          ? strings.playing
-                          : strings.play,
-                      onPressed: isPreparing
-                          ? null
-                          : () => onPlayTrack(track, index, tracks),
+            builder: (tap, desktopSelected) =>
+                !isSelecting &&
+                    !isReorderEditing &&
+                    DesktopMusicScope.maybeOf(context) != null
+                ? _DesktopTrackRow(
+                    controller: controller,
+                    list: list,
+                    track: track,
+                    index: index,
+                    active: active,
+                    playing: playing,
+                    cached: cached,
+                    preparing: isPreparing,
+                    selected: selected || desktopSelected,
+                    needsSourceReview: needsSourceReview,
+                    menuKey: menuKey,
+                    onTap: tap,
+                    onPlay: isPreparing
+                        ? null
+                        : () => onPlayTrack(track, index, tracks),
+                    onLongPress: () => onStartSelection(track),
+                  )
+                : ListTile(
+                    selected: selected || desktopSelected,
+                    contentPadding: const EdgeInsets.symmetric(
+                      horizontal: 8,
+                      vertical: 6,
                     ),
-              title: Text(
-                track.title,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: TextStyle(
-                  fontWeight: active ? FontWeight.w700 : FontWeight.w500,
-                  color: active
-                      ? colors.primary
-                      : cached
-                      ? null
-                      : faded,
-                ),
-              ),
-              subtitle: Wrap(
-                spacing: 6,
-                crossAxisAlignment: WrapCrossAlignment.center,
-                children: [
-                  Text(
-                    _trackSubtitle(track),
-                    style: cached ? null : TextStyle(color: faded),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                  if (needsSourceReview)
-                    Tooltip(
-                      message: strings.isZh
-                          ? '切换来源核对歌曲'
-                          : 'Choose source to check this match',
-                      child: TextButton(
-                        key: ValueKey('song-match-review-${track.id}'),
-                        style: TextButton.styleFrom(
-                          minimumSize: Size.zero,
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 6,
-                            vertical: 2,
+                    leading: isReorderEditing
+                        ? const Icon(Icons.music_note_outlined)
+                        : isSelecting
+                        ? Checkbox(
+                            value: selected,
+                            onChanged: (_) => onToggleSelection(track),
+                          )
+                        : _TrackCover(
+                            track: track,
+                            active: active,
+                            playing: playing,
+                            preparing: isPreparing,
+                            dimmed: !cached,
+                            tooltip: isPreparing
+                                ? strings.preparingPlayback
+                                : active && playing
+                                ? strings.playing
+                                : strings.play,
+                            onPressed: isPreparing
+                                ? null
+                                : () => onPlayTrack(track, index, tracks),
                           ),
-                          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                          foregroundColor: colors.onTertiaryContainer,
-                          backgroundColor: colors.tertiaryContainer.withValues(
-                            alpha: .55,
-                          ),
-                          textStyle: Theme.of(context).textTheme.labelSmall,
-                        ),
-                        onPressed: () =>
-                            showSongSourcePicker(context, controller, track),
-                        child: Text(strings.isZh ? '需核对' : 'Check match'),
+                    title: Text(
+                      track.title,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        fontWeight: active ? FontWeight.w700 : FontWeight.w500,
+                        color: active
+                            ? colors.primary
+                            : cached
+                            ? null
+                            : faded,
                       ),
                     ),
-                ],
-              ),
-              trailing: isReorderEditing
-                  ? dragHandle
-                  : isSelecting
-                  ? null
-                  : _TrackActions(
-                      menuKey: menuKey,
-                      controller: controller,
-                      list: list,
-                      track: track,
+                    subtitle: Wrap(
+                      spacing: 6,
+                      crossAxisAlignment: WrapCrossAlignment.center,
+                      children: [
+                        Text(
+                          _trackSubtitle(track),
+                          style: cached ? null : TextStyle(color: faded),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                        if (needsSourceReview)
+                          Tooltip(
+                            message: strings.isZh
+                                ? '切换来源核对歌曲'
+                                : 'Choose source to check this match',
+                            child: TextButton(
+                              key: ValueKey('song-match-review-${track.id}'),
+                              style: TextButton.styleFrom(
+                                minimumSize: Size.zero,
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 6,
+                                  vertical: 2,
+                                ),
+                                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                                foregroundColor: colors.onTertiaryContainer,
+                                backgroundColor: colors.tertiaryContainer
+                                    .withValues(alpha: .55),
+                                textStyle: Theme.of(
+                                  context,
+                                ).textTheme.labelSmall,
+                              ),
+                              onPressed: () => showSongSourcePicker(
+                                context,
+                                controller,
+                                track,
+                              ),
+                              child: Text(strings.isZh ? '需核对' : 'Check match'),
+                            ),
+                          ),
+                      ],
                     ),
-              onTap: tap,
-              onLongPress: isReorderEditing
-                  ? null
-                  : () => onStartSelection(track),
-            ),
+                    trailing: isReorderEditing
+                        ? dragHandle
+                        : isSelecting
+                        ? null
+                        : _TrackActions(
+                            menuKey: menuKey,
+                            controller: controller,
+                            list: list,
+                            track: track,
+                          ),
+                    onTap: tap,
+                    onLongPress: isReorderEditing
+                        ? null
+                        : () => onStartSelection(track),
+                  ),
           ),
         );
       },
@@ -3542,12 +3692,18 @@ class _TrackActions extends StatelessWidget {
     required this.list,
     required this.track,
     this.menuKey,
+    this.dense = false,
+    this.showMenu = true,
   });
 
   final MusicController controller;
   final _ResolvedLibraryList list;
   final Track track;
   final GlobalKey<PopupMenuButtonState<_TrackAction>>? menuKey;
+
+  /// Mac rows: small buttons; the menu button appears under the pointer
+  /// but stays in place for the right-click menu.
+  final bool dense, showMenu;
 
   @override
   Widget build(BuildContext context) {
@@ -3556,68 +3712,90 @@ class _TrackActions extends StatelessWidget {
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: [
-        IconButton(
-          tooltip: favorite
-              ? strings.removeFromFavorites
-              : strings.addToFavorites,
-          onPressed: () => controller.toggleFavorite(track),
-          icon: Icon(favorite ? Icons.favorite : Icons.favorite_border),
-        ),
-        MusicPopupMenuButton<_TrackAction>(
-          key: menuKey,
-          tooltip: strings.more,
-          onSelected: (action) => _handle(context, action),
-          itemBuilder: (context) {
-            return [
-              PopupMenuItem(
-                value: _TrackAction.addToQueue,
-                child: Text(strings.isZh ? '添加到播放列表' : 'Add to queue'),
-              ),
-              PopupMenuItem(
-                value: _TrackAction.addToPlaylist,
-                child: Text(strings.addToPlaylist),
-              ),
-              if (FileSharing.supported)
-                PopupMenuItem(
-                  value: _TrackAction.share,
-                  child: Text(strings.isZh ? '分享' : 'Share'),
-                ),
-              if (list.canCustomSort)
-                PopupMenuItem(
-                  value: _TrackAction.pin,
-                  child: Text(
-                    controller.isTrackPinned(track, list.selection.id)
-                        ? (strings.isZh ? '取消置顶' : 'Unpin')
-                        : (strings.isZh ? '置顶' : 'Pin to top'),
-                  ),
-                ),
-              PopupMenuItem(
-                enabled: controller.canSwitchSongSource(track),
-                value: _TrackAction.switchSource,
-                child: SongSourceMenuLabel(
-                  source: controller.songSourceLabel(track, isZh: strings.isZh),
-                ),
-              ),
-              if (list.isLocal)
-                PopupMenuItem(
-                  value: _TrackAction.deleteLocal,
-                  child: Text(strings.deleteLocalMusic),
-                ),
-              if (list.canRemove)
-                PopupMenuItem(
-                  value: _TrackAction.removeFromCurrent,
-                  child: Text(
-                    list.isFavorite
-                        ? strings.removeFromFavorites
-                        : strings.removeFromThisPlaylist,
-                  ),
-                ),
-            ];
-          },
-        ),
+        if (dense)
+          DesktopToolButton(
+            tooltip: favorite
+                ? strings.removeFromFavorites
+                : strings.addToFavorites,
+            onPressed: () => controller.toggleFavorite(track),
+            icon: favorite
+                ? Icons.favorite_rounded
+                : Icons.favorite_border_rounded,
+            color: favorite ? Theme.of(context).colorScheme.primary : null,
+            size: 30,
+            iconSize: 17,
+          )
+        else
+          IconButton(
+            tooltip: favorite
+                ? strings.removeFromFavorites
+                : strings.addToFavorites,
+            onPressed: () => controller.toggleFavorite(track),
+            icon: Icon(favorite ? Icons.favorite : Icons.favorite_border),
+          ),
+        if (dense) ...[
+          const SizedBox(width: 2),
+          Opacity(opacity: showMenu ? 1 : 0, child: _menu(context, strings)),
+        ] else
+          _menu(context, strings),
       ],
     );
   }
+
+  Widget _menu(BuildContext context, AppStrings strings) =>
+      MusicPopupMenuButton<_TrackAction>(
+        key: menuKey,
+        icon: dense ? const Icon(Icons.more_horiz_rounded, size: 18) : null,
+        tooltip: strings.more,
+        onSelected: (action) => _handle(context, action),
+        itemBuilder: (context) {
+          return [
+            PopupMenuItem(
+              value: _TrackAction.addToQueue,
+              child: Text(strings.isZh ? '添加到播放列表' : 'Add to queue'),
+            ),
+            PopupMenuItem(
+              value: _TrackAction.addToPlaylist,
+              child: Text(strings.addToPlaylist),
+            ),
+            if (FileSharing.supported)
+              PopupMenuItem(
+                value: _TrackAction.share,
+                child: Text(strings.isZh ? '分享' : 'Share'),
+              ),
+            if (list.canCustomSort)
+              PopupMenuItem(
+                value: _TrackAction.pin,
+                child: Text(
+                  controller.isTrackPinned(track, list.selection.id)
+                      ? (strings.isZh ? '取消置顶' : 'Unpin')
+                      : (strings.isZh ? '置顶' : 'Pin to top'),
+                ),
+              ),
+            PopupMenuItem(
+              enabled: controller.canSwitchSongSource(track),
+              value: _TrackAction.switchSource,
+              child: SongSourceMenuLabel(
+                source: controller.songSourceLabel(track, isZh: strings.isZh),
+              ),
+            ),
+            if (list.isLocal)
+              PopupMenuItem(
+                value: _TrackAction.deleteLocal,
+                child: Text(strings.deleteLocalMusic),
+              ),
+            if (list.canRemove)
+              PopupMenuItem(
+                value: _TrackAction.removeFromCurrent,
+                child: Text(
+                  list.isFavorite
+                      ? strings.removeFromFavorites
+                      : strings.removeFromThisPlaylist,
+                ),
+              ),
+          ];
+        },
+      );
 
   Future<void> _handle(BuildContext context, _TrackAction action) async {
     try {
@@ -3884,4 +4062,453 @@ String _sourceMarker(MusicSearchCandidate candidate) {
     MusicDataSource.auto => 'AUTO',
     MusicDataSource.lan => 'LAN',
   };
+}
+
+/// The Mac header of a list: its sleeve with the record half out, what kind
+/// of list it is, its name, and one row of everything it can do.
+class _DesktopListHero extends StatelessWidget {
+  const _DesktopListHero({
+    required this.controller,
+    required this.list,
+    required this.actions,
+    required this.onPlayAll,
+    this.search,
+    this.note,
+  });
+
+  final MusicController controller;
+  final _ResolvedLibraryList list;
+  final List<Widget> actions;
+  final VoidCallback? onPlayAll;
+  final Widget? search;
+  final String? note;
+
+  @override
+  Widget build(BuildContext context) {
+    final strings = AppStringsScope.of(context);
+    final zh = strings.isZh;
+    final playlist = list.playlist;
+    Uri? artwork = playlist == null
+        ? null
+        : playlistArtworkUri(controller, playlist);
+    for (final track in list.tracks) {
+      if (artwork != null) break;
+      artwork = track.artworkUri;
+    }
+    final kind = list.isFavorite
+        ? (zh ? '我的收藏' : 'FAVORITES')
+        : list.isLocal
+        ? (zh ? '本地音乐' : 'ON THIS MAC')
+        : list.isBuiltIn
+        ? (zh ? '榜单' : 'CHART')
+        : (zh ? '歌单' : 'PLAYLIST');
+    final title = list.title.isNotEmpty
+        ? list.title
+        : list.isFavorite
+        ? (zh ? '我的收藏' : 'Favorites')
+        : (zh ? '本地音乐' : 'Local music');
+    return StreamBuilder<MediaItem?>(
+      stream: controller.mediaItemStream,
+      initialData: controller.audioHandler.mediaItem.valueOrNull,
+      builder: (context, media) => StreamBuilder<bool>(
+        stream: controller.playbackStateStream
+            .map((state) => state.playing)
+            .distinct(),
+        initialData: controller.audioHandler.playbackState.value.playing,
+        builder: (context, state) {
+          final playing =
+              (state.data ?? false) &&
+              list.tracks.any((track) => track.id == media.data?.id);
+          return Padding(
+            padding: const EdgeInsets.fromLTRB(32, 4, 32, 14),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.end,
+                  children: [
+                    RecordSleeve(
+                      size: 176,
+                      reveal: playing ? .34 : .2,
+                      spinning: playing,
+                      cover: ColoredBox(
+                        color: MusicTokens.of(context).panel,
+                        child: MusicThumbnail(
+                          uri: artwork,
+                          label: title,
+                          size: 176,
+                          radius: 0,
+                        ),
+                      ),
+                      label: artwork == null
+                          ? null
+                          : MusicThumbnail(
+                              uri: artwork,
+                              label: title,
+                              size: 64,
+                              radius: 0,
+                            ),
+                    ),
+                    const SizedBox(width: 30),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(kind, style: MusicType.eyebrow(context)),
+                          const SizedBox(height: 10),
+                          Text(
+                            title,
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                            style: MusicType.masthead(context, size: 38),
+                          ),
+                          const SizedBox(height: 10),
+                          Text(
+                            [
+                              strings.songCount(list.tracks.length),
+                              ?note,
+                            ].join('  ·  '),
+                            style: TextStyle(
+                              fontSize: 13,
+                              color: DesktopUi.muted(context),
+                            ),
+                          ),
+                          const SizedBox(height: 18),
+                          LayoutBuilder(
+                            builder: (context, constraints) {
+                              final buttons = Row(
+                                children: [
+                                  FilledButton.icon(
+                                    key: const ValueKey('playlist-play-all'),
+                                    onPressed: onPlayAll,
+                                    style: FilledButton.styleFrom(
+                                      minimumSize: const Size(0, 36),
+                                      padding: const EdgeInsets.symmetric(
+                                        horizontal: 18,
+                                      ),
+                                      shape: const StadiumBorder(),
+                                      textStyle: const TextStyle(
+                                        fontSize: 13.5,
+                                        fontWeight: FontWeight.w600,
+                                      ),
+                                    ),
+                                    icon: const Icon(
+                                      Icons.play_arrow_rounded,
+                                      size: 20,
+                                    ),
+                                    label: Text(zh ? '播放全部' : 'Play all'),
+                                  ),
+                                  const SizedBox(width: 6),
+                                  Flexible(
+                                    child: IconButtonTheme(
+                                      data: IconButtonThemeData(
+                                        style: IconButton.styleFrom(
+                                          iconSize: 19,
+                                          minimumSize: const Size(34, 34),
+                                          foregroundColor: Theme.of(
+                                            context,
+                                          ).colorScheme.onSurface,
+                                        ),
+                                      ),
+                                      child: SingleChildScrollView(
+                                        scrollDirection: Axis.horizontal,
+                                        child: Row(children: actions),
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              );
+                              if (search == null) return buttons;
+                              // The search sits beside the buttons, or under
+                              // them in a narrow window.
+                              if (constraints.maxWidth < 480) {
+                                return Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    buttons,
+                                    const SizedBox(height: 10),
+                                    search!,
+                                  ],
+                                );
+                              }
+                              return Row(
+                                children: [
+                                  Expanded(child: buttons),
+                                  const SizedBox(width: 12),
+                                  SizedBox(width: 220, child: search),
+                                ],
+                              );
+                            },
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          );
+        },
+      ),
+    );
+  }
+}
+
+/// Mac track table geometry, shared by the column header and its rows.
+abstract final class _DesktopColumns {
+  static const index = 30.0;
+  static const cover = 38.0;
+  static const size = 70.0;
+  static const actions = 88.0;
+  static bool showAlbum(double width) => width >= 620;
+}
+
+class _DesktopTrackHeader extends StatelessWidget {
+  const _DesktopTrackHeader();
+
+  @override
+  Widget build(BuildContext context) {
+    final zh = AppStringsScope.of(context).isZh;
+    final style = TextStyle(
+      fontSize: 11.5,
+      fontWeight: FontWeight.w600,
+      color: DesktopUi.muted(context).withValues(alpha: .8),
+    );
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(32, 4, 32, 0),
+      child: Column(
+        children: [
+          LayoutBuilder(
+            builder: (context, constraints) => SizedBox(
+              height: 28,
+              child: Row(
+                children: [
+                  SizedBox(
+                    width: _DesktopColumns.index,
+                    child: Text('#', textAlign: TextAlign.center, style: style),
+                  ),
+                  const SizedBox(width: 12 + _DesktopColumns.cover + 12),
+                  Expanded(
+                    flex: 5,
+                    child: Text(zh ? '标题' : 'Title', style: style),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    flex: 3,
+                    child: Text(zh ? '歌手' : 'Artist', style: style),
+                  ),
+                  if (_DesktopColumns.showAlbum(constraints.maxWidth)) ...[
+                    const SizedBox(width: 12),
+                    Expanded(
+                      flex: 3,
+                      child: Text(zh ? '专辑' : 'Album', style: style),
+                    ),
+                  ],
+                  SizedBox(
+                    width: _DesktopColumns.size,
+                    child: Text(
+                      zh ? '大小' : 'Size',
+                      textAlign: TextAlign.right,
+                      style: style,
+                    ),
+                  ),
+                  const SizedBox(width: _DesktopColumns.actions),
+                ],
+              ),
+            ),
+          ),
+          const Divider(height: 1),
+        ],
+      ),
+    );
+  }
+}
+
+/// A song as a row of the Mac track table. The number turns into a play
+/// button under the pointer and into a level meter while the song plays.
+class _DesktopTrackRow extends StatelessWidget {
+  const _DesktopTrackRow({
+    required this.controller,
+    required this.list,
+    required this.track,
+    required this.index,
+    required this.active,
+    required this.playing,
+    required this.cached,
+    required this.preparing,
+    required this.selected,
+    required this.needsSourceReview,
+    required this.menuKey,
+    required this.onTap,
+    required this.onPlay,
+    required this.onLongPress,
+  });
+
+  final MusicController controller;
+  final _ResolvedLibraryList list;
+  final Track track;
+  final int index;
+  final bool active, playing, cached, preparing, selected, needsSourceReview;
+  final GlobalKey<PopupMenuButtonState<_TrackAction>> menuKey;
+  final VoidCallback? onTap, onPlay;
+  final VoidCallback onLongPress;
+
+  @override
+  Widget build(BuildContext context) {
+    final strings = AppStringsScope.of(context);
+    final colors = Theme.of(context).colorScheme;
+    final faded = colors.onSurface.withValues(alpha: cached ? 1 : .62);
+    final muted = DesktopUi.muted(context).withValues(alpha: cached ? 1 : .7);
+    return DesktopHover(
+      builder: (context, hovered) => GestureDetector(
+        onLongPress: onLongPress,
+        child: DesktopRow(
+          selected: selected,
+          onTap: onTap,
+          height: 54,
+          padding: const EdgeInsets.symmetric(horizontal: 12),
+          child: LayoutBuilder(
+            builder: (context, constraints) => Row(
+              children: [
+                SizedBox(
+                  width: _DesktopColumns.index,
+                  child: Center(
+                    child: preparing
+                        ? const SizedBox.square(
+                            dimension: 14,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : hovered && !(active && playing)
+                        ? DesktopToolButton(
+                            icon: Icons.play_arrow_rounded,
+                            tooltip: strings.play,
+                            size: 28,
+                            iconSize: 20,
+                            color: colors.onSurface,
+                            onPressed: onPlay,
+                          )
+                        : active
+                        ? EqualizerBars(
+                            playing: playing,
+                            size: 15,
+                            color: colors.primary,
+                          )
+                        : Text(
+                            '${index + 1}',
+                            style: MusicType.readout(context, size: 12),
+                          ),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Opacity(
+                  opacity: cached ? 1 : .8,
+                  child: MusicThumbnail(
+                    uri: track.artworkUri,
+                    label: track.title,
+                    size: _DesktopColumns.cover,
+                    radius: 5,
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  flex: 5,
+                  child: Row(
+                    children: [
+                      Flexible(
+                        child: Text(
+                          track.title,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            fontSize: 13.5,
+                            fontWeight: active
+                                ? FontWeight.w700
+                                : FontWeight.w500,
+                            color: active ? colors.primary : faded,
+                          ),
+                        ),
+                      ),
+                      if (needsSourceReview) ...[
+                        const SizedBox(width: 8),
+                        Tooltip(
+                          message: strings.isZh
+                              ? '切换来源核对歌曲'
+                              : 'Choose source to check this match',
+                          child: DesktopRow(
+                            key: ValueKey('song-match-review-${track.id}'),
+                            height: 20,
+                            radius: 10,
+                            padding: const EdgeInsets.symmetric(horizontal: 7),
+                            onTap: () => showSongSourcePicker(
+                              context,
+                              controller,
+                              track,
+                            ),
+                            child: Center(
+                              widthFactor: 1,
+                              child: Text(
+                                strings.isZh ? '需核对' : 'Check match',
+                                style: TextStyle(
+                                  fontSize: 11,
+                                  color: colors.onTertiaryContainer,
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  flex: 3,
+                  child: Text(
+                    track.artist,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(fontSize: 13, color: muted),
+                  ),
+                ),
+                if (_DesktopColumns.showAlbum(constraints.maxWidth + 24)) ...[
+                  const SizedBox(width: 12),
+                  Expanded(
+                    flex: 3,
+                    child: Text(
+                      track.album,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(fontSize: 13, color: muted),
+                    ),
+                  ),
+                ],
+                SizedBox(
+                  width: _DesktopColumns.size,
+                  child: Text(
+                    track.sizeLabel,
+                    textAlign: TextAlign.right,
+                    style: MusicType.readout(context, size: 11.5),
+                  ),
+                ),
+                SizedBox(
+                  width: _DesktopColumns.actions,
+                  child: Align(
+                    alignment: Alignment.centerRight,
+                    child: _TrackActions(
+                      menuKey: menuKey,
+                      controller: controller,
+                      list: list,
+                      track: track,
+                      dense: true,
+                      showMenu: hovered || selected,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
 }
