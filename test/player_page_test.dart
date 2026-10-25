@@ -1,3 +1,7 @@
+import 'package:ai_music/src/presentation/desktop_music_shell.dart';
+import 'package:ai_music/src/presentation/desktop_scope.dart';
+import 'package:flutter/services.dart';
+import 'package:flutter/foundation.dart';
 import 'package:ai_music/src/presentation/app_theme.dart';
 import 'package:ai_music/src/presentation/design/turntable.dart';
 import 'package:ai_music/src/data/song_search_cache.dart';
@@ -26,6 +30,172 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
+  testWidgets(
+    'desktop shell keeps controls, compact panel and input shortcuts independent',
+    (tester) async {
+      debugDefaultTargetPlatformOverride = TargetPlatform.macOS;
+      addTearDown(() => debugDefaultTargetPlatformOverride = null);
+      final semantics = tester.ensureSemantics();
+      await tester.binding.setSurfaceSize(const Size(1100, 780));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+      MusicMotion.perpetual = false;
+      addTearDown(() => MusicMotion.perpetual = true);
+      final handler = _SpyAudioHandler();
+      final cached = _cachedTrack();
+      final controller = MusicController(
+        songSearchCache: SongSearchCache.memory(),
+        downloadHistoryStore: MemoryDownloadHistory(),
+        connectivityChanges: const Stream.empty(),
+        audioHandler: handler,
+        resolver: _FakeMusicResolver(),
+        cacheStore: _FakeCacheStore(cached: [cached]),
+        playlistStore: _FakePlaylistStore(),
+        settingsStore: _FakeSettingsStore(),
+        metadataRepository: _StaticMetadataRepository(
+          metadata: const TrackMetadata(lyricsStatus: LyricsStatus.notFound),
+        ),
+      );
+      await controller.initialize();
+      await controller.playTrack(
+        trackFromCached(cached),
+        playlistId: favoritePlaylistId,
+      );
+      handler.playbackState.add(PlaybackState(playing: false));
+      final field = FocusNode();
+      final shell = GlobalKey<DesktopMusicShellState>();
+      await tester.pumpWidget(
+        AppStringsScope(
+          language: AppLanguage.zh,
+          child: MaterialApp(
+            theme: MusicAppTheme.create(Brightness.dark),
+            home: DesktopMusicShell(
+              key: shell,
+              controller: controller,
+              persistWindowState: false,
+              home: Scaffold(
+                body: Column(
+                  children: [
+                    TextField(
+                      key: const Key('desktop-input'),
+                      focusNode: field,
+                    ),
+                    MiniPlayer(controller: controller),
+                  ],
+                ),
+              ),
+              library: const Scaffold(body: Text('library page')),
+              downloads: const Scaffold(body: Text('downloads page')),
+              settings: const Scaffold(body: Text('settings page')),
+              playlistBuilder: (_) =>
+                  const Scaffold(body: Text('origin playlist')),
+              focusSearch: field.requestFocus,
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(find.byKey(const ValueKey('mini-player-card')), findsNothing);
+      expect(find.byType(DesktopPlaybackBar), findsOneWidget);
+      expect(find.bySemanticsLabel('首页'), findsOneWidget);
+      final bar = tester.getRect(find.byType(DesktopPlaybackBar));
+      await tester.tap(find.text('队列'));
+      await tester.pumpAndSettle();
+      expect(find.byType(DesktopPlaybackQueue), findsOneWidget);
+      expect(tester.getRect(find.byType(DesktopPlaybackBar)), bar);
+      await tester.binding.setSurfaceSize(const Size(760, 600));
+      await tester.pumpAndSettle();
+      expect(tester.takeException(), isNull);
+      await tester.tap(find.byTooltip('收起面板'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('desktop-input')));
+      await tester.sendKeyEvent(LogicalKeyboardKey.space);
+      expect(handler.playbackState.value.playing, isFalse);
+      field.unfocus();
+      shell.currentState!.selectSection('library');
+      await tester.pumpAndSettle();
+      expect(find.text('library page'), findsOneWidget);
+      expect(find.byType(DesktopPlaybackBar), findsOneWidget);
+      await tester.tap(find.text('来自：我的收藏'));
+      await tester.pumpAndSettle();
+      expect(find.text('origin playlist'), findsOneWidget);
+      final scope = DesktopMusicScope.maybeOf(
+        tester.element(find.byType(DesktopPlaybackBar)),
+      )!;
+      scope.openPlayer();
+      await tester.pumpAndSettle();
+      expect(find.byType(DesktopNowPlaying), findsOneWidget);
+      expect(tester.takeException(), isNull);
+      await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+      await tester.pumpAndSettle();
+      await tester.sendKeyDownEvent(LogicalKeyboardKey.metaLeft);
+      await tester.sendKeyEvent(LogicalKeyboardKey.comma);
+      await tester.sendKeyUpEvent(LogicalKeyboardKey.metaLeft);
+      await tester.pumpAndSettle();
+      expect(find.text('settings page'), findsOneWidget);
+      await tester.sendKeyDownEvent(LogicalKeyboardKey.metaLeft);
+      await tester.sendKeyEvent(LogicalKeyboardKey.keyK);
+      await tester.sendKeyUpEvent(LogicalKeyboardKey.metaLeft);
+      await tester.pumpAndSettle();
+      expect(field.hasFocus, isTrue);
+      await tester.sendKeyDownEvent(LogicalKeyboardKey.metaLeft);
+      await tester.sendKeyEvent(LogicalKeyboardKey.comma);
+      await tester.sendKeyUpEvent(LogicalKeyboardKey.metaLeft);
+      await tester.pumpAndSettle();
+      expect(find.text('settings page'), findsOneWidget);
+      expect(field.hasFocus, isFalse);
+      await tester.sendKeyEvent(LogicalKeyboardKey.space);
+      await tester.pumpAndSettle();
+      expect(handler.playbackState.value.playing, isTrue);
+      semantics.dispose();
+      await tester.pumpWidget(const SizedBox.shrink());
+      field.dispose();
+      controller.dispose();
+      await handler.dispose();
+      debugDefaultTargetPlatformOverride = null;
+    },
+  );
+
+  testWidgets('desktop song selection does not play and double click does', (
+    tester,
+  ) async {
+    final selection = ValueNotifier<String?>(null);
+    final locate = ValueNotifier<({String id, int revision})?>(null);
+    var plays = 0;
+    await tester.pumpWidget(
+      MaterialApp(
+        home: DesktopMusicScope(
+          selection: selection,
+          locate: locate,
+          openPlayer: () {},
+          openDetail: (_) {},
+          child: Scaffold(
+            body: DesktopSongInteraction(
+              id: 'song',
+              onPlay: () => plays++,
+              builder: (tap, selected) => ListTile(
+                title: const Text('song row'),
+                selected: selected,
+                onTap: tap,
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.tap(find.text('song row'));
+    await tester.pump(const Duration(milliseconds: 400));
+    expect(selection.value, 'song');
+    expect(plays, 0);
+    await tester.tap(find.text('song row'));
+    await tester.pump(const Duration(milliseconds: 80));
+    await tester.tap(find.text('song row'));
+    await tester.pumpAndSettle();
+    expect(plays, 1);
+    await tester.pumpWidget(const SizedBox.shrink());
+    selection.dispose();
+    locate.dispose();
+  });
+
   testWidgets('restored playback uses the normal paused UI until play', (
     tester,
   ) async {

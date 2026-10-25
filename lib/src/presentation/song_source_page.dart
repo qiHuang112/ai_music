@@ -1,4 +1,5 @@
 import 'app_theme.dart';
+import 'desktop_scope.dart';
 import 'package:flutter/material.dart';
 import '../application/music_controller.dart';
 import '../data/music_resolver.dart';
@@ -10,12 +11,27 @@ Future<void> showSongSourcePicker(
   BuildContext context,
   MusicController controller,
   Track track,
-) => Navigator.of(context).push<void>(
-  MaterialPageRoute(
-    settings: const RouteSettings(name: 'song-source'),
-    builder: (_) => SongSourcePage(controller: controller, track: track),
-  ),
-);
+) {
+  if (DesktopMusicScope.maybeOf(context) != null) {
+    return showDialog<void>(
+      context: context,
+      builder: (_) => Dialog(
+        clipBehavior: Clip.antiAlias,
+        child: SizedBox(
+          width: 680,
+          height: 560,
+          child: SongSourcePage(controller: controller, track: track),
+        ),
+      ),
+    );
+  }
+  return Navigator.of(context).push<void>(
+    MaterialPageRoute(
+      settings: const RouteSettings(name: 'song-source'),
+      builder: (_) => SongSourcePage(controller: controller, track: track),
+    ),
+  );
+}
 
 class SongSourcePage extends StatefulWidget {
   const SongSourcePage({

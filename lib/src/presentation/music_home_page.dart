@@ -1,4 +1,6 @@
 import 'initial_song_scroll.dart';
+import 'desktop_music_shell.dart';
+import 'desktop_scope.dart';
 import 'app_popup_menu.dart';
 import 'playlist_sliver_header.dart';
 import 'playlist_sync_button.dart';
@@ -65,6 +67,9 @@ class _MusicHomePageState extends State<MusicHomePage>
     with WidgetsBindingObserver {
   static const _exitBackWindow = Duration(seconds: 2);
 
+  final _desktopKey = GlobalKey<DesktopMusicShellState>();
+  NavigatorState get _contentNavigator =>
+      _desktopKey.currentState?.navigator ?? Navigator.of(context);
   final _searchController = TextEditingController();
   final _searchFocusNode = FocusNode();
   late final OnlinePlaylistSearch _playlistSearch;
@@ -138,7 +143,7 @@ class _MusicHomePageState extends State<MusicHomePage>
   }
 
   void _openMatchedPlaylist(MusicPlaylist playlist) {
-    Navigator.of(context).push(
+    _contentNavigator.push(
       MaterialPageRoute<void>(
         settings: const RouteSettings(name: 'playlist-detail'),
         builder: (_) => _PlaylistDetailPage(
@@ -167,6 +172,42 @@ class _MusicHomePageState extends State<MusicHomePage>
       builder: (context, _) {
         final strings = AppStringsScope.of(context);
         _maybeShowStatusSnack(strings);
+        if (isMacMusicDesktop) {
+          return DesktopMusicShell(
+            key: _desktopKey,
+            controller: controller,
+            home: Scaffold(
+              appBar: AppBar(
+                title: Text(strings.homeLibraryTitle),
+                titleTextStyle: MusicType.masthead(context, size: 30),
+              ),
+              body: _homeTab(strings),
+            ),
+            library: _LibraryPage(controller: controller),
+            downloads: DownloadManagerPage(
+              controller: controller,
+              onOpenPlaylist: _openMatchedPlaylist,
+            ),
+            settings: DesktopSettingsPage(controller: controller),
+            focusSearch: _searchFocusNode.requestFocus,
+            playlistBuilder: (id) {
+              if (id == favoritePlaylistId) {
+                return _PlaylistDetailPage(
+                  controller: controller,
+                  selection: _LibraryListSpec.favorite(),
+                );
+              }
+              final playlist = controller.allPlaylists
+                  .where((p) => p.id == id)
+                  .firstOrNull;
+              if (playlist == null) return _LibraryPage(controller: controller);
+              return _PlaylistDetailPage(
+                controller: controller,
+                selection: _LibraryListSpec.custom(playlist),
+              );
+            },
+          );
+        }
         return PopScope(
           canPop: false,
           onPopInvokedWithResult: (didPop, _) {
@@ -262,6 +303,12 @@ class _MusicHomePageState extends State<MusicHomePage>
   }
 
   void _selectTab(int tab) {
+    if (isMacMusicDesktop) {
+      _desktopKey.currentState?.selectSection(
+        const ['home', 'library', 'downloads', 'settings'][tab],
+      );
+      return;
+    }
     if (tab == _tab) return;
     controller.performanceMonitor.setTab(
       const ['home', 'library', 'downloads', 'settings'][tab],
@@ -426,7 +473,7 @@ class _MusicHomePageState extends State<MusicHomePage>
   }
 
   void _openScreenshotImport() {
-    Navigator.of(context).push(
+    _contentNavigator.push(
       MaterialPageRoute<void>(
         settings: const RouteSettings(name: 'screenshot-import'),
         builder: (_) => ScreenshotImportPage(
@@ -551,7 +598,7 @@ class _MusicHomePageState extends State<MusicHomePage>
   void _openLibrary() => _selectTab(1);
 
   Future<void> _openChart(MusicChart chart) {
-    return Navigator.of(context).push<void>(
+    return _contentNavigator.push<void>(
       MaterialPageRoute(builder: (context) => _chartPage(controller, chart)),
     );
   }
@@ -954,44 +1001,58 @@ class _OnlineSearchPanel extends StatelessWidget {
                     final candidate = candidates[index];
                     final isBusy = isCandidateBusy(candidate);
                     final isPreparing = isCandidatePreparing(candidate);
-                    return ListTile(
-                      leading: CircleAvatar(
-                        backgroundColor: colors.secondaryContainer,
-                        foregroundColor: colors.onSecondaryContainer,
-                        child: isBusy || isPreparing
-                            ? SizedBox.square(
-                                key: isPreparing
-                                    ? const ValueKey('search-play-spinner')
-                                    : null,
-                                dimension: 18,
-                                child: const CircularProgressIndicator(
-                                  strokeWidth: 2,
-                                ),
-                              )
-                            : Text(
-                                _sourceMarker(candidate),
-                                style: Theme.of(context).textTheme.labelSmall
-                                    ?.copyWith(
-                                      color: colors.onSecondaryContainer,
-                                      fontWeight: FontWeight.w700,
-                                    ),
-                              ),
-                      ),
-                      title: Text(
-                        candidate.name.isEmpty
-                            ? candidate.keyword
-                            : candidate.name,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                      subtitle: Text(
-                        _candidateSubtitle(candidate),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                      onTap: isBusy || isPreparing
+                    return DesktopSongInteraction(
+                      id: 'search:${candidate.source}:${candidate.id}',
+                      onPlay: isBusy || isPreparing
                           ? null
                           : () => onPlay(candidate),
+                      builder: (tap, selected) => ListTile(
+                        selected: selected,
+                        trailing: DesktopMusicScope.maybeOf(context) == null
+                            ? null
+                            : IconButton(
+                                tooltip: strings.play,
+                                onPressed: isBusy || isPreparing
+                                    ? null
+                                    : () => onPlay(candidate),
+                                icon: const Icon(Icons.play_arrow_rounded),
+                              ),
+                        leading: CircleAvatar(
+                          backgroundColor: colors.secondaryContainer,
+                          foregroundColor: colors.onSecondaryContainer,
+                          child: isBusy || isPreparing
+                              ? SizedBox.square(
+                                  key: isPreparing
+                                      ? const ValueKey('search-play-spinner')
+                                      : null,
+                                  dimension: 18,
+                                  child: const CircularProgressIndicator(
+                                    strokeWidth: 2,
+                                  ),
+                                )
+                              : Text(
+                                  _sourceMarker(candidate),
+                                  style: Theme.of(context).textTheme.labelSmall
+                                      ?.copyWith(
+                                        color: colors.onSecondaryContainer,
+                                        fontWeight: FontWeight.w700,
+                                      ),
+                                ),
+                        ),
+                        title: Text(
+                          candidate.name.isEmpty
+                              ? candidate.keyword
+                              : candidate.name,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                        subtitle: Text(
+                          _candidateSubtitle(candidate),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                        onTap: tap,
+                      ),
                     );
                   },
                 ),
@@ -1934,6 +1995,7 @@ class _OnlinePlaylistSyncProgress extends StatelessWidget {
 }
 
 class _PlaylistDetailPageState extends State<_PlaylistDetailPage> {
+  int _locateRevision = 0;
   _LibrarySortMode _sortMode = _LibrarySortMode.time;
   String? _preparingTrackId;
   int _playRequestId = 0;
@@ -1948,6 +2010,27 @@ class _PlaylistDetailPageState extends State<_PlaylistDetailPage> {
   bool _reorderDraftDirty = false;
 
   MusicController get controller => widget.controller;
+
+  ValueNotifier<({String id, int revision})?>? _desktopLocation;
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final location = DesktopMusicScope.maybeOf(context)?.locate;
+    if (identical(location, _desktopLocation)) return;
+    _desktopLocation?.removeListener(_locateFromDesktop);
+    _desktopLocation = location;
+    location?.addListener(_locateFromDesktop);
+  }
+
+  void _locateFromDesktop() {
+    if (!mounted || _desktopLocation?.value?.id != widget.selection.id) return;
+    setState(() {
+      _query = '';
+      _dateFilter = null;
+      _searchController.clear();
+      _locateRevision++;
+    });
+  }
 
   @override
   void initState() {
@@ -1978,6 +2061,7 @@ class _PlaylistDetailPageState extends State<_PlaylistDetailPage> {
 
   @override
   void dispose() {
+    _desktopLocation?.removeListener(_locateFromDesktop);
     _searchFocusNode.dispose();
     _searchController.dispose();
     super.dispose();
@@ -2028,6 +2112,7 @@ class _PlaylistDetailPageState extends State<_PlaylistDetailPage> {
                 effectiveSortMode == _LibrarySortMode.custom);
         final canReorder = _isReorderEditing && !hasActiveFilter && !selecting;
         final immersive = list.playlist != null && !_isReorderEditing;
+        final desktop = DesktopMusicScope.maybeOf(context) != null;
         final appBar = _isReorderEditing
             ? _reorderEditAppBar(context, list)
             : selecting
@@ -2039,6 +2124,12 @@ class _PlaylistDetailPageState extends State<_PlaylistDetailPage> {
                       : list.title,
                 ),
                 actions: [
+                  if (desktop)
+                    IconButton(
+                      tooltip: strings.isZh ? '定位当前歌曲' : 'Locate current song',
+                      onPressed: () => setState(() => _locateRevision++),
+                      icon: const Icon(Icons.my_location),
+                    ),
                   if (list.isLocal)
                     DateFilterButton(
                       dates: rawList.tracks.map((t) => t.cachedAt),
@@ -2239,7 +2330,7 @@ class _PlaylistDetailPageState extends State<_PlaylistDetailPage> {
                     )
                   : const Center(child: CircularProgressIndicator()))
             : _TrackList(
-                key: ValueKey(_dateFilter),
+                key: ValueKey('$_dateFilter:$_locateRevision'),
                 controller: controller,
                 list: list,
                 hasActiveFilter: hasActiveFilter,
@@ -3182,6 +3273,7 @@ class _TrackTile extends StatelessWidget {
         !isSelecting &&
         !isReorderEditing &&
         controller.songSourceNeedsReview(track);
+    final menuKey = GlobalKey<PopupMenuButtonState<_TrackAction>>();
     return SongCacheProgressRow(
       controller: controller,
       track: track,
@@ -3193,103 +3285,110 @@ class _TrackTile extends StatelessWidget {
           data: IconButtonThemeData(
             style: IconButton.styleFrom(foregroundColor: cached ? null : faded),
           ),
-          child: ListTile(
-            selected: selected,
-            contentPadding: const EdgeInsets.symmetric(
-              horizontal: 8,
-              vertical: 6,
-            ),
-            leading: isReorderEditing
-                ? const Icon(Icons.music_note_outlined)
-                : isSelecting
-                ? Checkbox(
-                    value: selected,
-                    onChanged: (_) => onToggleSelection(track),
-                  )
-                : _TrackCover(
-                    track: track,
-                    active: active,
-                    playing: playing,
-                    preparing: isPreparing,
-                    dimmed: !cached,
-                    tooltip: isPreparing
-                        ? strings.preparingPlayback
-                        : active && playing
-                        ? strings.playing
-                        : strings.play,
-                    onPressed: isPreparing
-                        ? null
-                        : () => onPlayTrack(track, index, tracks),
-                  ),
-            title: Text(
-              track.title,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: TextStyle(
-                fontWeight: active ? FontWeight.w700 : FontWeight.w500,
-                color: active
-                    ? colors.primary
-                    : cached
-                    ? null
-                    : faded,
-              ),
-            ),
-            subtitle: Wrap(
-              spacing: 6,
-              crossAxisAlignment: WrapCrossAlignment.center,
-              children: [
-                Text(
-                  _trackSubtitle(track),
-                  style: cached ? null : TextStyle(color: faded),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                ),
-                if (needsSourceReview)
-                  Tooltip(
-                    message: strings.isZh
-                        ? '切换来源核对歌曲'
-                        : 'Choose source to check this match',
-                    child: TextButton(
-                      key: ValueKey('song-match-review-${track.id}'),
-                      style: TextButton.styleFrom(
-                        minimumSize: Size.zero,
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 6,
-                          vertical: 2,
-                        ),
-                        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                        foregroundColor: colors.onTertiaryContainer,
-                        backgroundColor: colors.tertiaryContainer.withValues(
-                          alpha: .55,
-                        ),
-                        textStyle: Theme.of(context).textTheme.labelSmall,
-                      ),
-                      onPressed: () =>
-                          showSongSourcePicker(context, controller, track),
-                      child: Text(strings.isZh ? '需核对' : 'Check match'),
-                    ),
-                  ),
-              ],
-            ),
-            trailing: isReorderEditing
-                ? dragHandle
-                : isSelecting
-                ? null
-                : _TrackActions(
-                    controller: controller,
-                    list: list,
-                    track: track,
-                  ),
-            onTap: isReorderEditing
+          child: DesktopSongInteraction(
+            id: '${list.selection.id}:${track.id}',
+            enabled: !isSelecting && !isReorderEditing,
+            onPlay: isReorderEditing
                 ? null
                 : isSelecting
                 ? () => onToggleSelection(track)
                 : isPreparing
                 ? null
                 : () => onPlayTrack(track, index, tracks),
-            onLongPress: isReorderEditing
-                ? null
-                : () => onStartSelection(track),
+            onContextMenu: () => menuKey.currentState?.showButtonMenu(),
+            builder: (tap, desktopSelected) => ListTile(
+              selected: selected || desktopSelected,
+              contentPadding: const EdgeInsets.symmetric(
+                horizontal: 8,
+                vertical: 6,
+              ),
+              leading: isReorderEditing
+                  ? const Icon(Icons.music_note_outlined)
+                  : isSelecting
+                  ? Checkbox(
+                      value: selected,
+                      onChanged: (_) => onToggleSelection(track),
+                    )
+                  : _TrackCover(
+                      track: track,
+                      active: active,
+                      playing: playing,
+                      preparing: isPreparing,
+                      dimmed: !cached,
+                      tooltip: isPreparing
+                          ? strings.preparingPlayback
+                          : active && playing
+                          ? strings.playing
+                          : strings.play,
+                      onPressed: isPreparing
+                          ? null
+                          : () => onPlayTrack(track, index, tracks),
+                    ),
+              title: Text(
+                track.title,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  fontWeight: active ? FontWeight.w700 : FontWeight.w500,
+                  color: active
+                      ? colors.primary
+                      : cached
+                      ? null
+                      : faded,
+                ),
+              ),
+              subtitle: Wrap(
+                spacing: 6,
+                crossAxisAlignment: WrapCrossAlignment.center,
+                children: [
+                  Text(
+                    _trackSubtitle(track),
+                    style: cached ? null : TextStyle(color: faded),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  if (needsSourceReview)
+                    Tooltip(
+                      message: strings.isZh
+                          ? '切换来源核对歌曲'
+                          : 'Choose source to check this match',
+                      child: TextButton(
+                        key: ValueKey('song-match-review-${track.id}'),
+                        style: TextButton.styleFrom(
+                          minimumSize: Size.zero,
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 6,
+                            vertical: 2,
+                          ),
+                          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                          foregroundColor: colors.onTertiaryContainer,
+                          backgroundColor: colors.tertiaryContainer.withValues(
+                            alpha: .55,
+                          ),
+                          textStyle: Theme.of(context).textTheme.labelSmall,
+                        ),
+                        onPressed: () =>
+                            showSongSourcePicker(context, controller, track),
+                        child: Text(strings.isZh ? '需核对' : 'Check match'),
+                      ),
+                    ),
+                ],
+              ),
+              trailing: isReorderEditing
+                  ? dragHandle
+                  : isSelecting
+                  ? null
+                  : _TrackActions(
+                      menuKey: menuKey,
+                      controller: controller,
+                      list: list,
+                      track: track,
+                    ),
+              onTap: tap,
+              onLongPress: isReorderEditing
+                  ? null
+                  : () => onStartSelection(track),
+            ),
           ),
         );
       },
@@ -3442,11 +3541,13 @@ class _TrackActions extends StatelessWidget {
     required this.controller,
     required this.list,
     required this.track,
+    this.menuKey,
   });
 
   final MusicController controller;
   final _ResolvedLibraryList list;
   final Track track;
+  final GlobalKey<PopupMenuButtonState<_TrackAction>>? menuKey;
 
   @override
   Widget build(BuildContext context) {
@@ -3463,6 +3564,7 @@ class _TrackActions extends StatelessWidget {
           icon: Icon(favorite ? Icons.favorite : Icons.favorite_border),
         ),
         MusicPopupMenuButton<_TrackAction>(
+          key: menuKey,
           tooltip: strings.more,
           onSelected: (action) => _handle(context, action),
           itemBuilder: (context) {

@@ -25,7 +25,11 @@ void main() {
         .setMockMethodCallHandler(channel, null);
     await root.delete(recursive: true);
   });
-  for (final platform in [TargetPlatform.android, TargetPlatform.iOS]) {
+  for (final platform in [
+    TargetPlatform.android,
+    TargetPlatform.iOS,
+    TargetPlatform.macOS,
+  ]) {
     test(
       '${platform.name} opens native sharing with the audio file and readable name',
       () async {

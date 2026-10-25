@@ -96,6 +96,10 @@ class MusicAudioHandler extends BaseAudioHandler
       : _player.position;
   Duration get currentBufferedPosition => _player.bufferedPosition;
   double get currentSpeed => _player.speed;
+  double get volume => _player.volume;
+  Stream<double> get volumeStream => _player.volumeStream;
+  Future<void> setVolume(double volume) =>
+      _player.setVolume(volume.clamp(0.0, 1.0));
   int? get currentQueueIndex =>
       _awaitingPlayback || _preparingRestoreRevision != null
       ? _pendingIndex

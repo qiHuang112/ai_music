@@ -9,6 +9,115 @@ import 'app_localizations.dart';
 import 'app_update_page.dart';
 import '../application/diagnostics_upload_controller.dart';
 
+/// Desktop settings keep the categories visible while changing their content.
+class DesktopSettingsPage extends StatefulWidget {
+  const DesktopSettingsPage({super.key, required this.controller});
+  final MusicController controller;
+  @override
+  State<DesktopSettingsPage> createState() => _DesktopSettingsPageState();
+}
+
+class _DesktopSettingsPageState extends State<DesktopSettingsPage> {
+  int _index = 0;
+  final _visited = {0};
+  @override
+  Widget build(BuildContext context) {
+    final c = widget.controller;
+    final strings = AppStringsScope.of(context);
+    final titles = strings.isZh
+        ? ['通用', '外观', '语言', '音源', '下载品质', '并发设置', '局域网']
+        : [
+            'General',
+            'Appearance',
+            'Language',
+            'Sources',
+            'Quality',
+            'Concurrency',
+            'LAN',
+          ];
+    return Row(
+      children: [
+        SizedBox(
+          width: 124,
+          child: ListView(
+            padding: const EdgeInsets.only(top: 20),
+            children: [
+              for (var i = 0; i < titles.length; i++)
+                ListTile(
+                  dense: true,
+                  selected: i == _index,
+                  title: Text(titles[i]),
+                  onTap: () => setState(() {
+                    _index = i;
+                    _visited.add(i);
+                  }),
+                ),
+            ],
+          ),
+        ),
+        Expanded(
+          child: IndexedStack(
+            index: _index,
+            children: [
+              for (var i = 0; i < titles.length; i++)
+                if (!_visited.contains(i))
+                  const SizedBox.shrink()
+                else
+                  switch (i) {
+                    0 => Scaffold(
+                      appBar: AppBar(title: Text(strings.settings)),
+                      body: ListView(
+                        padding: const EdgeInsets.all(16),
+                        children: [
+                          DiagnosticsUploadSetting(controller: c.diagnostics),
+                          _PlaybackCacheSetting(controller: c),
+                          ListTile(
+                            leading: const Icon(Icons.insights_outlined),
+                            title: Text(
+                              strings.isZh
+                                  ? '清空听歌统计'
+                                  : 'Clear listening history',
+                            ),
+                            subtitle: Text(
+                              strings.isZh
+                                  ? '只清空统计，保留歌曲和歌单'
+                                  : 'Keep songs and playlists',
+                            ),
+                            onTap: () => confirmClearListeningStats(context, c),
+                          ),
+                          ListTile(
+                            leading: const Icon(Icons.download_done),
+                            title: Text(
+                              strings.isZh ? '已下载歌曲' : 'Downloaded songs',
+                            ),
+                            subtitle: Text('${c.manuallyDownloadedSongCount}'),
+                          ),
+                          SwitchListTile(
+                            secondary: const Icon(Icons.speed),
+                            title: Text(
+                              strings.isZh ? '性能悬浮窗' : 'Performance overlay',
+                            ),
+                            value: c.performanceOverlayEnabled,
+                            onChanged: c.savePerformanceOverlayEnabled,
+                          ),
+                        ],
+                      ),
+                    ),
+                    1 => ThemeSettingsPage(controller: c),
+                    2 => LanguageSettingsPage(controller: c),
+                    3 => SourceSettingsPage(controller: c),
+                    4 => _DownloadQualityPage(controller: c),
+                    5 => _ConcurrencySettingsPage(controller: c),
+                    _ => LanLibrarySettingsPage(controller: c),
+                  },
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+}
+
 class SettingsPage extends StatelessWidget {
   const SettingsPage({super.key, required this.controller});
 

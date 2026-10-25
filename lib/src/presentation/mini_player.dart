@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../application/music_controller.dart';
 import 'app_localizations.dart';
 import 'app_theme.dart';
+import 'desktop_scope.dart';
 import 'design/controls.dart';
 import 'design/glass_surface.dart';
 import 'design/vinyl_disc.dart';
@@ -18,6 +19,9 @@ class MiniPlayer extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    if (DesktopMusicScope.maybeOf(context) != null) {
+      return const SizedBox.shrink();
+    }
     return StreamBuilder<MediaItem?>(
       stream: controller.mediaItemStream,
       initialData: controller.audioHandler.mediaItem.value,
@@ -274,4 +278,31 @@ class _OutlinedPlayButton extends StatelessWidget {
       ),
     );
   }
+}
+
+/// Reuses the original day/night play controls inside the desktop glass bar.
+class DesktopPlayButton extends StatelessWidget {
+  const DesktopPlayButton({
+    super.key,
+    required this.playing,
+    required this.onPressed,
+    required this.tooltip,
+  });
+  final bool playing;
+  final VoidCallback onPressed;
+  final String tooltip;
+  @override
+  Widget build(BuildContext context) =>
+      Theme.of(context).brightness == Brightness.dark
+      ? PlayPauseButton(
+          playing: playing,
+          size: 42,
+          tooltip: tooltip,
+          onPressed: onPressed,
+        )
+      : _OutlinedPlayButton(
+          playing: playing,
+          tooltip: tooltip,
+          onPressed: onPressed,
+        );
 }

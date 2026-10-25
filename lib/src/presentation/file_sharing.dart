@@ -14,7 +14,8 @@ abstract final class FileSharing {
       !kIsWeb &&
       !isOpenHarmonyPlatform &&
       (defaultTargetPlatform == TargetPlatform.iOS ||
-          defaultTargetPlatform == TargetPlatform.android);
+          defaultTargetPlatform == TargetPlatform.android ||
+          defaultTargetPlatform == TargetPlatform.macOS);
 
   static Future<void> share(
     String path, {

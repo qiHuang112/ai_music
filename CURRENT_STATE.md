@@ -2,7 +2,13 @@
 
 本文件只记录当前基线和记录入口；具体开发、自测、用户验收与独立 review 记录按日期存放在 [工作日志](docs/worklog/README.md)。代码状态以当前 Git 记录为准，不在日志中反复标注暂存、提交或推送状态。
 
-- 2026-10-21 热评状态合并与缓存收藏修复已装77体验10267：有评论隐藏其他平台状态，无可读结果仅一条提示／一个重试；缓存歌曲保留原始元数据与在线来源，避免编号不同导致收藏读回丢失。1080 Flutter／94 Python／分析通过；实机《寻常岁月诗》蓝安Lane收藏后强杀重进仍保留，原《愿与愁》保留；《当你》增删／重启及《莫贪杯》热评筛选／翻页／刷新通过。182历史APK、原身份签名及正式10266保持，待本轮用户体验，未触发review／发布。见[当日记录](docs/worklog/2026-10-21.md)。
+- 2026-10-25 Mac桌面优化版1.0.4／10268已获用户验收并完成流程：左导航／常驻播控／右栏／横向唱机／鼠标与快捷键／新图标／皮肤通顶。临时增量review核实并修正切回设置后空格失效的焦点问题，单项回归通过，最终目标9407e39b…No findings。本机Universal Release补构建，ad-hoc原身份／无调试权限／严格签名通过，LAN完整ZIP核验通过（SHA3c0d3f5afe43…，23862538字节），旧Mac包及Android latest保持。正式归档.app已打开，用户当前皮肤、王力宏45首队列及《大城小爱》01:44普通暂停恢复。无全套重测／CI／Git推送；见[下载与记录](docs/macos.md)、[当日日志](docs/worklog/2026-10-25.md)。
+
+- 2026-10-25 Mac第一版1.0.4／10268已完成增量review与LAN发布，按用户要求与其他平台统一版本。Universal release／独立来听com.qi.ai.music.mac，ad-hoc本地签名未公证；初审1项测试宿主P3修正后No findings，5项LAN专项通过，完整ZIP下载／大小SHA／解压签名及正式.app启动通过，原Hello暂停与外观恢复。Android latest和移动端源码保持，不CI或Git推送；后续桌面优化再沟通。见[下载与版本](docs/macos.md)、[当日日志](docs/worklog/2026-10-25.md)。
+
+- 2026-10-21最新流程已按用户要求精简：增量review→复用已有正式release→直接LAN发布→一次下载核验；默认不CI、不重编、不重跑全量测试、不复审未改基础设施，已同步[skill](.agents/skills/ai-music-developer/SKILL.md)、AGENTS及流程文档。仅调整规则不再发布。
+
+- 2026-10-21 热评状态合并／缓存收藏修复流程已完成：独立No findings，15文件审查目标85f6f303…960f8对应提交9743b3c；按调整前旧流程[同提交CI39616857453](https://github.com/qiHuang112/ai_music/actions/runs/39616857453)成功发布[正式1.0.4／10268](https://github.com/qiHuang112/ai_music/releases/tag/v1.0.4-10268)。GitHub及LAN完整APK／原包名名称签名／sourceCommit一致，183历史包保留；1080 Flutter／94 Python／分析及77体验10267实际《寻常岁月诗》收藏重启、缓存收藏增删和热评筛选／分页／刷新通过。77保持该曲暂停且已收藏，iOS未发布。见[当日记录](docs/worklog/2026-10-21.md)。
 
 - 2026-10-21 本轮完整流程完成：用户验收前述功能，按最新要求删除“待播放”显示，重启沿用普通暂停外观。独立初审1项恢复检查点P2及取消分支修复并最终No findings；1075 Flutter／94 Python／分析、77体验10265专项自测通过。审查范围49文件提交37f5455已推送，[同提交CI39453992563](https://github.com/qiHuang112/ai_music/actions/runs/39453992563)成功发布[正式1.0.4／10266](https://github.com/qiHuang112/ai_music/releases/tag/v1.0.4-10266)，GitHub及Mac LAN完整APK／原包名名称签名／sourceCommit核验一致；181历史APK保留。77保持体验10265、莫贪杯普通暂停，正式版在APP检查更新；iOS未发布。见[当日记录](docs/worklog/2026-10-21.md)。
 

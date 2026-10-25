@@ -12,17 +12,25 @@ import 'design/controls.dart';
 import 'music_thumbnail.dart';
 import 'playlist_actions.dart';
 import 'initial_song_scroll.dart';
+import 'desktop_scope.dart';
 
 Future<void> showPlaybackQueue(
   BuildContext context,
   MusicController controller,
-) => showModalBottomSheet<void>(
-  context: context,
-  routeSettings: const RouteSettings(name: 'playback-queue'),
-  isScrollControlled: true,
-  useSafeArea: true,
-  builder: (_) => PlaybackQueue(controller: controller),
-);
+) {
+  final desktop = DesktopMusicScope.maybeOf(context);
+  if (desktop != null) {
+    desktop.openDetail(DesktopDetail.queue);
+    return Future.value();
+  }
+  return showModalBottomSheet<void>(
+    context: context,
+    routeSettings: const RouteSettings(name: 'playback-queue'),
+    isScrollControlled: true,
+    useSafeArea: true,
+    builder: (_) => PlaybackQueue(controller: controller),
+  );
+}
 
 /// Live queue: audio-service publishes appends and source replacements here.
 class PlaybackQueue extends StatefulWidget {

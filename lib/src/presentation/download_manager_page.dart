@@ -1,4 +1,5 @@
 import 'app_popup_menu.dart';
+import 'desktop_scope.dart';
 import 'package:audio_service/audio_service.dart';
 import 'design/controls.dart';
 import 'file_sharing.dart';
@@ -1033,62 +1034,92 @@ class _CachedTrackTile extends StatelessWidget {
     final strings = AppStringsScope.of(context);
     void play() =>
         controller.playTrack(track, index: index, queueTracks: queueTracks);
-    return ListTile(
-      // The page already keeps its 20pt margin; a second inset here pushed
-      // the rows in from the date header above them.
-      contentPadding: EdgeInsets.zero,
-      onTap: play,
-      // The cover, as in every other song list; tapping it plays.
-      leading: Tooltip(
-        message: strings.play,
-        child: InkWell(
-          borderRadius: BorderRadius.circular(MusicUi.sleeveRadius),
-          onTap: play,
-          child: _PlayingCover(controller: controller, track: track),
-        ),
-      ),
-      title: StreamBuilder<MediaItem?>(
-        stream: controller.mediaItemStream,
-        initialData: controller.audioHandler.mediaItem.value,
-        builder: (context, current) {
-          final active = current.data?.id == track.id;
-          return Text(
-            track.title,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: active
-                ? TextStyle(
-                    color: Theme.of(context).colorScheme.primary,
-                    fontWeight: FontWeight.w700,
-                  )
-                : null,
-          );
-        },
-      ),
-      subtitle: Text(
-        [
-          track.artist,
-          track.sizeLabel,
-        ].where((value) => value.isNotEmpty).join(' - '),
-        maxLines: 1,
-        overflow: TextOverflow.ellipsis,
-      ),
-      trailing: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          if (FileSharing.supported)
-            IconButton(
-              key: ValueKey('share-${track.id}'),
-              tooltip: strings.isZh ? '发送文件' : 'Send file',
-              onPressed: () => _share(context),
-              icon: const Icon(Icons.ios_share_rounded),
-            ),
-          IconButton(
-            tooltip: strings.delete,
-            onPressed: () => _confirmDelete(context),
-            icon: const Icon(Icons.delete_outline),
+    final menuKey = GlobalKey<PopupMenuButtonState<String>>();
+    return DesktopSongInteraction(
+      id: 'download:${track.id}',
+      onPlay: play,
+      onContextMenu: () => menuKey.currentState?.showButtonMenu(),
+      builder: (tap, selected) => ListTile(
+        selected: selected,
+        // The page already keeps its 20pt margin; a second inset here pushed
+        // the rows in from the date header above them.
+        contentPadding: EdgeInsets.zero,
+        onTap: tap,
+        // The cover, as in every other song list; tapping it plays.
+        leading: Tooltip(
+          message: strings.play,
+          child: InkWell(
+            borderRadius: BorderRadius.circular(MusicUi.sleeveRadius),
+            onTap: play,
+            child: _PlayingCover(controller: controller, track: track),
           ),
-        ],
+        ),
+        title: StreamBuilder<MediaItem?>(
+          stream: controller.mediaItemStream,
+          initialData: controller.audioHandler.mediaItem.value,
+          builder: (context, current) {
+            final active = current.data?.id == track.id;
+            return Text(
+              track.title,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: active
+                  ? TextStyle(
+                      color: Theme.of(context).colorScheme.primary,
+                      fontWeight: FontWeight.w700,
+                    )
+                  : null,
+            );
+          },
+        ),
+        subtitle: Text(
+          [
+            track.artist,
+            track.sizeLabel,
+          ].where((value) => value.isNotEmpty).join(' - '),
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+        ),
+        trailing: DesktopMusicScope.maybeOf(context) != null
+            ? MusicPopupMenuButton<String>(
+                key: menuKey,
+                tooltip: strings.more,
+                itemBuilder: (_) => [
+                  PopupMenuItem(value: 'play', child: Text(strings.play)),
+                  PopupMenuItem(
+                    value: 'share',
+                    child: Text(strings.isZh ? '分享' : 'Share'),
+                  ),
+                  PopupMenuItem(value: 'delete', child: Text(strings.delete)),
+                ],
+                onSelected: (value) {
+                  switch (value) {
+                    case 'play':
+                      play();
+                    case 'share':
+                      _share(context);
+                    case 'delete':
+                      _confirmDelete(context);
+                  }
+                },
+              )
+            : Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  if (FileSharing.supported)
+                    IconButton(
+                      key: ValueKey('share-${track.id}'),
+                      tooltip: strings.isZh ? '发送文件' : 'Send file',
+                      onPressed: () => _share(context),
+                      icon: const Icon(Icons.ios_share_rounded),
+                    ),
+                  IconButton(
+                    tooltip: strings.delete,
+                    onPressed: () => _confirmDelete(context),
+                    icon: const Icon(Icons.delete_outline),
+                  ),
+                ],
+              ),
       ),
     );
   }

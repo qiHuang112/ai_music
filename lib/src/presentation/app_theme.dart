@@ -421,6 +421,29 @@ class _BackdropTransitions extends PageTransitionsBuilder {
   );
 }
 
+class _DesktopBackdropTransitions extends PageTransitionsBuilder {
+  const _DesktopBackdropTransitions();
+  @override
+  Duration get transitionDuration => const Duration(milliseconds: 160);
+  @override
+  Duration get reverseTransitionDuration => const Duration(milliseconds: 160);
+  @override
+  Widget buildTransitions<T>(
+    PageRoute<T> route,
+    BuildContext context,
+    Animation<double> animation,
+    Animation<double> secondaryAnimation,
+    Widget child,
+  ) => BackdropScope(
+    child: MediaQuery.disableAnimationsOf(context)
+        ? child
+        : FadeTransition(
+            opacity: animation.drive(CurveTween(curve: Curves.easeOutCubic)),
+            child: child,
+          ),
+  );
+}
+
 abstract final class MusicAppTheme {
   static SystemUiOverlayStyle systemOverlayStyle(Brightness brightness) {
     final dark = brightness == Brightness.dark;
@@ -562,11 +585,13 @@ abstract final class MusicAppTheme {
       pageTransitionsTheme: PageTransitionsTheme(
         builders: {
           for (final platform in TargetPlatform.values)
-            platform: _BackdropTransitions(
-              platform == TargetPlatform.iOS || platform == TargetPlatform.macOS
-                  ? const CupertinoPageTransitionsBuilder()
-                  : const ZoomPageTransitionsBuilder(),
-            ),
+            platform: platform == TargetPlatform.macOS
+                ? const _DesktopBackdropTransitions()
+                : _BackdropTransitions(
+                    platform == TargetPlatform.iOS
+                        ? const CupertinoPageTransitionsBuilder()
+                        : const ZoomPageTransitionsBuilder(),
+                  ),
         },
       ),
       appBarTheme: AppBarTheme(

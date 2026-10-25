@@ -10,7 +10,13 @@ import 'app_theme.dart';
 import 'comment_text.dart';
 
 class SongCommentsPage extends StatefulWidget {
-  const SongCommentsPage({super.key, required this.query, this.repository});
+  const SongCommentsPage({
+    super.key,
+    required this.query,
+    this.repository,
+    this.embedded = false,
+  });
+  final bool embedded;
   final SongCommentQuery query;
   final SongCommentsRepository? repository;
 
@@ -232,7 +238,12 @@ class _SongCommentsPageState extends State<SongCommentsPage> {
     final loading = _visiblePlatforms.any((source) => _pages[source]!.loading);
     return Scaffold(
       appBar: AppBar(
+        automaticallyImplyLeading: !widget.embedded,
         title: Text(zh ? '歌曲热评' : 'Song comments'),
+        titleTextStyle: widget.embedded
+            ? Theme.of(context).textTheme.titleSmall
+            : null,
+        toolbarHeight: widget.embedded ? 42 : null,
         actions: [
           IconButton(
             key: const Key('comments-refresh'),

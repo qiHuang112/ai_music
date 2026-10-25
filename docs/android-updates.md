@@ -1,5 +1,9 @@
 # Android 自动发布与更新
 
+2026-10-21最新交付规则：默认“走流程”仅做增量review，复用匹配本轮源码／原包名／原签名的已有正式release APK，用 `tool/publish_android_release.py` 直接发布Mac LAN，完整下载核对一次大小／SHA256。已有合格包不重编，不默认跑云端CI或调用push-and-build脚本；Git提交推送／GitHub交付另按明确请求。下文CI-first及强制构建是历史规则，不再作为默认前置条件。以[唯一开发skill](../.agents/skills/ai-music-developer/SKILL.md)为准；历史包保留、原子latest和APP更新行为保持。
+
+2026-10-21热评提示／收藏修复正式发布完成：提交9743b3c，[CI39616857453](https://github.com/qiHuang112/ai_music/actions/runs/39616857453)按此次调整前的旧流程完成；[正式1.0.4／10268](https://github.com/qiHuang112/ai_music/releases/tag/v1.0.4-10268)，18141832字节，SHA256 `4ec884a747183364b2eff1f3878a43abb2b59bb43a4182c2988583eb93c4b68e`。GitHub和LAN完整下载／原包名名称签名／sourceCommit均核验一致；183历史包保留，原182包不变；77保留体验10267，iOS未发布。后续采用上方精简规则。
+
 2026-10-21本轮正式发布完成：提交37f5455／同提交CI39453992563，正式1.0.4／10266原包名com.qi.ai.music、来听、可信release签名保持。GitHub与Mac LAN完整APK 18141764字节，SHA256 `89e9fd693baa91b2d3577eb0fd6c894d6ee86f5bbf73f0135eec092e796dd08f`及sourceCommit一致；Mac仅镜像CI字节。181历史包保留，原180包未变；77体验10265普通暂停样式已自测，正式更新从APP进行。见[发布记录](worklog/2026-10-21.md)。
 
 2026-10-18访问状态更新：用户已将GitHub仓库设为private，仅保留自己和现有协作者。匿名仓库及`releases/latest/download/latest.json`实测404，原APP的匿名GitHub下载／外网更新兜底随之不可用；下面关于公开Release下载的描述为私有化之前的历史行为。当前Mac LAN服务实测仍200并提供已归档10251，大小／哈希指向未变。现有镜像脚本使用未认证HTTP，后续同步私有Release需要补认证支持，不能再宣称现有公开下载路径可完成新版本镜像；不得为恢复下载自行将仓库公开。本次没有改动APP、构建或发布新版本。
@@ -20,7 +24,7 @@
 
 2026-10-20修正体验10265：用户已验收前述功能，只要求重启时用普通暂停外观，删除全部“待播放”显示。1075 Flutter／94 Python／分析及77实机重开／续播／三处外观对比通过，原身份、数据和签名保持；独立审查的恢复检查点边界已修复。APK 18148640字节，SHA256 `cfb2ec0bd0d3ab3eb31bd3d562f4ada3b6b564d46db607fb5828fc631fe08e2d`，180历史包保留；floor10265／pubspec8265，下一正式至少10266，正式latest仍10256。见[工作日志](worklog/2026-10-20.md)。
 
-## GitHub CI 自动发布（2026-10-10最新决定）
+## GitHub CI 自动发布（2026-10-10历史规则；仅明确请求时启用）
 
 用户要求后续不手工打包或上传 Release，改由 GitHub Actions 自动完成。`main` 每次推送触发 `.github/workflows/android-release.yml`：固定 Flutter 3.44.2/Java 17，执行分析、Flutter 与 Python 测试，构建现有签名的 arm64 release，校验包名/ABI/证书/成品版本，上传 APK、SHA-256 和 `latest.json`。先创建草稿并回读核对上传文件，再一次发布并设为 latest；失败保留旧 latest。串行发布，同提交已交付则跳过，已被后续 main 取代的构建不发布。保留历次 Release 和 APK，无需每次手工测试 release 实机或安装。
 

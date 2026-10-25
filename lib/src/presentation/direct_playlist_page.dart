@@ -1,6 +1,7 @@
 import 'app_popup_menu.dart';
 import 'playlist_sliver_header.dart';
 import 'mini_player.dart';
+import 'desktop_scope.dart';
 import 'app_theme.dart';
 import 'music_thumbnail.dart';
 import 'package:flutter/material.dart';
@@ -323,35 +324,42 @@ class _DirectPlaylistPageState extends State<DirectPlaylistPage> {
                               return anchor(
                                 i,
                                 song.id,
-                                ListTile(
-                                  key: ValueKey('direct-song-$i'),
-                                  onTap: _playingIndex == i
+                                DesktopSongInteraction(
+                                  id: 'direct:${song.id}',
+                                  onPlay: _playingIndex == i
                                       ? null
                                       : () => _play(i),
-                                  leading: IconButton(
-                                    key: ValueKey('direct-play-song-$i'),
-                                    tooltip: zh ? '播放' : 'Play',
-                                    onPressed: _playingIndex == i
-                                        ? null
-                                        : () => _play(i),
-                                    icon: _playingIndex == i
-                                        ? const SizedBox.square(
-                                            dimension: 20,
-                                            child: CircularProgressIndicator(
-                                              strokeWidth: 2,
+                                  builder: (tap, selected) => ListTile(
+                                    key: ValueKey('direct-song-$i'),
+                                    selected: selected,
+                                    onTap: tap,
+                                    leading: IconButton(
+                                      key: ValueKey('direct-play-song-$i'),
+                                      tooltip: zh ? '播放' : 'Play',
+                                      onPressed: _playingIndex == i
+                                          ? null
+                                          : () => _play(i),
+                                      icon: _playingIndex == i
+                                          ? const SizedBox.square(
+                                              dimension: 20,
+                                              child: CircularProgressIndicator(
+                                                strokeWidth: 2,
+                                              ),
+                                            )
+                                          : const Icon(
+                                              Icons.play_arrow_rounded,
                                             ),
-                                          )
-                                        : const Icon(Icons.play_arrow_rounded),
-                                  ),
-                                  title: Text(
-                                    song.title,
-                                    maxLines: 2,
-                                    overflow: TextOverflow.ellipsis,
-                                  ),
-                                  subtitle: Text(
-                                    song.artist,
-                                    maxLines: 1,
-                                    overflow: TextOverflow.ellipsis,
+                                    ),
+                                    title: Text(
+                                      song.title,
+                                      maxLines: 2,
+                                      overflow: TextOverflow.ellipsis,
+                                    ),
+                                    subtitle: Text(
+                                      song.artist,
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                    ),
                                   ),
                                 ),
                               );

@@ -17,6 +17,8 @@ import 'design/turntable.dart';
 import 'playlist_actions.dart';
 import 'swipe_to_skip.dart';
 import 'song_source_page.dart';
+import 'song_actions.dart';
+import 'desktop_scope.dart';
 import 'song_comments_page.dart';
 
 class PlayerPage extends StatefulWidget {
@@ -44,6 +46,165 @@ class LyricsPanelForTesting extends StatelessWidget {
       controller: controller,
       fillsAvailable: true,
       positionStream: positionStream,
+    );
+  }
+}
+
+/// The existing lyrics implementation, bounded by a stable desktop panel.
+class PlayerLyricsPanel extends StatelessWidget {
+  const PlayerLyricsPanel({super.key, required this.controller});
+  final MusicController controller;
+  @override
+  Widget build(BuildContext context) => AnimatedBuilder(
+    animation: controller,
+    builder: (context, _) => _LyricsPanel(
+      key: ValueKey(controller.currentTrack?.id),
+      controller: controller,
+      fillsAvailable: true,
+    ),
+  );
+}
+
+/// Repositions the original deck and artwork-driven backdrop; no skin is
+/// recreated or recolored for the desktop layout.
+class DesktopNowPlaying extends StatefulWidget {
+  const DesktopNowPlaying({
+    super.key,
+    required this.controller,
+    required this.onClose,
+    required this.detail,
+  });
+  final MusicController controller;
+  final VoidCallback onClose;
+  final Widget detail;
+  @override
+  State<DesktopNowPlaying> createState() => _DesktopNowPlayingState();
+}
+
+class _DesktopNowPlayingState extends State<DesktopNowPlaying> {
+  final _disc = _DiscSwipe();
+  @override
+  void dispose() {
+    _disc.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final controller = widget.controller;
+    final strings = AppStringsScope.of(context);
+    return _PlayerBackdrop(
+      controller: controller,
+      closeOnSwipe: false,
+      child: Column(
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(18, 8, 20, 0),
+            child: Row(
+              children: [
+                TextButton.icon(
+                  onPressed: widget.onClose,
+                  icon: const Icon(Icons.keyboard_arrow_down),
+                  label: Text(strings.isZh ? '返回歌单' : 'Back'),
+                ),
+                const Spacer(),
+                if (controller.currentTrack != null)
+                  IconButton(
+                    tooltip: controller.isFavorite(controller.currentTrack!)
+                        ? strings.removeFromFavorites
+                        : strings.addToFavorites,
+                    onPressed: () =>
+                        controller.toggleFavorite(controller.currentTrack!),
+                    icon: Icon(
+                      controller.isFavorite(controller.currentTrack!)
+                          ? Icons.favorite
+                          : Icons.favorite_border,
+                    ),
+                  ),
+              ],
+            ),
+          ),
+          Expanded(
+            child: Row(
+              children: [
+                Expanded(
+                  child: StreamBuilder<MediaItem?>(
+                    stream: controller.mediaItemStream,
+                    initialData: controller.audioHandler.mediaItem.value,
+                    builder: (context, media) => StreamBuilder<PlaybackState>(
+                      stream: controller.playbackStateStream,
+                      initialData: controller.audioHandler.playbackState.value,
+                      builder: (context, state) {
+                        final item = media.data;
+                        if (item == null) {
+                          return Center(child: Text(strings.nothingPlaying));
+                        }
+                        return Center(
+                          child: SingleChildScrollView(
+                            padding: const EdgeInsets.all(24),
+                            child: Column(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                _Artwork(
+                                  uri:
+                                      item.artUri ??
+                                      controller.currentArtworkUri,
+                                  controller: controller,
+                                  playing: state.data?.playing ?? false,
+                                  cueing: false,
+                                  swipe: _disc,
+                                ),
+                                const SizedBox(height: 22),
+                                Text(
+                                  item.title,
+                                  textAlign: TextAlign.center,
+                                  maxLines: 2,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: MusicType.masthead(context, size: 26),
+                                ),
+                                const SizedBox(height: 6),
+                                Text(
+                                  item.artist ?? '',
+                                  textAlign: TextAlign.center,
+                                  style: Theme.of(context).textTheme.bodyLarge,
+                                ),
+                                const SizedBox(height: 12),
+                                if (controller.currentTrack != null &&
+                                    controller.canSwitchSongSource(
+                                      controller.currentTrack!,
+                                    ))
+                                  TextButton(
+                                    onPressed: () => showSongSourcePicker(
+                                      context,
+                                      controller,
+                                      controller.currentTrack!,
+                                    ),
+                                    child: SongSourceMenuLabel(
+                                      source: controller.songSourceLabel(
+                                        controller.currentTrack!,
+                                        isZh: strings.isZh,
+                                      ),
+                                    ),
+                                  ),
+                              ],
+                            ),
+                          ),
+                        );
+                      },
+                    ),
+                  ),
+                ),
+                Expanded(
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(8, 6, 24, 18),
+                    child: widget.detail,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
     );
   }
 }
@@ -191,7 +352,7 @@ class _PlayerPageState extends State<PlayerPage> {
                             const SizedBox(height: 10),
                             _LyricsPreview(controller: controller),
                             const SizedBox(height: 8),
-                            _PositionSlider(
+                            PlayerPositionSlider(
                               key: ValueKey('player-position-${item.id}'),
                               trackId: item.id,
                               controller: controller,
@@ -478,10 +639,15 @@ ImageProvider artworkImageProvider(Uri uri) => uri.isScheme('file')
 /// Lights the page from the playing cover and keeps that light while the
 /// next cover loads.
 class _PlayerBackdrop extends StatefulWidget {
-  const _PlayerBackdrop({required this.controller, required this.child});
+  const _PlayerBackdrop({
+    required this.controller,
+    required this.child,
+    this.closeOnSwipe = true,
+  });
 
   final MusicController controller;
   final Widget child;
+  final bool closeOnSwipe;
 
   @override
   State<_PlayerBackdrop> createState() => _PlayerBackdropState();
@@ -518,7 +684,9 @@ class _PlayerBackdropState extends State<_PlayerBackdrop> {
             glow: _palette?.glow(brightness),
             shade: _palette?.shade(brightness),
             drift: state.data?.playing ?? false,
-            child: _SwipeDownToClose(child: widget.child),
+            child: widget.closeOnSwipe
+                ? _SwipeDownToClose(child: widget.child)
+                : widget.child,
           ),
         );
       },
@@ -623,7 +791,7 @@ class _LyricsDetailPage extends StatelessWidget {
                             ),
                             Padding(
                               padding: const EdgeInsets.fromLTRB(24, 8, 24, 0),
-                              child: _PositionSlider(
+                              child: PlayerPositionSlider(
                                 key: ValueKey('lyrics-position-${item.id}'),
                                 trackId: item.id,
                                 controller: controller,
@@ -651,8 +819,8 @@ class _LyricsDetailPage extends StatelessWidget {
   }
 }
 
-class _PositionSlider extends StatefulWidget {
-  const _PositionSlider({
+class PlayerPositionSlider extends StatefulWidget {
+  const PlayerPositionSlider({
     super.key,
     required this.controller,
     required this.trackId,
@@ -666,10 +834,10 @@ class _PositionSlider extends StatefulWidget {
   final Duration bufferedPosition;
 
   @override
-  State<_PositionSlider> createState() => _PositionSliderState();
+  State<PlayerPositionSlider> createState() => _PositionSliderState();
 }
 
-class _PositionSliderState extends State<_PositionSlider> {
+class _PositionSliderState extends State<PlayerPositionSlider> {
   bool _dragging = false;
   double? _dragValue;
 
@@ -709,50 +877,52 @@ class _PositionSliderState extends State<_PositionSlider> {
                   ),
                   thumbColor: Theme.of(context).colorScheme.primaryContainer,
                 ),
-                child: Slider(
-                  padding: const EdgeInsets.symmetric(vertical: 8),
-                  value: value,
-                  max: max <= 0 ? 1 : max,
-                  secondaryTrackValue: max <= 0
-                      ? 0
-                      : progress.offline
-                      ? max
-                      : widget.bufferedPosition.inMilliseconds
-                            .clamp(0, max)
-                            .toDouble(),
-                  secondaryActiveColor: Theme.of(
-                    context,
-                  ).colorScheme.onSurface.withValues(alpha: .28),
-                  inactiveColor: Theme.of(
-                    context,
-                  ).colorScheme.onSurface.withValues(alpha: .08),
-                  onChanged: max <= 0
-                      ? null
-                      : (value) {
-                          setState(() {
-                            _dragging = true;
-                            _dragValue = value;
-                          });
-                        },
-                  onChangeStart: max <= 0
-                      ? null
-                      : (value) {
-                          setState(() {
-                            _dragging = true;
-                            _dragValue = value;
-                          });
-                        },
-                  onChangeEnd: max <= 0
-                      ? null
-                      : (value) {
-                          setState(() {
-                            _dragging = false;
-                            _dragValue = null;
-                          });
-                          widget.controller.seek(
-                            Duration(milliseconds: value.round()),
-                          );
-                        },
+                child: DesktopSliderOverlay(
+                  child: Slider(
+                    padding: const EdgeInsets.symmetric(vertical: 8),
+                    value: value,
+                    max: max <= 0 ? 1 : max,
+                    secondaryTrackValue: max <= 0
+                        ? 0
+                        : progress.offline
+                        ? max
+                        : widget.bufferedPosition.inMilliseconds
+                              .clamp(0, max)
+                              .toDouble(),
+                    secondaryActiveColor: Theme.of(
+                      context,
+                    ).colorScheme.onSurface.withValues(alpha: .28),
+                    inactiveColor: Theme.of(
+                      context,
+                    ).colorScheme.onSurface.withValues(alpha: .08),
+                    onChanged: max <= 0
+                        ? null
+                        : (value) {
+                            setState(() {
+                              _dragging = true;
+                              _dragValue = value;
+                            });
+                          },
+                    onChangeStart: max <= 0
+                        ? null
+                        : (value) {
+                            setState(() {
+                              _dragging = true;
+                              _dragValue = value;
+                            });
+                          },
+                    onChangeEnd: max <= 0
+                        ? null
+                        : (value) {
+                            setState(() {
+                              _dragging = false;
+                              _dragValue = null;
+                            });
+                            widget.controller.seek(
+                              Duration(milliseconds: value.round()),
+                            );
+                          },
+                  ),
                 ),
               ),
             ),
@@ -1069,6 +1239,7 @@ List<_PreviewLyricRow> _previewLyricRows(
 
 class _LyricsPanel extends StatefulWidget {
   const _LyricsPanel({
+    super.key,
     required this.controller,
     this.fillsAvailable = false,
     this.positionStream,
@@ -1466,5 +1637,16 @@ class _SwipeDownToCloseState extends State<_SwipeDownToClose> {
         ],
       ),
     ),
+  );
+}
+
+class DesktopPlaybackModeButton extends StatelessWidget {
+  const DesktopPlaybackModeButton({super.key, required this.controller});
+  final MusicController controller;
+  @override
+  Widget build(BuildContext context) => IconButton(
+    tooltip: _modeTooltip(AppStringsScope.of(context), controller.playbackMode),
+    onPressed: controller.cyclePlaybackMode,
+    icon: Icon(_modeIcon(controller.playbackMode), size: 20),
   );
 }

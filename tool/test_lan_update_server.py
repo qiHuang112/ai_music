@@ -14,7 +14,8 @@ class UpdateServerTest(unittest.TestCase):
     def setUp(self):
         self.temporary = tempfile.TemporaryDirectory()
         self.root = Path(self.temporary.name)
-        self.server = create_server(self.root, '127.0.0.1', 0)
+        self.macos = self.root / 'macos'
+        self.server = create_server(self.root, '127.0.0.1', 0, macos_root=self.macos)
         self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
         self.thread.start()
         self.base = f'http://127.0.0.1:{self.server.server_port}'
@@ -50,6 +51,40 @@ class UpdateServerTest(unittest.TestCase):
                 error.exception.close()
         finally:
             outside.unlink()
+
+    def test_macos_metadata_download_and_home_leave_android_unchanged(self):
+        with urllib.request.urlopen(self.base + '/api/v1/update/macos') as response:
+            self.assertEqual(response.status, 204)
+        self.macos.mkdir()
+        payload = b'macos-zip-bytes'
+        (self.macos / 'music.zip').write_bytes(payload)
+        manifest = {'versionName': '1.0.4', 'versionCode': 10268,
+                    'url': '/releases/macos/music.zip', 'sha256': hashlib.sha256(payload).hexdigest()}
+        (self.macos / 'latest.json').write_text(json.dumps(manifest))
+        android = {'versionCode': 10268, 'url': '/releases/mobile.apk'}
+        (self.root / 'latest.json').write_text(json.dumps(android))
+        with urllib.request.urlopen(self.base + '/api/v1/update/macos') as response:
+            self.assertEqual(json.load(response), manifest)
+            self.assertEqual(response.headers['Cache-Control'], 'no-store')
+        with urllib.request.urlopen(self.base + manifest['url']) as response:
+            self.assertEqual(response.headers['Content-Type'], 'application/zip')
+            self.assertEqual(response.read(), payload)
+        with urllib.request.urlopen(self.base + '/') as response:
+            self.assertIn('下载 Mac 版 1.0.4', response.read().decode())
+        with urllib.request.urlopen(self.base + '/api/v1/update/android') as response:
+            self.assertEqual(json.load(response), android)
+
+    def test_macos_rejects_path_escape_symlinks_and_non_zip(self):
+        self.macos.mkdir()
+        (self.root / 'private.zip').write_bytes(b'private')
+        (self.macos / 'link.zip').symlink_to(self.root / 'private.zip')
+        for path in ['/releases/macos/../private.zip', '/releases/macos/%2e%2e%2fprivate.zip',
+                     '/releases/macos/link.zip', '/releases/macos/latest.json',
+                     '/releases/macos/nested/file.zip', '/releases/macos/no.zip']:
+            with self.assertRaises(urllib.error.HTTPError) as error:
+                urllib.request.urlopen(self.base + path)
+            self.assertEqual(error.exception.code, 404)
+            error.exception.close()
 
     def test_history_is_downloadable_without_changing_latest(self):
         old = {'packageName': 'com.qi.ai.music', 'versionName': '<old>', 'versionCode': 900,

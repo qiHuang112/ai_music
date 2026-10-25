@@ -11,7 +11,7 @@ from android_release_archive import retained_versions
 from lan_diagnostics import DiagnosticsReceiver, MAX_REPORT_BYTES
 
 
-def download_page(root: Path):
+def download_page(root: Path, macos_root: Path = None):
     latest_hash = None
     try:
         latest_hash = json.loads((root / 'latest.json').read_text(encoding='utf-8'))['sha256']
@@ -31,6 +31,17 @@ def download_page(root: Path):
                     html.escape(str(row.get('abi', ''))) + '</small></td><td>' +
                     f"{row.get('sizeBytes', 0) / 1024 / 1024:.1f} MB" +
                     '<br><a download href="' + html.escape(url, quote=True) + '">下载 APK</a></td></tr>')
+    macos_link = ''
+    if macos_root is not None:
+        try:
+            macos = json.loads((macos_root / 'latest.json').read_text(encoding='utf-8'))
+            url = macos['url']
+            name = url.removeprefix('/releases/macos/')
+            if url.startswith('/releases/macos/') and name.endswith('.zip') and not any(c in name for c in '/\\\x00'):
+                macos_link = ('<p><a download href="' + html.escape(url, quote=True) + '">下载 Mac 版 ' +
+                              html.escape(str(macos['versionName'])) + '</a> · 解压后拖入“应用程序”</p>')
+        except (OSError, ValueError, KeyError, TypeError, AttributeError):
+            pass
     return ('<!doctype html><html lang="zh-CN"><meta charset="utf-8">'
             '<meta name="viewport" content="width=device-width,initial-scale=1">'
             '<title>AI Music 安装包</title><style>body{font:16px system-ui;background:#f5f7fa;color:#18242c;'
@@ -38,14 +49,15 @@ def download_page(root: Path):
             'background:white;border-radius:12px}th,td{text-align:left;padding:16px 12px;border-bottom:1px solid #edf0f3}'
             'small{color:#657480}a{color:#176be2;line-height:2}.tag{font-size:12px;background:#e5f2ea;color:#176237;'
             'padding:3px 5px;border-radius:5px}p{color:#657480}</style><h1>AI Music 安装包</h1>'
-            '<p>当前发布版与历史安装包。release 用于正式手机，debug 用于开发手机。</p>'
+            '<p>当前发布版与历史安装包。release 用于正式手机，debug 用于开发手机。</p>' + macos_link +
             '<table><thead><tr><th>版本</th><th>类型 / 架构</th><th>安装包</th></tr></thead><tbody>' +
             ''.join(rows) + '</tbody></table></html>').encode('utf-8')
 
 
-def create_server(root: Path, host: str = "0.0.0.0", port: int = 8788):
+def create_server(root: Path, host: str = "0.0.0.0", port: int = 8788, *, macos_root: Path = None):
     root = root.resolve()
     root.mkdir(parents=True, exist_ok=True)
+    macos_root = (macos_root if macos_root is not None else root.parent / 'macos').resolve()
     diagnostics = DiagnosticsReceiver(root.parent / 'diagnostics')
 
     class Handler(BaseHTTPRequestHandler):
@@ -93,7 +105,7 @@ def create_server(root: Path, host: str = "0.0.0.0", port: int = 8788):
                 return
             if path in ('/', '/api/v1/releases/android'):
                 if path == '/':
-                    payload = download_page(root)
+                    payload = download_page(root, macos_root)
                     content_type = 'text/html; charset=utf-8'
                 else:
                     payload = json.dumps(retained_versions(root), ensure_ascii=False).encode('utf-8')
@@ -105,8 +117,8 @@ def create_server(root: Path, host: str = "0.0.0.0", port: int = 8788):
                 self.end_headers()
                 self.wfile.write(payload)
                 return
-            if path == "/api/v1/update/android":
-                manifest = root / "latest.json"
+            if path in ("/api/v1/update/android", "/api/v1/update/macos"):
+                manifest = (macos_root if path.endswith('/macos') else root) / "latest.json"
                 if not manifest.is_file():
                     self.send_response(204)
                     self.send_header("Cache-Control", "no-store")
@@ -124,6 +136,26 @@ def create_server(root: Path, host: str = "0.0.0.0", port: int = 8788):
                 self.send_header("Content-Length", str(len(payload)))
                 self.end_headers()
                 self.wfile.write(payload)
+                return
+            if path.startswith('/releases/macos/'):
+                name = path[len('/releases/macos/'):]
+                if not name or any(c in name for c in '/\\\x00') or not name.endswith('.zip'):
+                    self.send_error(404)
+                    return
+                target = macos_root / name
+                if target.is_symlink() or target.resolve().parent != macos_root or not target.is_file():
+                    self.send_error(404)
+                    return
+                self.send_response(200)
+                self.send_header('Content-Type', 'application/zip')
+                self.send_header('Content-Length', str(target.stat().st_size))
+                self.end_headers()
+                try:
+                    with target.open('rb') as source:
+                        for chunk in iter(lambda: source.read(1024 * 1024), b''):
+                            self.wfile.write(chunk)
+                except (BrokenPipeError, ConnectionResetError):
+                    pass
                 return
             if path.startswith("/releases/"):
                 name = path[len("/releases/"):]
