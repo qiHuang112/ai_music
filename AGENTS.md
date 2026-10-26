@@ -1,6 +1,6 @@
 # AI music
 
-- These rules apply to both Codex and Claude (`CLAUDE.md` imports this file). Work only in `/Users/huangqi/AIHome/projects/ai_music`; other clones are stale and must not be used for development; use `main` by default. Create or switch branches only when the user explicitly requests it.
+- These rules apply to both Codex and Claude (`CLAUDE.md` imports this file). Work only in `/Users/huangqi/ClaudeProject/ai_music`; other clones are stale and must not be used for development; use `main` by default. Create or switch branches only when the user explicitly requests it.
 - Collaboration agreement (user 2026-10-14): contributor `wangtangji29-ctrl` develops directly in `qiHuang112/ai_music` on `ui-vinyl` or other non-main branches. The maintainer alone owns updates/merges to `main`; the main-default instruction above is for the maintainer, not the contributor. Contributor handoffs must use their actual local checkout and a non-main branch, preserve local work, and push to this upstream repository instead of a personal fork.
 - Repository access (user 2026-10-25, supersedes private-only 2026-10-18): `qiHuang112/ai_music` is public again at the owner's explicit request. Keep the existing owner/collaborator write roles; public visibility does not authorize adding writers. Do not add a disclaimer/license without a new request. Main remains maintainer-owned under the collaboration agreement.
 - Continue the Flutter LAN-sync baseline. Other clones and Native migration plans are historical, not active work.

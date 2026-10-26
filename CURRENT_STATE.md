@@ -1,6 +1,6 @@
 # AI Music 当前状态
 
-更新于 2026-10-26。本文件只保留固定字段：改动时就地更新字段，“最近进展”只留 3 条；开发、自测、验收与 review 细节写在[工作日志](docs/worklog/README.md)，2026-10-26 之前的长条目见[历史条目](docs/worklog/state-history.md)。代码状态以 Git 为准。
+更新于 2026-10-26（工作目录迁至 ClaudeProject）。本文件只保留固定字段：改动时就地更新字段，“最近进展”只留 3 条；开发、自测、验收与 review 细节写在[工作日志](docs/worklog/README.md)，2026-10-26 之前的长条目见[历史条目](docs/worklog/state-history.md)。代码状态以 Git 为准。
 
 ## 正式版本
 
@@ -10,7 +10,8 @@
 
 ## 环境
 
-- 唯一工作目录：`/Users/huangqi/AIHome/projects/ai_music`，分支 `main`。
+- 唯一工作目录：`/Users/huangqi/ClaudeProject/ai_music`，分支 `main`。
+- 外部依赖（仍在 AIHome，勿删）：Flutter SDK `/Users/huangqi/AIHome/tools/flutter`；发布归档与局域网更新服务 `/Users/huangqi/AIHome/releases/ai_music/`（LaunchAgent `com.qi.ai.music.android-updates` 从这里运行，含全部历史包与诊断日志）。AIHome 下其余 ai_music 副本与 Android Native 工程均为历史，见[旧工作区盘点](docs/legacy-workspaces.md)。
 - 局域网更新服务：`http://192.168.31.167:8788`（`/api/v1/update/android`、`/api/v1/update/macos`），后台约 60 秒自动镜像 GitHub 最新 Android Release。
 - 开发手机 77：无线 ADB `192.168.31.77:41049`（2026-10-20 更新）。
 - 仓库 `qiHuang112/ai_music` 公开；main 由维护者维护，合作者 `wangtangji29-ctrl` 在 `ui-vinyl` 等非 main 分支开发。
