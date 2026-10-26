@@ -30,7 +30,7 @@
 
 2026-10-26 另将 `AIHome/backups/ai_music`、`AIHome/backups/ai-music-ios`、`AIHome/output/` 下的 ai_music 截图／调试产物、歌源探测缓存与 `lamaze_guide`（拉玛泽音频交付物、早期 LAN 版 APK 与源码包）移入废纸篓 `~/.Trash/AIHome-ai_music-leftovers-20261026`（约 3.4G），清空废纸篓后不可恢复。
 
-AIHome 中仍有少量与 AI Music 相关但未处理的文件：`evidence/AM-20260726-001-*`（原生重写证据）、`output/native-unified*.diff`、`output/mi10-*.png`（手机截图）。
+随后 `evidence/AM-20260726-001-*`（原生重写证据）、`output/native-unified*.diff`、`output/mi10-*.png`（手机截图）也移入同一废纸篓目录。AIHome 中已无 AI Music 相关文件。
 
 ## Codex 侧配置
 
