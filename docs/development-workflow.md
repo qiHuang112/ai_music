@@ -1,5 +1,7 @@
 # AI Music 开发工作流讨论记录
 
+**2026-10-26现行规则**：用户确认发布分三档——①日常开发（只本地自测／提交）、②“走流程”（增量review→复用正式包→局域网发布，不push不CI）、③明确要求“推送／发GitHub”（push main触发CI，Android＋Mac进同一公开Release，局域网自动镜像Android）。原因是10-21“默认不push”与10-25“push即自动打包”两条规则并存时无法一眼判断一次push会发生什么。每次push main都会生成新正式版本，只改文档／规则须带 `[skip ci]`。详见[开发skill](../.agents/skills/ai-music-developer/SKILL.md)开头的表；以下内容均为历史记录，与该表冲突时以该表为准（包括2026-10-10第5步“走流程已授权提交推送”，已作废）。
+
 2026-10-25追加决定：用户已验收ui-vinyl的Mac重设计，明确要求合入main、恢复公开仓库、main自动打包并将Mac发布到GitHub Release。仓库已恢复public，Actions和main触发保持启用；本次按明确授权执行GitHub CI发布。Android任务保留原签名发布，新增Mac任务复用同提交的最终版本号并向同一Release上传Universal ZIP及独立macos-latest.json；不替换Android元数据。日常本地开发与未要求GitHub发布的“走流程”仍沿用下面的精简路径。
 
 2026-10-21最新决定：用户指出“走流程”耗时过长，改为**只review本次改动及必要调用处，复用已有正式release APK，直接发布局域网并做一次完整下载校验**。默认不重跑全量测试、不重复安装／构建、不触发云端CI，不逐个扫描历史包或审计未改的发布工具；已有测试／手机验收和审查结论沿用，只有新增修改、具体疑点或缺失正确正式包才补必要动作。保留原包名／名称／签名、用户数据、历史包和发布原子性；preview不能冒充正式包。Git提交／推送、GitHub发布与CI另按明确请求执行；当前工作流仍监听main推送，默认不执行会间接触发CI的push。已同步唯一[开发skill](../.agents/skills/ai-music-developer/SKILL.md)及AGENTS；仅改规则不发布。

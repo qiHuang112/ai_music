@@ -5,7 +5,15 @@ description: Develop and self-test AI Music on phone 77; review only current cha
 
 # AI Music developer
 
-这是本项目开发、自测、增量审查和交付的唯一流程入口。用户2026-10-21要求缩短“走流程”：**增量review → 复用已有release APK → 局域网发布 → 一次下载核验**。该决定取代旧的强制提交推送、云端CI构建和镜像流程，旧文档不能重新成为前置条件。
+这是本项目开发、自测、增量审查和交付的唯一流程入口（Codex与Claude共用）。发布按下表三档执行（用户2026-10-26确定，取代10-21／10-25的分散规则），旧文档不能重新成为前置条件。
+
+| 档位 | 触发 | 做什么 | 不做什么 |
+|---|---|---|---|
+| ① 日常开发 | 默认 | 改代码，77或本机Mac自测，可本地提交 | 不push、不发布 |
+| ② 走流程 | 用户说“走流程” | 增量review → 复用已有正式包 → 局域网发布 → 一次完整下载核验 | 不push、不触发CI、不重新构建 |
+| ③ 推送发版 | 用户明确说“推送／发GitHub” | push main → CI自动构建Android＋Mac Universal → 同一个公开GitHub Release（APP联网更新可见）；Mac局域网服务约60秒内自动镜像Android包 → 核对run与产物 | Mac局域网包不自动镜像，需要时再按②发布 |
+
+**每次push main都会铸一个新正式版本**（仅同一提交已发布时跳过），所以只改文档／规则的提交必须在提交信息带 `[skip ci]`。
 
 ## 工作边界
 
@@ -52,7 +60,8 @@ description: Develop and self-test AI Music on phone 77; review only current cha
 
 ## 例外与节奏
 
-- Mac任务在当前Mac自测，不套用77安装或APK步骤。各平台对外版本名／构建号统一，Mac不另起版本系列；本次Mac首版与Android正式版一致为1.0.4／10268。复用对应Mac release `.app`，用ditto保留签名／符号链接打ZIP，归档在 `releases/ai_music/macos/`，通过现有8788服务的 `/api/v1/update/macos` 和 `/releases/macos/文件.zip` 发布，Android指针保持。首版缺release成品时仅补必要本机构建；如仅有ad-hoc本地签名，明确未做Developer ID签名／Apple公证，不宣称已公证。
-- 用户明确要求GitHub发布／CI时才启用原远端路径，核对对应提交与产物；它不是默认路径。只要求review就到审查结束。
+- Mac任务在当前Mac自测，不套用77安装或APK步骤。各平台对外版本名／构建号统一，Mac不另起版本系列；当前版本号见 `CURRENT_STATE.md`。复用对应Mac release `.app`，用ditto保留签名／符号链接打ZIP，归档在 `releases/ai_music/macos/`，通过现有8788服务的 `/api/v1/update/macos` 和 `/releases/macos/文件.zip` 发布，Android指针保持。首版缺release成品时仅补必要本机构建；如仅有ad-hoc本地签名，明确未做Developer ID签名／Apple公证，不宣称已公证。
+- 档位③仅在用户明确要求推送／GitHub发布时执行：push后跟进同提交的 `.github/workflows/android-release.yml` run，核对Release中Android APK与Mac ZIP的版本、大小、SHA256和sourceCommit，并读一次局域网Android接口确认已镜像。只要求review就到审查结束。
+- Claude执行“走流程”时，用一个全新的只读子agent代替 `collaboration.spawn_agent` 做增量review，要求相同。
 - 发布工具、签名或更新链路**本身被改动**时，才对相应改动补专项检查。普通业务修复不重复审计未改的基础设施。
 - 开始时说明实际下一步，有结果或阻碍时简短更新。无真实风险时不新增审批、仪式性快照、轮询或检查清单。已验收修改的收尾不能变成再次完整开发一轮。
