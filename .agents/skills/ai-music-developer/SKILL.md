@@ -18,7 +18,7 @@ description: Develop and self-test AI Music on phone 77; review only current cha
 ## 工作边界
 
 - 在 `/Users/huangqi/ClaudeProject/ai_music` 当前checkout的main开发。未经用户要求不切分支，不创建worktree、clone或替代工程；保留现有改动、源码、历史和用户数据。
-- 修改前读取git状态、`CURRENT_STATE.md`及受影响功能文档；Flutter使用 `/Users/huangqi/AIHome/tools/flutter/bin/flutter`。
+- 修改前读取git状态、`CURRENT_STATE.md`及受影响功能文档；Flutter使用 `/Users/huangqi/ClaudeProject/tools/flutter/bin/flutter`。
 - 固定“AI music-代码 review”会话已归档，不恢复、不创建永久review角色。仅用户要求review或“走流程”时启动一个临时独立只读reviewer。
 - 普通开发、修改skill、补记日志不自动发布。“走流程”按下列路径直接完成，不逐步索要确认。Git提交／推送、GitHub Release和CI另按明确请求处理，不绑到局域网交付。
 
@@ -48,7 +48,7 @@ description: Develop and self-test AI Music on phone 77; review only current cha
    JAVA_HOME=/Users/huangqi/Library/Java/JavaVirtualMachines/openjdk-22.0.1/Contents/Home \
    python3 tool/publish_android_release.py \
      --apk /绝对路径/已存在的正式release.apk \
-     --root /Users/huangqi/AIHome/releases/ai_music/android \
+     --root /Users/huangqi/ClaudeProject/releases/ai_music/android \
      --aapt /Users/huangqi/Library/Android/sdk/build-tools/35.0.0/aapt \
      --apksigner /Users/huangqi/Library/Android/sdk/build-tools/35.0.0/apksigner \
      --release-cert f05004de4b5fa23bdd1beee45c4e7c227852129930bcd3bb1cfcff2048464843 \

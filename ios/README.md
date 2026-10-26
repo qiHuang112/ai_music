@@ -37,7 +37,7 @@ Always use the Flutter SDK checked out beside the app:
 
 ```bash
 cd /Users/huangqi/ClaudeProject/ai_music
-/Users/huangqi/AIHome/tools/flutter/bin/flutter pub get
+/Users/huangqi/ClaudeProject/tools/flutter/bin/flutter pub get
 ```
 
 Build a development IPA for registered devices. This is the default export method:
@@ -57,7 +57,7 @@ For a real device, first make sure:
 - iPhone Developer Mode is enabled.
 - The device trusts the Apple Development profile in Settings.
 - Xcode has selected the correct Team for `Runner`.
-- `ios/Flutter/Generated.xcconfig` points to `/Users/huangqi/AIHome/tools/flutter`, not `tools/flutter_ohos`.
+- `ios/Flutter/Generated.xcconfig` points to `/Users/huangqi/ClaudeProject/tools/flutter`, not `tools/flutter_ohos`.
 
 ## Friend Install Builds
 
@@ -72,14 +72,14 @@ If CocoaPods integration changes are committed later, include the project/worksp
 - `In iOS 14+ debug mode...`: a debug build was installed. Install a release/profile build or an exported IPA instead.
 - `profile has not been explicitly trusted`: open iPhone Settings, then trust the developer profile under General > VPN & Device Management.
 - `Developer Mode required`: enable Developer Mode under Privacy & Security and restart the device.
-- `FLUTTER_ROOT` points to `tools/flutter_ohos`: run `/Users/huangqi/AIHome/tools/flutter/bin/flutter clean` and then `pub get` from this app.
+- `FLUTTER_ROOT` points to `tools/flutter_ohos`: run `/Users/huangqi/ClaudeProject/tools/flutter/bin/flutter clean` and then `pub get` from this app.
 - BuguYY works on Android but fails on simulator/Mac: check local VPN/proxy and DNS first. The simulator shares the Mac network path.
 - `errSecInternalComponent` during codesign: allow the Apple Development private key for `codesign` in Keychain, or refresh the key partition list.
 
 ## Verification
 
 ```bash
-/Users/huangqi/AIHome/tools/flutter/bin/flutter analyze
-/Users/huangqi/AIHome/tools/flutter/bin/flutter test
-/Users/huangqi/AIHome/tools/flutter/bin/flutter build ios --release
+/Users/huangqi/ClaudeProject/tools/flutter/bin/flutter analyze
+/Users/huangqi/ClaudeProject/tools/flutter/bin/flutter test
+/Users/huangqi/ClaudeProject/tools/flutter/bin/flutter build ios --release
 ```

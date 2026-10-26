@@ -9,7 +9,7 @@
 局域网现有正式包为2026-10-25用户验收的**桌面优化版1.0.4（10268）**，包含桌面交互、新图标和皮肤背景通顶。已完成临时增量review（最终No findings）、本机Release构建和一次完整LAN下载核验。版本沿用共享编号，以内容哈希区分本次包并保留第一版历史包。
 
 - [下载当前Mac正式版](http://192.168.31.167:8788/releases/macos/ai-music-macos-1.0.4-10268-universal-3c0d3f5afe43.zip)：23862538字节，SHA256 `3c0d3f5afe43e361a36dc359597694fa8fb620526e6697a0e2b4e1e3cce8ed6a`。
-- 当前运行归档：`/Users/huangqi/AIHome/releases/ai_music/macos/apps/1.0.4-10268-desktop-9407e39b/来听.app`。Universal／原bundle／ad-hoc签名，未Apple公证；用户当前皮肤、王力宏45首队列、《大城小爱》01:44暂停状态保留。
+- 当前运行归档：`/Users/huangqi/ClaudeProject/releases/ai_music/macos/apps/1.0.4-10268-desktop-9407e39b/来听.app`。Universal／原bundle／ad-hoc签名，未Apple公证；用户当前皮肤、王力宏45首队列、《大城小爱》01:44暂停状态保留。
 - 审查期间定向复现搜索后切回设置使空格失效，已在页面／播放器切换时明确转移焦点并通过单项回归。增量构建的App.framework旧签名已按原Release权限刷新，严格深度验证通过。未操作Android latest、Git提交推送或CI。
 
 2026-10-25用户验收初步运行并要求按Mac第一版走流程；版本与安卓／iOS／鸿蒙统一，本次Mac成品使用当前安卓正式版的1.0.4／10268，不另起1.0.0系列。Mac沿用独立bundle ID及数据目录，直接在本机打release并归档ZIP，通过现有LAN服务的Mac独立入口下载；不触发CI、不改Android最新指针。当前仅有开发用ad-hoc本地签名，不宣称Developer ID签名／Apple公证。
@@ -20,14 +20,14 @@
 
 初步运行已完成：新增macOS工程，应用名“来听”、bundle ID `com.qi.ai.music.mac`，默认1100×780、最小760×600；配置沙箱联网、本地音频代理及用户选定文件读取，沿用现有Flutter页面和播放实现。应用使用Mac独立数据目录。
 
-当前体验包：`build/macos/Build/Products/Debug/来听.app`，可从Finder打开；开发启动使用 `/Users/huangqi/AIHome/tools/flutter/bin/flutter run -d macos --no-pub`。已在当前Mac实际打开，首页／设置可见，搜索Adele返回22条，Hello音频进入ready并播放、暂停成功，窗口保留供用户体验；未记录Flutter／异步异常。`flutter analyze --no-pub`、plist及差异检查通过。保持原依赖锁定版本，未改Android／iOS源码或发布配置。完整桌面功能、截图OCR、系统分享及键盘交互尚待后续体验，不把本轮基础运行检查视为全部功能验收。
+当前体验包：`build/macos/Build/Products/Debug/来听.app`，可从Finder打开；开发启动使用 `/Users/huangqi/ClaudeProject/tools/flutter/bin/flutter run -d macos --no-pub`。已在当前Mac实际打开，首页／设置可见，搜索Adele返回22条，Hello音频进入ready并播放、暂停成功，窗口保留供用户体验；未记录Flutter／异步异常。`flutter analyze --no-pub`、plist及差异检查通过。保持原依赖锁定版本，未改Android／iOS源码或发布配置。完整桌面功能、截图OCR、系统分享及键盘交互尚待后续体验，不把本轮基础运行检查视为全部功能验收。
 
 ## 第一版发布完成
 
 正式Mac版 **1.0.4（10268）** 已归档并在当前Mac打开，独立bundle与原数据保持，Hello以暂停状态恢复。Universal应用包含arm64和x86_64；当前Mac实际验证Apple Silicon，未另有Intel实机验收。Release使用ad-hoc本地签名，未做Apple公证；移除调试用get-task-allow，深度签名校验通过。
 
 - [局域网下载ZIP](http://192.168.31.167:8788/releases/macos/ai-music-macos-1.0.4-10268-universal-cc999ad5c306.zip)，解压后将来听.app拖入应用程序。
-- 应用永久归档：`/Users/huangqi/AIHome/releases/ai_music/macos/apps/1.0.4-10268/来听.app`；ZIP22167782字节，SHA256 `cc999ad5c306ddb220784575ee7c4b3f0ddd9be0b20317d39cc05f2077bf0078`。
+- 应用永久归档：`/Users/huangqi/ClaudeProject/releases/ai_music/macos/apps/1.0.4-10268/来听.app`；ZIP22167782字节，SHA256 `cc999ad5c306ddb220784575ee7c4b3f0ddd9be0b20317d39cc05f2077bf0078`。
 - 增量review初审1项P3（自动生成的测试宿主仍使用旧名称），修正后No findings；LAN新增Mac入口5项定向测试通过，HTTP完整ZIP下载及解压后的签名校验通过，Android latest10268保持。
 
 后续所有平台对外版本号统一分配，不为Mac单独递增或新起系列。Mac版本由构建参数显式与共享正式编号对齐，不能直接照搬Android ABI偏移前的Flutter build number。

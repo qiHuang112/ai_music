@@ -14,8 +14,8 @@ from android_release_archive import retained_versions
 from publish_android_release import publish
 
 PROJECT = Path(__file__).resolve().parent.parent
-ARCHIVE = Path('/Users/huangqi/AIHome/releases/ai_music/android')
-FLUTTER = '/Users/huangqi/AIHome/tools/flutter/bin/flutter'
+ARCHIVE = Path('/Users/huangqi/ClaudeProject/releases/ai_music/android')
+FLUTTER = '/Users/huangqi/ClaudeProject/tools/flutter/bin/flutter'
 CERT = 'f05004de4b5fa23bdd1beee45c4e7c227852129930bcd3bb1cfcff2048464843'
 SERVER = 'http://192.168.31.167:8788'
 

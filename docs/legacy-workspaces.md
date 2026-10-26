@@ -9,20 +9,19 @@
 - 发布证据 `build/release-evidence/` 已复制（gitignore，约 460K）。`build/review/`（约 508M 旧审查快照）未复制。
 - 开发 skill 仍在 `.agents/skills/ai-music-developer/`，并以符号链接 `.claude/skills/ai-music-developer` 供 Claude Code 直接调用，两边只维护一份。
 
-## 仍在 AIHome 的外部依赖（不能删）
+## 已迁入 ClaudeProject 的本地依赖（2026-10-26）
 
 | 路径 | 作用 |
 |---|---|
-| `AIHome/tools/flutter` | Flutter SDK，`android/local.properties` 与 skill 命令都指向它 |
-| `AIHome/releases/ai_music/` | Android／Mac 全部历史正式包、局域网更新服务 `update-service/`、诊断日志；LaunchAgent `com.qi.ai.music.android-updates` 从这里运行 `192.168.31.167:8788` |
-| `AIHome/ai_music/android/ai_music_release.jks` | 签名文件的另一份副本（与本目录相同） |
+| `/Users/huangqi/ClaudeProject/tools/flutter` | Flutter SDK 3.44.2，原 `AIHome/tools/flutter`；`android/local.properties`、iOS 生成配置和 skill 命令已改指这里 |
+| `/Users/huangqi/ClaudeProject/releases/ai_music/` | Android／Mac 全部历史正式包、局域网更新服务 `update-service/`、诊断日志，原 `AIHome/releases/ai_music`；LaunchAgent `com.qi.ai.music.android-updates` 已改为从这里运行 `192.168.31.167:8788` |
 
-要彻底离开 AIHome，需要先迁移 Flutter SDK 并改 `local.properties`，再迁移 releases 目录并重新部署 LaunchAgent（`tool/deploy_macos_update_server.py`）。目前不做。
+迁移后局域网 Android 10269、Mac 10268 均完整下载核验，大小与 SHA256 一致。`AIHome/tools/flutter_ohos`（鸿蒙版 Flutter）未被本仓库引用，没有迁移。
 
 ## 历史副本（不再使用）
 
 - `AIHome/projects/` 下约 65 个 `ai_music_*` 目录：7 月多角色／多 lane 流程按需求单（AM-2026xxxx）各开的 clone 和 worktree，分支多为 `feature/`、`release/1.x`、`codex/…`，大部分已推到 GitHub 对应分支。
-- `AIHome/ai_music`：7 月的旧主目录，含 9 个未推送的流程文档提交和约 100 个未跟踪的调研笔记（`docs/codex_collab/knowledge`、`requests`、`docs/superpowers`）。这些属于已废弃的流程；当前功能事实以 `docs/*.md` 功能文档为准。
+- `AIHome/ai_music`：7 月的旧主目录（原签名文件副本也在这里），含 9 个未推送的流程文档提交和约 100 个未跟踪的调研笔记（`docs/codex_collab/knowledge`、`requests`、`docs/superpowers`）。这些属于已废弃的流程；当前功能事实以 `docs/*.md` 功能文档为准。
 - `AIHome/ai_music_android_native` 及 `projects/ai_music_android_native_*`：7 月的 Kotlin／Compose 原生重写（AM-20260726-001），**没有 GitHub 远端**，约 64 个提交只存在本机。当前主线是 Flutter，原生方案已停止。
 
 ## Codex 侧配置

@@ -35,7 +35,7 @@
 
 ```bash
 cd /Users/huangqi/AIHome/projects/ai_music
-/Users/huangqi/AIHome/tools/flutter/bin/flutter pub get
+/Users/huangqi/ClaudeProject/tools/flutter/bin/flutter pub get
 ```
 
 为已注册设备构建 development IPA。脚本默认就是这个导出方式：
@@ -55,7 +55,7 @@ build/ios/ipa/
 - iPhone 已开启开发者模式。
 - 手机已在设置里信任 Apple Development profile。
 - Xcode 的 `Runner` target 已选择正确 Team。
-- `ios/Flutter/Generated.xcconfig` 指向 `/Users/huangqi/AIHome/tools/flutter`，不要指到 `tools/flutter_ohos`。
+- `ios/Flutter/Generated.xcconfig` 指向 `/Users/huangqi/ClaudeProject/tools/flutter`，不要指到 `tools/flutter_ohos`。
 
 ## 给朋友安装的包
 
@@ -70,14 +70,14 @@ build/ios/ipa/
 - `In iOS 14+ debug mode...`：手机上装的是 Debug 版。请安装 release/profile 包或导出的 IPA。
 - `profile has not been explicitly trusted`：在 iPhone 设置里进入“通用 > VPN 与设备管理”，信任开发者 profile。
 - `Developer Mode required`：在“隐私与安全性”里开启开发者模式，然后重启手机。
-- `FLUTTER_ROOT` 指到 `tools/flutter_ohos`：运行 `/Users/huangqi/AIHome/tools/flutter/bin/flutter clean`，再从本项目执行 `pub get`。
+- `FLUTTER_ROOT` 指到 `tools/flutter_ohos`：运行 `/Users/huangqi/ClaudeProject/tools/flutter/bin/flutter clean`，再从本项目执行 `pub get`。
 - Android 上 BuguYY 正常但模拟器/Mac 异常：先检查本机 VPN、代理和 DNS。iOS 模拟器共享 Mac 网络路径。
 - codesign 出现 `errSecInternalComponent`：在钥匙串里允许 `codesign` 使用 Apple Development 私钥，或刷新 key partition list。
 
 ## 验证命令
 
 ```bash
-/Users/huangqi/AIHome/tools/flutter/bin/flutter analyze
-/Users/huangqi/AIHome/tools/flutter/bin/flutter test
-/Users/huangqi/AIHome/tools/flutter/bin/flutter build ios --release
+/Users/huangqi/ClaudeProject/tools/flutter/bin/flutter analyze
+/Users/huangqi/ClaudeProject/tools/flutter/bin/flutter test
+/Users/huangqi/ClaudeProject/tools/flutter/bin/flutter build ios --release
 ```

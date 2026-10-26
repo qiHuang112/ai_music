@@ -63,7 +63,7 @@ Mac局域网服务每60秒在后台检查 GitHub 最新 Release，将 CI 产物�
 ```sh
 python3 tool/publish_android_release.py \
   --apk build/app/outputs/flutter-apk/app-arm64-v8a-release.apk \
-  --root /Users/huangqi/AIHome/releases/ai_music/android \
+  --root /Users/huangqi/ClaudeProject/releases/ai_music/android \
   --aapt /Users/huangqi/Library/Android/sdk/build-tools/35.0.0/aapt \
   --apksigner /Users/huangqi/Library/Android/sdk/build-tools/35.0.0/apksigner \
   --release-cert f05004de4b5fa23bdd1beee45c4e7c227852129930bcd3bb1cfcff2048464843 \
@@ -76,10 +76,10 @@ python3 tool/publish_android_release.py \
 
 ```sh
 python3 tool/deploy_macos_update_server.py \
-  --root /Users/huangqi/AIHome/releases/ai_music/android --port 8788
+  --root /Users/huangqi/ClaudeProject/releases/ai_music/android --port 8788
 ```
 
-已注册`~/Library/LaunchAgents/com.qi.ai.music.android-updates.plist`，登录自动启动、进程退出自动恢复；服务脚本和日志位于`/Users/huangqi/AIHome/releases/ai_music/update-service`。Mac运行且在家庭网络时可用，休眠/关机时不可达；地址改变可在应用更新页修改。部署脚本不停止占用同一端口的其它服务。
+已注册`~/Library/LaunchAgents/com.qi.ai.music.android-updates.plist`，登录自动启动、进程退出自动恢复；服务脚本和日志位于`/Users/huangqi/ClaudeProject/releases/ai_music/update-service`。Mac运行且在家庭网络时可用，休眠/关机时不可达；地址改变可在应用更新页修改。部署脚本不停止占用同一端口的其它服务。
 
 浏览器打开`http://192.168.31.167:8788/`查看最新版与历史APK并下载；`/api/v1/releases/android`提供完整目录，`/api/v1/update/android`只提供当前release。现存包按包名/签名校验后归档64个不同文件（46debug、18release），包括77升级前8143及本轮10145/10146/10148。已丢失或未在本机保存的旧包无法恢复；原始文件也未删除。77已配置实际服务地址，最新release10148内置同一默认值。
 
@@ -88,7 +88,7 @@ python3 tool/deploy_macos_update_server.py \
 ```sh
 python3 tool/archive_android_apks.py \
   --paths-file /path/to/apk-paths.txt \
-  --root /Users/huangqi/AIHome/releases/ai_music/android \
+  --root /Users/huangqi/ClaudeProject/releases/ai_music/android \
   --aapt /Users/huangqi/Library/Android/sdk/build-tools/35.0.0/aapt \
   --apksigner /Users/huangqi/Library/Android/sdk/build-tools/35.0.0/apksigner \
   --trusted-cert f05004de4b5fa23bdd1beee45c4e7c227852129930bcd3bb1cfcff2048464843 \

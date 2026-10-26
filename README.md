@@ -12,7 +12,7 @@ From this project's root, use the existing local Flutter SDK (or set
 `FLUTTER` to your own SDK executable):
 
 ```bash
-export FLUTTER=/Users/huangqi/AIHome/tools/flutter/bin/flutter
+export FLUTTER=/Users/huangqi/ClaudeProject/tools/flutter/bin/flutter
 "$FLUTTER" pub get
 ```
 
