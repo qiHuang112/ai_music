@@ -18,11 +18,18 @@
 
 迁移后局域网 Android 10269、Mac 10268 均完整下载核验，大小与 SHA256 一致。`AIHome/tools/flutter_ohos`（鸿蒙版 Flutter）未被本仓库引用，没有迁移。
 
-## 历史副本（不再使用）
+## 历史副本（2026-10-26 已删除）
 
-- `AIHome/projects/` 下约 65 个 `ai_music_*` 目录：7 月多角色／多 lane 流程按需求单（AM-2026xxxx）各开的 clone 和 worktree，分支多为 `feature/`、`release/1.x`、`codex/…`，大部分已推到 GitHub 对应分支。
-- `AIHome/ai_music`：7 月的旧主目录（原签名文件副本也在这里），含 9 个未推送的流程文档提交和约 100 个未跟踪的调研笔记（`docs/codex_collab/knowledge`、`requests`、`docs/superpowers`）。这些属于已废弃的流程；当前功能事实以 `docs/*.md` 功能文档为准。
-- `AIHome/ai_music_android_native` 及 `projects/ai_music_android_native_*`：7 月的 Kotlin／Compose 原生重写（AM-20260726-001），**没有 GitHub 远端**，约 64 个提交只存在本机。当前主线是 Flutter，原生方案已停止。
+按用户要求删除，均不可恢复：
+
+- `AIHome/projects/ai_music_*` 共 62 个目录：7 月多角色／多 lane 流程按需求单开的 clone 和 worktree，推送过的分支仍在 GitHub。
+- `AIHome/ai_music`：7 月的旧主目录，含废弃流程的调研笔记和 9 个未推送的流程文档提交。
+- `AIHome/ai_music_android_native`：Kotlin／Compose 原生重写（AM-20260726-001），没有 GitHub 远端，代码已不存在。
+
+仍保留、待用户决定：
+
+- `AIHome/projects/ai_music`：原正式目录，提交已全部并入本仓库；删除时用户的 Mac「来听」正从它的 `build/macos/Build/Products/Debug/来听.app` 运行。
+- `AIHome/worktrees/ai_music`（约 2.3G，6 月的旧 worktree）、`AIHome/backups/ai_music`、`AIHome/backups/ai-music-ios`、`AIHome/output/` 下的 ai_music 截图／调试产物与 `lamaze_guide`（拉玛泽音频交付物，约 685M）。
 
 ## Codex 侧配置
 
