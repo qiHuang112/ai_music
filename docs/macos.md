@@ -1,10 +1,12 @@
 # Mac 初步运行
 
+当前GitHub正式版为 **1.0.4（10269）**，已自动构建并发布：[下载Mac Universal ZIP](https://github.com/qiHuang112/ai_music/releases/download/v1.0.4-10269/ai-music-macos-1.0.4-10269-universal-69f7ce6544df.zip) · [Android／Mac完整Release](https://github.com/qiHuang112/ai_music/releases/tag/v1.0.4-10269)。支持Apple Silicon及Intel，24200116字节，SHA256 `69f7ce6544dfc04b9d32f7ba0ff097a8bb60175e40a8a4338f6e49fe78765c82`；源码4504319，原com.qi.ai.music.mac身份、沙箱／无调试权限及严格签名检查通过，ad-hoc签名，未Apple公证。GitHub上传后完整ZIP下载核验已通过，公开下载元数据与资产digest再次确认一致。
+
 2026-10-25用户验收合作者桌面版并明确要求合入main、发布Mac到GitHub Release、恢复公开仓库和main自动打包。已恢复仓库public及Actions enabled；`.github/workflows/android-release.yml`增加Mac任务，在同提交Android发布成功后读取其最终版本号，构建Universal正式.app并校验身份、权限、签名和架构，再向同一个Release上传内容哈希命名的ZIP、校验文件及独立`macos-latest.json`。不覆盖Android的`latest.json`或旧ZIP；Mac仍为ad-hoc、未Apple公证。实现及发布结果见当日日志。
 
 2026-10-25本机最新体验：按用户“拿下代码，看看合作者改了什么，跑起来”的要求，接入ui-vinyl原始提交6a4b5e3（父提交1504dbd），在当前main快进后构建并打开Debug1.0.4／10268，路径`build/macos/Build/Products/Debug/来听.app`。分析及25项桌面组件／播放器定向测试通过，实际看到新首页、队列、条形与方形迷你播放器，并返回完整首页；原深色皮肤、王力宏45首队列与《需要人陪》00:21暂停恢复。没有修改合作者运行源码；本次仅本地同步体验，未推送main或替换下述正式LAN包。此提交主要变化见本文“界面重设计”。
 
-当前正式包为2026-10-25用户验收的**桌面优化版1.0.4（10268）**，包含桌面交互、新图标和皮肤背景通顶。已完成临时增量review（最终No findings）、本机Release构建和一次完整LAN下载核验。版本沿用共享编号，以内容哈希区分本次包并保留第一版历史包。
+局域网现有正式包为2026-10-25用户验收的**桌面优化版1.0.4（10268）**，包含桌面交互、新图标和皮肤背景通顶。已完成临时增量review（最终No findings）、本机Release构建和一次完整LAN下载核验。版本沿用共享编号，以内容哈希区分本次包并保留第一版历史包。
 
 - [下载当前Mac正式版](http://192.168.31.167:8788/releases/macos/ai-music-macos-1.0.4-10268-universal-3c0d3f5afe43.zip)：23862538字节，SHA256 `3c0d3f5afe43e361a36dc359597694fa8fb620526e6697a0e2b4e1e3cce8ed6a`。
 - 当前运行归档：`/Users/huangqi/AIHome/releases/ai_music/macos/apps/1.0.4-10268-desktop-9407e39b/来听.app`。Universal／原bundle／ad-hoc签名，未Apple公证；用户当前皮肤、王力宏45首队列、《大城小爱》01:44暂停状态保留。
