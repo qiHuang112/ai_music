@@ -25,11 +25,12 @@
 - `AIHome/projects/ai_music_*` 共 62 个目录：7 月多角色／多 lane 流程按需求单开的 clone 和 worktree，推送过的分支仍在 GitHub。
 - `AIHome/ai_music`：7 月的旧主目录，含废弃流程的调研笔记和 9 个未推送的流程文档提交。
 - `AIHome/ai_music_android_native`：Kotlin／Compose 原生重写（AM-20260726-001），没有 GitHub 远端，代码已不存在。
+- `AIHome/projects/ai_music`：原正式目录，提交已全部并入本仓库。
+- `AIHome/worktrees/ai_music`：6 月的 28 个旧 worktree，约 2.3G。
 
 仍保留、待用户决定：
 
-- `AIHome/projects/ai_music`：原正式目录，提交已全部并入本仓库；删除时用户的 Mac「来听」正从它的 `build/macos/Build/Products/Debug/来听.app` 运行。
-- `AIHome/worktrees/ai_music`（约 2.3G，6 月的旧 worktree）、`AIHome/backups/ai_music`、`AIHome/backups/ai-music-ios`、`AIHome/output/` 下的 ai_music 截图／调试产物与 `lamaze_guide`（拉玛泽音频交付物，约 685M）。
+- `AIHome/backups/ai_music`、`AIHome/backups/ai-music-ios`、`AIHome/output/` 下的 ai_music 截图／调试产物与 `lamaze_guide`（拉玛泽音频交付物，约 685M）。
 
 ## Codex 侧配置
 
