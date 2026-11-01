@@ -37,3 +37,7 @@
 - 仍有效的只有本仓库的 `ai-music-developer` skill。`~/.codex/config.toml` 中登记过的 `ai-music`、`ai-music-team-ops`、`create-agile-project-team`、superpowers 系列（brainstorming、executing-plans、dispatching-parallel-agents、finishing-a-development-branch）、`harmonyos-development`、`project-workteam` 均已 disabled 且文件已删除，只剩名称。
 - Codex 自动化 `ai-music-native-epic`（原生重写监督，15 分钟心跳）状态为 PAUSED。
 - `~/.codex/config.toml` 与 `ai-music-unattended.config.toml` 的项目信任路径仍是 AIHome；如果继续用 Codex，需要补上本目录。
+
+## 2026-11-01 承接更正
+
+本仓库已整体迁入 `/Users/huangqi/CodexProject/laiting-studio/repos/ai-music`；ClaudeProject 旧入口仅指向同一 checkout。OHOS local.properties 与 hvigor 插件实际仍依赖原 SDK，故已将其完整迁到 `/Users/huangqi/CodexProject/laiting-studio/toolchains/flutter-ohos` 并修正本地配置及插件链接；上文“未引用”是旧盘点结论，不再作为现状依据。17 条失效 worktree 登记已保存到来听工作室忽略的 `.local/retirement-evidence/app-stale-worktrees` 后精确解除，历史分支未变。AIHome 根冲突及 a705 独有资料由项目总管另行保全；未在本工程恢复或合并。标准 Flutter、发布服务和归档仍在有效 ClaudeProject 共享位置。本次未构建、安装或发布。

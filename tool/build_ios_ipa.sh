@@ -2,7 +2,7 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-FLUTTER_BIN="${FLUTTER_BIN:-$ROOT_DIR/../../tools/flutter/bin/flutter}"
+FLUTTER_BIN="${FLUTTER_BIN:-/Users/huangqi/ClaudeProject/tools/flutter/bin/flutter}"
 
 # iOS signing is selected at export time so the Flutter/Dart app code can stay
 # shared across Android and iOS. This project defaults to development because

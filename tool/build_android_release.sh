@@ -2,7 +2,7 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-FLUTTER_BIN="${FLUTTER_BIN:-$ROOT_DIR/../tools/flutter/bin/flutter}"
+FLUTTER_BIN="${FLUTTER_BIN:-/Users/huangqi/ClaudeProject/tools/flutter/bin/flutter}"
 ANDROID_HOME="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-}}"
 ANDROID_NDK_HOME="${ANDROID_NDK_HOME:-}"
 MAX_APK_SIZE_MB="${MAX_APK_SIZE_MB:-60}"

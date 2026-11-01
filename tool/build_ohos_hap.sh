@@ -2,7 +2,7 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-OHOS_FLUTTER_BIN="${OHOS_FLUTTER_BIN:-${FLUTTER_BIN:-$(command -v flutter || true)}}"
+OHOS_FLUTTER_BIN="${OHOS_FLUTTER_BIN:-${FLUTTER_BIN:-/Users/huangqi/CodexProject/laiting-studio/toolchains/flutter-ohos/bin/flutter}}"
 TOOL_HOME="${TOOL_HOME:-/Applications/DevEco-Studio.app/Contents}"
 
 if [[ -z "$OHOS_FLUTTER_BIN" || ! -x "$OHOS_FLUTTER_BIN" ]]; then
