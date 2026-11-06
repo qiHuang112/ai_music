@@ -34,6 +34,169 @@ import 'package:flutter_test/flutter_test.dart';
 
 void main() {
   testWidgets(
+    'foldable window resizes preserve playback and keep lyrics controls reachable',
+    (tester) async {
+      debugDefaultTargetPlatformOverride = TargetPlatform.iOS;
+      addTearDown(() => debugDefaultTargetPlatformOverride = null);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetDevicePixelRatio);
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetPadding);
+      MusicMotion.perpetual = false;
+      addTearDown(() => MusicMotion.perpetual = true);
+      final textScale = ValueNotifier(1.0);
+      addTearDown(textScale.dispose);
+      tester.view.physicalSize = const Size(390, 844);
+      final handler = _SpyAudioHandler();
+      final cached = _cachedTrack();
+      final controller = MusicController(
+        songSearchCache: SongSearchCache.memory(),
+        downloadHistoryStore: MemoryDownloadHistory(),
+        connectivityChanges: const Stream.empty(),
+        audioHandler: handler,
+        resolver: _FakeMusicResolver(),
+        cacheStore: _FakeCacheStore(cached: [cached]),
+        playlistStore: _FakePlaylistStore(),
+        settingsStore: _FakeSettingsStore(),
+        metadataRepository: _StaticMetadataRepository(
+          metadata: TrackMetadata(
+            lyricsStatus: LyricsStatus.available,
+            lyrics: List.generate(
+              30,
+              (i) => LyricLine(
+                time: Duration(seconds: i * 5),
+                text: '歌词第 $i 句',
+              ),
+            ),
+          ),
+        ),
+      );
+      try {
+        await controller.initialize();
+        await controller.playTrack(trackFromCached(cached));
+        handler.position = const Duration(seconds: 25);
+        handler.playbackState.add(PlaybackState(playing: true));
+        await tester.pumpWidget(
+          AppStringsScope(
+            language: AppLanguage.zh,
+            child: MaterialApp(
+              theme: MusicAppTheme.create(Brightness.light),
+              builder: (context, child) => ValueListenableBuilder<double>(
+                valueListenable: textScale,
+                builder: (context, scale, _) => MediaQuery(
+                  data: MediaQuery.of(
+                    context,
+                  ).copyWith(textScaler: TextScaler.linear(scale)),
+                  child: child!,
+                ),
+              ),
+              home: PlayerPage(controller: controller),
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+        final routeState = tester.state(find.byType(PlayerPage));
+        final queueLoads = handler.queueLoads;
+        final itemId = handler.mediaItem.value!.id;
+        final queueIds = handler.queue.value.map((item) => item.id).toList();
+        final seeks = List<Duration>.of(handler.seekedPositions);
+        final playCalls = handler.playCalls;
+        final expanded = find.byKey(const ValueKey('player-expanded-layout'));
+        for (final scenario in [
+          (size: const Size(930, 650), scale: 1.0, wide: true),
+          (size: const Size(700, 900), scale: 1.0, wide: false),
+          (size: const Size(1100, 650), scale: 1.6, wide: true),
+          (size: const Size(740, 320), scale: 1.0, wide: false),
+          (size: const Size(390, 844), scale: 1.0, wide: false),
+        ]) {
+          tester.view.physicalSize = scenario.size;
+          tester.view.padding = const FakeViewPadding(
+            left: 12,
+            top: 24,
+            right: 76,
+            bottom: 20,
+          );
+          textScale.value = scenario.scale;
+          await tester.pumpAndSettle();
+          expect(tester.takeException(), isNull);
+          expect(expanded, scenario.wide ? findsOneWidget : findsNothing);
+          expect(tester.state(find.byType(PlayerPage)), same(routeState));
+          expect(handler.queueLoads, queueLoads);
+          expect(handler.mediaItem.value!.id, itemId);
+          expect(handler.queue.value.map((item) => item.id), queueIds);
+          expect(handler.currentPosition, const Duration(seconds: 25));
+          expect(handler.seekedPositions, seeks);
+          expect(handler.playCalls, playCalls);
+          expect(handler.playbackState.value.playing, isTrue);
+          if (scenario.wide) {
+            final lyrics = tester.getRect(
+              find.byKey(const ValueKey('player-expanded-lyrics')),
+            );
+            expect(
+              lyrics.left,
+              greaterThan(tester.getRect(find.byType(Turntable)).right),
+            );
+            expect(lyrics.right, lessThanOrEqualTo(scenario.size.width - 76));
+            expect(lyrics.bottom, lessThanOrEqualTo(scenario.size.height - 20));
+            expect(find.byKey(const ValueKey('lyrics-preview')), findsNothing);
+          }
+          final pause = find.byTooltip('暂停');
+          final scrollable = find
+              .descendant(
+                of: find.byKey(
+                  PageStorageKey(
+                    scenario.wide
+                        ? 'player-expanded-scroll'
+                        : 'player-compact-scroll',
+                  ),
+                ),
+                matching: find.byType(Scrollable),
+              )
+              .first;
+          await tester.scrollUntilVisible(pause, 160, scrollable: scrollable);
+          await tester.pumpAndSettle();
+          expect(pause.hitTestable(), findsOneWidget);
+        }
+        await tester.tap(find.byTooltip('暂停'));
+        await tester.pumpAndSettle();
+        expect(handler.playbackState.value.playing, isFalse);
+        final preview = find.byKey(const ValueKey('lyrics-preview'));
+        await tester.scrollUntilVisible(
+          preview,
+          -160,
+          scrollable: find
+              .descendant(
+                of: find.byKey(const PageStorageKey('player-compact-scroll')),
+                matching: find.byType(Scrollable),
+              )
+              .first,
+        );
+        await tester.tap(preview);
+        await tester.pumpAndSettle();
+        // A pinned video / split window can reduce height while this route is
+        // already open. Large type must not push controls into an overflow.
+        tester.view.physicalSize = const Size(390, 260);
+        textScale.value = 2.0;
+        await tester.pumpAndSettle();
+        expect(tester.takeException(), isNull);
+        final play = find.byTooltip('播放');
+        await tester.ensureVisible(play);
+        await tester.pumpAndSettle();
+        expect(play.hitTestable(), findsOneWidget);
+        await tester.tap(play);
+        await tester.pumpAndSettle();
+        expect(handler.playbackState.value.playing, isTrue);
+        expect(handler.queueLoads, queueLoads);
+      } finally {
+        await tester.pumpWidget(const SizedBox.shrink());
+        controller.dispose();
+        await handler.dispose();
+        debugDefaultTargetPlatformOverride = null;
+      }
+    },
+  );
+
+  testWidgets(
     'desktop shell keeps controls, compact panel and input shortcuts independent',
     (tester) async {
       debugDefaultTargetPlatformOverride = TargetPlatform.macOS;
@@ -655,6 +818,10 @@ void main() {
   testWidgets(
     'comments entry opens the current song without replacing the player',
     (tester) async {
+      // This covers the compact player -> lyrics route. Wide windows show
+      // lyrics inline, which is exercised by the foldable resize test above.
+      await tester.binding.setSurfaceSize(const Size(390, 844));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
       final cached = _cachedTrack();
       final handler = _SpyAudioHandler();
       final controller = MusicController(
@@ -1290,6 +1457,14 @@ void main() {
 }
 
 class _SpyAudioHandler extends MusicAudioHandler {
+  int queueLoads = 0;
+  int playCalls = 0;
+
+  @override
+  Future<void> pause() async {
+    playbackState.add(playbackState.value.copyWith(playing: false));
+  }
+
   bool awaiting = false;
   @override
   bool get isAwaitingPlayback => awaiting;
@@ -1319,6 +1494,7 @@ class _SpyAudioHandler extends MusicAudioHandler {
     Duration initialPosition = Duration.zero,
     bool playWhenReady = true,
   }) async {
+    queueLoads++;
     queue.add(items.map((item) => item.mediaItem).toList(growable: false));
     if (items.isNotEmpty) {
       mediaItem.add(items[initialIndex].mediaItem);
@@ -1327,6 +1503,7 @@ class _SpyAudioHandler extends MusicAudioHandler {
 
   @override
   Future<void> play() async {
+    playCalls++;
     awaiting = false;
     playbackState.add(playbackState.value.copyWith(playing: true));
   }

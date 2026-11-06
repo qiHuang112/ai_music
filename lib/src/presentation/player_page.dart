@@ -381,14 +381,13 @@ class _PlayerPageState extends State<PlayerPage> {
                         onPrevious: controller.previous,
                         onDrag: _disc.drag,
                         onSettle: _disc.settle,
-                        child: ListView(
-                          padding: const EdgeInsets.fromLTRB(
-                            MusicUi.pagePadding,
-                            4,
-                            MusicUi.pagePadding,
-                            12,
+                        child: _AdaptivePlayerBody(
+                          lyrics: _LyricsPanel(
+                            controller: controller,
+                            fillsAvailable: true,
                           ),
-                          children: [
+                          preview: _LyricsPreview(controller: controller),
+                          header: [
                             _Artwork(
                               uri: item.artUri ?? controller.currentArtworkUri,
                               controller: controller,
@@ -417,8 +416,8 @@ class _PlayerPageState extends State<PlayerPage> {
                                     ).colorScheme.onSurfaceVariant,
                                   ),
                             ),
-                            const SizedBox(height: 10),
-                            _LyricsPreview(controller: controller),
+                          ],
+                          controls: [
                             const SizedBox(height: 8),
                             PlayerPositionSlider(
                               key: ValueKey('player-position-${item.id}'),
@@ -490,6 +489,78 @@ class _PlayerPageState extends State<PlayerPage> {
                 },
               ),
             ),
+          ),
+        );
+      },
+    );
+  }
+}
+
+/// Use the safe window's available space, including after a fold or split-view
+/// resize. The route and its audio controller stay mounted across both layouts.
+class _AdaptivePlayerBody extends StatelessWidget {
+  const _AdaptivePlayerBody({
+    required this.header,
+    required this.controls,
+    required this.preview,
+    required this.lyrics,
+  });
+
+  final List<Widget> header;
+  final List<Widget> controls;
+  final Widget preview;
+  final Widget lyrics;
+
+  @override
+  Widget build(BuildContext context) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        // Each pane needs enough room for touch controls and readable lyrics.
+        // Larger type needs more room; these are content limits, not a model's
+        // screen dimensions. SafeArea has already removed system side insets.
+        final scale = MediaQuery.textScalerOf(context).scale(16) / 16;
+        final paneWidth = 320 * scale.clamp(1.0, 1.4);
+        const gap = 24.0;
+        const padding = EdgeInsets.fromLTRB(
+          MusicUi.pagePadding,
+          4,
+          MusicUi.pagePadding,
+          12,
+        );
+        final wide =
+            constraints.maxWidth >= paneWidth * 2 + gap + padding.horizontal;
+        if (!wide) {
+          return ListView(
+            key: const PageStorageKey('player-compact-scroll'),
+            padding: padding,
+            children: [
+              ...header,
+              const SizedBox(height: 10),
+              preview,
+              ...controls,
+            ],
+          );
+        }
+        return Padding(
+          key: const ValueKey('player-expanded-layout'),
+          padding: padding,
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Expanded(
+                child: ListView(
+                  key: const PageStorageKey('player-expanded-scroll'),
+                  children: [...header, ...controls],
+                ),
+              ),
+              const SizedBox(width: gap),
+              Expanded(
+                child: ClipRect(
+                  key: const ValueKey('player-expanded-lyrics'),
+                  child: lyrics,
+                ),
+              ),
+            ],
           ),
         );
       },
@@ -828,57 +899,91 @@ class _LyricsDetailPage extends StatelessWidget {
                         key: const ValueKey('lyrics-swipe-area'),
                         onNext: controller.next,
                         onPrevious: controller.previous,
-                        child: Column(
-                          children: [
-                            Padding(
-                              padding: const EdgeInsets.fromLTRB(24, 8, 24, 12),
-                              child: Column(
-                                children: [
-                                  Text(
-                                    item.title,
-                                    maxLines: 1,
-                                    overflow: TextOverflow.ellipsis,
-                                    textAlign: TextAlign.center,
-                                    style: MusicType.masthead(
-                                      context,
-                                      size: 22,
+                        child: LayoutBuilder(
+                          builder: (context, constraints) {
+                            final scale =
+                                (MediaQuery.textScalerOf(context).scale(16) /
+                                        16)
+                                    .clamp(1.0, double.infinity);
+                            // A pinned video or a split window may leave less
+                            // height than the title and playback controls need.
+                            // Keep a usable lyric viewport and let the whole
+                            // page scroll instead of overflowing the controls.
+                            return SingleChildScrollView(
+                              key: const PageStorageKey('lyrics-page-scroll'),
+                              child: SizedBox(
+                                height: constraints.maxHeight.clamp(
+                                  420 * scale,
+                                  double.infinity,
+                                ),
+                                child: Column(
+                                  children: [
+                                    Padding(
+                                      padding: const EdgeInsets.fromLTRB(
+                                        24,
+                                        8,
+                                        24,
+                                        12,
+                                      ),
+                                      child: Column(
+                                        children: [
+                                          Text(
+                                            item.title,
+                                            maxLines: 1,
+                                            overflow: TextOverflow.ellipsis,
+                                            textAlign: TextAlign.center,
+                                            style: MusicType.masthead(
+                                              context,
+                                              size: 22,
+                                            ),
+                                          ),
+                                          const SizedBox(height: 4),
+                                          Text(
+                                            item.artist ?? '',
+                                            maxLines: 1,
+                                            overflow: TextOverflow.ellipsis,
+                                            textAlign: TextAlign.center,
+                                            style: Theme.of(
+                                              context,
+                                            ).textTheme.bodyMedium,
+                                          ),
+                                        ],
+                                      ),
                                     ),
-                                  ),
-                                  const SizedBox(height: 4),
-                                  Text(
-                                    item.artist ?? '',
-                                    maxLines: 1,
-                                    overflow: TextOverflow.ellipsis,
-                                    textAlign: TextAlign.center,
-                                    style: Theme.of(
-                                      context,
-                                    ).textTheme.bodyMedium,
-                                  ),
-                                ],
+                                    Expanded(
+                                      child: _LyricsPanel(
+                                        controller: controller,
+                                        fillsAvailable: true,
+                                      ),
+                                    ),
+                                    Padding(
+                                      padding: const EdgeInsets.fromLTRB(
+                                        24,
+                                        8,
+                                        24,
+                                        0,
+                                      ),
+                                      child: PlayerPositionSlider(
+                                        key: ValueKey(
+                                          'lyrics-position-${item.id}',
+                                        ),
+                                        trackId: item.id,
+                                        controller: controller,
+                                        duration: duration,
+                                        bufferedPosition:
+                                            state.bufferedPosition,
+                                      ),
+                                    ),
+                                    _PlaybackControls(
+                                      controller: controller,
+                                      playing: state.playing,
+                                    ),
+                                    const SizedBox(height: 12),
+                                  ],
+                                ),
                               ),
-                            ),
-                            Expanded(
-                              child: _LyricsPanel(
-                                controller: controller,
-                                fillsAvailable: true,
-                              ),
-                            ),
-                            Padding(
-                              padding: const EdgeInsets.fromLTRB(24, 8, 24, 0),
-                              child: PlayerPositionSlider(
-                                key: ValueKey('lyrics-position-${item.id}'),
-                                trackId: item.id,
-                                controller: controller,
-                                duration: duration,
-                                bufferedPosition: state.bufferedPosition,
-                              ),
-                            ),
-                            _PlaybackControls(
-                              controller: controller,
-                              playing: state.playing,
-                            ),
-                            const SizedBox(height: 12),
-                          ],
+                            );
+                          },
                         ),
                       );
                     },

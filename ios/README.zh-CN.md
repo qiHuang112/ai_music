@@ -4,6 +4,8 @@
 
 共享产品逻辑在 Dart 层，也就是 `lib/src/`。搜索源、播放规则、下载、缓存修复、歌单、设置状态、UI 状态，都不要在 Swift 里重新实现。
 
+iPhone Duo 的窗口布局、SDK 前提与待验收项目见[折叠屏适配说明](../docs/iphone-duo.md)。普通 iOS 构建通过不等于 Duo 原生完整适配通过。
+
 ## 职责边界
 
 - `Runner/AppDelegate.swift` 启动 Flutter 宿主，并把生成的插件注册到隐式 Flutter engine。
