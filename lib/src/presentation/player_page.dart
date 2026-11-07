@@ -1,5 +1,7 @@
+import 'package:flutter/cupertino.dart' show CupertinoIcons, CupertinoSlidingSegmentedControl;
 import 'duo_scaffold.dart';
 import 'duo_window.dart';
+import 'native_shell.dart';
 import 'dart:async';
 import 'dart:ui' as ui;
 import 'app_theme.dart';
@@ -334,11 +336,17 @@ class _PlayerPageState extends State<PlayerPage> {
       builder: (context, _) {
         final currentTrack = controller.currentTrack;
         final strings = AppStringsScope.of(context);
+        final rail = DuoScaffold.usesSystemRail(context);
         return DuoScaffold(
           extendBodyBehindAppBar: true,
+          background: _PlayerBackdrop(
+            controller: controller,
+            closeOnSwipe: false,
+            child: const SizedBox.expand(),
+          ),
           extraActions: [
             DuoRailItem(
-              icon: Icons.lyrics_outlined,
+              icon: CupertinoIcons.text_quote,
               label: strings.isZh ? '完整歌词' : 'Full lyrics',
               onPressed: () => Navigator.of(context).push(
                 MaterialPageRoute<void>(
@@ -347,7 +355,7 @@ class _PlayerPageState extends State<PlayerPage> {
               ),
             ),
             DuoRailItem(
-              icon: Icons.queue_music_rounded,
+              icon: CupertinoIcons.music_note_list,
               label: strings.isZh ? '当前队列' : 'Play queue',
               onPressed: () => showPlaybackQueue(context, controller),
             ),
@@ -380,6 +388,7 @@ class _PlayerPageState extends State<PlayerPage> {
           body: Builder(
             builder: (bodyContext) => _PlayerBackdrop(
               controller: controller,
+              paint: !rail,
               child: SafeArea(
                 child: StreamBuilder<MediaItem?>(
                   stream: controller.mediaItemStream,
@@ -569,24 +578,39 @@ class _AdaptivePlayerBodyState extends State<_AdaptivePlayerBody> {
     final zh = AppStringsScope.of(context).isZh;
     return Column(
       children: [
+        // The system's sliding switch, as Music uses between lyrics and
+        // up next; it reads as one control instead of two outlined buttons.
         Padding(
           padding: const EdgeInsets.only(bottom: 12),
-          child: SegmentedButton<bool>(
-            showSelectedIcon: false,
-            segments: [
-              ButtonSegment(
-                value: false,
-                icon: const Icon(Icons.lyrics_outlined),
-                label: Text(zh ? '歌词' : 'Lyrics'),
-              ),
-              ButtonSegment(
-                value: true,
-                icon: const Icon(Icons.queue_music_rounded),
-                label: Text(zh ? '待播' : 'Up next'),
-              ),
-            ],
-            selected: {_queue},
-            onSelectionChanged: (value) => setState(() => _queue = value.first),
+          child: Builder(
+            builder: (context) {
+              final colors = Theme.of(context).colorScheme;
+              Widget segment(String text) => Padding(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 18,
+                  vertical: 6,
+                ),
+                child: Text(
+                  text,
+                  style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                    color: colors.onSurface,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              );
+              return CupertinoSlidingSegmentedControl<bool>(
+                key: const ValueKey('player-details-switch'),
+                groupValue: _queue,
+                backgroundColor: colors.onSurface.withValues(alpha: .08),
+                thumbColor: colors.surface.withValues(alpha: .9),
+                children: {
+                  false: segment(zh ? '歌词' : 'Lyrics'),
+                  true: segment(zh ? '待播' : 'Up next'),
+                },
+                onValueChanged: (value) =>
+                    setState(() => _queue = value ?? false),
+              );
+            },
           ),
         ),
         Expanded(
@@ -617,9 +641,11 @@ class _AdaptivePlayerBodyState extends State<_AdaptivePlayerBody> {
         final scale = MediaQuery.textScalerOf(context).scale(16) / 16;
         final paneWidth = 320 * scale.clamp(1.0, 1.4);
         const gap = 24.0;
-        const padding = EdgeInsets.fromLTRB(
+        // With the status bar in a side strip nothing sits above the record;
+        // give it the breathing room a title bar used to.
+        final padding = EdgeInsets.fromLTRB(
           MusicUi.pagePadding,
-          4,
+          MediaQuery.paddingOf(context).top < 8 ? 16 : 4,
           MusicUi.pagePadding,
           12,
         );
@@ -949,11 +975,15 @@ class _PlayerBackdrop extends StatefulWidget {
     required this.controller,
     required this.child,
     this.closeOnSwipe = true,
+    this.paint = true,
   });
 
   final MusicController controller;
   final Widget child;
-  final bool closeOnSwipe;
+
+  /// With a system side strip the light is painted once, under the whole
+  /// window, by the scaffold; the content copy then only keeps the gesture.
+  final bool closeOnSwipe, paint;
 
   @override
   State<_PlayerBackdrop> createState() => _PlayerBackdropState();
@@ -977,6 +1007,11 @@ class _PlayerBackdropState extends State<_PlayerBackdrop> {
   @override
   Widget build(BuildContext context) {
     final brightness = Theme.of(context).brightness;
+    if (!widget.paint) {
+      return widget.closeOnSwipe
+          ? _SwipeDownToClose(child: widget.child)
+          : widget.child;
+    }
     return StreamBuilder<MediaItem?>(
       stream: widget.controller.mediaItemStream,
       initialData: widget.controller.audioHandler.mediaItem.value,
@@ -1012,15 +1047,21 @@ class _LyricsDetailPage extends StatelessWidget {
       builder: (context, _) {
         final currentTrack = controller.currentTrack;
         final strings = AppStringsScope.of(context);
+        final rail = DuoScaffold.usesSystemRail(context);
         return DuoScaffold(
           extraActions: [
             DuoRailItem(
-              icon: Icons.queue_music_rounded,
+              icon: CupertinoIcons.music_note_list,
               label: strings.isZh ? '当前队列' : 'Play queue',
               onPressed: () => showPlaybackQueue(context, controller),
             ),
           ],
           extendBodyBehindAppBar: true,
+          background: _PlayerBackdrop(
+            controller: controller,
+            closeOnSwipe: false,
+            child: const SizedBox.expand(),
+          ),
           appBar: AppBar(
             backgroundColor: Colors.transparent,
             title: Text(strings.lyrics),
@@ -1048,6 +1089,7 @@ class _LyricsDetailPage extends StatelessWidget {
           ),
           body: _PlayerBackdrop(
             controller: controller,
+            paint: !rail,
             child: SafeArea(
               child: StreamBuilder<MediaItem?>(
                 stream: controller.mediaItemStream,
@@ -1352,7 +1394,8 @@ class _PlaybackControls extends StatelessWidget {
             onPressed: controller.next,
             icon: Icons.skip_next_rounded,
           ),
-          if (DuoWindowScope.of(context).edge == DuoBarEdge.none) ...[
+          if (!NativeShell.active &&
+              DuoWindowScope.of(context).edge == DuoBarEdge.none) ...[
             const SizedBox(width: 12),
             GlassIconButton(
               blur: false,

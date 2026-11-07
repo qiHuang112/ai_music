@@ -324,6 +324,9 @@ abstract final class MusicMotion {
 /// keep the same roles.
 abstract final class MusicType {
   static const display = 'Bodoni 72';
+
+  /// The PostScript name UIKit needs for the same face in native bars.
+  static const displayBold = 'BodoniSvtyTwoITCTT-Bold';
   static const displayFallback = ['Didot', 'PingFang SC', 'serif'];
   static const engraved = 'DIN Alternate';
   static const engravedFallback = [

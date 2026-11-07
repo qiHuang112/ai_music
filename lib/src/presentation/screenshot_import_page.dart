@@ -1,3 +1,4 @@
+import 'duo_scaffold.dart';
 import 'app_theme.dart';
 import 'dart:io';
 
@@ -105,7 +106,7 @@ class _ScreenshotImportPageState extends State<ScreenshotImportPage> {
     final visibleRows = processing
         ? _rows.where((row) => row.searched).toList(growable: false)
         : _rows;
-    return Scaffold(
+    return DuoScaffold(
       appBar: AppBar(title: Text(strings.importScreenshots)),
       body: SafeArea(
         child: Column(

@@ -1,12 +1,21 @@
 import 'dart:math' as math;
 import 'dart:ui' as ui;
 
+import 'package:flutter/cupertino.dart' show CupertinoIcons;
 import 'package:flutter/material.dart';
 
+import 'app_popup_menu.dart';
+import 'design/controls.dart';
+import 'design/glass_surface.dart';
 import 'duo_window.dart';
+import 'native_shell.dart';
 
 /// Page chrome shares the system's vertical strip instead of allocating another
 /// column beside it. Nested tab pages leave navigation to their parent shell.
+///
+/// The strip follows the system bar: navigation controls (back, close) at the
+/// top, then the page's actions, and the app's main tabs as one capsule at the
+/// bottom. Nothing is drawn behind them; each group is its own piece of glass.
 class DuoScaffold extends StatelessWidget {
   const DuoScaffold({
     super.key,
@@ -24,9 +33,14 @@ class DuoScaffold extends StatelessWidget {
     this.navigationItems = const [],
     this.extraActions = const [],
     this.preferSideNavigation = false,
+    this.background,
   });
 
   final Key? railKey;
+
+  /// Painted under both the content and the strip while the strip is shown,
+  /// so a page's own backdrop reaches the display edge with no seam.
+  final Widget? background;
   // Sliver pages keep their title in the content but move these controls.
   final AppBar? appBar, railAppBar;
   final Widget? body, bottomNavigationBar, floatingActionButton;
@@ -36,12 +50,16 @@ class DuoScaffold extends StatelessWidget {
   final FloatingActionButtonLocation? floatingActionButtonLocation;
   final List<DuoRailItem> navigationItems, extraActions;
 
+  /// True when the system, not this page, draws the back button and actions:
+  /// the UIKit shell on iOS, or the vertical bar strip on a folding window.
   static bool usesSystemRail(BuildContext context) =>
-      DuoWindowScope.of(context).edge != DuoBarEdge.none &&
-      !(_DuoChrome.of(context));
+      !_DuoChrome.of(context) &&
+      (NativeShell.active ||
+          DuoWindowScope.of(context).edge != DuoBarEdge.none);
 
   @override
   Widget build(BuildContext context) {
+    if (NativeShell.active) return _buildShell(context);
     final data = MediaQuery.of(context);
     final geometry = DuoWindowScope.of(context);
     final nested = _DuoChrome.of(context);
@@ -50,7 +68,7 @@ class DuoScaffold extends StatelessWidget {
     final left = systemRail && geometry.edge == DuoBarEdge.left;
     final width = rail
         ? math.max(
-            76.0,
+            DuoRail.width,
             systemRail ? (left ? data.padding.left : data.padding.right) : 0.0,
           )
         : 0.0;
@@ -67,12 +85,13 @@ class DuoScaffold extends StatelessWidget {
     final items = <DuoRailItem>[
       if (systemRail) ...[
         if (controls?.leading != null)
-          DuoRailItem.fromWidget(controls!.leading!, context)
+          DuoRailItem.fromWidget(controls!.leading!, context, leading: true)
         else if ((controls?.automaticallyImplyLeading ?? true) &&
             Navigator.of(context).canPop())
           DuoRailItem(
-            icon: Icons.arrow_back_rounded,
+            icon: CupertinoIcons.chevron_back,
             label: MaterialLocalizations.of(context).backButtonTooltip,
+            leading: true,
             onPressed: () => Navigator.of(context).maybePop(),
           ),
         for (final action in controls?.actions ?? const <Widget>[])
@@ -81,18 +100,22 @@ class DuoScaffold extends StatelessWidget {
       ],
       ...navigationItems,
     ];
+    // Immersive pages (player, lyrics) drop their title with the bar; others
+    // keep a quiet title line in the content, the way a large title sits.
     final titleBar = systemRail && appBar != null
-        ? AppBar(
-            automaticallyImplyLeading: false,
-            title: appBar!.title,
-            titleTextStyle: appBar!.titleTextStyle,
-            centerTitle: appBar!.centerTitle,
-            backgroundColor: appBar!.backgroundColor,
-            foregroundColor: appBar!.foregroundColor,
-            elevation: appBar!.elevation,
-            toolbarHeight: 40,
-            bottom: appBar!.bottom,
-          )
+        ? (extendBodyBehindAppBar
+              ? null
+              : AppBar(
+                  automaticallyImplyLeading: false,
+                  title: appBar!.title,
+                  titleTextStyle: appBar!.titleTextStyle,
+                  centerTitle: appBar!.centerTitle,
+                  backgroundColor: appBar!.backgroundColor,
+                  foregroundColor: appBar!.foregroundColor,
+                  elevation: appBar!.elevation,
+                  toolbarHeight: 48,
+                  bottom: appBar!.bottom,
+                ))
         : appBar;
     final railRect = Rect.fromLTWH(
       left ? 0 : data.size.width - width,
@@ -105,6 +128,7 @@ class DuoScaffold extends StatelessWidget {
     return Stack(
       fit: StackFit.expand,
       children: [
+        if (rail && background != null) background!,
         Padding(
           padding: EdgeInsets.only(
             left: left ? width : 0,
@@ -159,6 +183,243 @@ class DuoScaffold extends StatelessWidget {
   }
 }
 
+extension on DuoScaffold {
+  /// Under the UIKit shell the page draws no bar of its own: it describes its
+  /// title, actions and tabs, and the shell shows them with system controls.
+  /// A page with controls the shell cannot express keeps its Flutter bar.
+  Widget _buildShell(BuildContext context) {
+    final nested = _DuoChrome.of(context);
+    final id = NativeShell.instance.idOf(ModalRoute.of(context));
+    final spec = id == null
+        ? null
+        : _ShellSpec.build(
+            context,
+            routeId: id,
+            controls: appBar ?? railAppBar,
+            extraActions: extraActions,
+            tabs: navigationItems,
+            immersive: extendBodyBehindAppBar,
+          );
+    final ownBar = spec == null || spec.chromeless;
+    Widget child = _DuoChrome(
+      consumed: true,
+      child: Scaffold(
+        appBar: ownBar ? appBar : null,
+        body: body,
+        backgroundColor: backgroundColor,
+        extendBody: extendBody,
+        extendBodyBehindAppBar: extendBodyBehindAppBar,
+        resizeToAvoidBottomInset: resizeToAvoidBottomInset,
+        bottomNavigationBar: bottomNavigationBar,
+        floatingActionButton: floatingActionButton,
+        floatingActionButtonLocation: floatingActionButtonLocation,
+      ),
+    );
+    if (background != null) {
+      child = Stack(fit: StackFit.expand, children: [background!, child]);
+    }
+    if (spec == null) return child;
+    return _ShellPageBinding(id: id!, nested: nested, spec: spec, child: child);
+  }
+}
+
+/// Keeps the shell's description of one page current while it is visible.
+class _ShellPageBinding extends StatefulWidget {
+  const _ShellPageBinding({
+    required this.id,
+    required this.nested,
+    required this.spec,
+    required this.child,
+  });
+  final int id;
+  final bool nested;
+  final _ShellSpec spec;
+  final Widget child;
+
+  @override
+  State<_ShellPageBinding> createState() => _ShellPageBindingState();
+}
+
+class _ShellPageBindingState extends State<_ShellPageBinding> {
+  bool _registered = false;
+
+  @override
+  Widget build(BuildContext context) {
+    // Home tabs stay built when hidden; only the visible one owns the bar.
+    final visible = !widget.nested || TickerMode.valuesOf(context).enabled;
+    final shell = NativeShell.instance;
+    if (visible) {
+      widget.spec.callbacks.forEach(shell.register);
+      shell.updatePage(widget.id, widget.spec.map, nested: widget.nested);
+      _registered = true;
+      if (widget.spec.pending.isNotEmpty) {
+        // Icons without an SF Symbol are rasterised once; redraw with them.
+        Future.wait(widget.spec.pending).then((_) {
+          if (mounted) setState(() {});
+        });
+      }
+    } else if (_registered) {
+      shell.clearPage(widget.id, nested: widget.nested);
+      _registered = false;
+    }
+    return widget.child;
+  }
+
+  @override
+  void dispose() {
+    if (_registered && widget.nested) {
+      NativeShell.instance.clearPage(widget.id, nested: true);
+    }
+    super.dispose();
+  }
+}
+
+/// A page as the shell understands it.
+class _ShellSpec {
+  _ShellSpec._(this.map, this.callbacks, this.pending, this.chromeless);
+
+  final Map<String, Object?> map;
+  final Map<String, VoidCallback> callbacks;
+  final List<Future<void>> pending;
+
+  /// Some control could not be expressed natively; Flutter keeps the bar.
+  final bool chromeless;
+
+  static _ShellSpec build(
+    BuildContext context, {
+    required int routeId,
+    required AppBar? controls,
+    required List<DuoRailItem> extraActions,
+    required List<DuoRailItem> tabs,
+    required bool immersive,
+  }) {
+    final callbacks = <String, VoidCallback>{};
+    final pending = <Future<void>>[];
+    var chromeless = false;
+
+    Map<String, Object?> icon(IconData data) {
+      final symbol = sfSymbol(data);
+      if (symbol != null) return {'symbol': symbol};
+      final glyph = ShellGlyphs.cached(data);
+      if (glyph == null) pending.add(ShellGlyphs.of(data));
+      return {'glyph': glyph};
+    }
+
+    Map<String, Object?>? convert(Widget widget, String id) {
+      switch (widget) {
+        case IconButton(icon: Icon(icon: final data?)):
+          if (widget.onPressed != null) callbacks[id] = widget.onPressed!;
+          return {
+            'id': id,
+            'title': widget.tooltip ?? '',
+            'enabled': widget.onPressed != null,
+            ...icon(data),
+          };
+        case BackButton() || CloseButton():
+          callbacks[id] =
+              (widget as dynamic).onPressed as VoidCallback? ??
+              () => Navigator.of(context).maybePop();
+          return {
+            'id': id,
+            'title': widget is CloseButton
+                ? MaterialLocalizations.of(context).closeButtonTooltip
+                : MaterialLocalizations.of(context).backButtonTooltip,
+            'symbol': widget is CloseButton ? 'xmark' : 'chevron.backward',
+          };
+        case TextButton():
+          if (widget.onPressed != null) callbacks[id] = widget.onPressed!;
+          return {
+            'id': id,
+            'title': shellLabelOf(widget.child) ?? '',
+            'enabled': widget.onPressed != null,
+          };
+        case PopupMenuButton():
+          final entries = widget.itemBuilder(context);
+          final menu = <Map<String, Object?>>[];
+          for (final (j, entry) in entries.indexed) {
+            if (entry is! PopupMenuItem) continue;
+            final itemId = '$id-m$j';
+            final value = entry.value;
+            callbacks[itemId] = () {
+              entry.onTap?.call();
+              (widget.onSelected as dynamic)?.call(value);
+            };
+            menu.add({
+              'id': itemId,
+              'title': shellLabelOf(entry.child) ?? '',
+              'enabled': entry.enabled,
+              'checked': entry is CheckedPopupMenuItem && entry.checked,
+            });
+          }
+          final menuIcon = widget.icon;
+          return {
+            'id': id,
+            'title': widget.tooltip ?? '',
+            'enabled': widget.enabled,
+            'menu': menu,
+            ...switch (menuIcon) {
+              Icon(icon: final data?) => icon(data),
+              _ => const {'symbol': 'ellipsis.circle'},
+            },
+          };
+        default:
+          return null;
+      }
+    }
+
+    Map<String, Object?> railItem(DuoRailItem item, String id) {
+      if (item.onPressed != null) callbacks[id] = item.onPressed!;
+      return {
+        'id': id,
+        'title': item.label,
+        'enabled': item.onPressed != null,
+        ...icon(item.icon),
+      };
+    }
+
+    final actions = <Map<String, Object?>>[];
+    for (final (i, action) in (controls?.actions ?? const <Widget>[]).indexed) {
+      final converted = convert(action, '$routeId-a$i');
+      if (converted == null) {
+        chromeless = true;
+      } else {
+        actions.add(converted);
+      }
+    }
+    for (final (i, item) in extraActions.indexed) {
+      actions.add(railItem(item, '$routeId-x$i'));
+    }
+    Map<String, Object?>? leading;
+    if (controls?.leading case final widget?) {
+      leading = convert(widget, '$routeId-l');
+      if (leading == null) chromeless = true;
+    }
+    final map = <String, Object?>{
+      'title': immersive ? null : shellLabelOf(controls?.title),
+      'immersive': immersive,
+      'chromeless': chromeless,
+      'hidesBack':
+          leading == null && !(controls?.automaticallyImplyLeading ?? true),
+      'leading': leading,
+      'actions': actions,
+      if (tabs.isNotEmpty) ...{
+        'tabs': [
+          for (final tab in tabs)
+            {
+              'title': tab.label,
+              'badge': tab.badge,
+              ...icon(tab.icon),
+              if (tab.selectedIcon != null)
+                'selectedSymbol': sfSymbol(tab.selectedIcon!),
+            },
+        ],
+        'selectedTab': math.max(0, tabs.indexWhere((tab) => tab.selected)),
+      },
+    };
+    return _ShellSpec._(map, callbacks, pending, chromeless);
+  }
+}
+
 class _DuoChrome extends InheritedWidget {
   const _DuoChrome({required this.consumed, required super.child});
   final bool consumed;
@@ -170,58 +431,161 @@ class _DuoChrome extends InheritedWidget {
       consumed != oldWidget.consumed;
 }
 
+/// The symbol the vertical bar shows for a Material icon used elsewhere in
+/// the app. The bar is a system place, so it speaks the system's symbols.
+IconData duoRailIcon(IconData icon) => _railIcons[icon] ?? icon;
+
+final _railIcons = <IconData, IconData>{
+  Icons.arrow_back: CupertinoIcons.chevron_back,
+  Icons.arrow_back_rounded: CupertinoIcons.chevron_back,
+  Icons.arrow_back_ios: CupertinoIcons.chevron_back,
+  Icons.arrow_back_ios_new: CupertinoIcons.chevron_back,
+  Icons.close: CupertinoIcons.xmark,
+  Icons.close_rounded: CupertinoIcons.xmark,
+  Icons.check: CupertinoIcons.checkmark,
+  Icons.check_rounded: CupertinoIcons.checkmark,
+  Icons.favorite: CupertinoIcons.heart_fill,
+  Icons.favorite_border: CupertinoIcons.heart,
+  Icons.playlist_add: CupertinoIcons.text_badge_plus,
+  Icons.playlist_add_rounded: CupertinoIcons.text_badge_plus,
+  Icons.queue_music: CupertinoIcons.music_note_list,
+  Icons.queue_music_rounded: CupertinoIcons.music_note_list,
+  Icons.lyrics_outlined: CupertinoIcons.text_quote,
+  Icons.refresh: CupertinoIcons.arrow_clockwise,
+  Icons.refresh_rounded: CupertinoIcons.arrow_clockwise,
+  Icons.search: CupertinoIcons.search,
+  Icons.search_rounded: CupertinoIcons.search,
+  Icons.more_vert: CupertinoIcons.ellipsis,
+  Icons.more_horiz: CupertinoIcons.ellipsis,
+  Icons.more_horiz_rounded: CupertinoIcons.ellipsis,
+  Icons.delete: CupertinoIcons.trash,
+  Icons.delete_outline: CupertinoIcons.trash,
+  Icons.delete_outline_rounded: CupertinoIcons.trash,
+  Icons.share: CupertinoIcons.share,
+  Icons.share_rounded: CupertinoIcons.share,
+  Icons.edit: CupertinoIcons.pencil,
+  Icons.edit_rounded: CupertinoIcons.pencil,
+  Icons.sort: CupertinoIcons.arrow_up_arrow_down,
+  Icons.sort_rounded: CupertinoIcons.arrow_up_arrow_down,
+  Icons.swap_horiz: CupertinoIcons.arrow_right_arrow_left,
+  Icons.download: CupertinoIcons.arrow_down_circle,
+  Icons.download_rounded: CupertinoIcons.arrow_down_circle,
+  Icons.downloading_rounded: CupertinoIcons.arrow_down_circle,
+  Icons.home_outlined: CupertinoIcons.house,
+  Icons.library_music_outlined: CupertinoIcons.music_albums,
+  Icons.settings_outlined: CupertinoIcons.gear_alt,
+  Icons.chat_bubble_outline_rounded: CupertinoIcons.chat_bubble,
+  Icons.info_outline: CupertinoIcons.info,
+  Icons.add: CupertinoIcons.add,
+  Icons.add_rounded: CupertinoIcons.add,
+  Icons.select_all: CupertinoIcons.checkmark_circle,
+  Icons.folder_open: CupertinoIcons.folder,
+};
+
 class DuoRailItem {
   const DuoRailItem({
     required this.icon,
     required this.label,
+    this.selectedIcon,
     this.onPressed,
     this.selected = false,
     this.navigation = false,
+    this.leading = false,
     this.marker,
     this.custom,
+    this.badge,
   });
   final IconData icon;
+  final IconData? selectedIcon;
   final String label;
   final VoidCallback? onPressed;
-  final bool selected, navigation;
+
+  /// A system tab badge; empty text shows a plain dot.
+  final String? badge;
+
+  /// A main tab of the app (bottom capsule), or a back / close control that
+  /// stays at the very top and is the last thing to leave the bar.
+  final bool selected, navigation, leading;
   final Widget? marker, custom;
 
-  factory DuoRailItem.fromWidget(Widget widget, BuildContext context) {
+  factory DuoRailItem.fromWidget(
+    Widget widget,
+    BuildContext context, {
+    bool leading = false,
+  }) {
     if (widget is IconButton) {
+      final icon = widget.icon;
       return DuoRailItem(
-        icon: widget.icon is Icon
-            ? (widget.icon as Icon).icon ?? Icons.circle_outlined
-            : Icons.more_horiz,
+        icon: icon is Icon
+            ? duoRailIcon(icon.icon ?? CupertinoIcons.circle)
+            : CupertinoIcons.ellipsis,
         label: widget.tooltip ?? '',
+        leading: leading,
         onPressed: widget.onPressed,
-        custom: widget,
+        custom: icon is Icon ? null : widget,
       );
     }
     if (widget is BackButton) {
       return DuoRailItem(
-        icon: Icons.arrow_back_rounded,
+        icon: CupertinoIcons.chevron_back,
         label: MaterialLocalizations.of(context).backButtonTooltip,
+        leading: true,
+        onPressed: widget.onPressed ?? () => Navigator.of(context).maybePop(),
+      );
+    }
+    if (widget is CloseButton) {
+      return DuoRailItem(
+        icon: CupertinoIcons.xmark,
+        label: MaterialLocalizations.of(context).closeButtonTooltip,
+        leading: true,
         onPressed: widget.onPressed ?? () => Navigator.of(context).maybePop(),
       );
     }
     if (widget is TextButton) {
       return DuoRailItem(
-        icon: Icons.check_rounded,
+        icon: CupertinoIcons.checkmark,
         label: widget.child is Text ? (widget.child as Text).data ?? '' : '',
+        leading: leading,
         onPressed: widget.onPressed,
-        custom: widget,
       );
     }
     return DuoRailItem(
-      icon: Icons.more_horiz,
+      icon: CupertinoIcons.ellipsis,
       label: MaterialLocalizations.of(context).moreButtonTooltip,
+      leading: leading,
       custom: widget,
     );
   }
 }
 
+/// Where each group of the bar goes, given the free stretches of the strip.
+class DuoRailLayout {
+  const DuoRailLayout({
+    required this.leading,
+    required this.actions,
+    required this.overflow,
+    required this.tabs,
+    required this.top,
+    required this.tabsTop,
+    this.mergedOverflow = false,
+  });
+
+  /// The items shown in the top groups, and those pushed into the menu.
+  final List<DuoRailItem> leading, actions, overflow, tabs;
+
+  /// Where the first top group starts and where the tab capsule starts.
+  final double top, tabsTop;
+
+  /// Too short for a second capsule: the menu sits under the back button.
+  final bool mergedOverflow;
+
+  bool get isEmpty =>
+      leading.isEmpty && actions.isEmpty && overflow.isEmpty && tabs.isEmpty;
+}
+
 /// The same coordinate system as UIKit, including split-view leading rails.
-/// Slots skip *rectangles*, not a whole edge; the camera's column stays usable.
+/// Groups skip *rectangles*, not a whole edge; the camera's column stays
+/// usable below the camera.
 class DuoRail extends StatelessWidget {
   const DuoRail({
     super.key,
@@ -236,138 +600,329 @@ class DuoRail extends StatelessWidget {
   final List<Rect> obstructions;
   final double top, bottom;
 
-  static List<double> slots(
+  /// The system strip is this wide; the groups are capsules inside it.
+  static const width = 76.0;
+  static const button = 44.0, capsulePadding = 4.0, itemGap = 2.0;
+  static const groupGap = 12.0;
+  static const capsuleWidth = button + capsulePadding * 2;
+
+  static double capsuleHeight(int count) => count == 0
+      ? 0
+      : capsulePadding * 2 + button * count + itemGap * (count - 1);
+
+  /// The stretches of the strip free of camera, status bar and fold, from top
+  /// to bottom, each tall enough for at least one button.
+  static List<Rect> freeSegments(
     Rect bounds,
     List<Rect> obstructions, {
     double top = 0,
     double bottom = 0,
   }) {
-    final result = <double>[];
+    final result = <Rect>[];
     var y = bounds.top + math.max(8, top);
     final limit = bounds.bottom - math.max(8, bottom);
     final blocks =
         obstructions
             .where((r) => r.left < bounds.right && r.right > bounds.left)
-            .map((r) => r.inflate(4))
+            .map((r) => r.inflate(6))
             .toList()
           ..sort((a, b) => a.top.compareTo(b.top));
-    while (y + 52 <= limit) {
-      final cell = Rect.fromLTWH(bounds.left + 4, y, bounds.width - 8, 52);
-      final overlaps = blocks.where(cell.overlaps);
-      if (overlaps.isNotEmpty) {
-        y = overlaps.map((r) => r.bottom).reduce(math.max);
-      } else {
-        result.add(y - bounds.top);
-        y += 56;
+    for (final block in blocks) {
+      if (block.bottom <= y) continue;
+      if (block.top > y) {
+        final end = math.min(block.top, limit);
+        if (end - y >= capsuleHeight(1)) {
+          result.add(Rect.fromLTRB(bounds.left, y, bounds.right, end));
+        }
       }
+      y = math.max(y, block.bottom);
+      if (y >= limit) break;
+    }
+    if (limit - y >= capsuleHeight(1)) {
+      result.add(Rect.fromLTRB(bounds.left, y, bounds.right, limit));
     }
     return result;
   }
 
+  /// Back stays, tabs stay next, actions leave from the bottom up into the
+  /// menu. That is the system's navigation-first compression.
+  static DuoRailLayout layout(
+    List<DuoRailItem> items,
+    Rect bounds,
+    List<Rect> obstructions, {
+    double top = 0,
+    double bottom = 0,
+  }) {
+    const none = DuoRailLayout(
+      leading: [],
+      actions: [],
+      overflow: [],
+      tabs: [],
+      top: 0,
+      tabsTop: 0,
+    );
+    final segments = freeSegments(bounds, obstructions, top: top, bottom: bottom);
+    if (segments.isEmpty || items.isEmpty) return none;
+    final first = segments.first, last = segments.last;
+    final leading = items.where((i) => i.leading && !i.navigation).toList();
+    final actions = items.where((i) => !i.leading && !i.navigation).toList();
+    final tabs = items.where((i) => i.navigation).toList();
+
+    DuoRailLayout? attempt(bool showTabs) {
+      final tabsHeight = showTabs ? capsuleHeight(tabs.length) : 0.0;
+      if (showTabs && tabsHeight > last.height) return null;
+      var available = first.height;
+      if (showTabs && identical(first, last)) {
+        available -= tabsHeight + groupGap;
+      }
+      final hiddenTabs = !showTabs && tabs.isNotEmpty;
+      var remaining = available - capsuleHeight(leading.length);
+      if (remaining < 0) return null;
+      final needsGroupGap =
+          leading.isNotEmpty && (actions.isNotEmpty || hiddenTabs);
+      if (needsGroupGap) remaining -= groupGap;
+      // 8 + 44n + 2(n - 1) <= remaining
+      final capacity = remaining < capsuleHeight(1)
+          ? 0
+          : ((remaining - capsulePadding * 2 + itemGap) / (button + itemGap))
+                .floor();
+      final overflow = capacity < actions.length || hiddenTabs;
+      var merged = false;
+      if (overflow && capacity == 0) {
+        // No room for a second capsule under the camera: the menu joins the
+        // back button rather than everything leaving the bar.
+        if (leading.isEmpty || capsuleHeight(leading.length + 1) > available) {
+          return null;
+        }
+        merged = true;
+      }
+      final shown = overflow ? math.max(0, capacity - 1) : actions.length;
+      return DuoRailLayout(
+        leading: leading,
+        actions: actions.take(shown).toList(),
+        overflow: [
+          ...actions.skip(shown),
+          if (hiddenTabs) ...tabs,
+        ],
+        tabs: showTabs ? tabs : const [],
+        top: first.top - bounds.top,
+        tabsTop: last.bottom - tabsHeight - bounds.top,
+        mergedOverflow: merged,
+      );
+    }
+
+    return attempt(tabs.isNotEmpty) ??
+        attempt(false) ??
+        // Not even back and a menu fit: offer everything through one menu.
+        (first.height >= capsuleHeight(1)
+            ? DuoRailLayout(
+                leading: const [],
+                actions: const [],
+                overflow: items,
+                tabs: const [],
+                top: first.top - bounds.top,
+                tabsTop: 0,
+              )
+            : none);
+  }
+
   @override
   Widget build(BuildContext context) {
-    final positions = slots(bounds, obstructions, top: top, bottom: bottom);
-    if (positions.isEmpty) return const SizedBox.shrink();
-    final capacity = positions.length;
-    final overflow = items.length > capacity;
-    final visible = items.take(overflow ? capacity - 1 : capacity).toList();
-    final colors = Theme.of(context).colorScheme;
-    final firstNavigation = visible.indexWhere((item) => item.navigation);
-    return DecoratedBox(
+    final plan = layout(items, bounds, obstructions, top: top, bottom: bottom);
+    if (plan.isEmpty) return const SizedBox.shrink();
+    final strings = MaterialLocalizations.of(context);
+    final left = (bounds.width - capsuleWidth) / 2;
+    final groups = <Widget>[];
+    final menu = plan.overflow.isEmpty
+        ? null
+        : _RailOverflow(items: plan.overflow, label: strings.moreButtonTooltip);
+    var y = plan.top;
+    if (plan.leading.isNotEmpty) {
+      groups.add(
+        Positioned(
+          left: left,
+          top: y,
+          child: _RailCapsule(
+            children: [
+              for (final item in plan.leading) _RailButton(item),
+              if (plan.mergedOverflow && menu != null) menu,
+            ],
+          ),
+        ),
+      );
+      y += capsuleHeight(plan.leading.length) + groupGap;
+    }
+    if (plan.actions.isNotEmpty || (menu != null && !plan.mergedOverflow)) {
+      groups.add(
+        Positioned(
+          left: left,
+          top: y,
+          child: _RailCapsule(
+            children: [
+              for (final item in plan.actions) _RailButton(item),
+              if (menu != null && !plan.mergedOverflow) menu,
+            ],
+          ),
+        ),
+      );
+    }
+    if (plan.tabs.isNotEmpty) {
+      groups.add(
+        Positioned(
+          left: left,
+          top: plan.tabsTop,
+          child: _RailCapsule(
+            key: const ValueKey('duo-rail-tabs'),
+            blur: true,
+            children: [for (final item in plan.tabs) _RailButton(item)],
+          ),
+        ),
+      );
+    }
+    return Material(
       key: const ValueKey('duo-system-rail'),
-      decoration: BoxDecoration(color: colors.surface.withValues(alpha: .20)),
-      child: Stack(
+      type: MaterialType.transparency,
+      child: Stack(clipBehavior: Clip.none, children: groups),
+    );
+  }
+}
+
+/// One piece of glass holding a group: a circle for one item, a pill for more.
+class _RailCapsule extends StatelessWidget {
+  const _RailCapsule({super.key, required this.children, this.blur = false});
+  final List<Widget> children;
+  final bool blur;
+
+  @override
+  Widget build(BuildContext context) => GlassSurface(
+    level: GlassLevel.thin,
+    blur: blur,
+    shadow: false,
+    borderRadius: BorderRadius.circular(DuoRail.capsuleWidth / 2),
+    padding: const EdgeInsets.all(DuoRail.capsulePadding),
+    child: Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        for (final (i, child) in children.indexed) ...[
+          if (i > 0) const SizedBox(height: DuoRail.itemGap),
+          child,
+        ],
+      ],
+    ),
+  );
+}
+
+class _RailButton extends StatelessWidget {
+  const _RailButton(this.item);
+  final DuoRailItem item;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+    final enabled = item.onPressed != null || item.custom != null;
+    final selected = item.selected;
+    Widget icon = Icon(
+      selected ? (item.selectedIcon ?? item.icon) : item.icon,
+      size: 22,
+      color: selected
+          ? colors.onPrimaryContainer
+          : colors.onSurface.withValues(alpha: enabled ? 1 : .38),
+    );
+    if (item.marker != null) {
+      icon = Stack(
+        clipBehavior: Clip.none,
+        alignment: Alignment.center,
         children: [
-          for (final (i, item) in visible.indexed)
-            Positioned(
-              left: 4,
-              right: 4,
-              top:
-                  positions[!overflow &&
-                          firstNavigation >= 0 &&
-                          i >= firstNavigation
-                      ? positions.length - (visible.length - i)
-                      : i],
-              height: 52,
-              child:
-                  item.custom ??
-                  Semantics(
-                    selected: item.selected,
-                    label: item.navigation ? null : item.label,
-                    button: true,
-                    child: Tooltip(
-                      message: item.label,
-                      excludeFromSemantics: true,
-                      child: TextButton(
-                        style: TextButton.styleFrom(
-                          backgroundColor: item.selected
-                              ? colors.secondaryContainer
-                              : null,
-                          foregroundColor: item.selected
-                              ? colors.onSecondaryContainer
-                              : colors.onSurface,
-                          padding: EdgeInsets.zero,
+          icon,
+          Positioned(top: -5, right: -7, child: item.marker!),
+        ],
+      );
+    }
+    Widget body = SizedBox.square(
+      dimension: DuoRail.button,
+      child: Center(
+        child: item.custom != null && item.onPressed == null
+            ? item.custom
+            : icon,
+      ),
+    );
+    if (selected) {
+      body = GlassSurface(
+        level: GlassLevel.thick,
+        blur: false,
+        shadow: false,
+        tint: colors.primaryContainer,
+        borderRadius: BorderRadius.circular(DuoRail.button / 2),
+        child: body,
+      );
+    }
+    if (item.custom != null && item.onPressed == null) return body;
+    return Semantics(
+      label: item.label,
+      button: true,
+      enabled: item.onPressed != null,
+      selected: selected,
+      child: Tooltip(
+        message: item.label,
+        excludeFromSemantics: true,
+        child: Pressable(onTap: item.onPressed, child: body),
+      ),
+    );
+  }
+}
+
+class _RailOverflow extends StatelessWidget {
+  const _RailOverflow({required this.items, required this.label});
+  final List<DuoRailItem> items;
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+    return Semantics(
+      label: label,
+      button: true,
+      child: MusicPopupMenuButton<int>(
+        key: const ValueKey('duo-rail-overflow'),
+        tooltip: label,
+        onSelected: (index) => items[index].onPressed?.call(),
+        itemBuilder: (context) => [
+          for (final (i, item) in items.indexed)
+            PopupMenuItem(
+              value: i,
+              enabled: item.onPressed != null,
+              child: item.onPressed == null && item.custom != null
+                  ? item.custom!
+                  : Row(
+                      children: [
+                        Icon(
+                          item.selected
+                              ? (item.selectedIcon ?? item.icon)
+                              : item.icon,
+                          size: 20,
                         ),
-                        onPressed: item.onPressed,
-                        child: Column(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            Icon(item.icon, size: 22),
-                            if (item.navigation)
-                              Text(
-                                item.label,
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                textScaler: TextScaler.linear(
-                                  MediaQuery.textScalerOf(context).scale(11) /
-                                              11 >
-                                          1.3
-                                      ? 1.3
-                                      : MediaQuery.textScalerOf(
-                                              context,
-                                            ).scale(11) /
-                                            11,
-                                ),
-                                style: const TextStyle(fontSize: 11),
-                              ),
-                            if (item.marker != null) item.marker!,
-                          ],
-                        ),
-                      ),
+                        const SizedBox(width: 12),
+                        Flexible(child: Text(item.label)),
+                        if (item.selected) ...[
+                          const SizedBox(width: 12),
+                          Icon(
+                            CupertinoIcons.checkmark,
+                            size: 16,
+                            color: colors.primary,
+                          ),
+                        ],
+                      ],
                     ),
-                  ),
-            ),
-          if (overflow)
-            Positioned(
-              left: 4,
-              right: 4,
-              top: positions.last,
-              height: 52,
-              child: PopupMenuButton<int>(
-                key: const ValueKey('duo-rail-overflow'),
-                tooltip: MaterialLocalizations.of(context).moreButtonTooltip,
-                icon: const Icon(Icons.more_horiz_rounded),
-                onSelected: (index) => items[index].onPressed?.call(),
-                itemBuilder: (context) => [
-                  for (var i = visible.length; i < items.length; i++)
-                    PopupMenuItem(
-                      value: i,
-                      enabled: items[i].onPressed != null,
-                      child:
-                          items[i].onPressed == null && items[i].custom != null
-                          ? items[i].custom!
-                          : Row(
-                              children: [
-                                Icon(items[i].icon),
-                                const SizedBox(width: 12),
-                                Flexible(child: Text(items[i].label)),
-                              ],
-                            ),
-                    ),
-                ],
-              ),
             ),
         ],
+        child: SizedBox.square(
+          dimension: DuoRail.button,
+          child: Icon(
+            CupertinoIcons.ellipsis,
+            size: 22,
+            color: colors.onSurface,
+          ),
+        ),
       ),
     );
   }

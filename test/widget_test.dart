@@ -1363,6 +1363,8 @@ void main() {
         final homeState = tester.state(find.byType(MusicHomePage));
         final side = find.byKey(const ValueKey('home-side-navigation'));
         expect(side, findsOneWidget);
+        expect(find.byKey(const ValueKey('duo-rail-tabs')), findsOneWidget);
+        expect(find.byKey(const ValueKey('home-two-columns')), findsOneWidget);
         await tester.enterText(find.byType(EditableText), '折叠时保留搜索');
         await tester.tap(find.byTooltip('音乐库'));
         await tester.pumpAndSettle();

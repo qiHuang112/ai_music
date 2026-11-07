@@ -1,3 +1,4 @@
+import 'duo_scaffold.dart';
 import 'app_theme.dart';
 import 'package:flutter/material.dart';
 
@@ -181,7 +182,7 @@ class _MusicChartPageState extends State<MusicChartPage> {
     }
     final strings = AppStringsScope.of(context);
     final entries = _result?.entries ?? const <MusicChartEntry>[];
-    return Scaffold(
+    return DuoScaffold(
       appBar: AppBar(
         title: Text(widget.chart.playlistName),
         actions: [

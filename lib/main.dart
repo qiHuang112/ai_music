@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'src/presentation/native_shell.dart';
 import 'src/presentation/duo_window.dart';
 
 import 'package:audio_service/audio_service.dart';
@@ -68,6 +69,9 @@ Future<void> main() async {
   } catch (_) {
     // The defaults stand; initialize() reports real settings failures.
   }
+  // iOS draws tab and navigation bars natively; ask before the first frame so
+  // no page paints a Flutter bar first.
+  await NativeShell.instance.connect();
   runApp(AiMusicApp(controller: controller));
 }
 
@@ -107,7 +111,10 @@ class AiMusicApp extends StatelessWidget {
         return MaterialApp(
           title: AppBrand.name,
           debugShowCheckedModeBanner: false,
-          navigatorObservers: [controller.performanceMonitor.routes],
+          navigatorObservers: [
+            controller.performanceMonitor.routes,
+            NativeShell.instance,
+          ],
           // The page backdrop swaps whole with the theme; a cross-fade would
           // show it under half-changed colors.
           themeAnimationDuration: Duration.zero,
@@ -128,7 +135,15 @@ class AiMusicApp extends StatelessWidget {
           themeMode: controller.themePreference.isDark
               ? ThemeMode.dark
               : ThemeMode.light,
-          builder: (context, child) => AnnotatedRegion<SystemUiOverlayStyle>(
+          builder: (context, child) {
+            final theme = Theme.of(context);
+            NativeShell.instance.syncTheme(
+              brightness: theme.brightness,
+              tint: theme.colorScheme.primary,
+              text: theme.colorScheme.onSurface,
+              font: MusicType.displayBold,
+            );
+            return AnnotatedRegion<SystemUiOverlayStyle>(
             value: MusicAppTheme.systemOverlayStyle(
               Theme.of(context).brightness,
             ),
@@ -151,7 +166,8 @@ class AiMusicApp extends StatelessWidget {
                 ],
               ),
             ),
-          ),
+          );
+          },
           home: _designGallery
               ? _DesignGalleryHome(controller: controller)
               : MusicHomePage(controller: controller),

@@ -1,3 +1,4 @@
+import 'duo_scaffold.dart';
 import 'app_popup_menu.dart';
 import 'file_sharing.dart';
 import 'song_actions.dart';
@@ -134,7 +135,7 @@ class _ListeningStatsPageState extends State<ListeningStatsPage> {
         sortByTime: _byTime,
       );
       final cumulative = store.report();
-      return Scaffold(
+      return DuoScaffold(
         extendBody: true,
         appBar: AppBar(
           title: Text(zh ? '我的听歌' : 'My listening'),
@@ -858,7 +859,7 @@ class _ListeningRankPage extends StatelessWidget {
         sortByTime: byTime,
       );
       final ranks = playlists ? report.playlistRanks : report.songRanks;
-      return Scaffold(
+      return DuoScaffold(
         extendBody: true,
         appBar: AppBar(title: Text(title)),
         bottomNavigationBar: bottomPlayer,
@@ -897,7 +898,7 @@ class _ListeningHistoryPage extends StatelessWidget {
     builder: (context, _) {
       final report = controller.listeningStats.report(from: from, until: until);
       final zh = AppStringsScope.of(context).isZh;
-      return Scaffold(
+      return DuoScaffold(
         extendBody: true,
         appBar: AppBar(title: Text(title)),
         bottomNavigationBar: bottomPlayer,

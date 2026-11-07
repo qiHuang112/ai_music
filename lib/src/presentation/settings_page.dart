@@ -485,7 +485,7 @@ class _DownloadQualityPage extends StatelessWidget {
     final zh = AppStringsScope.of(context).isZh;
     return AnimatedBuilder(
       animation: controller,
-      builder: (context, _) => Scaffold(
+      builder: (context, _) => DuoScaffold(
         appBar: AppBar(title: Text(zh ? '默认下载品质' : 'Default download quality')),
         body: SafeArea(
           child: RadioGroup<MusicQualityLevel>(

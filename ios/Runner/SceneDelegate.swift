@@ -1,7 +1,22 @@
 import Flutter
 import UIKit
 
-class SceneDelegate: FlutterSceneDelegate {}
+class SceneDelegate: FlutterSceneDelegate {
+  // Flutter's delegate wires the storyboard's FlutterViewController to the
+  // scene. Once that is done the same controller moves under the UIKit shell
+  // so tab bars, navigation bars and menus are the system's own.
+  override func scene(
+    _ scene: UIScene, willConnectTo session: UISceneSession, options connectionOptions: UIScene.ConnectionOptions
+  ) {
+    super.scene(scene, willConnectTo: session, options: connectionOptions)
+    guard let window, let flutter = window.rootViewController as? FlutterViewController,
+      !(flutter.parent is MusicShellController)
+    else { return }
+    let shell = MusicShellController(flutter: flutter)
+    window.rootViewController = shell
+    _ = registerSceneLifeCycle(with: flutter.engine)
+  }
+}
 
 // Bridge window-local geometry, never device names or fixed screen dimensions.
 class DuoFlutterViewController: FlutterViewController {

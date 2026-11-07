@@ -82,3 +82,58 @@ Duo 模拟器实查：外屏竖放首页导航位于右下方；播放页右侧�
 ## 用户真机体验包（2026-11-07）
 
 用户随后接入 iPhone Duo（iPhone19,4，iOS 27.2），明确要求安装体验。以源码 `0a67d7e` 构建 Release arm64，使用本机已登录的个人开发账号临时签名，不改工程原签名设置。`com.tjs.aimusic` / 来听 / 1.0.4（8267）已安装；用户开启开发者模式并信任开发者后，应用启动成功。签名有效至 2026-11-14。仅本机真机体验交付，未公开发布；未将安装及启动成功作为真机播放／折叠／后台全部验收。产物与详情见 [工作日志](worklog/2026-11-07.md)。
+
+## 二次优化方案：按系统竖栏样式重做导航（2026-11-07）
+
+用户对上一版 Duo 适配不满意：UI 样式和导航条不好看，没有用系统的导航样式。要求参考国内外主流音乐 App 的 Duo 适配整体优化。
+
+### 现状对照
+
+在 Duo 模拟器外屏对比系统设置／Safari：系统竖栏没有整条底色，状态栏和灵动岛在上，其下是**单个圆形玻璃按钮**（返回、书签），底部是**一个竖直胶囊容器**装一组仅图标的 Tab／工具项；页面大标题仍在内容区左上。本应用当前的 `DuoRail`：整条 20% 底色竖带、方形 Material 文字按钮（图标＋文字）、矩形选中色块、不分组，观感接近 Android NavigationRail；子页另加 40pt 横向 AppBar 标题条占用竖向空间；展开横向走自建 `preferSideNavigation`，与系统侧栏样式不一致，内容单列拉伸。
+
+### 参考结论
+
+- Apple HIG《Designing for iPhone Duo》与 Tech Talk《Raise the bar with iPhone Duo》：竖栏固定宽度、项目仅符号；顶部留给返回／关闭，随后是显著操作，其余工具项保持原分组，Tab 在底部，组间由系统留空；空间不足时默认**工具项先从下往上**收进"…"溢出菜单，导航型页面保留 Tab；文字按钮留在横向；内屏竖持是唯一保留横向栏的姿态；折叠时只做小幅位移，不重排结构。
+- Apple Music（iOS 27）：竖向堆叠布局在宽窗口重排为两栏；返回／分享／更多在竖栏上部，Tab 在下部。
+- QQ 音乐 20.9.6：展开后导航移到侧边、播放控制仍在底部；悬停时上半歌词、下半封面＋切歌。
+- Spotify：扩展资料库视图，迷你播放器靠右；被评测批评的恰是菜单未贴到最右而留白。
+
+### 方案
+
+A. **竖栏重做（核心）**：去掉整条底色，栏宽取系统安全区；顶组＝返回／关闭 → 页面操作，各为 44pt 圆形玻璃按钮；底组＝主导航 Tab 放进一个竖直玻璃胶囊，仅图标，选中态为强调色填充圆，Tooltip／Semantics 提供文字，更新点／下载中徽标叠在图标角上；溢出先收工具项，Tab 最后，"…"菜单沿用应用弹出菜单样式；仍按矩形避开相机、状态栏与折线，折线时顶组在上半、Tab 组在下半。
+B. **标题条**：竖栏模式下不再渲染 40pt AppBar 横条。首页／音乐库／下载／设置的大标题留在内容区；播放器与完整歌词页沉浸无标题。
+C. **内屏横向**：统一走系统侧栏（去掉自建侧栏分支），内容区两栏：首页"搜索＋收藏＋歌单 | 发现榜单"，播放器"唱片＋控制 | 歌词／待播"，切换改用 Cupertino 滑动分段控件；迷你播放器留在内容区底部。
+D. **内屏竖向**：保留横向底部 Tab（系统行为），列表与表单内容限制最大宽度居中，不拉伸。
+E. **悬停**：保留"上歌词／待播、下唱片＋控制"，竖栏按钮分到折线两侧。
+F. **不改**：播放控制器、队列逻辑、窗口状态保持、原生 reservedRegions／verticalBarEdge 桥。
+
+未选方案：用原生 `UITabBarController`／`UINavigationController` 承载 Flutter 视图以获得真正的系统栏。需要 Flutter 路由与原生栏双向同步，PlatformView 与焦点行为有风险，本轮不做；若后续坚持真系统栏再单独评估。
+
+### 实现与验证（2026-11-07）
+
+A、B、C（播放器两栏沿用，切换控件换为 Cupertino 滑动分段；首页 ≥720pt 两栏）、E（竖栏分组按折线矩形分段）已实现；D 的内屏竖向最大宽度限制未做。另修正播放器背景在侧栏处的接缝（`DuoScaffold.background` 铺满窗口）和无顶部安全区时唱片贴边。测试、构建与外屏截图见当日[工作日志](worklog/2026-11-07.md)；内屏展开与悬停因模拟器缺少命令行姿态控制，仅有窗口测试覆盖，待 Device Hub 手动展开或真机复查。
+
+## 三次：导航改用 UIKit 系统组件（2026-11-07）
+
+用户试过真机后指出：上一波导航仍是 Flutter 画的，不是系统组件，没有系统质感；沉浸效果也差一点。要求能用系统组件的尽量都用系统组件。
+
+### 方案：原生壳 + Flutter 内容
+
+- **层次**：`MusicShellController`（窗口根）下面两层同尺寸子视图：底层是原有的 `DuoFlutterViewController`（整窗 Flutter 内容，不动）；上层是 `UITabBarController`（4 个 `UINavigationController`，根控制器与被推入的控制器都是透明的占位 `ShellPageController`，视图不接收触摸）。系统因此按真正的容器绘制 Liquid Glass 的 Tab 栏、导航栏、按钮和菜单；在 iPhone Duo 上自动变成竖栏并自动避让相机、状态栏和折线，在内屏竖持自动回到横向栏，无需应用判断设备。
+- **触摸**：壳视图重写 `hitTest`，命中占位视图或系统容器的透明包装视图时转交 Flutter 视图；命中栏、按钮、菜单时留给系统。
+- **安全区**：把当前占位视图的 `safeAreaLayoutGuide` 换算后设置为 Flutter 控制器的 `additionalSafeAreaInsets`，Flutter 内容自动避让导航栏／Tab 栏／竖栏，不再自己画侧栏。模态期间冻结该值，避免内容在遮罩后面重排。
+- **路由镜像**：Flutter 根 `Navigator` 的 `PageRoute` 推入／弹出时，壳在当前 Tab 的导航控制器里同步推入／弹出占位控制器，系统提供返回按钮、标题切换动画与竖栏上的返回位置；系统返回键或 Flutter 自己的手势返回都只触发一次弹出，互不回声。Flutter 的底部弹层和对话框不镜像，期间壳隐藏两条栏（系统弹层也会盖住 Tab 栏），关闭后恢复。
+- **页面描述**：`DuoScaffold` 在壳模式下不再渲染 Flutter `AppBar` 与侧栏，而是把标题、是否沉浸、操作（`IconButton`→`UIBarButtonItem` 图标，`TextButton`→文字项，`PopupMenuButton`→`UIMenu`）、首页 Tab（标题、SF Symbol、角标）上报给壳；图标优先映射 SF Symbol，没有对应时把字形渲染成模板位图。点按由原生回调 Flutter 执行原回调。一级页用大标题（Bodoni 72 与应用标题字体一致），推入页用行内标题，沉浸页无标题并隐藏 Tab 栏。
+- **主题**：Flutter 主题变化时同步明暗、强调色与文字色到壳，系统栏与状态栏随应用皮肤。
+- **不变**：播放控制器、队列、歌词、Duo 折线布局、原生保留区域桥、Android／Mac／鸿蒙行为。Flutter 自绘的 `DuoRail` 只在非 iOS 宽窗保留。
+- **后续可选**：迷你播放器改为 `UITabAccessory`（Apple Music 式收进 Tab 栏）；播放页改为系统 sheet。
+
+验收目标：iPhone Duo 模拟器外屏（竖／横）与普通 iPhone 模拟器的首页、音乐库、播放页、推入页返回、菜单；Flutter 测试在壳未激活时行为不变；安装到用户真机。
+
+### 实现与验证（2026-11-07 深夜）
+
+已按上述方案实现：`ios/Runner/MusicShell.swift`（`MusicShellController`／`ShellPageController`／`ShellView` 触摸分流／安全区转发／主题与菜单）、`SceneDelegate` 在场景连接后把 storyboard 的 Flutter 控制器移入壳并显式注册场景生命周期；Flutter 侧 `native_shell.dart`（握手、路由镜像、页面描述合并、SF Symbol 映射、字形位图兜底、主题同步）与 `DuoScaffold` 的壳模式（不画 AppBar／侧栏，上报标题、操作、Tab）。原普通 `Scaffold` 的推入页（更新、榜单、歌单直达、听歌统计、截图导入、下载品质）改为 `DuoScaffold` 以获得原生栏。首页两栏阈值提升到 840pt，避免 800pt 测试窗口与内屏竖持出现两栏。
+
+模拟器结果：iPhone Duo 内屏横向——系统竖栏底部 Tab 胶囊（琥珀选中色）、页面操作与返回在竖栏顶部、系统大标题在内容左上、播放页隐藏 Tab 栏并以系统返回键返回；原生 Tab 点按切到音乐库，Flutter 状态保留。iPhone 18 Pro（iOS 27.0）——底部 Liquid Glass Tab 栏带文字、音乐库页行内标题＋玻璃操作胶囊、推入收藏页有系统返回与排序 `UIMenu`。截图 `build/duo-evidence/shell-*.png`。
+
+已知与待办：普通 iPhone 上一级页只显示行内标题（iOS 26 大标题依赖原生滚动视图，透明占位滚动视图不触发）；Duo 外屏姿态本轮未实查（需在 Device Hub 折叠）；迷你播放器仍为 Flutter，`UITabAccessory` 留待下一步；`widget_test` 中「mini player and song page swipe between songs」在基线提交上同样失败，与本轮无关。

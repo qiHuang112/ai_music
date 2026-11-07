@@ -1,3 +1,4 @@
+import 'duo_scaffold.dart';
 import 'app_theme.dart';
 import 'dart:async';
 import 'package:flutter/material.dart';
@@ -94,7 +95,7 @@ class _AppUpdatePageState extends State<AppUpdatePage> {
       final zh = AppStringsScope.of(context).isZh;
       final current = updates.current;
       final latest = updates.latest;
-      return Scaffold(
+      return DuoScaffold(
         appBar: AppBar(title: Text(zh ? '检测更新' : 'App updates')),
         body: SafeArea(
           child: ListView(

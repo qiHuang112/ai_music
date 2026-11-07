@@ -1,3 +1,4 @@
+import 'duo_scaffold.dart';
 import 'app_popup_menu.dart';
 import 'playlist_sliver_header.dart';
 import 'mini_player.dart';
@@ -244,7 +245,7 @@ class _DirectPlaylistPageState extends State<DirectPlaylistPage> {
     ];
     return PopScope(
       canPop: !_saving,
-      child: Scaffold(
+      child: DuoScaffold(
         extendBody: true,
         appBar: _loading || detail == null
             ? AppBar(title: Text(zh ? '歌单详情' : 'Playlist'), actions: actions)

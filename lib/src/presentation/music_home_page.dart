@@ -1,4 +1,6 @@
+import 'package:flutter/cupertino.dart' show CupertinoIcons;
 import 'duo_scaffold.dart';
+import 'native_shell.dart';
 import 'initial_song_scroll.dart';
 import 'desktop_home.dart';
 import 'desktop_ui.dart';
@@ -117,6 +119,8 @@ class _MusicHomePageState extends State<MusicHomePage>
       }),
     );
     unawaited(controller.initialize());
+    // The system tab bar on iOS reports taps here.
+    NativeShell.instance.onTabSelected = _selectTab;
   }
 
   void _onSearchFocusChanged() {
@@ -159,6 +163,9 @@ class _MusicHomePageState extends State<MusicHomePage>
 
   @override
   void dispose() {
+    if (NativeShell.instance.onTabSelected == _selectTab) {
+      NativeShell.instance.onTabSelected = null;
+    }
     WidgetsBinding.instance.removeObserver(this);
     _playlistSearch.dispose();
     _searchFocusNode.removeListener(_onSearchFocusChanged);
@@ -254,15 +261,24 @@ class _MusicHomePageState extends State<MusicHomePage>
                   for (final (i, tab) in tabs.indexed)
                     DuoRailItem(
                       icon: const [
-                        Icons.home_outlined,
-                        Icons.library_music_outlined,
-                        Icons.downloading_rounded,
-                        Icons.settings_outlined,
+                        CupertinoIcons.house,
+                        CupertinoIcons.music_albums,
+                        CupertinoIcons.arrow_down_circle,
+                        CupertinoIcons.gear_alt,
+                      ][i],
+                      selectedIcon: const [
+                        CupertinoIcons.house_fill,
+                        CupertinoIcons.music_albums_fill,
+                        CupertinoIcons.arrow_down_circle_fill,
+                        CupertinoIcons.gear_alt_fill,
                       ][i],
                       label: tab.tooltip,
                       navigation: true,
                       selected: i == _tab,
                       marker: tab.marker,
+                      badge: i == 3 && controller.appUpdates.hasUpdate
+                          ? ''
+                          : null,
                       onPressed: () => _selectTab(i),
                     ),
                 ],
@@ -1183,19 +1199,46 @@ class _SearchBody extends StatelessWidget {
         onOpenChart: onOpenChart,
       );
     }
-    return ListView(
-      padding: MusicUi.scrollInsets(
-        context,
-        base: const EdgeInsets.fromLTRB(20, 0, 20, 24),
-      ),
-      children: [
-        _HomeLibrarySection(
-          controller: controller,
-          onOpenLibrary: onOpenLibrary,
-        ),
-        const SizedBox(height: 24),
-        DiscoverChartsSection(onOpenChart: onOpenChart),
-      ],
+    final library = _HomeLibrarySection(
+      controller: controller,
+      onOpenLibrary: onOpenLibrary,
+    );
+    final discover = DiscoverChartsSection(onOpenChart: onOpenChart);
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final insets = MusicUi.scrollInsets(
+          context,
+          base: const EdgeInsets.fromLTRB(20, 0, 20, 24),
+        );
+        // An open inner display held wide: the vertical stack reflows into
+        // two columns, the way Music does, instead of stretching across.
+        if (constraints.maxWidth >= 840) {
+          return Row(
+            key: const ValueKey('home-two-columns'),
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Expanded(
+                child: ListView(
+                  key: const PageStorageKey('home-library-column'),
+                  padding: insets.copyWith(right: 12),
+                  children: [library],
+                ),
+              ),
+              Expanded(
+                child: ListView(
+                  key: const PageStorageKey('home-discover-column'),
+                  padding: insets.copyWith(left: 12),
+                  children: [discover],
+                ),
+              ),
+            ],
+          );
+        }
+        return ListView(
+          padding: insets,
+          children: [library, const SizedBox(height: 24), discover],
+        );
+      },
     );
   }
 }

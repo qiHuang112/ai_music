@@ -1,12 +1,12 @@
 # AI Music 当前状态
 
-更新于 2026-11-07（修正 Duo 外屏／半折叠右侧留白，导航与操作占用系统侧栏；iOS 27.1 模拟器验证完成，体验版已装到用户 Duo 真机并启动，未公开发布）。本文件只保留固定字段：改动时就地更新字段，“最近进展”只留 3 条；开发、自测、验收与 review 细节写在[工作日志](docs/worklog/README.md)，2026-10-26 之前的长条目见[历史条目](docs/worklog/state-history.md)。代码状态以 Git 为准。
+更新于 2026-11-07（iOS 导航改为 UIKit 原生壳：系统 Tab 栏／导航栏／菜单承载 Flutter 内容，Duo 自动竖栏；Duo 内屏与 iPhone 18 Pro 模拟器验证通过，体验版已装到用户 Duo 真机待解锁试用；未提交、未发布）。本文件只保留固定字段：改动时就地更新字段，“最近进展”只留 3 条；开发、自测、验收与 review 细节写在[工作日志](docs/worklog/README.md)，2026-10-26 之前的长条目见[历史条目](docs/worklog/state-history.md)。代码状态以 Git 为准。
 
 ## 正式版本
 
 - Android：1.0.4／10269，源码 `4504319`。[GitHub Release](https://github.com/qiHuang112/ai_music/releases/tag/v1.0.4-10269) 与局域网 latest 一致（18195572 字节，SHA256 `22260b9e…`）。
 - Mac：GitHub 1.0.4／10269 Universal（ad-hoc 签名，未公证）；局域网仍为 1.0.4／10268 桌面优化版。下载与核验见 [Mac 记录](docs/macos.md)。
-- iOS：未公开发布；个人体验版 1.0.4／8267（源码 `0a67d7e`）已装到用户 iPhone Duo / iOS 27.2 并启动，签名有效至 2026-11-14。
+- iOS：未公开发布；个人体验版 1.0.4／8267（源码 `74c0dd2`＋未提交的原生壳改动）已装到用户 iPhone Duo / iOS 27.2（启动待用户解锁），签名有效至 2026-11-14。
 
 ## 环境
 
@@ -21,10 +21,10 @@
 
 ## 进行中
 
-- iPhone Duo：已修正用户反馈的右侧留白；28 项定向测试、Xcode 27.1 构建及模拟器侧栏／折叠／旋转操作验证通过；个人体验版已安装到用户 Duo 真机并启动；待用户体验和真机后台／锁屏／分屏验证。见[适配范围](docs/iphone-duo.md)。
+- iPhone Duo／iOS：导航改用 UIKit 原生壳（`MusicShell.swift` + `native_shell.dart`），系统绘制 Tab 栏、导航栏、返回、菜单，Duo 上自动竖栏；analyze 无问题，定向测试与全量测试（除一条基线已失败用例）通过；Duo 内屏横向与 iPhone 18 Pro 模拟器实查通过，Duo 外屏姿态与真机待用户试用；迷你播放器改 `UITabAccessory` 与普通 iPhone 大标题待后续；工作区改动未提交。见[适配范围](docs/iphone-duo.md)。
 
 ## 最近进展
 
+- 2026-11-07 iOS 导航改为 UIKit 原生壳（系统 Tab／导航栏／菜单），Duo 内屏与 iPhone 18 Pro 模拟器验证通过，体验版已装到 Duo 真机 → [日志](docs/worklog/2026-11-07.md)
+- 2026-11-07 Duo 侧栏重做为系统竖栏样式并修正播放器背景接缝，测试与模拟器外屏验证通过，内屏待复查 → [日志](docs/worklog/2026-11-07.md)
 - 2026-11-07 修正 Duo 右侧留白，28 项定向测试及模拟器验证通过；随后按用户要求安装个人体验版到 Duo 真机并成功启动 → [适配记录](docs/iphone-duo.md)
-- 2026-11-07 升级 Xcode 27.1，安装 iOS 27.1 组件，Duo 模拟器启动/展开和 Flutter Xcode 检查通过 → [日志](docs/worklog/2026-11-07.md)
-- 2026-11-06 Duo 播放器分栏、窗口变化状态保持和歌词溢出修复，31 项相关测试通过；未生成 Duo 安装包 → [日志](docs/worklog/2026-11-06.md)
