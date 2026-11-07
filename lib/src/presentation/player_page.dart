@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:ui' as ui;
 import 'app_theme.dart';
 import 'playback_queue.dart';
 import 'dart:io';
@@ -331,6 +332,7 @@ class _PlayerPageState extends State<PlayerPage> {
       builder: (context, _) {
         final currentTrack = controller.currentTrack;
         final strings = AppStringsScope.of(context);
+        final windowPadding = MediaQuery.paddingOf(context);
         return Scaffold(
           extendBodyBehindAppBar: true,
           appBar: AppBar(
@@ -382,6 +384,11 @@ class _PlayerPageState extends State<PlayerPage> {
                         onDrag: _disc.drag,
                         onSettle: _disc.settle,
                         child: _AdaptivePlayerBody(
+                          controller: controller,
+                          contentOrigin: Offset(
+                            windowPadding.left,
+                            windowPadding.top + kToolbarHeight,
+                          ),
                           lyrics: _LyricsPanel(
                             controller: controller,
                             fillsAvailable: true,
@@ -390,6 +397,17 @@ class _PlayerPageState extends State<PlayerPage> {
                           header: [
                             _Artwork(
                               uri: item.artUri ?? controller.currentArtworkUri,
+                              maxWidth:
+                                  MediaQuery.displayFeaturesOf(context).any(
+                                    (f) =>
+                                        f.state ==
+                                            ui
+                                                .DisplayFeatureState
+                                                .postureHalfOpened &&
+                                        f.bounds.width > f.bounds.height,
+                                  )
+                                  ? 120
+                                  : null,
                               controller: controller,
                               playing: state.playing,
                               cueing: _cueing,
@@ -498,26 +516,79 @@ class _PlayerPageState extends State<PlayerPage> {
 
 /// Use the safe window's available space, including after a fold or split-view
 /// resize. The route and its audio controller stay mounted across both layouts.
-class _AdaptivePlayerBody extends StatelessWidget {
+class _AdaptivePlayerBody extends StatefulWidget {
   const _AdaptivePlayerBody({
+    required this.controller,
+    required this.contentOrigin,
     required this.header,
     required this.controls,
     required this.preview,
     required this.lyrics,
   });
 
+  final MusicController controller;
+  final Offset contentOrigin;
   final List<Widget> header;
   final List<Widget> controls;
   final Widget preview;
   final Widget lyrics;
 
   @override
+  State<_AdaptivePlayerBody> createState() => _AdaptivePlayerBodyState();
+}
+
+class _AdaptivePlayerBodyState extends State<_AdaptivePlayerBody> {
+  bool _queue = false;
+
+  Widget _details(BuildContext context) {
+    final zh = AppStringsScope.of(context).isZh;
+    return Column(
+      children: [
+        Padding(
+          padding: const EdgeInsets.only(bottom: 12),
+          child: SegmentedButton<bool>(
+            showSelectedIcon: false,
+            segments: [
+              ButtonSegment(
+                value: false,
+                icon: const Icon(Icons.lyrics_outlined),
+                label: Text(zh ? '歌词' : 'Lyrics'),
+              ),
+              ButtonSegment(
+                value: true,
+                icon: const Icon(Icons.queue_music_rounded),
+                label: Text(zh ? '待播' : 'Up next'),
+              ),
+            ],
+            selected: {_queue},
+            onSelectionChanged: (value) => setState(() => _queue = value.first),
+          ),
+        ),
+        Expanded(
+          child: ClipRect(
+            key: const ValueKey('player-expanded-lyrics'),
+            child: _queue
+                ? PlaybackQueue(controller: widget.controller, embedded: true)
+                : widget.lyrics,
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _deck() => ListView(
+    key: const PageStorageKey('player-expanded-scroll'),
+    padding: const EdgeInsets.symmetric(
+      horizontal: MusicUi.pagePadding,
+      vertical: 8,
+    ),
+    children: [...widget.header, ...widget.controls],
+  );
+
+  @override
   Widget build(BuildContext context) {
     return LayoutBuilder(
       builder: (context, constraints) {
-        // Each pane needs enough room for touch controls and readable lyrics.
-        // Larger type needs more room; these are content limits, not a model's
-        // screen dimensions. SafeArea has already removed system side insets.
         final scale = MediaQuery.textScalerOf(context).scale(16) / 16;
         final paneWidth = 320 * scale.clamp(1.0, 1.4);
         const gap = 24.0;
@@ -527,6 +598,77 @@ class _AdaptivePlayerBody extends StatelessWidget {
           MusicUi.pagePadding,
           12,
         );
+        final bounds = Offset.zero & constraints.biggest;
+        final folds = MediaQuery.displayFeaturesOf(context)
+            .where((f) => f.state == ui.DisplayFeatureState.postureHalfOpened)
+            .map((f) => f.bounds.shift(-widget.contentOrigin).intersect(bounds))
+            .where((r) => !r.isEmpty);
+        for (final fold in folds) {
+          final horizontal = fold.width > fold.height;
+          final before = horizontal ? fold.top : fold.left;
+          final after = horizontal
+              ? constraints.maxHeight - fold.bottom
+              : constraints.maxWidth - fold.right;
+          // Both regions must have room for usable controls. Tiny split windows
+          // fall back to a single scrollable surface on the larger side.
+          final minimum = horizontal ? 160.0 : 240.0;
+          if (before >= minimum && after >= minimum) {
+            final details = Padding(padding: padding, child: _details(context));
+            return Flex(
+              key: const ValueKey('player-fold-layout'),
+              direction: horizontal ? Axis.vertical : Axis.horizontal,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                SizedBox(
+                  width: horizontal ? null : before,
+                  height: horizontal ? before : null,
+                  child: horizontal ? details : _deck(),
+                ),
+                SizedBox(
+                  width: horizontal ? null : fold.width,
+                  height: horizontal ? fold.height : null,
+                ),
+                Expanded(child: horizontal ? _deck() : details),
+              ],
+            );
+          }
+          final useBefore = before >= after;
+          return Padding(
+            padding: horizontal
+                ? EdgeInsets.only(
+                    top: useBefore ? 0 : fold.bottom,
+                    bottom: useBefore ? constraints.maxHeight - fold.top : 0,
+                  )
+                : EdgeInsets.only(
+                    left: useBefore ? 0 : fold.right,
+                    right: useBefore ? constraints.maxWidth - fold.left : 0,
+                  ),
+            child: ListView(
+              key: const PageStorageKey('player-compact-scroll'),
+              padding: padding,
+              children: [...widget.header, widget.preview, ...widget.controls],
+            ),
+          );
+        }
+        if (constraints.maxWidth >= 520 && constraints.maxHeight < 480) {
+          return Padding(
+            key: const ValueKey('player-short-layout'),
+            padding: padding,
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Expanded(child: ListView(children: widget.header)),
+                const SizedBox(width: 16),
+                Expanded(
+                  child: ListView(
+                    key: const PageStorageKey('player-compact-scroll'),
+                    children: [widget.preview, ...widget.controls],
+                  ),
+                ),
+              ],
+            ),
+          );
+        }
         final wide =
             constraints.maxWidth >= paneWidth * 2 + gap + padding.horizontal;
         if (!wide) {
@@ -534,32 +676,26 @@ class _AdaptivePlayerBody extends StatelessWidget {
             key: const PageStorageKey('player-compact-scroll'),
             padding: padding,
             children: [
-              ...header,
+              ...widget.header,
               const SizedBox(height: 10),
-              preview,
-              ...controls,
+              widget.preview,
+              ...widget.controls,
             ],
           );
         }
         return Padding(
           key: const ValueKey('player-expanded-layout'),
-          padding: padding,
+          padding: const EdgeInsets.only(
+            top: 4,
+            bottom: 12,
+            right: MusicUi.pagePadding,
+          ),
           child: Row(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              Expanded(
-                child: ListView(
-                  key: const PageStorageKey('player-expanded-scroll'),
-                  children: [...header, ...controls],
-                ),
-              ),
+              Expanded(child: _deck()),
               const SizedBox(width: gap),
-              Expanded(
-                child: ClipRect(
-                  key: const ValueKey('player-expanded-lyrics'),
-                  child: lyrics,
-                ),
-              ),
+              Expanded(child: _details(context)),
             ],
           ),
         );

@@ -1,8 +1,73 @@
 import Flutter
 import UIKit
 
-// UIKit scene lifecycle entry point for the Flutter host window. Keep platform
-// lifecycle wiring here and put shared music behavior in Dart.
-class SceneDelegate: FlutterSceneDelegate {
+class SceneDelegate: FlutterSceneDelegate {}
 
+// Bridge window-local geometry, never device names or fixed screen dimensions.
+class DuoFlutterViewController: FlutterViewController {
+  private var regions: FlutterMethodChannel?
+  private var probe: MusicRegionProbe?
+
+  override func viewDidLoad() {
+    super.viewDidLoad()
+    let channel = FlutterMethodChannel(name: "ai_music/window_regions", binaryMessenger: binaryMessenger)
+    regions = channel
+    let probe = MusicRegionProbe(frame: view.bounds)
+    probe.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+    probe.isUserInteractionEnabled = false
+    probe.backgroundColor = .clear
+    probe.changed = { [weak channel] value in
+      channel?.invokeMethod("changed", arguments: value)
+    }
+    self.probe = probe
+    view.addSubview(probe)
+    probe.setNeedsUpdateConstraints()
+    channel.setMethodCallHandler { [weak probe] call, result in
+      guard call.method == "snapshot" else {
+        result(FlutterMethodNotImplemented)
+        return
+      }
+      result(probe?.snapshot() ?? [:])
+    }
+  }
+}
+
+private class MusicRegionProbe: UIView {
+  var changed: (([String: Any]) -> Void)?
+  private var previous: NSDictionary?
+
+  func snapshot() -> [String: Any] {
+    var regions = [[String: Any]]()
+    if #available(iOS 27.1, *) {
+      for (kind, name) in [(UIView.ReservedRegion.Kind.occlusion, "occlusion"), (.division, "division")] {
+        for region in reservedRegions(kind: kind) where region.isActive {
+          let rect = region.frame // Already includes Apple's interactive margins.
+          regions.append(["kind": name, "x": rect.minX, "y": rect.minY,
+                          "width": rect.width, "height": rect.height])
+        }
+      }
+    }
+    return ["width": bounds.width, "height": bounds.height, "regions": regions]
+  }
+
+  private func publish() {
+    let value = snapshot()
+    let next = value as NSDictionary
+    guard previous != next else { return }
+    previous = next
+    // Flutter handles this outside UIKit's constraint update pass.
+    DispatchQueue.main.async { [weak self] in self?.changed?(value) }
+  }
+
+  override func updateConstraints() {
+    // UIKit re-runs this method when the queried reserved regions change,
+    // including a partial fold that doesn't change the window's bounds.
+    publish()
+    super.updateConstraints()
+  }
+
+  override func layoutSubviews() {
+    super.layoutSubviews()
+    publish()
+  }
 }

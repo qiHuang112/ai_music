@@ -1349,6 +1349,52 @@ void main() {
     }
   });
 
+  testWidgets(
+    'folding home preserves search text, selected tab and page state',
+    (tester) async {
+      await tester.binding.setSurfaceSize(const Size(930, 650));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+      final fixture = _homeLibraryFixture();
+      final handler = _WidgetAudioHandler();
+      final controller = _QueueUiController(handler, fixture: fixture);
+      try {
+        await tester.pumpWidget(_app(playbackController: controller));
+        await tester.pumpAndSettle();
+        final homeState = tester.state(find.byType(MusicHomePage));
+        final side = find.byKey(const ValueKey('home-side-navigation'));
+        expect(side, findsOneWidget);
+        await tester.enterText(find.byType(EditableText), '折叠时保留搜索');
+        await tester.tap(find.byTooltip('音乐库'));
+        await tester.pumpAndSettle();
+        expect(
+          find.textContaining(AppStrings(AppLanguage.zh).localLibrary),
+          findsWidgets,
+        );
+        await tester.binding.setSurfaceSize(const Size(390, 700));
+        await tester.pumpAndSettle();
+        expect(side, findsNothing);
+        expect(tester.state(find.byType(MusicHomePage)), same(homeState));
+        expect(
+          find.textContaining(AppStrings(AppLanguage.zh).localLibrary),
+          findsWidgets,
+        );
+        await tester.tap(find.byTooltip('首页'));
+        await tester.pumpAndSettle();
+        expect(find.text('折叠时保留搜索'), findsOneWidget);
+        await tester.binding.setSurfaceSize(const Size(930, 650));
+        await tester.pumpAndSettle();
+        expect(side, findsOneWidget);
+        expect(find.text('折叠时保留搜索'), findsOneWidget);
+        expect(tester.takeException(), isNull);
+      } finally {
+        await tester.pumpWidget(const SizedBox.shrink());
+        controller.dispose();
+        unawaited(controller.positions.close());
+        unawaited(handler.dispose());
+      }
+    },
+  );
+
   testWidgets('home stays usable on a narrow screen with enlarged text', (
     tester,
   ) async {

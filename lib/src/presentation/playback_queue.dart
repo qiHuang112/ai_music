@@ -34,7 +34,12 @@ Future<void> showPlaybackQueue(
 
 /// Live queue: audio-service publishes appends and source replacements here.
 class PlaybackQueue extends StatefulWidget {
-  const PlaybackQueue({super.key, required this.controller});
+  const PlaybackQueue({
+    super.key,
+    required this.controller,
+    this.embedded = false,
+  });
+  final bool embedded;
   final MusicController controller;
 
   @override
@@ -151,7 +156,7 @@ class _PlaybackQueueState extends State<PlaybackQueue> {
     final colors = Theme.of(context).colorScheme;
     return SizedBox(
       // Full screen: the queue is a place to browse, not a peek.
-      height: MediaQuery.sizeOf(context).height,
+      height: widget.embedded ? null : MediaQuery.sizeOf(context).height,
       child: SafeArea(
         top: false,
         child: StreamBuilder<List<MediaItem>>(
@@ -238,13 +243,14 @@ class _PlaybackQueueState extends State<PlaybackQueue> {
                               onPressed: items.isEmpty ? null : _clear,
                               icon: const Icon(Icons.delete_sweep_outlined),
                             ),
-                            IconButton(
-                              tooltip: MaterialLocalizations.of(
-                                context,
-                              ).closeButtonTooltip,
-                              onPressed: () => Navigator.pop(context),
-                              icon: const Icon(Icons.close),
-                            ),
+                            if (!widget.embedded)
+                              IconButton(
+                                tooltip: MaterialLocalizations.of(
+                                  context,
+                                ).closeButtonTooltip,
+                                onPressed: () => Navigator.pop(context),
+                                icon: const Icon(Icons.close),
+                              ),
                           ],
                         ],
                       ),

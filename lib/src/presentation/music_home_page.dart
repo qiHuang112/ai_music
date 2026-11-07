@@ -205,95 +205,180 @@ class _MusicHomePageState extends State<MusicHomePage>
             },
           );
         }
-        return PopScope(
-          canPop: false,
-          onPopInvokedWithResult: (didPop, _) {
-            if (!didPop) {
-              _handleRootBack(strings);
-            }
-          },
-          child: Scaffold(
-            extendBody: true,
-            appBar: _tab != 0
-                ? null
-                : AppBar(
-                    title: Text(strings.homeLibraryTitle),
-                    titleTextStyle: MusicType.masthead(context, size: 30),
-                  ),
-            body: IndexedStack(
-              index: _tab,
-              children: [
-                // Hidden tabs stay built but their animations stop.
-                for (final (i, tab) in [
-                  _homeTab(strings),
-                  _visitedTabs.contains(1)
-                      ? _LibraryPage(controller: controller)
-                      : const SizedBox.shrink(),
-                  _visitedTabs.contains(2)
-                      ? DownloadManagerPage(
-                          controller: controller,
-                          onOpenPlaylist: _openMatchedPlaylist,
-                        )
-                      : const SizedBox.shrink(),
-                  // Recreate settings to rediscover LAN services.
-                  _tab == 3
-                      ? SettingsPage(controller: controller)
-                      : const SizedBox.shrink(),
-                ].indexed)
-                  TickerMode(enabled: i == _tab, child: tab),
-              ],
+        final tabs = [
+          GlassTab(
+            label: strings.isZh ? '首页' : 'Home',
+            tooltip: strings.isZh ? '首页' : 'Home',
+          ),
+          GlassTab(
+            label: strings.isZh ? '音乐库' : 'Library',
+            tooltip: strings.isZh ? '音乐库' : 'Music library',
+          ),
+          GlassTab(
+            label: strings.isZh ? '下载' : 'Downloads',
+            tooltip: strings.downloads,
+            marker: controller.hasActiveDownloads
+                ? const SizedBox.square(
+                    key: ValueKey('home-download-spinner'),
+                    dimension: 11,
+                    child: CircularProgressIndicator(strokeWidth: 1.6),
+                  )
+                : null,
+          ),
+          GlassTab(
+            label: strings.settings,
+            tooltip: strings.settings,
+            marker: UpdateBadge(
+              updates: controller.appUpdates,
+              child: const SizedBox(width: 2, height: 10),
             ),
-            bottomNavigationBar: _tab == 0 && _searchFocusNode.hasFocus
-                ? null
-                : Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      // The tab bar below owns the bottom safe area.
-                      MediaQuery.removePadding(
-                        context: context,
-                        removeBottom: true,
-                        child: MiniPlayer(controller: controller),
-                      ),
-                      NavBlur(
-                        child: GlassTabBar(
-                          index: _tab,
-                          onSelected: _selectTab,
-                          tabs: [
-                            GlassTab(
-                              label: strings.isZh ? '首页' : 'Home',
-                              tooltip: strings.isZh ? '首页' : 'Home',
-                            ),
-                            GlassTab(
-                              label: strings.isZh ? '音乐库' : 'Library',
-                              tooltip: strings.isZh ? '音乐库' : 'Music library',
-                            ),
-                            GlassTab(
-                              label: strings.isZh ? '下载' : 'Downloads',
-                              tooltip: strings.downloads,
-                              marker: controller.hasActiveDownloads
-                                  ? const SizedBox.square(
-                                      key: ValueKey('home-download-spinner'),
-                                      dimension: 11,
-                                      child: CircularProgressIndicator(
-                                        strokeWidth: 1.6,
-                                      ),
-                                    )
-                                  : null,
-                            ),
-                            GlassTab(
-                              label: strings.settings,
-                              tooltip: strings.settings,
-                              marker: UpdateBadge(
-                                updates: controller.appUpdates,
-                                child: const SizedBox(width: 2, height: 10),
+          ),
+        ];
+        return LayoutBuilder(
+          builder: (context, constraints) {
+            final sideNavigation =
+                constraints.maxWidth >= 720 ||
+                (constraints.maxWidth >= 560 &&
+                    constraints.maxWidth > constraints.maxHeight * 1.25);
+            return Row(
+              children: [
+                Expanded(
+                  child: PopScope(
+                    canPop: false,
+                    onPopInvokedWithResult: (didPop, _) {
+                      if (!didPop) {
+                        _handleRootBack(strings);
+                      }
+                    },
+                    child: Scaffold(
+                      extendBody: true,
+                      appBar: _tab != 0
+                          ? null
+                          : AppBar(
+                              title: Text(strings.homeLibraryTitle),
+                              titleTextStyle: MusicType.masthead(
+                                context,
+                                size: 30,
                               ),
                             ),
+                      body: IndexedStack(
+                        index: _tab,
+                        children: [
+                          // Hidden tabs stay built but their animations stop.
+                          for (final (i, tab) in [
+                            _homeTab(strings),
+                            _visitedTabs.contains(1)
+                                ? _LibraryPage(controller: controller)
+                                : const SizedBox.shrink(),
+                            _visitedTabs.contains(2)
+                                ? DownloadManagerPage(
+                                    controller: controller,
+                                    onOpenPlaylist: _openMatchedPlaylist,
+                                  )
+                                : const SizedBox.shrink(),
+                            // Recreate settings to rediscover LAN services.
+                            _tab == 3
+                                ? SettingsPage(controller: controller)
+                                : const SizedBox.shrink(),
+                          ].indexed)
+                            TickerMode(enabled: i == _tab, child: tab),
+                        ],
+                      ),
+                      bottomNavigationBar:
+                          _tab == 0 && _searchFocusNode.hasFocus
+                          ? null
+                          : Column(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                // In compact layout the tab bar owns the bottom safe area.
+                                MediaQuery.removePadding(
+                                  context: context,
+                                  removeBottom: !sideNavigation,
+                                  child: MiniPlayer(controller: controller),
+                                ),
+                                if (!sideNavigation)
+                                  NavBlur(
+                                    child: GlassTabBar(
+                                      index: _tab,
+                                      onSelected: _selectTab,
+                                      tabs: tabs,
+                                    ),
+                                  ),
+                              ],
+                            ),
+                    ),
+                  ),
+                ),
+                if (sideNavigation)
+                  SafeArea(
+                    child: SizedBox(
+                      key: const ValueKey('home-side-navigation'),
+                      width: 88,
+                      child: NavBlur(
+                        child: ListView(
+                          padding: const EdgeInsets.symmetric(
+                            vertical: 24,
+                            horizontal: 6,
+                          ),
+                          children: [
+                            for (final (i, tab) in tabs.indexed)
+                              Padding(
+                                padding: const EdgeInsets.only(bottom: 12),
+                                child: Semantics(
+                                  selected: i == _tab,
+                                  button: true,
+                                  child: Tooltip(
+                                    message: tab.tooltip,
+                                    child: TextButton(
+                                      style: TextButton.styleFrom(
+                                        backgroundColor: i == _tab
+                                            ? Theme.of(
+                                                context,
+                                              ).colorScheme.secondaryContainer
+                                            : null,
+                                        foregroundColor: i == _tab
+                                            ? Theme.of(
+                                                context,
+                                              ).colorScheme.onSecondaryContainer
+                                            : Theme.of(
+                                                context,
+                                              ).colorScheme.onSurfaceVariant,
+                                        padding: const EdgeInsets.symmetric(
+                                          vertical: 14,
+                                          horizontal: 4,
+                                        ),
+                                      ),
+                                      onPressed: () => _selectTab(i),
+                                      child: Column(
+                                        children: [
+                                          Icon(
+                                            const [
+                                              Icons.home_outlined,
+                                              Icons.library_music_outlined,
+                                              Icons.downloading_rounded,
+                                              Icons.settings_outlined,
+                                            ][i],
+                                          ),
+                                          const SizedBox(height: 6),
+                                          Text(
+                                            tab.label,
+                                            textAlign: TextAlign.center,
+                                          ),
+                                          if (tab.marker != null) tab.marker!,
+                                        ],
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                              ),
                           ],
                         ),
                       ),
-                    ],
+                    ),
                   ),
-          ),
+              ],
+            );
+          },
         );
       },
     );

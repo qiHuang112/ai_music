@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'src/presentation/duo_window.dart';
 
 import 'package:audio_service/audio_service.dart';
 import 'package:flutter/material.dart';
@@ -139,7 +140,11 @@ class AiMusicApp extends StatelessWidget {
                 fit: StackFit.expand,
                 children: [
                   const PageBackdrop(),
-                  DismissKeyboardOnTap(child: child ?? const SizedBox.shrink()),
+                  DuoWindow(
+                    child: DismissKeyboardOnTap(
+                      child: child ?? const SizedBox.shrink(),
+                    ),
+                  ),
                   PerformanceOverlayPanel(
                     monitor: controller.performanceMonitor,
                   ),

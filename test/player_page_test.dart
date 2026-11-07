@@ -11,7 +11,14 @@ import 'package:ai_music/src/data/song_search_cache.dart';
 import 'memory_download_history.dart';
 import 'dart:async';
 import 'dart:io';
-import 'dart:ui' show PictureRecorder, Canvas, ImageByteFormat;
+import 'dart:ui'
+    show
+        PictureRecorder,
+        Canvas,
+        ImageByteFormat,
+        DisplayFeature,
+        DisplayFeatureType,
+        DisplayFeatureState;
 
 import 'package:ai_music/src/application/music_controller.dart';
 import 'package:ai_music/src/application/music_mappers.dart';
@@ -45,6 +52,8 @@ void main() {
       MusicMotion.perpetual = false;
       addTearDown(() => MusicMotion.perpetual = true);
       final textScale = ValueNotifier(1.0);
+      final folds = ValueNotifier<List<DisplayFeature>>([]);
+      addTearDown(folds.dispose);
       addTearDown(textScale.dispose);
       tester.view.physicalSize = const Size(390, 844);
       final handler = _SpyAudioHandler();
@@ -83,12 +92,17 @@ void main() {
               theme: MusicAppTheme.create(Brightness.light),
               builder: (context, child) => ValueListenableBuilder<double>(
                 valueListenable: textScale,
-                builder: (context, scale, _) => MediaQuery(
-                  data: MediaQuery.of(
-                    context,
-                  ).copyWith(textScaler: TextScaler.linear(scale)),
-                  child: child!,
-                ),
+                builder: (context, scale, _) =>
+                    ValueListenableBuilder<List<DisplayFeature>>(
+                      valueListenable: folds,
+                      builder: (context, features, _) => MediaQuery(
+                        data: MediaQuery.of(context).copyWith(
+                          textScaler: TextScaler.linear(scale),
+                          displayFeatures: features,
+                        ),
+                        child: child!,
+                      ),
+                    ),
               ),
               home: PlayerPage(controller: controller),
             ),
@@ -157,6 +171,73 @@ void main() {
           await tester.pumpAndSettle();
           expect(pause.hitTestable(), findsOneWidget);
         }
+        for (final pose in [
+          (
+            size: const Size(930, 650),
+            fold: const Rect.fromLTWH(450, 0, 28, 650),
+            horizontal: false,
+          ),
+          (
+            size: const Size(650, 900),
+            fold: const Rect.fromLTWH(0, 430, 650, 28),
+            horizontal: true,
+          ),
+        ]) {
+          tester.view.physicalSize = pose.size;
+          folds.value = [
+            DisplayFeature(
+              bounds: pose.fold,
+              type: DisplayFeatureType.hinge,
+              state: DisplayFeatureState.postureHalfOpened,
+            ),
+          ];
+          await tester.pumpAndSettle();
+          expect(
+            find.byKey(const ValueKey('player-fold-layout')),
+            findsOneWidget,
+          );
+          final deck = tester.getRect(
+            find.byKey(const PageStorageKey('player-expanded-scroll')),
+          );
+          final details = tester.getRect(
+            find.byKey(const ValueKey('player-expanded-lyrics')),
+          );
+          if (pose.horizontal) {
+            expect(details.bottom, lessThanOrEqualTo(pose.fold.top));
+            expect(deck.top, greaterThanOrEqualTo(pose.fold.bottom));
+          } else {
+            expect(deck.right, lessThanOrEqualTo(pose.fold.left));
+            expect(details.left, greaterThanOrEqualTo(pose.fold.right));
+          }
+          await tester.tap(find.text('待播'));
+          await tester.pumpAndSettle();
+          expect(find.byType(PlaybackQueue), findsOneWidget);
+          expect(
+            tester.widget<PlaybackQueue>(find.byType(PlaybackQueue)).embedded,
+            isTrue,
+          );
+          expect(find.byTooltip('Close'), findsNothing);
+          await tester.tap(find.text('歌词'));
+          await tester.pumpAndSettle();
+          expect(tester.takeException(), isNull);
+          expect(tester.state(find.byType(PlayerPage)), same(routeState));
+          expect(handler.queueLoads, queueLoads);
+          expect(handler.currentPosition, const Duration(seconds: 25));
+          expect(handler.playCalls, playCalls);
+        }
+        folds.value = [];
+        tester.view.physicalSize = const Size(390, 844);
+        await tester.pumpAndSettle();
+        await tester.scrollUntilVisible(
+          find.byTooltip('暂停'),
+          160,
+          scrollable: find
+              .descendant(
+                of: find.byKey(const PageStorageKey('player-compact-scroll')),
+                matching: find.byType(Scrollable),
+              )
+              .first,
+        );
         await tester.tap(find.byTooltip('暂停'));
         await tester.pumpAndSettle();
         expect(handler.playbackState.value.playing, isFalse);

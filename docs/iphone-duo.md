@@ -17,6 +17,45 @@
 
 2026-11-06 的布局开发使用 Xcode 26.5，仅完成 Flutter widget 窗口测试；测试尺寸是覆盖用例，不作为 Duo 的官方逻辑尺寸。2026-11-07 用户要求升级后，已安装并默认选用 `/Applications/Xcode-27.1.app`（27A9275），iOS 27.1 SDK 和模拟器组件已安装；Duo 模拟器启动、闭合与展开系统画面均已验证。旧版保留于 `/Applications/Xcode.app`，升级验证见[日志](worklog/2026-11-07.md)。
 
-工具链前提已解除，Flutter 3.44.2 的 Xcode 环境检查通过；这不代表来听应用已完成新版 SDK 构建或模拟器验收。后续仍需验证 Flutter 引擎对系统侧栏、摄像头保留区域、半折叠保留区域的传递与避让，不能假定普通 `SafeArea` 已涵盖所有原生保留区域。尚无已连接的 Duo 真机，最终还需验证前后台播放、锁屏控制、折叠展开和分屏连续性。
+2026-11-07 后续已完成 iOS 27.1 SDK 的原生构建与 Duo 模拟器播放验证。Flutter 3.44.2 上通过独立窗口通道传递 UIKit 的 occlusion / division 保留区域，不依赖普通 `SafeArea` 覆盖折线；摄像头区域包含系统给出的交互边距。iOS 最低版本随 Xcode 27.1 的编译要求从 13 调整为 15。尚无已连接的 Duo 真机，真实折叠手感、后台／锁屏、分屏和动态岛活动仍需真机验证。
 
 代码、测试和本机产物仍在当前 `repos/ai-music` 工程；本轮不发布、不安装到 iPhone (105)。实际验证结果见当日工作日志。
+
+## 后续需求（2026-11-07）
+
+用户要求参考 QQ 音乐及知名听歌软件，继续完善实际 Duo 效果。参考 QQ 音乐 App Store 更新记录（Duo 歌词、唱片架）与其公开演示（侧边导航、悬停上歌词下操作），Apple Music 用户实拍的播放／歌词或队列分栏；保留来听现有黑胶设计和同一播放控制器。
+
+本轮实现：宽屏侧边导航、播放器歌词／待播切换；接入 UIKit 27.1 原生 reservedRegions，分开折线两侧，避开摄像头。外屏／小窗口保留单栏，动态切换不重建播放任务。验证目标为当前 Mac 的 iPhone Duo 模拟器，产物在本仓库 build/，无真机 Duo，不发布。
+
+参考：
+- https://apps.apple.com/hk/app/id414603431 （QQ 音乐官方更新说明）
+- https://www.ithome.com/1/004/335.htm （QQ 音乐公开演示报道）
+- https://www.reddit.com/r/AppleMusic/comments/1xg0rmv/apple_music_on_the_duo/ （用户实拍，非官方技术文档）
+- https://developer.apple.com/design/human-interface-guidelines/designing-for-iphone-duo
+- https://developer.apple.com/documentation/uikit/uiview/reservedregions(kind:options:)
+
+## 实现与实际验证
+
+- 首页：可用空间足够时显示右侧导航，底部保留迷你播放器；窄窗口回到底部导航。切换时保留选中页面、搜索文字和页面状态。
+- 播放器：展开为黑胶／控制和歌词／待播两栏；待播使用同一队列，支持点歌、排序和现有管理操作。窄屏维持单栏，矮而宽的外屏改为唱片在左、预览和控制在右。
+- 半折叠：读取 UIKit `UIView.reservedRegions(kind:)` 的有效 division 区域；竖向折线左右分栏，横向折线上歌词／队列、下唱片／控制。区域太小时选较大的一侧滚动显示，不把控制放进折线。
+- 原生观察在 `updateConstraints` 中进行，系统保留区域变化会重新通知；旋转时丢弃尺寸不匹配的旧快照，转换为 Flutter display features。全局遮挡区域用最近边缘留白保护按钮和弹层。背景继续延伸到保留区域。
+- 26 项定向测试通过（播放器 21、区域几何 1、首页折叠状态 1、原有窄屏／队列回归 3）；短外屏布局补充后再次运行折叠测试通过。所有改动文件静态检查通过。
+- Device Hub / iOS 27.1：真实 QQ 热歌榜加载，播放《天龙八部之宿敌》，展开／半折叠／旋转时进度继续推进；切到待播列表点《我不难过》，歌曲与控制同步更新，展开与闭合保持同一歌曲继续播放。重新安装保留缓存和播放恢复数据；外屏横放可直接看到播放及切歌按钮。
+- 截图位于 `build/duo-evidence/`，包括展开、上下悬停、外屏横放。属于模拟器结果，不冒充 Duo 真机体验。
+
+## 本机重现构建
+
+先完成 Flutter 测试，再准备 iOS 工程。不要在 pod install 同时运行 flutter test：测试命令可能将生成的插件元数据切回非 Swift Package 模式，导致插件同时通过 Pods 和 Swift Packages 链接。
+
+```sh
+/Users/huangqi/ClaudeProject/tools/flutter/bin/flutter build ios --simulator --debug --no-pub --config-only
+xcrun xcodebuild -workspace ios/Runner.xcworkspace -scheme Runner \
+  -configuration Debug -sdk iphonesimulator \
+  -destination 'id=09E7FA0F-0710-4348-B00C-CE00BEA84648' \
+  -clonedSourcePackagesDirPath build/ios/SourcePackages \
+  BUILD_DIR=/Users/huangqi/CodexProject/laiting-studio/repos/ai-music/build/ios \
+  ARCHS=arm64 ONLY_ACTIVE_ARCH=YES CODE_SIGNING_ALLOWED=NO COMPILER_INDEX_STORE_ENABLE=NO
+```
+
+Xcode 27.1 的 lipo 同时验证 arm64 / x86_64 时在本机报 `-verify_arch requires exactly one input file`；当前 Apple Silicon 模拟器构建显式选择 arm64，仍使用 27.1 编译器和 SDK。安装产物为 `build/ios/Debug-iphonesimulator/Runner.app`，实际工程身份 `com.tjs.aimusic`，没有变更应用身份。日志 `build/duo-xcode-build.log`；不生成或发布 IPA。
