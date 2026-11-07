@@ -1,12 +1,12 @@
 # AI Music 当前状态
 
-更新于 2026-11-07（iOS 导航改为 UIKit 原生壳：系统 Tab 栏／导航栏／菜单承载 Flutter 内容，Duo 自动竖栏；Duo 内屏与 iPhone 18 Pro 模拟器验证通过，体验版已装到用户 Duo 真机待解锁试用；未提交、未发布）。本文件只保留固定字段：改动时就地更新字段，“最近进展”只留 3 条；开发、自测、验收与 review 细节写在[工作日志](docs/worklog/README.md)，2026-10-26 之前的长条目见[历史条目](docs/worklog/state-history.md)。代码状态以 Git 为准。
+更新于 2026-11-07（iOS 导航改为 UIKit 原生壳：系统 Tab 栏／导航栏／菜单承载 Flutter 内容，Duo 自动竖栏；Duo 内屏与 iPhone 18 Pro 模拟器验证通过，体验版已装到用户 Duo 真机待解锁试用；已提交并以 [skip ci] 推送 main，未发版）。本文件只保留固定字段：改动时就地更新字段，“最近进展”只留 3 条；开发、自测、验收与 review 细节写在[工作日志](docs/worklog/README.md)，2026-10-26 之前的长条目见[历史条目](docs/worklog/state-history.md)。代码状态以 Git 为准。
 
 ## 正式版本
 
 - Android：1.0.4／10269，源码 `4504319`。[GitHub Release](https://github.com/qiHuang112/ai_music/releases/tag/v1.0.4-10269) 与局域网 latest 一致（18195572 字节，SHA256 `22260b9e…`）。
 - Mac：GitHub 1.0.4／10269 Universal（ad-hoc 签名，未公证）；局域网仍为 1.0.4／10268 桌面优化版。下载与核验见 [Mac 记录](docs/macos.md)。
-- iOS：未公开发布；个人体验版 1.0.4／8267（源码 `74c0dd2`＋未提交的原生壳改动）已装到用户 iPhone Duo / iOS 27.2（启动待用户解锁），签名有效至 2026-11-14。
+- iOS：未公开发布；个人体验版 1.0.4／8267（源码 `bf87f9e`）已装到用户 iPhone Duo / iOS 27.2（启动待用户解锁），签名有效至 2026-11-14。
 
 ## 环境
 
@@ -21,7 +21,7 @@
 
 ## 进行中
 
-- iPhone Duo／iOS：导航改用 UIKit 原生壳（`MusicShell.swift` + `native_shell.dart`），系统绘制 Tab 栏、导航栏、返回、菜单，Duo 上自动竖栏；analyze 无问题，定向测试与全量测试（除一条基线已失败用例）通过；Duo 内屏横向与 iPhone 18 Pro 模拟器实查通过，Duo 外屏姿态与真机待用户试用；迷你播放器改 `UITabAccessory` 与普通 iPhone 大标题待后续；工作区改动未提交。见[适配范围](docs/iphone-duo.md)。
+- iPhone Duo／iOS：导航改用 UIKit 原生壳（`MusicShell.swift` + `native_shell.dart`），系统绘制 Tab 栏、导航栏、返回、菜单，Duo 上自动竖栏；analyze 无问题，定向测试与全量测试（除一条基线已失败用例）通过；Duo 内屏横向与 iPhone 18 Pro 模拟器实查通过，Duo 外屏姿态与真机待用户试用；迷你播放器改 `UITabAccessory` 与普通 iPhone 大标题待后续；已提交推送 `bf87f9e`（[skip ci]，未发版）。见[适配范围](docs/iphone-duo.md)。
 
 ## 最近进展
 
