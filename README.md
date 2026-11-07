@@ -32,10 +32,14 @@ The iOS target uses bundle id `com.qi.ai.music` and supports background audio pl
 Before the first signed IPA build, open the workspace once and select your Apple signing team:
 
 ```bash
-sudo xcode-select --switch /Applications/Xcode.app/Contents/Developer
+sudo xcode-select --switch /Applications/Xcode-27.1.app/Contents/Developer
 sudo xcodebuild -runFirstLaunch
 open ios/Runner.xcworkspace
 ```
+
+This Mac uses Xcode 27.1 at `/Applications/Xcode-27.1.app` with the iOS 27.1 SDK
+and simulator. The previous Xcode 26.5 remains at `/Applications/Xcode.app` for
+rollback. See the [upgrade record](docs/worklog/2026-11-07.md).
 
 In Xcode, select `Runner` > `Signing & Capabilities`, choose a Team, and keep the bundle id as `com.qi.ai.music`.
 

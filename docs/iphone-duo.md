@@ -15,8 +15,8 @@
 
 苹果的 [适配指南](https://developer.apple.com/iphone-duo/prepare/) 说明：iOS 26 及更早 SDK 的构建运行在兼容布局中；iOS 27 SDK 支持动态扩展；iOS 27.1 及更新 SDK 提供完整显示区域支持。另见 [设计指南](https://developer.apple.com/design/human-interface-guidelines/designing-for-iphone-duo)。
 
-当前 Mac 的 Xcode 26.5 仅带 iOS 26.5 SDK，没有 Duo 模拟器或已连接的 Duo 真机。本轮先做 Flutter 窗口自适应；窗口测试尺寸是覆盖用例，不作为 Duo 的官方逻辑尺寸。不能据此声称已有原生 Duo 完整适配包。
+2026-11-06 的布局开发使用 Xcode 26.5，仅完成 Flutter widget 窗口测试；测试尺寸是覆盖用例，不作为 Duo 的官方逻辑尺寸。2026-11-07 用户要求升级后，已安装并默认选用 `/Applications/Xcode-27.1.app`（27A9275），iOS 27.1 SDK 和模拟器组件已安装；Duo 模拟器启动、闭合与展开系统画面均已验证。旧版保留于 `/Applications/Xcode.app`，升级验证见[日志](worklog/2026-11-07.md)。
 
-后续需要新版 Xcode / iOS SDK 和适配它的 Flutter 引擎，并验证系统侧栏、摄像头保留区域、半折叠保留区域的传递与避让；不能假定 Flutter 的普通 `SafeArea` 已涵盖所有原生保留区域。最终还需 Duo 上验证前后台播放、锁屏控制、折叠展开和分屏连续性。
+工具链前提已解除，Flutter 3.44.2 的 Xcode 环境检查通过；这不代表来听应用已完成新版 SDK 构建或模拟器验收。后续仍需验证 Flutter 引擎对系统侧栏、摄像头保留区域、半折叠保留区域的传递与避让，不能假定普通 `SafeArea` 已涵盖所有原生保留区域。尚无已连接的 Duo 真机，最终还需验证前后台播放、锁屏控制、折叠展开和分屏连续性。
 
 代码、测试和本机产物仍在当前 `repos/ai-music` 工程；本轮不发布、不安装到 iPhone (105)。实际验证结果见当日工作日志。
