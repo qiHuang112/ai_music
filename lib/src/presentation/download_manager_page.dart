@@ -1,3 +1,4 @@
+import 'duo_scaffold.dart';
 import 'app_popup_menu.dart';
 import 'desktop_scope.dart';
 import 'desktop_ui.dart';
@@ -152,7 +153,7 @@ class _DownloadManagerPageState extends State<DownloadManagerPage> {
             _DownloadSection.tasks => activeTasks.length + recentTasks.length,
             _DownloadSection.playlists => playlists.length,
           };
-          return Scaffold(
+          return DuoScaffold(
             appBar: AppBar(
               titleTextStyle: MusicType.masthead(context, size: 30),
               title: Text(strings.downloadManager),

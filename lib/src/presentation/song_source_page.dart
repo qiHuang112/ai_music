@@ -1,3 +1,4 @@
+import 'duo_scaffold.dart';
 import 'app_theme.dart';
 import 'desktop_scope.dart';
 import 'package:flutter/material.dart';
@@ -159,7 +160,7 @@ class _SongSourcePageState extends State<SongSourcePage> {
   @override
   Widget build(BuildContext context) => PopScope(
     canPop: !_saving,
-    child: Scaffold(
+    child: DuoScaffold(
       appBar: AppBar(
         title: Text(zh ? '切换来源' : 'Choose source'),
         actions: [

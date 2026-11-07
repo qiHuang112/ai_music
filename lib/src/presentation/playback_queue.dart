@@ -1,3 +1,5 @@
+import 'duo_scaffold.dart';
+import 'duo_window.dart';
 import 'dart:async';
 import 'dart:math' as math;
 
@@ -22,6 +24,18 @@ Future<void> showPlaybackQueue(
   if (desktop != null) {
     desktop.openDetail(DesktopDetail.queue);
     return Future.value();
+  }
+  if (DuoWindowScope.of(context).edge != DuoBarEdge.none) {
+    final strings = AppStringsScope.of(context);
+    return Navigator.of(context).push<void>(
+      MaterialPageRoute<void>(
+        settings: const RouteSettings(name: 'playback-queue'),
+        builder: (_) => DuoScaffold(
+          appBar: AppBar(title: Text(strings.isZh ? '当前队列' : 'Play queue')),
+          body: PlaybackQueue(controller: controller, embedded: true),
+        ),
+      ),
+    );
   }
   return showModalBottomSheet<void>(
     context: context,

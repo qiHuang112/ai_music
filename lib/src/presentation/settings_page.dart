@@ -1,3 +1,4 @@
+import 'duo_scaffold.dart';
 import 'app_theme.dart';
 import 'listening_stats_page.dart';
 import 'package:flutter/material.dart';
@@ -199,7 +200,7 @@ class SettingsPage extends StatelessWidget {
     return AnimatedBuilder(
       animation: controller,
       builder: (context, _) {
-        return Scaffold(
+        return DuoScaffold(
           appBar: AppBar(
             titleTextStyle: MusicType.masthead(context, size: 30),
             title: Text(strings.settings),
@@ -448,7 +449,7 @@ class _ConcurrencySettingsPage extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final zh = AppStringsScope.of(context).isZh;
-    return Scaffold(
+    return DuoScaffold(
       appBar: AppBar(title: Text(zh ? '并发设置' : 'Concurrency')),
       body: SafeArea(
         child: ListView(
@@ -778,7 +779,7 @@ class _LanLibrarySettingsPageState extends State<LanLibrarySettingsPage> {
       animation: widget.controller,
       builder: (context, _) {
         final controller = widget.controller;
-        return Scaffold(
+        return DuoScaffold(
           appBar: AppBar(title: Text(strings.lanLibrary)),
           body: SafeArea(
             child: ListView(
@@ -848,7 +849,7 @@ class LanguageSettingsPage extends StatelessWidget {
     return AnimatedBuilder(
       animation: controller,
       builder: (context, _) {
-        return Scaffold(
+        return DuoScaffold(
           appBar: AppBar(title: Text(strings.language)),
           body: SafeArea(
             child: RadioGroup<AppLanguage>(
@@ -889,7 +890,7 @@ class ThemeSettingsPage extends StatelessWidget {
     return AnimatedBuilder(
       animation: controller,
       builder: (context, _) {
-        return Scaffold(
+        return DuoScaffold(
           appBar: AppBar(title: Text(strings.theme)),
           body: SafeArea(
             child: RadioGroup<AppThemePreference>(
@@ -927,7 +928,7 @@ class SourceSettingsPage extends StatelessWidget {
     return AnimatedBuilder(
       animation: controller,
       builder: (context, _) {
-        return Scaffold(
+        return DuoScaffold(
           appBar: AppBar(title: Text(strings.musicSource)),
           body: SafeArea(
             child: RadioGroup<MusicDataSource>(

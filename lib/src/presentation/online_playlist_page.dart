@@ -1,3 +1,4 @@
+import 'duo_scaffold.dart';
 import 'playlist_sliver_header.dart';
 import 'initial_song_scroll.dart';
 import 'music_thumbnail.dart';
@@ -267,7 +268,8 @@ class _OnlinePlaylistPageState extends State<OnlinePlaylistPage> {
     ];
     return PopScope(
       canPop: !_task.saving || _task.autoSyncEnabled,
-      child: Scaffold(
+      child: DuoScaffold(
+        railAppBar: AppBar(actions: actions),
         appBar: _task.loading || _task.loadFailed
             ? AppBar(title: Text(zh ? '歌单详情' : 'Playlist'), actions: actions)
             : null,
@@ -316,7 +318,12 @@ class _OnlinePlaylistPageState extends State<OnlinePlaylistPage> {
                           slivers: [
                             PlaylistSliverHeader(
                               title: widget.playlist.name,
-                              actions: actions,
+                              actions: DuoScaffold.usesSystemRail(context)
+                                  ? const []
+                                  : actions,
+                              leading: DuoScaffold.usesSystemRail(context)
+                                  ? const SizedBox.shrink()
+                                  : null,
                             ),
                             SliverToBoxAdapter(
                               child: Column(
@@ -803,7 +810,7 @@ class OnlinePlaylistTasksPage extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final zh = AppStringsScope.of(context).isZh;
-    return Scaffold(
+    return DuoScaffold(
       appBar: AppBar(title: Text(zh ? '歌单匹配' : 'Playlist matching')),
       body: SingleChildScrollView(
         child: OnlinePlaylistTaskList(

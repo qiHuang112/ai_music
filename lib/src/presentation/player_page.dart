@@ -1,3 +1,5 @@
+import 'duo_scaffold.dart';
+import 'duo_window.dart';
 import 'dart:async';
 import 'dart:ui' as ui;
 import 'app_theme.dart';
@@ -332,9 +334,24 @@ class _PlayerPageState extends State<PlayerPage> {
       builder: (context, _) {
         final currentTrack = controller.currentTrack;
         final strings = AppStringsScope.of(context);
-        final windowPadding = MediaQuery.paddingOf(context);
-        return Scaffold(
+        return DuoScaffold(
           extendBodyBehindAppBar: true,
+          extraActions: [
+            DuoRailItem(
+              icon: Icons.lyrics_outlined,
+              label: strings.isZh ? '完整歌词' : 'Full lyrics',
+              onPressed: () => Navigator.of(context).push(
+                MaterialPageRoute<void>(
+                  builder: (_) => _LyricsDetailPage(controller: controller),
+                ),
+              ),
+            ),
+            DuoRailItem(
+              icon: Icons.queue_music_rounded,
+              label: strings.isZh ? '当前队列' : 'Play queue',
+              onPressed: () => showPlaybackQueue(context, controller),
+            ),
+          ],
           appBar: AppBar(
             backgroundColor: Colors.transparent,
             title: Text(strings.nowPlaying),
@@ -360,151 +377,159 @@ class _PlayerPageState extends State<PlayerPage> {
               ],
             ],
           ),
-          body: _PlayerBackdrop(
-            controller: controller,
-            child: SafeArea(
-              child: StreamBuilder<MediaItem?>(
-                stream: controller.mediaItemStream,
-                initialData: controller.audioHandler.mediaItem.value,
-                builder: (context, mediaSnapshot) {
-                  final item = mediaSnapshot.data;
-                  if (item == null) {
-                    return Center(child: Text(strings.nothingPlaying));
-                  }
-                  return StreamBuilder<PlaybackState>(
-                    stream: controller.playbackStateStream,
-                    initialData: controller.audioHandler.playbackState.value,
-                    builder: (context, stateSnapshot) {
-                      final state = stateSnapshot.data ?? PlaybackState();
-                      final duration = item.duration ?? Duration.zero;
-                      return SwipeToSkip(
-                        key: const ValueKey('player-swipe-area'),
-                        onNext: controller.next,
-                        onPrevious: controller.previous,
-                        onDrag: _disc.drag,
-                        onSettle: _disc.settle,
-                        child: _AdaptivePlayerBody(
-                          controller: controller,
-                          contentOrigin: Offset(
-                            windowPadding.left,
-                            windowPadding.top + kToolbarHeight,
-                          ),
-                          lyrics: _LyricsPanel(
+          body: Builder(
+            builder: (bodyContext) => _PlayerBackdrop(
+              controller: controller,
+              child: SafeArea(
+                child: StreamBuilder<MediaItem?>(
+                  stream: controller.mediaItemStream,
+                  initialData: controller.audioHandler.mediaItem.value,
+                  builder: (context, mediaSnapshot) {
+                    final item = mediaSnapshot.data;
+                    if (item == null) {
+                      return Center(child: Text(strings.nothingPlaying));
+                    }
+                    return StreamBuilder<PlaybackState>(
+                      stream: controller.playbackStateStream,
+                      initialData: controller.audioHandler.playbackState.value,
+                      builder: (context, stateSnapshot) {
+                        final state = stateSnapshot.data ?? PlaybackState();
+                        final duration = item.duration ?? Duration.zero;
+                        return SwipeToSkip(
+                          key: const ValueKey('player-swipe-area'),
+                          onNext: controller.next,
+                          onPrevious: controller.previous,
+                          onDrag: _disc.drag,
+                          onSettle: _disc.settle,
+                          child: _AdaptivePlayerBody(
                             controller: controller,
-                            fillsAvailable: true,
-                          ),
-                          preview: _LyricsPreview(controller: controller),
-                          header: [
-                            _Artwork(
-                              uri: item.artUri ?? controller.currentArtworkUri,
-                              maxWidth:
-                                  MediaQuery.displayFeaturesOf(context).any(
-                                    (f) =>
-                                        f.state ==
-                                            ui
-                                                .DisplayFeatureState
-                                                .postureHalfOpened &&
-                                        f.bounds.width > f.bounds.height,
-                                  )
-                                  ? 120
-                                  : null,
+                            contentOrigin: Offset(
+                              MediaQuery.paddingOf(bodyContext).left,
+                              MediaQuery.paddingOf(bodyContext).top,
+                            ),
+                            lyrics: _LyricsPanel(
                               controller: controller,
-                              playing: state.playing,
-                              cueing: _cueing,
-                              swipe: _disc,
+                              fillsAvailable: true,
                             ),
-                            const SizedBox(height: 14),
-                            Text(
-                              item.title,
-                              maxLines: 2,
-                              overflow: TextOverflow.ellipsis,
-                              textAlign: TextAlign.center,
-                              style: MusicType.masthead(context, size: 26),
-                            ),
-                            const SizedBox(height: 6),
-                            Text(
-                              item.artist ?? '',
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              textAlign: TextAlign.center,
-                              style: Theme.of(context).textTheme.bodyLarge
-                                  ?.copyWith(
-                                    color: Theme.of(
-                                      context,
-                                    ).colorScheme.onSurfaceVariant,
-                                  ),
-                            ),
-                          ],
-                          controls: [
-                            const SizedBox(height: 8),
-                            PlayerPositionSlider(
-                              key: ValueKey('player-position-${item.id}'),
-                              trackId: item.id,
-                              controller: controller,
-                              duration: duration,
-                              bufferedPosition: state.bufferedPosition,
-                            ),
-                            const SizedBox(height: 10),
-                            _PlaybackControls(
-                              controller: controller,
-                              playing: state.playing || _cueing,
-                              onToggle: () => _togglePlayPause(state.playing),
-                            ),
-                            const SizedBox(height: 8),
-                            Wrap(
-                              alignment: WrapAlignment.center,
-                              spacing: 12,
-                              children: [
-                                if (currentTrack != null &&
-                                    controller.canSwitchSongSource(
-                                      currentTrack,
-                                    ))
-                                  TextButton.icon(
-                                    key: const Key('player-switch-source'),
-                                    onPressed: () => showSongSourcePicker(
-                                      context,
-                                      controller,
-                                      currentTrack,
+                            preview: _LyricsPreview(controller: controller),
+                            header: [
+                              _Artwork(
+                                uri:
+                                    item.artUri ?? controller.currentArtworkUri,
+                                maxWidth:
+                                    MediaQuery.displayFeaturesOf(context).any(
+                                      (f) =>
+                                          f.state ==
+                                              ui
+                                                  .DisplayFeatureState
+                                                  .postureHalfOpened &&
+                                          f.bounds.width > f.bounds.height,
+                                    )
+                                    ? 120
+                                    : null,
+                                controller: controller,
+                                playing: state.playing,
+                                cueing: _cueing,
+                                swipe: _disc,
+                              ),
+                              const SizedBox(height: 14),
+                              Text(
+                                item.title,
+                                maxLines: 2,
+                                overflow: TextOverflow.ellipsis,
+                                textAlign: TextAlign.center,
+                                style: MusicType.masthead(context, size: 26),
+                              ),
+                              const SizedBox(height: 6),
+                              Text(
+                                item.artist ?? '',
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                textAlign: TextAlign.center,
+                                style: Theme.of(context).textTheme.bodyLarge
+                                    ?.copyWith(
+                                      color: Theme.of(
+                                        context,
+                                      ).colorScheme.onSurfaceVariant,
                                     ),
-                                    icon: const Icon(Icons.swap_horiz),
-                                    label: Text(
-                                      strings.isZh ? '切换来源' : 'Choose source',
-                                    ),
-                                  ),
-                                if (currentTrack != null)
-                                  TextButton.icon(
-                                    key: const ValueKey('player-comments'),
-                                    onPressed: () {
-                                      final query = SongCommentQuery.fromTrack(
+                              ),
+                            ],
+                            controls: [
+                              const SizedBox(height: 8),
+                              PlayerPositionSlider(
+                                key: ValueKey('player-position-${item.id}'),
+                                trackId: item.id,
+                                controller: controller,
+                                duration: duration,
+                                bufferedPosition: state.bufferedPosition,
+                              ),
+                              const SizedBox(height: 10),
+                              _PlaybackControls(
+                                controller: controller,
+                                playing: state.playing || _cueing,
+                                onToggle: () => _togglePlayPause(state.playing),
+                              ),
+                              const SizedBox(height: 8),
+                              Wrap(
+                                alignment: WrapAlignment.center,
+                                spacing: 12,
+                                children: [
+                                  if (currentTrack != null &&
+                                      controller.canSwitchSongSource(
                                         currentTrack,
-                                        original: controller
-                                            .originalSongForTrack(currentTrack),
-                                        candidate: controller
-                                            .selectedSongSource(currentTrack),
-                                        lyrics: controller.currentLyrics,
-                                      );
-                                      Navigator.of(context).push(
-                                        MaterialPageRoute<void>(
-                                          builder: (_) =>
-                                              SongCommentsPage(query: query),
-                                        ),
-                                      );
-                                    },
-                                    icon: const Icon(
-                                      Icons.chat_bubble_outline_rounded,
+                                      ))
+                                    TextButton.icon(
+                                      key: const Key('player-switch-source'),
+                                      onPressed: () => showSongSourcePicker(
+                                        context,
+                                        controller,
+                                        currentTrack,
+                                      ),
+                                      icon: const Icon(Icons.swap_horiz),
+                                      label: Text(
+                                        strings.isZh ? '切换来源' : 'Choose source',
+                                      ),
                                     ),
-                                    label: Text(
-                                      strings.isZh ? '歌曲热评' : 'Song comments',
+                                  if (currentTrack != null)
+                                    TextButton.icon(
+                                      key: const ValueKey('player-comments'),
+                                      onPressed: () {
+                                        final query =
+                                            SongCommentQuery.fromTrack(
+                                              currentTrack,
+                                              original: controller
+                                                  .originalSongForTrack(
+                                                    currentTrack,
+                                                  ),
+                                              candidate: controller
+                                                  .selectedSongSource(
+                                                    currentTrack,
+                                                  ),
+                                              lyrics: controller.currentLyrics,
+                                            );
+                                        Navigator.of(context).push(
+                                          MaterialPageRoute<void>(
+                                            builder: (_) =>
+                                                SongCommentsPage(query: query),
+                                          ),
+                                        );
+                                      },
+                                      icon: const Icon(
+                                        Icons.chat_bubble_outline_rounded,
+                                      ),
+                                      label: Text(
+                                        strings.isZh ? '歌曲热评' : 'Song comments',
+                                      ),
                                     ),
-                                  ),
-                              ],
-                            ),
-                          ],
-                        ),
-                      );
-                    },
-                  );
-                },
+                                ],
+                              ),
+                            ],
+                          ),
+                        );
+                      },
+                    );
+                  },
+                ),
               ),
             ),
           ),
@@ -987,7 +1012,14 @@ class _LyricsDetailPage extends StatelessWidget {
       builder: (context, _) {
         final currentTrack = controller.currentTrack;
         final strings = AppStringsScope.of(context);
-        return Scaffold(
+        return DuoScaffold(
+          extraActions: [
+            DuoRailItem(
+              icon: Icons.queue_music_rounded,
+              label: strings.isZh ? '当前队列' : 'Play queue',
+              onPressed: () => showPlaybackQueue(context, controller),
+            ),
+          ],
           extendBodyBehindAppBar: true,
           appBar: AppBar(
             backgroundColor: Colors.transparent,
@@ -1320,14 +1352,16 @@ class _PlaybackControls extends StatelessWidget {
             onPressed: controller.next,
             icon: Icons.skip_next_rounded,
           ),
-          const SizedBox(width: 12),
-          GlassIconButton(
-            blur: false,
-            key: const ValueKey('player-queue'),
-            tooltip: strings.isZh ? '当前队列' : 'Play queue',
-            onPressed: () => showPlaybackQueue(context, controller),
-            icon: Icons.queue_music_rounded,
-          ),
+          if (DuoWindowScope.of(context).edge == DuoBarEdge.none) ...[
+            const SizedBox(width: 12),
+            GlassIconButton(
+              blur: false,
+              key: const ValueKey('player-queue'),
+              tooltip: strings.isZh ? '当前队列' : 'Play queue',
+              onPressed: () => showPlaybackQueue(context, controller),
+              icon: Icons.queue_music_rounded,
+            ),
+          ],
         ],
       ),
     );

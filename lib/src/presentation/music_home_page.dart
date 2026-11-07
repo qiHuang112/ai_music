@@ -1,3 +1,4 @@
+import 'duo_scaffold.dart';
 import 'initial_song_scroll.dart';
 import 'desktop_home.dart';
 import 'desktop_ui.dart';
@@ -237,146 +238,83 @@ class _MusicHomePageState extends State<MusicHomePage>
         return LayoutBuilder(
           builder: (context, constraints) {
             final sideNavigation =
+                DuoScaffold.usesSystemRail(context) ||
                 constraints.maxWidth >= 720 ||
                 (constraints.maxWidth >= 560 &&
                     constraints.maxWidth > constraints.maxHeight * 1.25);
-            return Row(
-              children: [
-                Expanded(
-                  child: PopScope(
-                    canPop: false,
-                    onPopInvokedWithResult: (didPop, _) {
-                      if (!didPop) {
-                        _handleRootBack(strings);
-                      }
-                    },
-                    child: Scaffold(
-                      extendBody: true,
-                      appBar: _tab != 0
-                          ? null
-                          : AppBar(
-                              title: Text(strings.homeLibraryTitle),
-                              titleTextStyle: MusicType.masthead(
-                                context,
-                                size: 30,
+            return PopScope(
+              canPop: false,
+              onPopInvokedWithResult: (didPop, _) {
+                if (!didPop) _handleRootBack(strings);
+              },
+              child: DuoScaffold(
+                railKey: const ValueKey('home-side-navigation'),
+                preferSideNavigation: sideNavigation,
+                navigationItems: [
+                  for (final (i, tab) in tabs.indexed)
+                    DuoRailItem(
+                      icon: const [
+                        Icons.home_outlined,
+                        Icons.library_music_outlined,
+                        Icons.downloading_rounded,
+                        Icons.settings_outlined,
+                      ][i],
+                      label: tab.tooltip,
+                      navigation: true,
+                      selected: i == _tab,
+                      marker: tab.marker,
+                      onPressed: () => _selectTab(i),
+                    ),
+                ],
+                extendBody: true,
+                appBar: _tab != 0
+                    ? null
+                    : AppBar(
+                        title: Text(strings.homeLibraryTitle),
+                        titleTextStyle: MusicType.masthead(context, size: 30),
+                      ),
+                body: IndexedStack(
+                  index: _tab,
+                  children: [
+                    for (final (i, tab) in [
+                      _homeTab(strings),
+                      _visitedTabs.contains(1)
+                          ? _LibraryPage(controller: controller)
+                          : const SizedBox.shrink(),
+                      _visitedTabs.contains(2)
+                          ? DownloadManagerPage(
+                              controller: controller,
+                              onOpenPlaylist: _openMatchedPlaylist,
+                            )
+                          : const SizedBox.shrink(),
+                      _tab == 3
+                          ? SettingsPage(controller: controller)
+                          : const SizedBox.shrink(),
+                    ].indexed)
+                      TickerMode(enabled: i == _tab, child: tab),
+                  ],
+                ),
+                bottomNavigationBar: _tab == 0 && _searchFocusNode.hasFocus
+                    ? null
+                    : Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          MediaQuery.removePadding(
+                            context: context,
+                            removeBottom: !sideNavigation,
+                            child: MiniPlayer(controller: controller),
+                          ),
+                          if (!sideNavigation)
+                            NavBlur(
+                              child: GlassTabBar(
+                                index: _tab,
+                                onSelected: _selectTab,
+                                tabs: tabs,
                               ),
                             ),
-                      body: IndexedStack(
-                        index: _tab,
-                        children: [
-                          // Hidden tabs stay built but their animations stop.
-                          for (final (i, tab) in [
-                            _homeTab(strings),
-                            _visitedTabs.contains(1)
-                                ? _LibraryPage(controller: controller)
-                                : const SizedBox.shrink(),
-                            _visitedTabs.contains(2)
-                                ? DownloadManagerPage(
-                                    controller: controller,
-                                    onOpenPlaylist: _openMatchedPlaylist,
-                                  )
-                                : const SizedBox.shrink(),
-                            // Recreate settings to rediscover LAN services.
-                            _tab == 3
-                                ? SettingsPage(controller: controller)
-                                : const SizedBox.shrink(),
-                          ].indexed)
-                            TickerMode(enabled: i == _tab, child: tab),
                         ],
                       ),
-                      bottomNavigationBar:
-                          _tab == 0 && _searchFocusNode.hasFocus
-                          ? null
-                          : Column(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                // In compact layout the tab bar owns the bottom safe area.
-                                MediaQuery.removePadding(
-                                  context: context,
-                                  removeBottom: !sideNavigation,
-                                  child: MiniPlayer(controller: controller),
-                                ),
-                                if (!sideNavigation)
-                                  NavBlur(
-                                    child: GlassTabBar(
-                                      index: _tab,
-                                      onSelected: _selectTab,
-                                      tabs: tabs,
-                                    ),
-                                  ),
-                              ],
-                            ),
-                    ),
-                  ),
-                ),
-                if (sideNavigation)
-                  SafeArea(
-                    child: SizedBox(
-                      key: const ValueKey('home-side-navigation'),
-                      width: 88,
-                      child: NavBlur(
-                        child: ListView(
-                          padding: const EdgeInsets.symmetric(
-                            vertical: 24,
-                            horizontal: 6,
-                          ),
-                          children: [
-                            for (final (i, tab) in tabs.indexed)
-                              Padding(
-                                padding: const EdgeInsets.only(bottom: 12),
-                                child: Semantics(
-                                  selected: i == _tab,
-                                  button: true,
-                                  child: Tooltip(
-                                    message: tab.tooltip,
-                                    child: TextButton(
-                                      style: TextButton.styleFrom(
-                                        backgroundColor: i == _tab
-                                            ? Theme.of(
-                                                context,
-                                              ).colorScheme.secondaryContainer
-                                            : null,
-                                        foregroundColor: i == _tab
-                                            ? Theme.of(
-                                                context,
-                                              ).colorScheme.onSecondaryContainer
-                                            : Theme.of(
-                                                context,
-                                              ).colorScheme.onSurfaceVariant,
-                                        padding: const EdgeInsets.symmetric(
-                                          vertical: 14,
-                                          horizontal: 4,
-                                        ),
-                                      ),
-                                      onPressed: () => _selectTab(i),
-                                      child: Column(
-                                        children: [
-                                          Icon(
-                                            const [
-                                              Icons.home_outlined,
-                                              Icons.library_music_outlined,
-                                              Icons.downloading_rounded,
-                                              Icons.settings_outlined,
-                                            ][i],
-                                          ),
-                                          const SizedBox(height: 6),
-                                          Text(
-                                            tab.label,
-                                            textAlign: TextAlign.center,
-                                          ),
-                                          if (tab.marker != null) tab.marker!,
-                                        ],
-                                      ),
-                                    ),
-                                  ),
-                                ),
-                              ),
-                          ],
-                        ),
-                      ),
-                    ),
-                  ),
-              ],
+              ),
             );
           },
         );
@@ -1547,7 +1485,7 @@ class _LibraryPage extends StatelessWidget {
       animation: controller,
       builder: (context, _) {
         final strings = AppStringsScope.of(context);
-        return Scaffold(
+        return DuoScaffold(
           extendBody: true,
           appBar: AppBar(
             titleTextStyle: MusicType.masthead(context, size: 30),
@@ -2512,8 +2450,12 @@ class _PlaylistDetailPageState extends State<_PlaylistDetailPage> {
                   note: widget.chartUpdatedAt == null
                       ? null
                       : strings.chartUpdated(widget.chartUpdatedAt!),
-                  actions: appBar.actions ?? const [],
-                  leading: appBar.leading,
+                  actions: DuoScaffold.usesSystemRail(context)
+                      ? const []
+                      : appBar.actions ?? const [],
+                  leading: DuoScaffold.usesSystemRail(context)
+                      ? const SizedBox.shrink()
+                      : appBar.leading,
                   toolbarTitle: selecting ? appBar.title : null,
                 ),
                 SliverToBoxAdapter(child: Column(children: headerChildren)),
@@ -2565,10 +2507,11 @@ class _PlaylistDetailPageState extends State<_PlaylistDetailPage> {
               unawaited(_requestExitReorderEditing(list));
             }
           },
-          child: Scaffold(
+          child: DuoScaffold(
             extendBody: true,
             // On the Mac a selection keeps its bar above the header.
             appBar: immersive && !(desktopHero && selecting) ? null : appBar,
+            railAppBar: immersive ? appBar : null,
             body: SafeArea(
               top: !immersive,
               bottom: false,

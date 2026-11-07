@@ -22,6 +22,13 @@ class DuoFlutterViewController: FlutterViewController {
     self.probe = probe
     view.addSubview(probe)
     probe.setNeedsUpdateConstraints()
+    if #available(iOS 27.1, *) {
+      probe.registerForTraitChanges(UITraitCollection.systemTraitsAffectingVerticalBarEdge) {
+        (view: MusicRegionProbe, _: UITraitCollection) in
+        view.setNeedsUpdateConstraints()
+        view.setNeedsLayout()
+      }
+    }
     channel.setMethodCallHandler { [weak probe] call, result in
       guard call.method == "snapshot" else {
         result(FlutterMethodNotImplemented)
@@ -47,7 +54,24 @@ private class MusicRegionProbe: UIView {
         }
       }
     }
-    return ["width": bounds.width, "height": bounds.height, "regions": regions]
+    var edge = "none"
+    if #available(iOS 27.1, *) {
+      switch traitCollection.verticalBarEdge {
+      case .leading: edge = "left"
+      case .trailing: edge = "right"
+      default: break
+      }
+    }
+    // The status bar is a small rectangle within the vertical strip; do not
+    // turn its safe-area inset into a full-height empty column.
+    if let window, let manager = window.windowScene?.statusBarManager,
+       !manager.isStatusBarHidden {
+      let rect = convert(manager.statusBarFrame, from: window.screen.coordinateSpace)
+      regions.append(["kind": "status", "x": rect.minX, "y": rect.minY,
+                      "width": rect.width, "height": rect.height])
+    }
+    return ["width": bounds.width, "height": bounds.height,
+            "verticalBarEdge": edge, "regions": regions]
   }
 
   private func publish() {

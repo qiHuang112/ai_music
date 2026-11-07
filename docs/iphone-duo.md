@@ -34,7 +34,7 @@
 - https://developer.apple.com/design/human-interface-guidelines/designing-for-iphone-duo
 - https://developer.apple.com/documentation/uikit/uiview/reservedregions(kind:options:)
 
-## 实现与实际验证
+## 首轮实现与实际验证（右侧留白问题已由下文修正）
 
 - 首页：可用空间足够时显示右侧导航，底部保留迷你播放器；窄窗口回到底部导航。切换时保留选中页面、搜索文字和页面状态。
 - 播放器：展开为黑胶／控制和歌词／待播两栏；待播使用同一队列，支持点歌、排序和现有管理操作。窄屏维持单栏，矮而宽的外屏改为唱片在左、预览和控制在右。
@@ -59,3 +59,21 @@ xcrun xcodebuild -workspace ios/Runner.xcworkspace -scheme Runner \
 ```
 
 Xcode 27.1 的 lipo 同时验证 arm64 / x86_64 时在本机报 `-verify_arch requires exactly one input file`；当前 Apple Silicon 模拟器构建显式选择 arm64，仍使用 27.1 编译器和 SDK。安装产物为 `build/ios/Debug-iphonesimulator/Runner.app`，实际工程身份 `com.tjs.aimusic`，没有变更应用身份。日志 `build/duo-xcode-build.log`；不生成或发布 IPA。
+
+## 用户修正：右侧导航（2026-11-07）
+
+用户指出半屏、外屏右侧仍有空白，要求按苹果布局方式将导航按钮放到右侧。上一版整体裁掉遮挡所在边缘，造成摄像头／状态栏下方也不可用，首页另占一条侧栏，播放器返回和操作仍在顶部。本轮改用 UIKit `verticalBarEdge`，让导航占用系统侧栏，只按实际矩形避让摄像头、状态栏和折线；返回／页面操作先于主导航，空间不足用溢出菜单。适用外屏、展开／半折叠和分屏的系统侧栏位置，保留 iPhone 普通窗口和内屏竖向的正常布局。
+
+
+本轮实现：
+
+- 原生桥接传递 `traitCollection.verticalBarEdge`，注册 `systemTraitsAffectingVerticalBarEdge`，并提供状态栏的窗口坐标矩形。
+- `DuoScaffold` 让主导航、返回与页面操作占用原本的系统侧边空间，按实际摄像头／状态栏／折线矩形排布，短窗口保留“更多”入口。反向旋转及分屏采用系统给出的物理左右位置，不按文字方向翻转。
+- 首页四个入口、播放器、完整歌词、队列、设置子页、歌单、下载、评论、音源页面共用侧栏；歌单滚动标题保留在内容区，导航和操作移到侧边。嵌套页面不重复创建侧栏。
+- 树结构在左右／普通布局间保持稳定；播放和页面状态继续沿用。外屏队列使用带侧边返回的独立页；歌词详情也保留队列入口。
+
+验证：28 项定向测试通过（原有播放器／区域 22、首页折叠 1、窄屏全路由／长队列 1、新增侧栏 4），受影响文件静态检查无问题；最终 Xcode 27.1 arm64 模拟器构建成功并安装。新增测试覆盖侧边安全区域利用、遮挡和折线避让、短屏溢出入口、物理左右位置及嵌套内容状态保持。
+
+Duo 模拟器实查：外屏竖放首页导航位于右下方；播放页右侧包含返回、收藏、加入歌单、完整歌词、队列。半折叠横向布局的右边不再整条留空；上下半折叠随系统恢复水平导航，歌词和控制分处折线两侧。反向横放侧栏随系统移到左边；队列、完整歌词和返回入口可用。播放《我不难过》旋转后继续推进，歌单页返回／刷新在侧边，不重复顶部返回。以上是模拟器结果，真机与真实多任务分屏仍未验收。
+
+最终构建日志：`build/duo-right-xcode-build.log`。截图：`build/duo-evidence/right-rail-outer-player.png`、`right-rail-half-player.png`、`right-rail-outer-home.png`。未发布、未推送，未操作 iPhone (105)。

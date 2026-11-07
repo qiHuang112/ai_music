@@ -63,7 +63,11 @@ class _DuoWindowState extends State<DuoWindow> with WidgetsBindingObserver {
   Widget build(BuildContext context) {
     final data = MediaQuery.of(context);
     final geometry = DuoGeometry.fromMap(_geometry, data.size);
-    final inset = geometry.occlusionInsets;
+    // Keep the complete window when UIKit asks for a vertical bar. Each
+    // DuoScaffold puts controls in that strip, below the actual occlusions.
+    final inset = geometry.edge == DuoBarEdge.none
+        ? geometry.occlusionInsets
+        : EdgeInsets.zero;
     EdgeInsets remaining(EdgeInsets value) => EdgeInsets.fromLTRB(
       math.max(0, value.left - inset.left),
       math.max(0, value.top - inset.top),
@@ -96,15 +100,38 @@ class _DuoWindowState extends State<DuoWindow> with WidgetsBindingObserver {
               ),
           ],
         ),
-        child: widget.child,
+        child: DuoWindowScope(geometry: geometry, child: widget.child),
       ),
     );
   }
 }
 
-@visibleForTesting
+enum DuoBarEdge { none, left, right }
+
+class DuoWindowScope extends InheritedWidget {
+  const DuoWindowScope({
+    super.key,
+    required this.geometry,
+    required super.child,
+  });
+  final DuoGeometry geometry;
+  static DuoGeometry of(BuildContext context) =>
+      context.dependOnInheritedWidgetOfExactType<DuoWindowScope>()?.geometry ??
+      const DuoGeometry(EdgeInsets.zero, []);
+  @override
+  bool updateShouldNotify(DuoWindowScope oldWidget) =>
+      geometry != oldWidget.geometry;
+}
+
 class DuoGeometry {
-  const DuoGeometry(this.occlusionInsets, this.divisions);
+  const DuoGeometry(
+    this.occlusionInsets,
+    this.divisions, {
+    this.edge = DuoBarEdge.none,
+    this.obstructions = const [],
+  });
+  final DuoBarEdge edge;
+  final List<Rect> obstructions;
   final EdgeInsets occlusionInsets;
   final List<Rect> divisions;
 
@@ -115,6 +142,7 @@ class DuoGeometry {
     }
     var inset = EdgeInsets.zero;
     final divisions = <Rect>[];
+    final obstructions = <Rect>[];
     for (final raw in (map['regions'] as List? ?? const [])) {
       final r = Map<Object?, Object?>.from(raw as Map);
       double n(String key) => (r[key] as num).toDouble();
@@ -128,6 +156,8 @@ class DuoGeometry {
       if (r['kind'] == 'division') {
         divisions.add(rect);
       } else {
+        obstructions.add(rect);
+        if (r['kind'] == 'status') continue;
         // Reserve the nearest edge strip for camera / Live Activity occlusions.
         // This also protects Flutter sheets and app-bar buttons globally.
         final edges = [
@@ -145,6 +175,15 @@ class DuoGeometry {
         );
       }
     }
-    return DuoGeometry(inset, divisions);
+    return DuoGeometry(
+      inset,
+      divisions,
+      edge: switch (map['verticalBarEdge']) {
+        'left' => DuoBarEdge.left,
+        'right' => DuoBarEdge.right,
+        _ => DuoBarEdge.none,
+      },
+      obstructions: obstructions,
+    );
   }
 }

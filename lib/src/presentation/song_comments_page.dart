@@ -1,3 +1,4 @@
+import 'duo_scaffold.dart';
 import 'dart:async';
 
 import 'package:flutter/material.dart';
@@ -236,7 +237,7 @@ class _SongCommentsPageState extends State<SongCommentsPage> {
   Widget build(BuildContext context) {
     final comments = _comments;
     final loading = _visiblePlatforms.any((source) => _pages[source]!.loading);
-    return Scaffold(
+    return DuoScaffold(
       appBar: AppBar(
         automaticallyImplyLeading: !widget.embedded,
         title: Text(zh ? '歌曲热评' : 'Song comments'),
