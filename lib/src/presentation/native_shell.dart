@@ -42,7 +42,18 @@ class NativeShell extends NavigatorObserver {
         break;
       }
     }
-    if (_active) _channel.setMethodCallHandler(_onCall);
+    if (_active) {
+      _channel.setMethodCallHandler(_onCall);
+      unawaited(_sendSharedGlyphs());
+    }
+  }
+
+  /// The strip's shared lyrics button uses the app's lyrics glyph: no system
+  /// symbol reads as lyrics (the quote bubble looked like comments).
+  Future<void> _sendSharedGlyphs() async {
+    final lyrics = await ShellGlyphs.of(AppIcons.lyrics);
+    if (lyrics == null) return;
+    await _channel.invokeMethod('sharedGlyphs', {'lyrics': lyrics});
   }
 
   // ---- Routes -------------------------------------------------------------
@@ -345,9 +356,7 @@ class NativeShell extends NavigatorObserver {
   /// A 120px square of the cover for the accessory, as PNG.
   static Future<Uint8List?> _thumbnail(Uri uri) async {
     try {
-      final stream = artworkImageProvider(
-        uri,
-      ).resolve(ImageConfiguration.empty);
+      final stream = artworkImageProvider(uri).resolve(ImageConfiguration.empty);
       final completer = Completer<ui.Image>();
       late final ImageStreamListener listener;
       listener = ImageStreamListener(
@@ -444,8 +453,6 @@ final _symbols = <IconData, String>{
   Icons.queue_music: 'list.bullet',
   Icons.queue_music_rounded: 'list.bullet',
   CupertinoIcons.music_note_list: 'list.bullet',
-  Icons.lyrics_outlined: 'quote.bubble',
-  CupertinoIcons.text_quote: 'quote.bubble',
   Icons.refresh: 'arrow.clockwise',
   Icons.refresh_rounded: 'arrow.clockwise',
   CupertinoIcons.arrow_clockwise: 'arrow.clockwise',
@@ -556,12 +563,11 @@ class ShellGlyphs {
   /// The bytes once rendered; null until [of] has completed for the icon.
   static Uint8List? cached(IconData icon) => _done[icon];
 
-  static Future<Uint8List?> of(IconData icon) =>
-      _cache.putIfAbsent(icon, () async {
-        final bytes = await _render(icon);
-        if (bytes != null) _done[icon] = bytes;
-        return bytes;
-      });
+  static Future<Uint8List?> of(IconData icon) => _cache.putIfAbsent(icon, () async {
+    final bytes = await _render(icon);
+    if (bytes != null) _done[icon] = bytes;
+    return bytes;
+  });
 
   static Future<Uint8List?> _render(IconData icon) async {
     const size = 66.0;
@@ -608,9 +614,7 @@ String? shellLabelOf(Widget? widget) {
       return data ?? textSpan?.toPlainText();
     case ListTile(:final title):
       return shellLabelOf(title);
-    case Row(:final children) ||
-        Column(:final children) ||
-        Wrap(:final children):
+    case Row(:final children) || Column(:final children) || Wrap(:final children):
       for (final child in children) {
         final label = shellLabelOf(child);
         if (label != null && label.isNotEmpty) return label;

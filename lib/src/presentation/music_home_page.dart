@@ -141,19 +141,13 @@ class _MusicHomePageState extends State<MusicHomePage>
         }
       };
     NativeShell.instance.onOpenPlayer = () {
-      if (mounted) {
-        unawaited(openPlayerPage(_contentNavigator.context, controller));
-      }
+      if (mounted) unawaited(openPlayerPage(_contentNavigator.context, controller));
     };
     NativeShell.instance.onOpenQueue = () {
-      if (mounted) {
-        unawaited(showPlaybackQueue(_contentNavigator.context, controller));
-      }
+      if (mounted) unawaited(showPlaybackQueue(_contentNavigator.context, controller));
     };
     NativeShell.instance.onOpenLyrics = () {
-      if (mounted) {
-        unawaited(openLyricsPage(_contentNavigator.context, controller));
-      }
+      if (mounted) unawaited(openLyricsPage(_contentNavigator.context, controller));
     };
     NativeShell.instance.onOpenComments = () {
       if (mounted) {
@@ -893,7 +887,7 @@ class _SearchHeader extends StatelessWidget {
                       children: [
                         if (!compactMode) ...[
                           Icon(
-                            playlistMode ? AppIcons.playlist : AppIcons.music,
+                            playlistMode ? AppIcons.queue : AppIcons.music,
                             size: 16,
                           ),
                           const SizedBox(width: 4),
@@ -916,7 +910,9 @@ class _SearchHeader extends StatelessWidget {
                             : IconButton(
                                 tooltip: strings.importScreenshots,
                                 onPressed: onImportScreenshots,
-                                icon: const Icon(AppIcons.scan),
+                                icon: const Icon(
+                                  AppIcons.scan,
+                                ),
                               ))
                       : Row(
                           mainAxisSize: MainAxisSize.min,
@@ -931,7 +927,9 @@ class _SearchHeader extends StatelessWidget {
                               IconButton(
                                 tooltip: strings.importScreenshots,
                                 onPressed: onImportScreenshots,
-                                icon: const Icon(AppIcons.scan),
+                                icon: const Icon(
+                                  AppIcons.scan,
+                                ),
                               ),
                           ],
                         ),
@@ -1402,7 +1400,7 @@ class _HomeLibrarySection extends StatelessWidget {
                           : 'Switch to visits (30 days)')
                     : (strings.isZh ? '切换为最近打开' : 'Switch to recently opened'),
                 child: MediaQuery.textScalerOf(context).scale(14) > 18
-                    ? const Icon(AppIcons.sort, size: 22)
+                    ? const Icon(AppIcons.swapVertical, size: 22)
                     : Row(
                         mainAxisSize: MainAxisSize.min,
                         children: [
@@ -1414,7 +1412,7 @@ class _HomeLibrarySection extends StatelessWidget {
                             style: theme.textTheme.labelLarge,
                           ),
                           const SizedBox(width: 2),
-                          const Icon(AppIcons.sort, size: 18),
+                          const Icon(AppIcons.swapVertical, size: 18),
                         ],
                       ),
               ),
@@ -1434,7 +1432,7 @@ class _HomeLibrarySection extends StatelessWidget {
           for (final playlist in playlists.take(4)) ...[
             _HomeLibraryTile(
               key: ValueKey('home-playlist-${playlist.id}'),
-              icon: AppIcons.playlist,
+              icon: AppIcons.queue,
               artworkUri: _homePlaylistArtwork(controller, playlist),
               artworkLabel: playlist.name,
               title: playlist.name,
@@ -1688,7 +1686,8 @@ class _LibraryLanding extends StatelessWidget {
                   selection: _LibraryListSpec.local(),
                   count: controller.cachedTracks.length,
                   title: strings.localLibrary,
-                  onPressed: () => _openList(context, _LibraryListSpec.local()),
+                  onPressed: () =>
+                      _openList(context, _LibraryListSpec.local()),
                 ),
               ),
             ],
@@ -1697,33 +1696,31 @@ class _LibraryLanding extends StatelessWidget {
         const SizedBox(height: 24),
         _LibraryLead(
           child: Card(
-            child: ListTile(
-              key: const Key('library-listening-stats'),
-              leading: Icon(
-                AppIcons.insights,
-                color: Theme.of(context).colorScheme.primary,
-              ),
-              title: Text(strings.isZh ? '我的听歌' : 'My listening'),
-              subtitle: Text(
-                strings.isZh
-                    ? '时长、排行与每日记录'
-                    : 'Time, rankings and daily history',
-              ),
-              trailing: const Icon(AppIcons.chevronRight),
-              onTap: () => Navigator.push(
-                context,
-                AppPageRoute<void>(
-                  settings: const RouteSettings(name: 'listening-stats'),
-                  builder: (_) => ListeningStatsPage(
-                    controller: controller,
-                    bottomPlayer: MiniPlayer(controller: controller),
-                    onOpenPlaylist: (playlist) =>
-                        _openList(context, _LibraryListSpec.custom(playlist)),
-                  ),
+          child: ListTile(
+            key: const Key('library-listening-stats'),
+            leading: Icon(
+              AppIcons.insights,
+              color: Theme.of(context).colorScheme.primary,
+            ),
+            title: Text(strings.isZh ? '我的听歌' : 'My listening'),
+            subtitle: Text(
+              strings.isZh ? '时长、排行与每日记录' : 'Time, rankings and daily history',
+            ),
+            trailing: const Icon(AppIcons.chevronRight),
+            onTap: () => Navigator.push(
+              context,
+              AppPageRoute<void>(
+                settings: const RouteSettings(name: 'listening-stats'),
+                builder: (_) => ListeningStatsPage(
+                  controller: controller,
+                  bottomPlayer: MiniPlayer(controller: controller),
+                  onOpenPlaylist: (playlist) =>
+                      _openList(context, _LibraryListSpec.custom(playlist)),
                 ),
               ),
             ),
           ),
+        ),
         ),
         SizedBox(height: desktop ? 30 : 24),
         Text(strings.customPlaylists, style: heading),
@@ -1778,9 +1775,9 @@ class _LibraryLanding extends StatelessWidget {
       ...neteaseMusicCharts,
     ].where((c) => c.playlistId == selection.id).firstOrNull;
     if (chart != null) {
-      return Navigator.of(
-        context,
-      ).push<void>(AppPageRoute(builder: (_) => _chartPage(controller, chart)));
+      return Navigator.of(context).push<void>(
+        AppPageRoute(builder: (_) => _chartPage(controller, chart)),
+      );
     }
     return Navigator.of(context).push<void>(
       AppPageRoute(
@@ -1864,7 +1861,7 @@ class _EmptyCustomPlaylists extends StatelessWidget {
       padding: const EdgeInsets.symmetric(vertical: 28),
       child: Column(
         children: [
-          Icon(AppIcons.playlist, size: 40, color: colors.primary),
+          Icon(AppIcons.queue, size: 40, color: colors.primary),
           const SizedBox(height: 12),
           Text(
             strings.noCustomPlaylists,
@@ -2012,7 +2009,7 @@ class _LibraryListSpec {
     return _LibraryListSpec(
       id: playlist.id,
       title: playlist.name,
-      icon: AppIcons.playlist,
+      icon: AppIcons.queue,
       kind: _LibraryListKind.custom,
     );
   }
@@ -2576,19 +2573,19 @@ class _PlaylistDetailPageState extends State<_PlaylistDetailPage> {
                     ),
                   )
                 else
-                  PlaylistSliverHeader(
-                    title: list.title,
-                    note: widget.chartUpdatedAt == null
-                        ? null
-                        : strings.chartUpdated(widget.chartUpdatedAt!),
-                    actions: DuoScaffold.usesSystemRail(context)
-                        ? const []
-                        : appBar.actions ?? const [],
-                    leading: DuoScaffold.usesSystemRail(context)
-                        ? const SizedBox.shrink()
-                        : appBar.leading,
-                    toolbarTitle: selecting ? appBar.title : null,
-                  ),
+                PlaylistSliverHeader(
+                  title: list.title,
+                  note: widget.chartUpdatedAt == null
+                      ? null
+                      : strings.chartUpdated(widget.chartUpdatedAt!),
+                  actions: DuoScaffold.usesSystemRail(context)
+                      ? const []
+                      : appBar.actions ?? const [],
+                  leading: DuoScaffold.usesSystemRail(context)
+                      ? const SizedBox.shrink()
+                      : appBar.leading,
+                  toolbarTitle: selecting ? appBar.title : null,
+                ),
                 SliverToBoxAdapter(child: Column(children: headerChildren)),
               ]
             : null;
@@ -3902,7 +3899,9 @@ class _TrackActions extends StatelessWidget {
                 ? strings.removeFromFavorites
                 : strings.addToFavorites,
             onPressed: () => controller.toggleFavorite(track),
-            icon: favorite ? AppIcons.heartFill : AppIcons.heart,
+            icon: favorite
+                ? AppIcons.heartFill
+                : AppIcons.heart,
             color: favorite ? Theme.of(context).colorScheme.primary : null,
             size: 30,
             iconSize: 17,
@@ -4154,7 +4153,7 @@ class _EmptyPlaylist extends StatelessWidget {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(AppIcons.playlist, size: 48, color: colors.primary),
+            Icon(AppIcons.queue, size: 48, color: colors.primary),
             const SizedBox(height: 16),
             Text(title, style: Theme.of(context).textTheme.titleLarge),
             const SizedBox(height: 8),
@@ -4374,7 +4373,10 @@ class _DesktopListHero extends StatelessWidget {
                                         fontWeight: FontWeight.w600,
                                       ),
                                     ),
-                                    icon: const Icon(AppIcons.play, size: 20),
+                                    icon: const Icon(
+                                      AppIcons.play,
+                                      size: 20,
+                                    ),
                                     label: Text(zh ? '播放全部' : 'Play all'),
                                   ),
                                   const SizedBox(width: 6),

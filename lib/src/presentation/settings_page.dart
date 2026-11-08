@@ -129,7 +129,9 @@ class _DesktopSettingsPageState extends State<DesktopSettingsPage> {
                                     ),
                                     _PlaybackCacheSetting(controller: c),
                                     ListTile(
-                                      leading: const Icon(AppIcons.insights),
+                                      leading: const Icon(
+                                        AppIcons.insights,
+                                      ),
                                       title: Text(
                                         strings.isZh
                                             ? '清空听歌统计'

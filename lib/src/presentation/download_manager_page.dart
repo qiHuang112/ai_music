@@ -690,7 +690,11 @@ class _LanSyncCard extends StatelessWidget {
                   color: colors.secondaryContainer,
                   borderRadius: BorderRadius.circular(16),
                 ),
-                child: Icon(AppIcons.devices, color: colors.primary, size: 26),
+                child: Icon(
+                  AppIcons.devices,
+                  color: colors.primary,
+                  size: 26,
+                ),
               ),
               const SizedBox(width: 14),
               Expanded(
@@ -719,7 +723,11 @@ class _LanSyncCard extends StatelessWidget {
           Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Icon(AppIcons.server, size: 20, color: colors.onSurfaceVariant),
+              Icon(
+                AppIcons.server,
+                size: 20,
+                color: colors.onSurfaceVariant,
+              ),
               const SizedBox(width: 10),
               Expanded(
                 child: Column(
@@ -803,7 +811,11 @@ class _LanSyncCard extends StatelessWidget {
               error: true,
             ),
           if (controller.lanSyncError != null)
-            status(AppIcons.error, Text(controller.lanSyncError!), error: true),
+            status(
+              AppIcons.error,
+              Text(controller.lanSyncError!),
+              error: true,
+            ),
         ],
       ),
     );

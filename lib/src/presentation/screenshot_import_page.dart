@@ -634,7 +634,7 @@ class _ScreenshotImportPageState extends State<ScreenshotImportPage> {
             ),
             for (final playlist in widget.controller.customPlaylists)
               ListTile(
-                leading: const Icon(AppIcons.playlist),
+                leading: const Icon(AppIcons.queue),
                 title: Text(playlist.name),
                 onTap: () => Navigator.pop(sheetContext, playlist),
               ),

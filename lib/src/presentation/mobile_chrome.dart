@@ -13,11 +13,11 @@ import '../application/music_controller.dart';
 import 'app_localizations.dart';
 import 'app_theme.dart';
 import 'design/controls.dart';
-import 'design/app_icons.dart';
 import 'design/glass_surface.dart';
 import 'desktop_scope.dart';
 import 'music_thumbnail.dart';
 import 'native_shell.dart';
+import 'design/app_icons.dart';
 
 /// What the floating tab bar shows. Published by the home page.
 @immutable
@@ -753,7 +753,9 @@ class _NowPlayingBarState extends State<_NowPlayingBar>
                                 key: const ValueKey(
                                   'floating-now-playing-toggle',
                                 ),
-                                icon: playing ? AppIcons.pause : AppIcons.play,
+                                icon: playing
+                                    ? AppIcons.pause
+                                    : AppIcons.play,
                                 size: 32,
                                 label: playing ? strings.pause : strings.play,
                                 onTap: () =>
@@ -770,7 +772,7 @@ class _NowPlayingBarState extends State<_NowPlayingBar>
                                 key: const ValueKey(
                                   'floating-now-playing-queue',
                                 ),
-                                icon: AppIcons.queue,
+                                icon: CupertinoIcons.list_bullet,
                                 size: 27,
                                 label: strings.isZh ? '当前队列' : 'Play queue',
                                 onTap: () => chrome.onOpenQueue?.call(),

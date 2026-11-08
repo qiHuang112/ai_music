@@ -137,6 +137,10 @@ final class MusicShellController: UIViewController, UITabBarControllerDelegate,
     case "nowPlaying":
       updateNowPlaying(args)
       result(nil)
+    case "sharedGlyphs":
+      lyricsGlyph = args["lyrics"] as? FlutterStandardTypedData
+      reapplyPages()
+      result(nil)
     default:
       result(FlutterMethodNotImplemented)
     }
@@ -238,12 +242,16 @@ final class MusicShellController: UIViewController, UITabBarControllerDelegate,
 
   private var nowPlayingPresent = false
 
+  /// The app's own lyrics glyph, sent once by Flutter: no SF Symbol reads as
+  /// lyrics (the quote bubble looked like the comments beside it).
+  private var lyricsGlyph: FlutterStandardTypedData?
+
   /// With the bars in a vertical strip, lyrics, comments and the queue are
   /// reachable from every page, under that page's own controls.
   var sharedActions: [ShellAction] {
     guard nowPlayingPresent, verticalBarActive else { return [] }
     return [
-      ShellAction(id: "shell.player.lyrics", title: "歌词", symbol: "quote.bubble"),
+      ShellAction(id: "shell.player.lyrics", title: "歌词", symbol: lyricsGlyph == nil ? "text.alignleft" : nil, glyph: lyricsGlyph),
       ShellAction(id: "shell.player.comments", title: "歌曲热评", symbol: "bubble.left"),
       ShellAction(id: "shell.player.queue", title: "当前队列", symbol: "list.bullet"),
     ]
@@ -635,11 +643,11 @@ struct ShellAction {
     menu = (raw["menu"] as? [[String: Any]] ?? []).map(ShellMenuEntry.init)
   }
 
-  init(id: String, title: String, symbol: String) {
+  init(id: String, title: String, symbol: String?, glyph: FlutterStandardTypedData? = nil) {
     self.id = id
     self.title = title
     self.symbol = symbol
-    glyph = nil
+    self.glyph = glyph
     enabled = true
     prominent = false
     menu = []

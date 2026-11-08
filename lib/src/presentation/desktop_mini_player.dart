@@ -270,7 +270,9 @@ class _DesktopMiniPlayerState extends State<DesktopMiniPlayer> {
       mainAxisSize: MainAxisSize.min,
       children: [
         DesktopToolButton(
-          icon: favorite ? AppIcons.heartFill : AppIcons.heart,
+          icon: favorite
+              ? AppIcons.heartFill
+              : AppIcons.heart,
           tooltip: favorite
               ? strings.removeFromFavorites
               : strings.addToFavorites,

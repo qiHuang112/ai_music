@@ -297,7 +297,9 @@ class _DesignGalleryPageState extends State<DesignGalleryPage>
               ),
               const SizedBox(width: 14),
               GlassIconButton(
-                icon: _favorite ? AppIcons.heartFill : AppIcons.heart,
+                icon: _favorite
+                    ? AppIcons.heartFill
+                    : AppIcons.heart,
                 tooltip: '收藏',
                 selected: _favorite,
                 onPressed: () => setState(() => _favorite = !_favorite),
@@ -575,7 +577,7 @@ class _DesignGalleryPageState extends State<DesignGalleryPage>
         Row(
           children: [
             GlassIconButton(
-              icon: AppIcons.playlist,
+              icon: AppIcons.queue,
               tooltip: '队列',
               onPressed: () {},
             ),

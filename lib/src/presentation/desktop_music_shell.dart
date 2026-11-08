@@ -993,7 +993,11 @@ class DesktopMusicShellState extends State<DesktopMusicShell> {
         ),
         const SizedBox(height: 10),
         entry('home', zh ? '首页' : 'Home', icon: AppIcons.home),
-        entry('library', zh ? '音乐库' : 'Library', icon: AppIcons.library),
+        entry(
+          'library',
+          zh ? '音乐库' : 'Library',
+          icon: AppIcons.library,
+        ),
         group(zh ? '我的音乐' : 'Your music'),
         entry(
           'playlist:$favoritePlaylistId',
@@ -1362,7 +1366,9 @@ class DesktopPlaybackBar extends StatelessWidget {
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
             DesktopToolButton(
-              icon: favorite ? AppIcons.heartFill : AppIcons.heart,
+              icon: favorite
+                  ? AppIcons.heartFill
+                  : AppIcons.heart,
               tooltip: favorite
                   ? strings.removeFromFavorites
                   : strings.addToFavorites,

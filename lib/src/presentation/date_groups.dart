@@ -223,7 +223,9 @@ class DateFilterButton extends StatelessWidget {
                 mainAxisSize: MainAxisSize.min,
                 children: [
                   Icon(
-                    value == null ? AppIcons.filter : AppIcons.filterFill,
+                    value == null
+                        ? AppIcons.filter
+                        : AppIcons.filterFill,
                     size: 20,
                   ),
                   const SizedBox(width: 4),

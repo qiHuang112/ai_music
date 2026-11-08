@@ -93,7 +93,7 @@ Future<void> showAddTracksToPlaylistSheet(
                   leading: Icon(
                     _allTracksInPlaylist(controller, playlist, selectedTracks)
                         ? AppIcons.check
-                        : AppIcons.playlist,
+                        : AppIcons.queue,
                   ),
                   title: Text(playlist.name),
                   subtitle: Text(

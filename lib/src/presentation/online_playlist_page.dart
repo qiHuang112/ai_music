@@ -147,7 +147,10 @@ class _PlaylistCover extends StatelessWidget {
   final String url;
   @override
   Widget build(BuildContext context) {
-    return MusicThumbnail(uri: Uri.tryParse(url), icon: AppIcons.playlist);
+    return MusicThumbnail(
+      uri: Uri.tryParse(url),
+      icon: AppIcons.queue,
+    );
   }
 }
 

@@ -237,7 +237,7 @@ class _DirectPlaylistPageState extends State<DirectPlaylistPage> {
               enabled: detail.songs.isNotEmpty,
               child: ListTile(
                 contentPadding: EdgeInsets.zero,
-                leading: const Icon(AppIcons.playlist),
+                leading: const Icon(AppIcons.queue),
                 title: Text(zh ? '加入已有歌单' : 'Add to existing playlist'),
               ),
             ),
@@ -348,7 +348,9 @@ class _DirectPlaylistPageState extends State<DirectPlaylistPage> {
                                                 strokeWidth: 2,
                                               ),
                                             )
-                                          : const Icon(AppIcons.play),
+                                          : const Icon(
+                                              AppIcons.play,
+                                            ),
                                     ),
                                     title: Text(
                                       song.title,

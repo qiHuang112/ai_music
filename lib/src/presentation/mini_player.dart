@@ -248,22 +248,22 @@ Future<void> openPlayerPage(BuildContext context, MusicController controller) {
   }
   return Navigator.of(context).push<void>(
     PageRouteBuilder(
-      settings: const RouteSettings(name: 'player'),
-      transitionDuration: MusicMotion.slow,
-      reverseTransitionDuration: MusicMotion.base,
-      pageBuilder: (context, _, _) => PlayerPage(controller: controller),
-      transitionsBuilder: (context, animation, _, child) => SlideTransition(
-        position: Tween(begin: const Offset(0, 1), end: Offset.zero).animate(
-          CurvedAnimation(
-            parent: animation,
-            curve: MusicMotion.emphasized,
-            reverseCurve: Curves.easeInCubic,
+        settings: const RouteSettings(name: 'player'),
+        transitionDuration: MusicMotion.slow,
+        reverseTransitionDuration: MusicMotion.base,
+        pageBuilder: (context, _, _) => PlayerPage(controller: controller),
+        transitionsBuilder: (context, animation, _, child) => SlideTransition(
+          position: Tween(begin: const Offset(0, 1), end: Offset.zero).animate(
+            CurvedAnimation(
+              parent: animation,
+              curve: MusicMotion.emphasized,
+              reverseCurve: Curves.easeInCubic,
+            ),
           ),
+          child: child,
         ),
-        child: child,
       ),
-    ),
-  );
+    );
 }
 
 class _OutlinedPlayButton extends StatelessWidget {

@@ -1,231 +1,220 @@
-import 'package:flutter/cupertino.dart' show CupertinoIcons;
-import 'package:flutter/widgets.dart' show IconData;
+import 'package:flutter/material.dart' show IconData, Icons;
 
-/// One icon family for the whole app: the SF Symbols look that iOS draws
-/// its own bars with, from Flutter's Cupertino icon font. Pages use these
-/// names instead of picking Material or Cupertino glyphs one by one, so the
-/// same meaning always has the same drawing on every platform.
+/// One icon family for the whole app: Material Icons, Rounded theme. Pages
+/// use these names instead of picking glyphs and variants one by one, so
+/// the same meaning is always drawn the same way, with the same weight.
 abstract final class AppIcons {
-  static const IconData add = CupertinoIcons.add;
-  static const IconData addPhoto = CupertinoIcons.photo_on_rectangle;
-  static const IconData photos = CupertinoIcons.photo_on_rectangle;
-  static const IconData record = CupertinoIcons.music_note_2;
-  static const IconData back = CupertinoIcons.back;
-  static const IconData dropDown = CupertinoIcons.chevron_down;
-  static const IconData forward = CupertinoIcons.arrow_right;
-  static const IconData sparkles = CupertinoIcons.sparkles;
-  static const IconData chart = CupertinoIcons.chart_bar;
-  static const IconData bug = CupertinoIcons.ant;
-  static const IconData calendar = CupertinoIcons.calendar;
-  static const IconData cancel = CupertinoIcons.xmark_circle;
-  static const IconData clearField = CupertinoIcons.xmark_circle_fill;
-  static const IconData comment = CupertinoIcons.chat_bubble;
-  static const IconData comments = CupertinoIcons.chat_bubble_2;
-  static const IconData check = CupertinoIcons.checkmark;
-  static const IconData checkCircleFill = CupertinoIcons.checkmark_circle_fill;
-  static const IconData checkCircle = CupertinoIcons.checkmark_circle;
-  static const IconData checklist = CupertinoIcons.checkmark_square;
-  static const IconData paint = CupertinoIcons.paintbrush;
-  static const IconData chevronLeft = CupertinoIcons.chevron_left;
-  static const IconData chevronRight = CupertinoIcons.chevron_right;
-  static const IconData chevronUp = CupertinoIcons.chevron_up;
-  static const IconData chevronDown = CupertinoIcons.chevron_down;
-  static const IconData chevronUpDown = CupertinoIcons.chevron_up_chevron_down;
-  static const IconData close = CupertinoIcons.xmark;
-  static const IconData cloudDownload = CupertinoIcons.cloud_download;
-  static const IconData cloud = CupertinoIcons.cloud;
-  static const IconData copy = CupertinoIcons.doc_on_doc;
-  static const IconData contrast = CupertinoIcons.circle_lefthalf_fill;
-  static const IconData square = CupertinoIcons.square;
-  static const IconData darkMode = CupertinoIcons.moon;
-  static const IconData lightMode = CupertinoIcons.sun_max;
-  static const IconData delete = CupertinoIcons.trash;
-  static const IconData clearAll = CupertinoIcons.trash_circle;
-  static const IconData devices = CupertinoIcons.desktopcomputer;
-  static const IconData server = CupertinoIcons.square_stack_3d_up;
-  static const IconData storage = CupertinoIcons.archivebox;
-  static const IconData scan = CupertinoIcons.doc_text_viewfinder;
-  static const IconData download = CupertinoIcons.arrow_down_circle;
-  static const IconData downloaded = CupertinoIcons.arrow_down_circle_fill;
-  static const IconData saveTo = CupertinoIcons.square_arrow_down;
-  static const IconData reorder = CupertinoIcons.line_horizontal_3;
-  static const IconData edit = CupertinoIcons.pencil;
-  static const IconData error = CupertinoIcons.exclamationmark_circle;
-  static const IconData warning = CupertinoIcons.exclamationmark_triangle;
-  static const IconData heartFill = CupertinoIcons.heart_fill;
-  static const IconData heart = CupertinoIcons.heart;
-  static const IconData filterFill =
-      CupertinoIcons.line_horizontal_3_decrease_circle_fill;
-  static const IconData filter =
-      CupertinoIcons.line_horizontal_3_decrease_circle;
-  static const IconData filterList = CupertinoIcons.line_horizontal_3_decrease;
-  static const IconData folder = CupertinoIcons.folder;
-  static const IconData quality = CupertinoIcons.waveform;
-  static const IconData history = CupertinoIcons.clock;
-  static const IconData home = CupertinoIcons.house;
-  static const IconData source = CupertinoIcons.circle_grid_hex;
-  static const IconData imageSearch = CupertinoIcons.photo;
-  static const IconData info = CupertinoIcons.info_circle;
-  static const IconData insights = CupertinoIcons.waveform_path_ecg;
-  static const IconData share = CupertinoIcons.share;
-  static const IconData lan = CupertinoIcons.antenna_radiowaves_left_right;
-  static const IconData language = CupertinoIcons.globe;
-  static const IconData library = CupertinoIcons.music_albums;
-  static const IconData link = CupertinoIcons.link;
-  static const IconData lock = CupertinoIcons.lock;
-  static const IconData lyrics = CupertinoIcons.text_quote;
-  static const IconData more = CupertinoIcons.ellipsis;
-  static const IconData moreVertical = CupertinoIcons.ellipsis_vertical;
-  static const IconData music = CupertinoIcons.music_note;
-  static const IconData locate = CupertinoIcons.scope;
-  static const IconData network = CupertinoIcons.wifi;
-  static const IconData openExternal = CupertinoIcons.arrow_up_right_square;
-  static const IconData pause = CupertinoIcons.pause_fill;
-  static const IconData miniWindow = CupertinoIcons.rectangle_on_rectangle;
-  static const IconData play = CupertinoIcons.play_fill;
-  static const IconData playlistAdd = CupertinoIcons.text_badge_plus;
-  static const IconData playlistRemove = CupertinoIcons.text_badge_minus;
-
-  /// The play queue: a plain list, as in the iOS bar.
-  static const IconData queue = CupertinoIcons.list_bullet;
-
-  /// A playlist, its cover placeholder and its rows.
-  static const IconData playlist = CupertinoIcons.music_note_list;
-
-  /// Playing a list in order.
-  static const IconData sequential = CupertinoIcons.list_number;
-  static const IconData radioOn = CupertinoIcons.largecircle_fill_circle;
-  static const IconData radioOff = CupertinoIcons.circle;
-  static const IconData refresh = CupertinoIcons.arrow_clockwise;
-  static const IconData restart = CupertinoIcons.arrow_counterclockwise;
-  static const IconData remove = CupertinoIcons.minus_circle;
-  static const IconData repeatOne = CupertinoIcons.repeat_1;
-  static const IconData save = CupertinoIcons.tray_arrow_down;
-  static const IconData search = CupertinoIcons.search;
-  static const IconData settings = CupertinoIcons.gear_alt;
-  static const IconData shuffle = CupertinoIcons.shuffle;
-  static const IconData next = CupertinoIcons.forward_end_fill;
-  static const IconData previous = CupertinoIcons.backward_end_fill;
-  static const IconData sort = CupertinoIcons.arrow_up_arrow_down;
-  static const IconData speed = CupertinoIcons.speedometer;
-  static const IconData stop = CupertinoIcons.stop_fill;
-  static const IconData swap = CupertinoIcons.arrow_right_arrow_left;
-  static const IconData sync = CupertinoIcons.arrow_2_circlepath;
-  static const IconData update = CupertinoIcons.arrow_down_square;
-  static const IconData like = CupertinoIcons.hand_thumbsup;
-  static const IconData tune = CupertinoIcons.slider_horizontal_3;
-  static const IconData upload = CupertinoIcons.arrow_up_doc;
-  static const IconData volumeLow = CupertinoIcons.speaker_1_fill;
-  static const IconData volumeOff = CupertinoIcons.speaker_slash_fill;
-  static const IconData volumeHigh = CupertinoIcons.speaker_3_fill;
+  static const IconData sequential = Icons.playlist_play_rounded;
+  static const IconData swapVertical = Icons.swap_vert_rounded;
+  static const IconData add = Icons.add_rounded;
+  static const IconData addPhoto = Icons.add_photo_alternate_rounded;
+  static const IconData photos = Icons.photo_library_rounded;
+  static const IconData record = Icons.album_rounded;
+  static const IconData back = Icons.arrow_back_ios_new_rounded;
+  static const IconData dropDown = Icons.arrow_drop_down_rounded;
+  static const IconData forward = Icons.arrow_forward_rounded;
+  static const IconData sparkles = Icons.auto_awesome_rounded;
+  static const IconData chart = Icons.bar_chart_rounded;
+  static const IconData bug = Icons.bug_report_rounded;
+  static const IconData calendar = Icons.calendar_month_rounded;
+  static const IconData cancel = Icons.cancel_rounded;
+  static const IconData clearField = Icons.clear_rounded;
+  static const IconData comment = Icons.chat_bubble_outline_rounded;
+  static const IconData comments = Icons.forum_rounded;
+  static const IconData check = Icons.check_rounded;
+  static const IconData checkCircleFill = Icons.check_circle_rounded;
+  static const IconData checkCircle = Icons.check_circle_outline_rounded;
+  static const IconData checklist = Icons.checklist_rounded;
+  static const IconData paint = Icons.palette_rounded;
+  static const IconData chevronLeft = Icons.chevron_left_rounded;
+  static const IconData chevronRight = Icons.chevron_right_rounded;
+  static const IconData chevronUp = Icons.expand_less_rounded;
+  static const IconData chevronDown = Icons.expand_more_rounded;
+  static const IconData chevronUpDown = Icons.unfold_more_rounded;
+  static const IconData close = Icons.close_rounded;
+  static const IconData cloudDownload = Icons.cloud_download_rounded;
+  static const IconData cloud = Icons.cloud_rounded;
+  static const IconData copy = Icons.content_copy_rounded;
+  static const IconData contrast = Icons.contrast_rounded;
+  static const IconData square = Icons.crop_square_rounded;
+  static const IconData darkMode = Icons.dark_mode_rounded;
+  static const IconData lightMode = Icons.light_mode_rounded;
+  static const IconData delete = Icons.delete_outline_rounded;
+  static const IconData clearAll = Icons.delete_sweep_rounded;
+  static const IconData devices = Icons.devices_rounded;
+  static const IconData server = Icons.dns_rounded;
+  static const IconData storage = Icons.storage_rounded;
+  static const IconData scan = Icons.document_scanner_rounded;
+  static const IconData download = Icons.download_rounded;
+  static const IconData downloaded = Icons.download_done_rounded;
+  static const IconData saveTo = Icons.save_alt_rounded;
+  static const IconData reorder = Icons.drag_handle_rounded;
+  static const IconData edit = Icons.edit_rounded;
+  static const IconData error = Icons.error_outline_rounded;
+  static const IconData warning = Icons.sync_problem_rounded;
+  static const IconData heartFill = Icons.favorite_rounded;
+  static const IconData heart = Icons.favorite_border_rounded;
+  static const IconData filterFill = Icons.filter_alt_rounded;
+  static const IconData filter = Icons.filter_alt_outlined;
+  static const IconData filterList = Icons.filter_list_rounded;
+  static const IconData folder = Icons.folder_open_rounded;
+  static const IconData quality = Icons.high_quality_rounded;
+  static const IconData history = Icons.history_rounded;
+  static const IconData home = Icons.home_rounded;
+  static const IconData source = Icons.hub_rounded;
+  static const IconData imageSearch = Icons.image_search_rounded;
+  static const IconData info = Icons.info_outline_rounded;
+  static const IconData insights = Icons.insights_rounded;
+  static const IconData share = Icons.share_rounded;
+  static const IconData lan = Icons.wifi_tethering_rounded;
+  static const IconData language = Icons.language_rounded;
+  static const IconData library = Icons.library_music_rounded;
+  static const IconData link = Icons.link_rounded;
+  static const IconData lock = Icons.lock_outline_rounded;
+  static const IconData lyrics = Icons.lyrics_rounded;
+  static const IconData more = Icons.more_horiz_rounded;
+  static const IconData moreVertical = Icons.more_vert_rounded;
+  static const IconData music = Icons.music_note_rounded;
+  static const IconData locate = Icons.my_location_rounded;
+  static const IconData network = Icons.network_check_rounded;
+  static const IconData openExternal = Icons.open_in_new_rounded;
+  static const IconData pause = Icons.pause_rounded;
+  static const IconData miniWindow = Icons.picture_in_picture_alt_rounded;
+  static const IconData play = Icons.play_arrow_rounded;
+  static const IconData playlistAdd = Icons.playlist_add_rounded;
+  static const IconData playlistRemove = Icons.playlist_remove_rounded;
+  static const IconData queue = Icons.queue_music_rounded;
+  static const IconData radioOn = Icons.radio_button_checked_rounded;
+  static const IconData radioOff = Icons.radio_button_unchecked_rounded;
+  static const IconData refresh = Icons.refresh_rounded;
+  static const IconData restart = Icons.restart_alt_rounded;
+  static const IconData remove = Icons.remove_circle_outline_rounded;
+  static const IconData repeatOne = Icons.repeat_one_rounded;
+  static const IconData save = Icons.save_rounded;
+  static const IconData search = Icons.search_rounded;
+  static const IconData settings = Icons.settings_rounded;
+  static const IconData shuffle = Icons.shuffle_rounded;
+  static const IconData next = Icons.skip_next_rounded;
+  static const IconData previous = Icons.skip_previous_rounded;
+  static const IconData sort = Icons.sort_rounded;
+  static const IconData speed = Icons.speed_rounded;
+  static const IconData stop = Icons.stop_rounded;
+  static const IconData swap = Icons.swap_horiz_rounded;
+  static const IconData sync = Icons.sync_rounded;
+  static const IconData update = Icons.system_update_rounded;
+  static const IconData like = Icons.thumb_up_outlined;
+  static const IconData tune = Icons.tune_rounded;
+  static const IconData upload = Icons.upload_file_rounded;
+  static const IconData volumeLow = Icons.volume_down_rounded;
+  static const IconData volumeOff = Icons.volume_off_rounded;
+  static const IconData volumeHigh = Icons.volume_up_rounded;
 }
 
-/// SF Symbols for [AppIcons], so the iOS shell shows the real system
-/// symbol for an icon a page puts in its bar.
+/// SF Symbols for [AppIcons] in the iOS shell's native bars. Lyrics has
+/// none on purpose: no system symbol reads as lyrics, so the shell draws
+/// the Material glyph instead.
 final appIconSymbols = <IconData, String>{
-  CupertinoIcons.add: 'plus',
-  CupertinoIcons.photo_on_rectangle: 'photo.on.rectangle',
-  CupertinoIcons.music_note_2: 'music.note',
-  CupertinoIcons.back: 'chevron.backward',
-  CupertinoIcons.chevron_down: 'chevron.down',
-  CupertinoIcons.arrow_right: 'arrow.right',
-  CupertinoIcons.sparkles: 'sparkles',
-  CupertinoIcons.chart_bar: 'chart.bar',
-  CupertinoIcons.ant: 'ladybug',
-  CupertinoIcons.calendar: 'calendar',
-  CupertinoIcons.xmark_circle: 'xmark.circle',
-  CupertinoIcons.xmark_circle_fill: 'xmark.circle.fill',
-  CupertinoIcons.chat_bubble: 'bubble.left',
-  CupertinoIcons.chat_bubble_2: 'bubble.left.and.bubble.right',
-  CupertinoIcons.checkmark: 'checkmark',
-  CupertinoIcons.checkmark_circle_fill: 'checkmark.circle.fill',
-  CupertinoIcons.checkmark_circle: 'checkmark.circle',
-  CupertinoIcons.checkmark_square: 'checkmark.square',
-  CupertinoIcons.paintbrush: 'paintbrush',
-  CupertinoIcons.chevron_left: 'chevron.left',
-  CupertinoIcons.chevron_right: 'chevron.right',
-  CupertinoIcons.chevron_up: 'chevron.up',
-  CupertinoIcons.chevron_up_chevron_down: 'chevron.up.chevron.down',
-  CupertinoIcons.xmark: 'xmark',
-  CupertinoIcons.cloud_download: 'icloud.and.arrow.down',
-  CupertinoIcons.cloud: 'icloud',
-  CupertinoIcons.doc_on_doc: 'doc.on.doc',
-  CupertinoIcons.circle_lefthalf_fill: 'circle.lefthalf.filled',
-  CupertinoIcons.square: 'square',
-  CupertinoIcons.moon: 'moon',
-  CupertinoIcons.sun_max: 'sun.max',
-  CupertinoIcons.trash: 'trash',
-  CupertinoIcons.trash_circle: 'trash.circle',
-  CupertinoIcons.desktopcomputer: 'desktopcomputer',
-  CupertinoIcons.square_stack_3d_up: 'square.stack.3d.up',
-  CupertinoIcons.archivebox: 'archivebox',
-  CupertinoIcons.doc_text_viewfinder: 'doc.text.viewfinder',
-  CupertinoIcons.arrow_down_circle: 'arrow.down.circle',
-  CupertinoIcons.arrow_down_circle_fill: 'arrow.down.circle.fill',
-  CupertinoIcons.square_arrow_down: 'square.and.arrow.down',
-  CupertinoIcons.line_horizontal_3: 'line.3.horizontal',
-  CupertinoIcons.pencil: 'pencil',
-  CupertinoIcons.exclamationmark_circle: 'exclamationmark.circle',
-  CupertinoIcons.exclamationmark_triangle: 'exclamationmark.triangle',
-  CupertinoIcons.heart_fill: 'heart.fill',
-  CupertinoIcons.heart: 'heart',
-  CupertinoIcons.line_horizontal_3_decrease_circle_fill:
-      'line.3.horizontal.decrease.circle.fill',
-  CupertinoIcons.line_horizontal_3_decrease_circle:
-      'line.3.horizontal.decrease.circle',
-  CupertinoIcons.line_horizontal_3_decrease: 'line.3.horizontal.decrease',
-  CupertinoIcons.folder: 'folder',
-  CupertinoIcons.waveform: 'waveform',
-  CupertinoIcons.clock: 'clock',
-  CupertinoIcons.house: 'house',
-  CupertinoIcons.circle_grid_hex: 'circle.hexagongrid',
-  CupertinoIcons.photo: 'photo',
-  CupertinoIcons.info_circle: 'info.circle',
-  CupertinoIcons.waveform_path_ecg: 'waveform.path.ecg',
-  CupertinoIcons.share: 'square.and.arrow.up',
-  CupertinoIcons.antenna_radiowaves_left_right:
-      'antenna.radiowaves.left.and.right',
-  CupertinoIcons.globe: 'globe',
-  CupertinoIcons.music_albums: 'music.note.list',
-  CupertinoIcons.link: 'link',
-  CupertinoIcons.lock: 'lock',
-  CupertinoIcons.text_quote: 'quote.bubble',
-  CupertinoIcons.ellipsis: 'ellipsis',
-  CupertinoIcons.ellipsis_vertical: 'ellipsis',
-  CupertinoIcons.music_note: 'music.note',
-  CupertinoIcons.scope: 'scope',
-  CupertinoIcons.wifi: 'wifi',
-  CupertinoIcons.arrow_up_right_square: 'arrow.up.right.square',
-  CupertinoIcons.pause_fill: 'pause.fill',
-  CupertinoIcons.rectangle_on_rectangle: 'rectangle.on.rectangle',
-  CupertinoIcons.play_fill: 'play.fill',
-  CupertinoIcons.text_badge_plus: 'text.badge.plus',
-  CupertinoIcons.text_badge_minus: 'text.badge.minus',
-  CupertinoIcons.list_bullet: 'list.bullet',
-  CupertinoIcons.music_note_list: 'music.note.list',
-  CupertinoIcons.list_number: 'list.number',
-  CupertinoIcons.largecircle_fill_circle: 'largecircle.fill.circle',
-  CupertinoIcons.circle: 'circle',
-  CupertinoIcons.arrow_clockwise: 'arrow.clockwise',
-  CupertinoIcons.arrow_counterclockwise: 'arrow.counterclockwise',
-  CupertinoIcons.minus_circle: 'minus.circle',
-  CupertinoIcons.repeat_1: 'repeat.1',
-  CupertinoIcons.tray_arrow_down: 'tray.and.arrow.down',
-  CupertinoIcons.search: 'magnifyingglass',
-  CupertinoIcons.gear_alt: 'gearshape',
-  CupertinoIcons.shuffle: 'shuffle',
-  CupertinoIcons.forward_end_fill: 'forward.end.fill',
-  CupertinoIcons.backward_end_fill: 'backward.end.fill',
-  CupertinoIcons.arrow_up_arrow_down: 'arrow.up.arrow.down',
-  CupertinoIcons.speedometer: 'speedometer',
-  CupertinoIcons.stop_fill: 'stop.fill',
-  CupertinoIcons.arrow_right_arrow_left: 'arrow.left.arrow.right',
-  CupertinoIcons.arrow_2_circlepath: 'arrow.triangle.2.circlepath',
-  CupertinoIcons.arrow_down_square: 'arrow.down.square',
-  CupertinoIcons.hand_thumbsup: 'hand.thumbsup',
-  CupertinoIcons.slider_horizontal_3: 'slider.horizontal.3',
-  CupertinoIcons.arrow_up_doc: 'arrow.up.doc',
-  CupertinoIcons.speaker_1_fill: 'speaker.wave.1.fill',
-  CupertinoIcons.speaker_slash_fill: 'speaker.slash.fill',
-  CupertinoIcons.speaker_3_fill: 'speaker.wave.3.fill',
+  Icons.playlist_play_rounded: 'list.number',
+  Icons.swap_vert_rounded: 'arrow.up.arrow.down',
+  Icons.add_rounded: 'plus',
+  Icons.add_photo_alternate_rounded: 'photo.on.rectangle',
+  Icons.photo_library_rounded: 'photo.on.rectangle',
+  Icons.album_rounded: 'music.note',
+  Icons.arrow_back_ios_new_rounded: 'chevron.backward',
+  Icons.arrow_drop_down_rounded: 'chevron.down',
+  Icons.arrow_forward_rounded: 'arrow.right',
+  Icons.auto_awesome_rounded: 'sparkles',
+  Icons.bar_chart_rounded: 'chart.bar',
+  Icons.bug_report_rounded: 'ladybug',
+  Icons.calendar_month_rounded: 'calendar',
+  Icons.cancel_rounded: 'xmark.circle',
+  Icons.clear_rounded: 'xmark.circle.fill',
+  Icons.chat_bubble_outline_rounded: 'bubble.left',
+  Icons.forum_rounded: 'bubble.left.and.bubble.right',
+  Icons.check_rounded: 'checkmark',
+  Icons.check_circle_rounded: 'checkmark.circle.fill',
+  Icons.check_circle_outline_rounded: 'checkmark.circle',
+  Icons.checklist_rounded: 'checkmark.square',
+  Icons.palette_rounded: 'paintbrush',
+  Icons.chevron_left_rounded: 'chevron.left',
+  Icons.chevron_right_rounded: 'chevron.right',
+  Icons.expand_less_rounded: 'chevron.up',
+  Icons.expand_more_rounded: 'chevron.down',
+  Icons.unfold_more_rounded: 'chevron.up.chevron.down',
+  Icons.close_rounded: 'xmark',
+  Icons.cloud_download_rounded: 'icloud.and.arrow.down',
+  Icons.cloud_rounded: 'icloud',
+  Icons.content_copy_rounded: 'doc.on.doc',
+  Icons.contrast_rounded: 'circle.lefthalf.filled',
+  Icons.crop_square_rounded: 'square',
+  Icons.dark_mode_rounded: 'moon',
+  Icons.light_mode_rounded: 'sun.max',
+  Icons.delete_outline_rounded: 'trash',
+  Icons.delete_sweep_rounded: 'trash.circle',
+  Icons.devices_rounded: 'desktopcomputer',
+  Icons.dns_rounded: 'square.stack.3d.up',
+  Icons.storage_rounded: 'archivebox',
+  Icons.document_scanner_rounded: 'doc.text.viewfinder',
+  Icons.download_rounded: 'arrow.down.circle',
+  Icons.download_done_rounded: 'arrow.down.circle.fill',
+  Icons.save_alt_rounded: 'square.and.arrow.down',
+  Icons.drag_handle_rounded: 'line.3.horizontal',
+  Icons.edit_rounded: 'pencil',
+  Icons.error_outline_rounded: 'exclamationmark.circle',
+  Icons.sync_problem_rounded: 'exclamationmark.triangle',
+  Icons.favorite_rounded: 'heart.fill',
+  Icons.favorite_border_rounded: 'heart',
+  Icons.filter_alt_rounded: 'line.3.horizontal.decrease.circle.fill',
+  Icons.filter_alt_outlined: 'line.3.horizontal.decrease.circle',
+  Icons.filter_list_rounded: 'line.3.horizontal.decrease',
+  Icons.folder_open_rounded: 'folder',
+  Icons.high_quality_rounded: 'waveform',
+  Icons.history_rounded: 'clock',
+  Icons.home_rounded: 'house',
+  Icons.hub_rounded: 'circle.hexagongrid',
+  Icons.image_search_rounded: 'photo',
+  Icons.info_outline_rounded: 'info.circle',
+  Icons.insights_rounded: 'waveform.path.ecg',
+  Icons.share_rounded: 'square.and.arrow.up',
+  Icons.wifi_tethering_rounded: 'antenna.radiowaves.left.and.right',
+  Icons.language_rounded: 'globe',
+  Icons.library_music_rounded: 'music.note.list',
+  Icons.link_rounded: 'link',
+  Icons.lock_outline_rounded: 'lock',
+  Icons.more_horiz_rounded: 'ellipsis',
+  Icons.more_vert_rounded: 'ellipsis',
+  Icons.music_note_rounded: 'music.note',
+  Icons.my_location_rounded: 'scope',
+  Icons.network_check_rounded: 'wifi',
+  Icons.open_in_new_rounded: 'arrow.up.right.square',
+  Icons.pause_rounded: 'pause.fill',
+  Icons.picture_in_picture_alt_rounded: 'rectangle.on.rectangle',
+  Icons.play_arrow_rounded: 'play.fill',
+  Icons.playlist_add_rounded: 'text.badge.plus',
+  Icons.playlist_remove_rounded: 'text.badge.minus',
+  Icons.queue_music_rounded: 'list.bullet',
+  Icons.radio_button_checked_rounded: 'largecircle.fill.circle',
+  Icons.radio_button_unchecked_rounded: 'circle',
+  Icons.refresh_rounded: 'arrow.clockwise',
+  Icons.restart_alt_rounded: 'arrow.counterclockwise',
+  Icons.remove_circle_outline_rounded: 'minus.circle',
+  Icons.repeat_one_rounded: 'repeat.1',
+  Icons.save_rounded: 'tray.and.arrow.down',
+  Icons.search_rounded: 'magnifyingglass',
+  Icons.settings_rounded: 'gearshape',
+  Icons.shuffle_rounded: 'shuffle',
+  Icons.skip_next_rounded: 'forward.end.fill',
+  Icons.skip_previous_rounded: 'backward.end.fill',
+  Icons.sort_rounded: 'arrow.up.arrow.down',
+  Icons.speed_rounded: 'speedometer',
+  Icons.stop_rounded: 'stop.fill',
+  Icons.swap_horiz_rounded: 'arrow.left.arrow.right',
+  Icons.sync_rounded: 'arrow.triangle.2.circlepath',
+  Icons.system_update_rounded: 'arrow.down.square',
+  Icons.thumb_up_outlined: 'hand.thumbsup',
+  Icons.tune_rounded: 'slider.horizontal.3',
+  Icons.upload_file_rounded: 'arrow.up.doc',
+  Icons.volume_down_rounded: 'speaker.wave.1.fill',
+  Icons.volume_off_rounded: 'speaker.slash.fill',
+  Icons.volume_up_rounded: 'speaker.wave.3.fill',
 };

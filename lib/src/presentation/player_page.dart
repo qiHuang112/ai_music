@@ -391,7 +391,7 @@ class _PlayerPageState extends State<PlayerPage> {
           extraActions: [
             if (!NativeShell.active) ...[
               DuoRailItem(
-                icon: CupertinoIcons.text_quote,
+                icon: AppIcons.lyrics,
                 label: strings.isZh ? '完整歌词' : 'Full lyrics',
                 onPressed: () => _openLyrics(context),
               ),
@@ -876,9 +876,7 @@ class _Artwork extends StatelessWidget {
     final artUri = uri;
     final placeholder = ColoredBox(
       color: colors.surfaceContainerHighest,
-      child: Center(
-        child: Icon(AppIcons.record, size: 44, color: colors.primary),
-      ),
+      child: Center(child: Icon(AppIcons.record, size: 44, color: colors.primary)),
     );
     final label = artUri == null
         ? placeholder
@@ -1646,7 +1644,9 @@ class _SongInfo extends StatelessWidget {
                 ? strings.removeFromFavorites
                 : strings.addToFavorites,
             onPressed: onFavorite,
-            icon: liked ? AppIcons.heartFill : AppIcons.heart,
+            icon: liked
+                ? AppIcons.heartFill
+                : AppIcons.heart,
             size: 28,
           ),
       ],

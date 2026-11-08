@@ -5,65 +5,66 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:ai_music/src/presentation/design/app_icons.dart';
 
 void main() {
-  test(
-    'rail groups avoid camera, status and fold without wasting the edge',
-    () {
-      const bounds = Rect.fromLTWH(524, 0, 76, 500);
-      const blocks = [
-        Rect.fromLTWH(530, 8, 60, 80),
-        Rect.fromLTWH(530, 100, 60, 40),
-        Rect.fromLTWH(0, 260, 600, 20),
-      ];
-      final segments = DuoRail.freeSegments(bounds, blocks);
-      expect(segments, hasLength(2));
-      expect(segments.first.top, lessThan(200));
-      for (final segment in segments) {
-        expect(blocks.any(segment.overlaps), isFalse);
-      }
-      // Back and actions take the stretch under the camera; the tabs sit at the
-      // bottom below the fold, like the system's own bar.
-      final items = [
-        const DuoRailItem(icon: AppIcons.back, label: 'Back', leading: true),
-        for (var i = 0; i < 2; i++)
-          DuoRailItem(icon: AppIcons.heartFill, label: 'Action $i'),
-        for (var i = 0; i < 4; i++)
-          DuoRailItem(icon: Icons.home, label: 'Tab $i', navigation: true),
-      ];
-      // Under the camera only back and a menu fit; the menu joins its capsule.
-      final plan = DuoRail.layout(items, bounds, blocks);
-      expect(plan.leading, hasLength(1));
-      expect(plan.actions, isEmpty);
-      expect(plan.overflow, hasLength(2));
-      expect(plan.mergedOverflow, isTrue);
-      expect(plan.tabs, hasLength(4));
-      expect(plan.top, greaterThanOrEqualTo(140));
-      expect(plan.tabsTop, greaterThan(280));
-      expect(
-        plan.tabsTop + DuoRail.capsuleHeight(4),
-        lessThanOrEqualTo(bounds.height - 8),
-      );
-      // A tall open strip shows every group in place.
-      final tall = DuoRail.layout(
-        items,
-        const Rect.fromLTWH(0, 0, 76, 600),
-        const [],
-      );
-      expect(tall.leading, hasLength(1));
-      expect(tall.actions, hasLength(2));
-      expect(tall.overflow, isEmpty);
-      expect(tall.tabs, hasLength(4));
-      expect(tall.tabsTop, 600 - 8 - DuoRail.capsuleHeight(4));
-      // A short strip keeps back, then tabs, and folds actions into the menu.
-      final short = DuoRail.layout(
-        items,
-        const Rect.fromLTWH(0, 0, 76, 330),
-        const [],
-      );
-      expect(short.leading, hasLength(1));
-      expect(short.tabs, hasLength(4));
-      expect(short.overflow, hasLength(2));
-    },
-  );
+  test('rail groups avoid camera, status and fold without wasting the edge', () {
+    const bounds = Rect.fromLTWH(524, 0, 76, 500);
+    const blocks = [
+      Rect.fromLTWH(530, 8, 60, 80),
+      Rect.fromLTWH(530, 100, 60, 40),
+      Rect.fromLTWH(0, 260, 600, 20),
+    ];
+    final segments = DuoRail.freeSegments(bounds, blocks);
+    expect(segments, hasLength(2));
+    expect(segments.first.top, lessThan(200));
+    for (final segment in segments) {
+      expect(blocks.any(segment.overlaps), isFalse);
+    }
+    // Back and actions take the stretch under the camera; the tabs sit at the
+    // bottom below the fold, like the system's own bar.
+    final items = [
+      const DuoRailItem(
+        icon: AppIcons.back,
+        label: 'Back',
+        leading: true,
+      ),
+      for (var i = 0; i < 2; i++)
+        DuoRailItem(icon: AppIcons.heartFill, label: 'Action $i'),
+      for (var i = 0; i < 4; i++)
+        DuoRailItem(icon: Icons.home, label: 'Tab $i', navigation: true),
+    ];
+    // Under the camera only back and a menu fit; the menu joins its capsule.
+    final plan = DuoRail.layout(items, bounds, blocks);
+    expect(plan.leading, hasLength(1));
+    expect(plan.actions, isEmpty);
+    expect(plan.overflow, hasLength(2));
+    expect(plan.mergedOverflow, isTrue);
+    expect(plan.tabs, hasLength(4));
+    expect(plan.top, greaterThanOrEqualTo(140));
+    expect(plan.tabsTop, greaterThan(280));
+    expect(
+      plan.tabsTop + DuoRail.capsuleHeight(4),
+      lessThanOrEqualTo(bounds.height - 8),
+    );
+    // A tall open strip shows every group in place.
+    final tall = DuoRail.layout(
+      items,
+      const Rect.fromLTWH(0, 0, 76, 600),
+      const [],
+    );
+    expect(tall.leading, hasLength(1));
+    expect(tall.actions, hasLength(2));
+    expect(tall.overflow, isEmpty);
+    expect(tall.tabs, hasLength(4));
+    expect(tall.tabsTop, 600 - 8 - DuoRail.capsuleHeight(4));
+    // A short strip keeps back, then tabs, and folds actions into the menu.
+    final short = DuoRail.layout(
+      items,
+      const Rect.fromLTWH(0, 0, 76, 330),
+      const [],
+    );
+    expect(short.leading, hasLength(1));
+    expect(short.tabs, hasLength(4));
+    expect(short.overflow, hasLength(2));
+  });
 
   testWidgets(
     'system rail uses the right safe area and actions remain usable',
@@ -135,7 +136,11 @@ void main() {
         ),
         home: DuoScaffold(
           extraActions: [
-            DuoRailItem(icon: AppIcons.queue, label: 'Queue', onPressed: () {}),
+            DuoRailItem(
+              icon: AppIcons.queue,
+              label: 'Queue',
+              onPressed: () {},
+            ),
           ],
           body: DuoScaffold(body: TextField(controller: text)),
         ),
