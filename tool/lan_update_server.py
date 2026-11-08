@@ -9,6 +9,8 @@ from pathlib import Path
 from urllib.parse import unquote, urlsplit
 from android_release_archive import retained_versions
 from lan_diagnostics import DiagnosticsReceiver, MAX_REPORT_BYTES
+from lan_backups import (BackupStore, MAX_BLOB_BYTES, MAX_MANIFEST_BYTES, MissingFiles, lan_only,
+                         valid_device_id, valid_sha256)
 
 
 def download_page(root: Path, macos_root: Path = None):
@@ -59,6 +61,7 @@ def create_server(root: Path, host: str = "0.0.0.0", port: int = 8788, *, macos_
     root.mkdir(parents=True, exist_ok=True)
     macos_root = (macos_root if macos_root is not None else root.parent / 'macos').resolve()
     diagnostics = DiagnosticsReceiver(root.parent / 'diagnostics')
+    backups = BackupStore(root.parent / 'backups')
 
     class Handler(BaseHTTPRequestHandler):
         def json_response(self, status, document):
@@ -70,7 +73,61 @@ def create_server(root: Path, host: str = "0.0.0.0", port: int = 8788, *, macos_
             self.end_headers()
             self.wfile.write(payload)
 
+        def read_json_body(self, limit):
+            length = self.headers.get('Content-Length', '')
+            if not length.isdigit() or not 0 < int(length) <= limit:
+                raise OverflowError('Body size')
+            self.connection.settimeout(30)
+            payload = self.rfile.read(int(length))
+            if len(payload) != int(length):
+                raise ValueError('Truncated body')
+            return payload
+
+        def backup_error(self, error):
+            if isinstance(error, PermissionError):
+                self.send_error(403)
+            elif isinstance(error, OverflowError):
+                self.send_error(413)
+            elif isinstance(error, FileNotFoundError):
+                self.send_error(404)
+            elif isinstance(error, MissingFiles):
+                self.send_error(409, str(error))
+            elif isinstance(error, (ValueError, TypeError, KeyError, UnicodeError, TimeoutError)):
+                self.send_error(400, str(error)[:200])
+            else:
+                self.send_error(503)
+
+        def do_PUT(self):
+            path = unquote(urlsplit(self.path).path)
+            try:
+                lan_only(self.client_address[0])
+                if path.startswith('/api/v1/backup/blobs/'):
+                    sha256 = path[len('/api/v1/backup/blobs/'):]
+                    length = self.headers.get('Content-Length', '')
+                    if not valid_sha256(sha256) or not length.isdigit() or int(length) > MAX_BLOB_BYTES:
+                        raise ValueError('Invalid blob upload')
+                    self.connection.settimeout(60)
+                    receipt = backups.put_blob(sha256, self.rfile, int(length), self.client_address[0])
+                    self.json_response(201 if receipt['stored'] else 200, receipt)
+                    return
+                if path.startswith('/api/v1/backup/devices/'):
+                    device_id = path[len('/api/v1/backup/devices/'):]
+                    payload = self.read_json_body(MAX_MANIFEST_BYTES)
+                    self.json_response(200, backups.put_manifest(device_id, payload, self.client_address[0]))
+                    return
+                self.send_error(404)
+            except (OSError, ValueError, TypeError, KeyError, MissingFiles, OverflowError) as error:
+                self.backup_error(error)
+
         def do_POST(self):
+            if urlsplit(self.path).path == '/api/v1/backup/blobs/missing':
+                try:
+                    lan_only(self.client_address[0])
+                    document = json.loads(self.read_json_body(4 * 1024 * 1024))
+                    self.json_response(200, {'missing': backups.missing(document.get('sha256'))})
+                except (OSError, ValueError, TypeError, KeyError, AttributeError, OverflowError) as error:
+                    self.backup_error(error)
+                return
             if urlsplit(self.path).path != '/api/v1/diagnostics':
                 self.send_error(404)
                 return
@@ -99,6 +156,9 @@ def create_server(root: Path, host: str = "0.0.0.0", port: int = 8788, *, macos_
 
         def do_GET(self):
             path = unquote(urlsplit(self.path).path)
+            if path.startswith('/api/v1/backup/'):
+                self.backup_get(path)
+                return
             if path == '/api/v1/diagnostics':
                 self.json_response(200, {'service': 'ai-music-diagnostics',
                                         'schemaVersion': 1, 'maxReportBytes': MAX_REPORT_BYTES})
@@ -178,6 +238,37 @@ def create_server(root: Path, host: str = "0.0.0.0", port: int = 8788, *, macos_
                     pass  # User canceled the download.
                 return
             self.send_error(404)
+
+        def backup_get(self, path):
+            try:
+                lan_only(self.client_address[0])
+                if path == '/api/v1/backup/devices':
+                    self.json_response(200, {'schemaVersion': 1, 'devices': backups.list_devices()})
+                    return
+                if path.startswith('/api/v1/backup/devices/'):
+                    device_id = path[len('/api/v1/backup/devices/'):]
+                    if not valid_device_id(device_id):
+                        raise ValueError('Invalid device ID')
+                    self.json_response(200, backups.manifest(device_id))
+                    return
+                if path.startswith('/api/v1/backup/blobs/'):
+                    target = backups.blob_path(path[len('/api/v1/backup/blobs/'):])
+                    if not target.is_file():
+                        raise FileNotFoundError('blob')
+                    self.send_response(200)
+                    self.send_header('Content-Type', 'application/octet-stream')
+                    self.send_header('Content-Length', str(target.stat().st_size))
+                    self.end_headers()
+                    try:
+                        with target.open('rb') as source:
+                            for chunk in iter(lambda: source.read(1024 * 1024), b''):
+                                self.wfile.write(chunk)
+                    except (BrokenPipeError, ConnectionResetError):
+                        pass
+                    return
+                self.send_error(404)
+            except (OSError, ValueError, TypeError, KeyError) as error:
+                self.backup_error(error)
 
     return ThreadingHTTPServer((host, port), Handler)
 
