@@ -2674,10 +2674,13 @@ void main() {
       expect(find.byIcon(Icons.download_for_offline), findsNothing);
       expect(find.byTooltip('重新下载'), findsNothing);
       expect(find.byTooltip('播放'), findsNothing);
-      final row = tester.widget<ListTile>(
+      // The downloaded song leads as a local row and its online result stays.
+      final rows = tester.widgetList<ListTile>(
         find.ancestor(of: find.text('稻香'), matching: find.byType(ListTile)),
       );
-      expect(row.onTap, isNotNull);
+      expect(rows, hasLength(2));
+      expect(rows.every((row) => row.onTap != null), isTrue);
+      expect(find.text('本地歌曲'), findsNWidgets(2));
     },
   );
 
@@ -2705,6 +2708,8 @@ void main() {
 
     expect(find.text('已下载到缓存'), findsOneWidget);
     expect(tester.getTopLeft(find.text('稻香')).dy, before);
+    // Finishing mid-search tags the row in place instead of inserting one.
+    expect(find.text('本地歌曲'), findsOneWidget);
   });
 
   testWidgets('completed downloads leave active section and enter cache', (

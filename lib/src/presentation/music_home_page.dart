@@ -1126,15 +1126,14 @@ class _LocalSongTag extends StatelessWidget {
   }
 }
 
-Widget _titleWithLocalTag(String title, {required bool local}) {
-  final text = Text(title, maxLines: 1, overflow: TextOverflow.ellipsis);
-  if (!local) return text;
+/// Row end for search results: the local tag, then the desktop play button.
+/// Kept out of the title so tagging a row never moves its text.
+Widget? _searchRowTrailing({required bool local, Widget? play}) {
+  if (!local) return play;
+  if (play == null) return const _LocalSongTag();
   return Row(
-    children: [
-      Flexible(child: text),
-      const SizedBox(width: 6),
-      const _LocalSongTag(),
-    ],
+    mainAxisSize: MainAxisSize.min,
+    children: [const _LocalSongTag(), const SizedBox(width: 4), play],
   );
 }
 
@@ -1211,19 +1210,26 @@ class _OnlineSearchPanel extends StatelessWidget {
                         builder: (tap, selected) => ListTile(
                           key: ValueKey('search-local-${track.id}'),
                           selected: selected,
-                          trailing: DesktopMusicScope.maybeOf(context) == null
-                              ? null
-                              : IconButton(
-                                  tooltip: strings.play,
-                                  onPressed: () => onPlayLocal(track),
-                                  icon: const Icon(AppIcons.play),
-                                ),
+                          trailing: _searchRowTrailing(
+                            local: true,
+                            play: DesktopMusicScope.maybeOf(context) == null
+                                ? null
+                                : IconButton(
+                                    tooltip: strings.play,
+                                    onPressed: () => onPlayLocal(track),
+                                    icon: const Icon(AppIcons.play),
+                                  ),
+                          ),
                           leading: CircleAvatar(
                             backgroundColor: colors.primaryContainer,
                             foregroundColor: colors.onPrimaryContainer,
                             child: const Icon(AppIcons.downloaded, size: 20),
                           ),
-                          title: _titleWithLocalTag(track.title, local: true),
+                          title: Text(
+                            track.title,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
                           subtitle: Text(
                             [
                               if (track.artist.isNotEmpty) track.artist,
@@ -1246,15 +1252,18 @@ class _OnlineSearchPanel extends StatelessWidget {
                           : () => onPlay(candidate),
                       builder: (tap, selected) => ListTile(
                         selected: selected,
-                        trailing: DesktopMusicScope.maybeOf(context) == null
-                            ? null
-                            : IconButton(
-                                tooltip: strings.play,
-                                onPressed: isBusy || isPreparing
-                                    ? null
-                                    : () => onPlay(candidate),
-                                icon: const Icon(AppIcons.play),
-                              ),
+                        trailing: _searchRowTrailing(
+                          local: isCandidateLocal(candidate),
+                          play: DesktopMusicScope.maybeOf(context) == null
+                              ? null
+                              : IconButton(
+                                  tooltip: strings.play,
+                                  onPressed: isBusy || isPreparing
+                                      ? null
+                                      : () => onPlay(candidate),
+                                  icon: const Icon(AppIcons.play),
+                                ),
+                        ),
                         leading: CircleAvatar(
                           backgroundColor: colors.secondaryContainer,
                           foregroundColor: colors.onSecondaryContainer,
@@ -1277,11 +1286,12 @@ class _OnlineSearchPanel extends StatelessWidget {
                                       ),
                                 ),
                         ),
-                        title: _titleWithLocalTag(
+                        title: Text(
                           candidate.name.isEmpty
                               ? candidate.keyword
                               : candidate.name,
-                          local: isCandidateLocal(candidate),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
                         ),
                         subtitle: Text(
                           _candidateSubtitle(candidate),

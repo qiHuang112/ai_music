@@ -4332,8 +4332,16 @@ class MusicController extends ChangeNotifier with WidgetsBindingObserver {
       }
     }
     cachedTracks = snapshot.cachedTracks;
-    if (_localSearchQuery.isNotEmpty) {
-      localSearchMatches = _downloadedTracksMatching(_localSearchQuery);
+    if (localSearchMatches.isNotEmpty) {
+      // Drop deleted songs but never insert rows under the user's finger: a
+      // download finishing mid-search is already tagged in the online list.
+      final live = {
+        for (final track in _downloadedTracksMatching(_localSearchQuery))
+          track.id: track,
+      };
+      localSearchMatches = List.unmodifiable([
+        for (final track in localSearchMatches) ?live[track.id],
+      ]);
     }
     onlineTracks = snapshot.onlineTracks;
     favoriteTracks = snapshot.favoriteTracks;
