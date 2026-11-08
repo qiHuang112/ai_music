@@ -9,7 +9,7 @@ void main() {
       'android/app/src/main/AndroidManifest.xml',
     ).readAsStringSync();
 
-    expect(pubspec, contains('version: 1.0.5+8268'));
+    expect(pubspec, contains('version: 1.0.6+8269'));
     expect(manifest, contains('android:usesCleartextTraffic="true"'));
   });
 }
