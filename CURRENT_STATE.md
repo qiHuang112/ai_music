@@ -15,7 +15,7 @@
 - 开发技能真实源位于本仓库 `.agents/skills/ai-music-developer/`，与代码一起版本管理，工作室及 Claude 共用相对入口。本轮仅本地提交，不连接或推送远端。
 - 本地依赖（2026-10-26 从 AIHome 迁入，勿删）：Flutter SDK `/Users/huangqi/ClaudeProject/tools/flutter`；OHOS SDK `/Users/huangqi/CodexProject/laiting-studio/toolchains/flutter-ohos`；发布归档与局域网更新服务 `/Users/huangqi/ClaudeProject/releases/ai_music/`（LaunchAgent `com.qi.ai.music.android-updates` 从这里运行，含全部历史包与诊断日志）。迁移记录见[旧工作区盘点](docs/legacy-workspaces.md)。
 - 局域网更新服务：`http://192.168.31.167:8788`（`/api/v1/update/android`、`/api/v1/update/macos`），后台约 60 秒自动镜像 GitHub 最新 Android Release。
-- 开发手机 77：无线 ADB `192.168.31.77:41049`（2026-10-20 更新）。
+- 开发手机 77：Mi 10 Pro（序列号 `6595e6a1`），无线 ADB 现为 `192.168.31.78:38015`（2026-11-08 更新，端口会变）。
 - 仓库 `qiHuang112/ai_music` 公开；main 由维护者维护，合作者 `wangtangji29-ctrl` 在 `ui-vinyl` 等非 main 分支开发。
 - 发布分三档，见[开发 skill](.agents/skills/ai-music-developer/SKILL.md) 开头的表；push main 会生成新正式版本。
 
@@ -26,6 +26,6 @@
 
 ## 最近进展
 
-- 2026-11-08 全量 review（代码／策略／多形态适配）并修复数据丢失类 P1：歌单加载误判损坏、缓存索引 IO 错误与缺文件删行、文件名按字节截断、收藏与缓存并发互相覆盖；随后修播放队列不一致（试听失败 handler 回滚、删缓存原地移出队列）；全量 1108 通过，未上机 → [日志](docs/worklog/2026-11-08.md)
+- 2026-11-08 全量 review（代码／策略／多形态适配）并修复数据丢失类 P1：歌单加载误判损坏、缓存索引 IO 错误与缺文件删行、文件名按字节截断、收藏与缓存并发互相覆盖；随后修播放队列不一致（试听失败 handler 回滚、删缓存原地移出队列）；全量 1108 通过；77 装 1.0.5／10280（开发证书）启动、恢复、播放、队列正常 → [日志](docs/worklog/2026-11-08.md)
 - 2026-11-08 推送发布 1.0.5／10270（Android＋Mac Universal），CI 与产物核对通过、局域网已镜像；随后修复播控条按压抖动 → [日志](docs/worklog/2026-11-08.md)
 - 2026-11-08 安卓对齐 iOS：Flutter 悬浮玻璃 Tab 栏（二级页常驻、沉浸页让开）、一级页播控条、底部安全区沉浸、横推过场，77 实机自测通过 → [日志](docs/worklog/2026-11-08.md)
