@@ -248,7 +248,9 @@ class MusicAudioHandler extends BaseAudioHandler
       }
       rethrow;
     } finally {
-      _loadingQueue = false;
+      // A newer load owns the flag now; clearing it here would let that
+      // load's intermediate index events through as real track changes.
+      if (_queueLoadRevision == revision) _loadingQueue = false;
     }
     final actualIndex = _awaitingPlayback
         ? safeIndex
@@ -821,6 +823,8 @@ class MusicAudioHandler extends BaseAudioHandler
     recordPlaybackIntent();
     _queueRevision++;
     _queueLoadRevision = _queueRevision;
+    // Stop ends any load in flight; that load will no longer clear the flag.
+    _loadingQueue = false;
     _invalidateRestorePreparation();
     _awaitingPlayback = false;
     _indexTracker.pendingShuffleRedirectIndex = null;

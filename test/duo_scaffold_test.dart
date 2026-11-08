@@ -9,6 +9,7 @@ import 'package:ai_music/src/presentation/design/app_icons.dart';
 void main() {
   _foldTests();
   _menuTests();
+  _geometryTests();
   test('rail groups avoid camera, status and fold without wasting the edge', () {
     const bounds = Rect.fromLTWH(524, 0, 76, 500);
     const blocks = [
@@ -267,5 +268,18 @@ void _menuTests() {
       const PopupMenuItem<String>(value: 'comments', child: Text('Comments')),
     )();
     expect(chosen, 'comments');
+  });
+}
+
+void _geometryTests() {
+  test('equal window geometry compares equal', () {
+    DuoGeometry make() => const DuoGeometry(
+      EdgeInsets.only(top: 20),
+      [Rect.fromLTWH(0, 400, 600, 20)],
+      edge: DuoBarEdge.right,
+    );
+    expect(make(), make());
+    expect(make().hashCode, make().hashCode);
+    expect(make() == const DuoGeometry(EdgeInsets.zero, []), isFalse);
   });
 }

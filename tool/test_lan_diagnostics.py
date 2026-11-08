@@ -79,3 +79,29 @@ class DiagnosticsTest(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+class StorageLimitTest(unittest.TestCase):
+    def test_new_reports_are_refused_once_storage_is_full(self):
+        import lan_diagnostics
+        with tempfile.TemporaryDirectory() as folder:
+            receiver = lan_diagnostics.DiagnosticsReceiver(Path(folder))
+
+            def report(index):
+                return json.dumps({
+                    'schemaVersion': 1, 'reportId': f'{index:032x}', 'operations': [],
+                    'listeningStats': {}, 'app': {'packageName': 'com.qi.ai.music'},
+                }).encode()
+
+            original = lan_diagnostics.MAX_STORED_REPORTS
+            lan_diagnostics.MAX_STORED_REPORTS = 2
+            try:
+                receiver.receive(report(1), '192.168.1.5')
+                receiver.receive(report(2), '192.168.1.5')
+                with self.assertRaises(OSError):
+                    receiver.receive(report(3), '192.168.1.5')
+                # Re-sending a stored report still answers, nothing is deleted.
+                self.assertTrue(receiver.receive(report(1), '192.168.1.5')['saved'])
+                self.assertEqual(len(list(Path(folder).glob('*.json'))), 2)
+            finally:
+                lan_diagnostics.MAX_STORED_REPORTS = original

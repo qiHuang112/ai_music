@@ -63,7 +63,24 @@ import Darwin
       sheet.popoverPresentationController?.sourceRect = CGRect(
         x: host.view.bounds.midX, y: host.view.bounds.midY, width: 0, height: 0
       )
-      host.present(sheet, animated: true) { result(nil) }
+      // Answer once the sheet is done, not when it appears: present() never
+      // calls back if the host is busy (dismissing, already presenting), and
+      // the share button would spin forever.
+      var answered = false
+      func answer() {
+        guard !answered else { return }
+        answered = true
+        result(nil)
+      }
+      sheet.completionWithItemsHandler = { _, _, _, _ in answer() }
+      if host.isBeingDismissed || host.presentedViewController != nil {
+        answer()
+        return
+      }
+      host.present(sheet, animated: true)
+      DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
+        if sheet.presentingViewController == nil { answer() }
+      }
     }
     let channel = FlutterMethodChannel(
       name: "ai_music/screenshot_ocr",

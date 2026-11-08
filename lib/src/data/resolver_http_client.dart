@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'resolver_models.dart';
 import 'provider_request_scheduler.dart';
@@ -124,10 +125,17 @@ class HttpMusicResolverClient implements MusicResolverHttp {
     }
 
     final response = await request.close().timeout(const Duration(seconds: 20));
-    final responseBody = await response
-        .transform(utf8.decoder)
-        .join()
-        .timeout(const Duration(seconds: 20));
+    final bytes = BytesBuilder(copy: false);
+    await for (final chunk in response.timeout(const Duration(seconds: 20))) {
+      bytes.add(chunk);
+      // Resolver responses are JSON or HTML pages; anything this large is
+      // not one, and must not grow memory without bound.
+      if (bytes.length > maxResponseBytes) {
+        throw HttpException('Response larger than $maxResponseBytes bytes', uri: uri);
+      }
+    }
+    // Lenient: one bad byte from a source must not fail the whole request.
+    final responseBody = utf8.decode(bytes.takeBytes(), allowMalformed: true);
     final headerMap = <String, String>{};
     response.headers.forEach((name, values) {
       if (values.isNotEmpty) {
@@ -137,10 +145,10 @@ class HttpMusicResolverClient implements MusicResolverHttp {
     return ResolverHttpResponse(
       statusCode: response.statusCode,
       body: responseBody,
-      finalUrl: response.redirects.isNotEmpty
-          ? response.redirects.last.location
-          : uri,
-      cookies: response.cookies,
+      finalUrl: resolveRedirects(uri, [
+        for (final r in response.redirects) r.location,
+      ]),
+      cookies: lenientCookies(response),
       headers: headerMap,
     );
   }
@@ -151,4 +159,41 @@ bool _isTransientNetworkError(Object error) {
       error is SocketException ||
       error is HandshakeException ||
       error is HttpException;
+}
+
+
+/// Upper bound for one resolver response body.
+const maxResponseBytes = 8 * 1024 * 1024;
+
+/// The URL a chain of redirects ends at. A `Location` may be relative to the
+/// URL it came from.
+Uri resolveRedirects(Uri start, List<Uri> locations) {
+  var current = start;
+  for (final location in locations) {
+    current = current.resolveUri(location);
+  }
+  return current;
+}
+
+/// The response's cookies, skipping any `Set-Cookie` value Dart's strict
+/// parser rejects (spaces, quotes, non-ASCII) instead of failing the request.
+List<Cookie> lenientCookies(HttpClientResponse response) {
+  try {
+    return response.cookies;
+  } on Exception {
+    // FormatException or HttpException from a bad Set-Cookie value.
+    return parseSetCookies(response.headers[HttpHeaders.setCookieHeader] ?? const []);
+  }
+}
+
+List<Cookie> parseSetCookies(List<String> values) => [
+  for (final value in values) ?_tryCookie(value),
+];
+
+Cookie? _tryCookie(String value) {
+  try {
+    return Cookie.fromSetCookieValue(value);
+  } on Object {
+    return null;
+  }
 }

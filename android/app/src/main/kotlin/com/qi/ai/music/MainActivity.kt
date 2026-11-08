@@ -150,32 +150,53 @@ class MainActivity : AudioServiceActivity() {
                 val recognizer = TextRecognition.getClient(
                     ChineseTextRecognizerOptions.Builder().build()
                 )
-                try {
-                    recognizer.process(InputImage.fromFilePath(this, android.net.Uri.fromFile(File(path))))
-                        .addOnSuccessListener { recognized ->
-                            val lines = recognized.textBlocks.flatMap { block ->
-                                block.lines.mapNotNull { line ->
-                                    val box = line.boundingBox ?: return@mapNotNull null
-                                    mapOf(
-                                        "text" to line.text,
-                                        "left" to box.left.toDouble(),
-                                        "top" to box.top.toDouble(),
-                                        "right" to box.right.toDouble(),
-                                        "bottom" to box.bottom.toDouble()
-                                    )
-                                }
-                            }
-                            result.success(lines)
-                            recognizer.close()
-                        }
-                        .addOnFailureListener { error ->
+                // Decoding a large screenshot takes long enough to stall the
+                // UI thread; build the image off it and recognise from there.
+                Thread {
+                    val image = try {
+                        InputImage.fromFilePath(this, android.net.Uri.fromFile(File(path)))
+                    } catch (error: Exception) {
+                        runOnUiThread {
                             result.error("ocr_failed", error.message, null)
                             recognizer.close()
                         }
-                } catch (error: Exception) {
+                        return@Thread
+                    }
+                    runOnUiThread { recognise(recognizer, image, result) }
+                }.start()
+            }
+    }
+
+    private fun recognise(
+        recognizer: com.google.mlkit.vision.text.TextRecognizer,
+        image: InputImage,
+        result: MethodChannel.Result,
+    ) {
+        try {
+            recognizer.process(image)
+                .addOnSuccessListener { recognized ->
+                    val lines = recognized.textBlocks.flatMap { block ->
+                        block.lines.mapNotNull { line ->
+                            val box = line.boundingBox ?: return@mapNotNull null
+                            mapOf(
+                                "text" to line.text,
+                                "left" to box.left.toDouble(),
+                                "top" to box.top.toDouble(),
+                                "right" to box.right.toDouble(),
+                                "bottom" to box.bottom.toDouble()
+                            )
+                        }
+                    }
+                    result.success(lines)
+                    recognizer.close()
+                }
+                .addOnFailureListener { error ->
                     result.error("ocr_failed", error.message, null)
                     recognizer.close()
                 }
-            }
+        } catch (error: Exception) {
+            result.error("ocr_failed", error.message, null)
+            recognizer.close()
+        }
     }
 }

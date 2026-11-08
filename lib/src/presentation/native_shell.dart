@@ -33,11 +33,14 @@ class NativeShell extends NavigatorObserver {
 
   Future<void> connect() async {
     if (kIsWeb || defaultTargetPlatform != TargetPlatform.iOS) return;
-    for (var attempt = 0; attempt < 5 && !_active; attempt++) {
+    // A slow cold start can register the channel late; giving up after a
+    // fraction of a second left Flutter drawing its own bars under the
+    // native tabs. Keep asking for up to about three seconds.
+    for (var attempt = 0; attempt < 30 && !_active; attempt++) {
       try {
         _active = await _channel.invokeMethod<bool>('hello') ?? false;
       } on MissingPluginException {
-        await Future<void>.delayed(const Duration(milliseconds: 80));
+        await Future<void>.delayed(const Duration(milliseconds: 100));
       } on PlatformException {
         break;
       }
@@ -263,7 +266,10 @@ class NativeShell extends NavigatorObserver {
         final nav = navigator;
         if (route != null && nav != null) {
           _nativePopping = id;
-          if (route.isCurrent) {
+          // UIKit has already left this page. A plain pop on a route with
+          // local history (an open in-page search) would only close that and
+          // keep the page, so the two stacks would disagree.
+          if (route.isCurrent && !route.willHandlePopInternally) {
             nav.pop();
           } else {
             nav.removeRoute(route);

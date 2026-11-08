@@ -11,6 +11,8 @@ export 'music_source_policy.dart';
 import 'dart:async';
 import 'dart:developer' as developer;
 
+import 'package:flutter/foundation.dart' show kDebugMode;
+
 import 'auto_source_health.dart';
 import 'auto_search_policy.dart';
 import 'buguyy_resolver.dart';
@@ -865,8 +867,12 @@ bool _requestCancelled() {
 void _logResolver(String message) {
   OperationLog.event('resolver', {'message': message});
   developer.log(message, name: 'ai_music.resolver');
-  // ignore: avoid_print
-  print(message);
+  // Search terms and song names stay out of the system log in release
+  // builds; OperationLog keeps its own redacted copy.
+  if (kDebugMode) {
+    // ignore: avoid_print
+    print(message);
+  }
 }
 
 class _AutoSourceResult {

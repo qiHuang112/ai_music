@@ -23,6 +23,10 @@ class ChallengeClient {
   final String apiBaseUrl;
   final String challengeBaseUrl;
   String _flacCookie;
+
+  /// When the current cookie stops being accepted; null for one handed in
+  /// from outside, which is used until a challenge error says otherwise.
+  DateTime? _expiresAt;
   Future<String>? _refreshing;
 
   Future<Map<String, dynamic>> postFlacApi(
@@ -44,7 +48,10 @@ class ChallengeClient {
   }
 
   Future<String> ensureCookie() async {
-    if (_flacCookie.isNotEmpty) {
+    // Renew a known-expired cookie up front instead of spending a failed
+    // request on it first.
+    final expired = _expiresAt != null && !DateTime.now().isBefore(_expiresAt!);
+    if (_flacCookie.isNotEmpty && !expired) {
       return _flacCookie;
     }
     _flacCookie = await refreshCookie();
@@ -56,6 +63,7 @@ class ChallengeClient {
       try {
         final fresh = await _generateFlacCookie();
         _flacCookie = fresh.cookie;
+        _expiresAt = fresh.expiresAt;
         return _flacCookie;
       } finally {
         _refreshing = null;

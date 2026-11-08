@@ -10,6 +10,11 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 MAX_REPORT_BYTES = 32 * 1024 * 1024
+# The service listens on the LAN without sign-in: new report IDs must not be
+# able to fill the disk. Past these limits new reports are refused (503);
+# nothing already stored is deleted.
+MAX_STORED_REPORTS = 500
+MAX_STORED_BYTES = 2 * 1024 * 1024 * 1024
 
 
 class DiagnosticsReceiver:
@@ -44,6 +49,10 @@ class DiagnosticsReceiver:
                     raise FileExistsError('Report ID already used')
                 return {'saved': True, 'reportId': report_id, 'sha256': digest,
                         'receivedAt': old['receivedAt']}
+            stored = list(self.root.glob('*.json'))
+            if (len(stored) >= MAX_STORED_REPORTS or
+                    sum(f.stat().st_size for f in stored) + len(payload) > MAX_STORED_BYTES):
+                raise OSError('Diagnostics storage is full')
             document = {'receivedAt': now, 'clientAddress': client_address,
                         'sha256': digest, 'payload': document}
             fd, temporary = tempfile.mkstemp(prefix='.upload-', dir=self.root)

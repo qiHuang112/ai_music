@@ -38,7 +38,11 @@ class ResumableAudioSource extends StreamAudioSource {
   final void Function(CachedDownloadProgress progress)? onProgress;
   final void Function(Object error)? onFailure;
   final void Function()? onSuccess;
-  bool _writing = false;
+  /// `.part` files some source is appending to right now. Shared by every
+  /// instance: a reload or rebuilt source for the same song must not append
+  /// to (or truncate) the file another instance is still writing.
+  static final _writingPaths = <String>{};
+  bool get _writing => _writingPaths.contains(partFile.path);
   final _clients = <HttpClient>{};
   final _cancelledClients = <HttpClient>{};
   Future<void>? _finishing;
@@ -140,7 +144,7 @@ class ResumableAudioSource extends StreamAudioSource {
     final cachedEnd = ranged ? min(prefix, actualOffset) : 0;
     final write =
         !_writing && (ranged ? actualOffset == prefix : effectiveFrom == 0);
-    if (write) _writing = true;
+    if (write) _writingPaths.add(partFile.path);
     final remoteType = response.headers.contentType?.mimeType ?? '';
     final contentType =
         remoteType.isEmpty ||
@@ -214,7 +218,7 @@ class ResumableAudioSource extends StreamAudioSource {
         client.close(force: true);
         _clients.remove(client);
         final cancelled = _cancelledClients.remove(client);
-        if (write) _writing = false;
+        if (write) _writingPaths.remove(partFile.path);
         if (finished) {
           if (!cancelled) onSuccess?.call();
           try {

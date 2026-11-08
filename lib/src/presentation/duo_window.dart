@@ -34,10 +34,17 @@ class _DuoWindowState extends State<DuoWindow> with WidgetsBindingObserver {
   }
 
   void _accept(Object? value) {
-    if (mounted && value is Map) {
-      setState(() => _geometry = Map<Object?, Object?>.from(value));
-    }
+    if (!mounted || value is! Map) return;
+    final next = Map<Object?, Object?>.from(value);
+    // Metrics change every frame while the keyboard moves; an unchanged
+    // snapshot must not rebuild every page that depends on the geometry.
+    if (mapEquals(_rawKey(next), _rawKey(_geometry))) return;
+    setState(() => _geometry = next);
   }
+
+  static Map<Object?, Object?> _rawKey(Map<Object?, Object?> map) => {
+    for (final entry in map.entries) entry.key: '${entry.value}',
+  };
 
   Future<void> _refresh() async {
     try {
@@ -140,6 +147,22 @@ class DuoGeometry {
   final List<Rect> obstructions;
   final EdgeInsets occlusionInsets;
   final List<Rect> divisions;
+
+  @override
+  bool operator ==(Object other) =>
+      other is DuoGeometry &&
+      other.edge == edge &&
+      other.occlusionInsets == occlusionInsets &&
+      listEquals(other.divisions, divisions) &&
+      listEquals(other.obstructions, obstructions);
+
+  @override
+  int get hashCode => Object.hash(
+    edge,
+    occlusionInsets,
+    Object.hashAll(divisions),
+    Object.hashAll(obstructions),
+  );
 
   factory DuoGeometry.fromMap(Map<Object?, Object?> map, Size size) {
     // Discard an in-flight snapshot from the previous window orientation.

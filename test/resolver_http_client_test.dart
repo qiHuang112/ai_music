@@ -5,6 +5,38 @@ import 'package:ai_music/src/data/resolver_http_client.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
+  test('a malformed cookie or byte does not fail the request', () async {
+    final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+    final subscription = server.listen((request) async {
+      request.response.headers
+        ..add('set-cookie', 'good=1; Path=/')
+        ..add('set-cookie', 'bad=has space"; Path=/');
+      request.response.add([...utf8.encode('{"ok":"'), 0xff, ...utf8.encode('"}')]);
+      await request.response.close();
+    });
+    final client = HttpMusicResolverClient();
+    try {
+      final response = await client.get(
+        Uri.parse('http://${server.address.host}:${server.port}/x'),
+      );
+      expect(response.statusCode, 200);
+      expect(response.body, startsWith('{"ok":"'));
+      expect(response.cookies.map((c) => c.name), contains('good'));
+    } finally {
+      client.close();
+      await subscription.cancel();
+      await server.close(force: true);
+    }
+  });
+
+  test('relative redirects resolve against the previous URL', () {
+    final end = resolveRedirects(Uri.parse('https://a.test/x/y'), [
+      Uri.parse('/login'),
+      Uri.parse('next?step=2'),
+    ]);
+    expect(end.toString(), 'https://a.test/next?step=2');
+  });
+
   test('sequential requests reuse the same HTTP connection', () async {
     final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
     final ports = <int>[];
