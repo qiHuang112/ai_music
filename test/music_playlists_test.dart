@@ -123,6 +123,52 @@ void main() {
   });
 
   test(
+    'playlist store keeps an intact file when the write-back fails',
+    () async {
+      final root = await Directory.systemTemp.createTemp(
+        'ai_music_playlists_wb_',
+      );
+      addTearDown(() => root.delete(recursive: true));
+      final file = File('${root.path}${Platform.pathSeparator}playlists.json');
+      final now = DateTime(2026);
+      await PlaylistStore(rootProvider: () async => root).write(
+        PlaylistLibrary(
+          favoriteEntries: [PlaylistTrackEntry(trackId: 'gone', addedAt: now)],
+          playlists: const [],
+        ),
+      );
+      final original = await file.readAsString();
+      final store = _FailingWriteStore(root);
+
+      // Pruning 'gone' triggers a write-back, which fails.
+      final library = await store.load(validTrackIds: const {});
+
+      expect(library.favoriteTrackIds, isEmpty);
+      expect(await file.readAsString(), original);
+      expect(
+        root.listSync().where((entry) => entry.path.contains('.corrupt-')),
+        isEmpty,
+      );
+    },
+  );
+
+  test('playlist store backs up a library that is not a JSON object', () async {
+    final root = await Directory.systemTemp.createTemp('ai_music_pl_list_');
+    addTearDown(() => root.delete(recursive: true));
+    await File(
+      '${root.path}${Platform.pathSeparator}playlists.json',
+    ).writeAsString('[]');
+
+    final library = await PlaylistStore(rootProvider: () async => root).load();
+
+    expect(library.playlists, isEmpty);
+    expect(
+      root.listSync().where((entry) => entry.path.contains('.corrupt-')),
+      isNotEmpty,
+    );
+  });
+
+  test(
     'playlist store backs up corrupt json and returns empty library',
     () async {
       final root = await Directory.systemTemp.createTemp(
@@ -228,4 +274,13 @@ void main() {
       await root.delete(recursive: true);
     }
   });
+}
+
+class _FailingWriteStore extends PlaylistStore {
+  _FailingWriteStore(Directory root) : super(rootProvider: () async => root);
+
+  @override
+  Future<void> write(PlaylistLibrary library, {Set<String>? validTrackIds}) {
+    throw const FileSystemException('No space left on device');
+  }
 }

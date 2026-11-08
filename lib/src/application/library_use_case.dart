@@ -91,6 +91,11 @@ class LibraryUseCase {
     return snapshot;
   }
 
+  /// The newest saved playlist library, which can be ahead of a caller that
+  /// has not applied the result of a just-finished favourite or playlist write.
+  PlaylistLibrary? get latestPlaylistLibrary =>
+      _latestSnapshot?.playlistLibrary;
+
   LibrarySnapshot applyCachedRecords(
     List<CachedTrack> cachedRecords,
     PlaylistLibrary playlistLibrary,
@@ -557,8 +562,7 @@ class LibraryUseCase {
       library,
       validTrackIds: libraryController.validTrackIds(base.cachedTracks),
     );
-    final snapshot = _snapshot(base.cachedRecords, base.cachedTracks, library);
-    _latestSnapshot = snapshot;
+    final snapshot = _commitPlaylists(base, library);
     return snapshot;
   });
 
@@ -672,12 +676,7 @@ class LibraryUseCase {
         library,
         validTrackIds: libraryController.validTrackIds(base.cachedTracks),
       );
-      final snapshot = _snapshot(
-        base.cachedRecords,
-        base.cachedTracks,
-        library,
-      );
-      _latestSnapshot = snapshot;
+      final snapshot = _commitPlaylists(base, library);
       return MusicPlaylistResult(
         snapshot: snapshot,
         playlist: playlist,
@@ -736,8 +735,7 @@ class LibraryUseCase {
       library,
       validTrackIds: libraryController.validTrackIds(base.cachedTracks),
     );
-    final snapshot = _snapshot(base.cachedRecords, base.cachedTracks, library);
-    _latestSnapshot = snapshot;
+    final snapshot = _commitPlaylists(base, library);
     return MusicPlaylistResult(
       snapshot: snapshot,
       playlist: playlist,
@@ -1218,10 +1216,27 @@ class LibraryUseCase {
     final playlistLibrary = await playlistStore.load(
       validTrackIds: libraryController.validTrackIds(current.cachedTracks),
     );
+    return _commitPlaylists(current, playlistLibrary);
+  }
+
+  /// Publish a saved playlist library on top of the newest cache records.
+  ///
+  /// A download or artwork update can land via [applyCachedRecords] while a
+  /// playlist write waits in the queue; building from [base] alone would drop
+  /// those records again.
+  LibrarySnapshot _commitPlaylists(
+    LibrarySnapshot base,
+    PlaylistLibrary library,
+  ) {
+    final latest = _latestSnapshot;
+    final cache =
+        latest != null && !identical(latest.cachedRecords, base.cachedRecords)
+        ? latest
+        : base;
     final snapshot = _snapshot(
-      current.cachedRecords,
-      current.cachedTracks,
-      playlistLibrary,
+      cache.cachedRecords,
+      cache.cachedTracks,
+      library,
     );
     _latestSnapshot = snapshot;
     return snapshot;

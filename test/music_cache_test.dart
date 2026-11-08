@@ -404,6 +404,81 @@ void main() {
     },
   );
 
+  test('listCached keeps index rows whose audio is missing for now', () async {
+    final root = await Directory.systemTemp.createTemp('ai_music_cache_gone_');
+    addTearDown(() => root.delete(recursive: true));
+    final index = File(
+      '${root.path}${Platform.pathSeparator}_cache_index.json',
+    );
+    final present = File('${root.path}${Platform.pathSeparator}here.mp3');
+    await present.writeAsBytes([1, 2]);
+    Map<String, Object?> row(String id, String path, {bool playback = false}) =>
+        CachedTrack(
+          cacheId: id,
+          music: ResolvedMusic(
+            query: id,
+            source: MusicDataSource.buguyy,
+            platform: 'buguyy',
+            id: id,
+            name: id,
+            artist: 'Artist',
+            album: '',
+            url: 'https://audio.test/$id.mp3',
+            coverUrl: '',
+            quality: const MusicQuality(format: 'mp3'),
+          ),
+          filePath: path,
+          sizeBytes: 2,
+          fromCache: true,
+          playbackCache: playback,
+        ).toJson();
+    await index.writeAsString(
+      jsonEncode([
+        row('here', present.path),
+        row('away', '${root.path}/away.mp3'),
+        row('stream', '${root.path}/stream.mp3', playback: true),
+      ]),
+    );
+
+    final listed = await CachedTrackStore(
+      rootProvider: () async => root,
+    ).listCached();
+
+    expect(listed.map((t) => t.cacheId), ['here']);
+    final saved = (jsonDecode(await index.readAsString()) as List)
+        .map((r) => (r as Map)['cacheId'])
+        .toList();
+    expect(saved, containsAll(['here', 'away']));
+    expect(saved, isNot(contains('stream')));
+  });
+
+  test('cleanupTemporaryFiles only removes download temp files', () async {
+    final root = await Directory.systemTemp.createTemp('ai_music_cache_tmp_');
+    addTearDown(() => root.delete(recursive: true));
+    final temp = File('${root.path}/a-b.mp3.download-123.tmp');
+    final song = File('${root.path}/Artist-My.download-Song-abc.mp3');
+    await temp.writeAsBytes([1]);
+    await song.writeAsBytes([1]);
+
+    await CachedTrackStore(
+      rootProvider: () async => root,
+    ).cleanupTemporaryFiles();
+
+    expect(await temp.exists(), isFalse);
+    expect(await song.exists(), isTrue);
+  });
+
+  test('sanitizeFilePart keeps names within the byte limit', () {
+    final title = '很长的中文歌名' * 20;
+    final cut = sanitizeFilePart(title, 'x');
+    expect(utf8.encode(cut).length, lessThanOrEqualTo(100));
+    expect(title.startsWith(cut), isTrue);
+    final emoji = 'a' * 98 + '😀tail';
+    final kept = sanitizeFilePart(emoji, 'x');
+    expect(kept, 'a' * 98);
+    expect(sanitizeFilePart('Short Title', 'x'), 'Short Title');
+  });
+
   test('listCached backs up damaged index and exposes the error', () async {
     final root = await Directory.systemTemp.createTemp('ai_music_cache_bad_');
     final store = CachedTrackStore(rootProvider: () async => root);

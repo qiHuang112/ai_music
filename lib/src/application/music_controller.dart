@@ -4341,7 +4341,11 @@ class MusicController extends ChangeNotifier with WidgetsBindingObserver {
       records[index] = record;
     }
     _applyLibrarySnapshot(
-      libraryUseCase.applyCachedRecords(records, _playlistLibrary),
+      libraryUseCase.applyCachedRecords(
+        records,
+        // Never roll back a favourite or playlist write that already landed.
+        libraryUseCase.latestPlaylistLibrary ?? _playlistLibrary,
+      ),
     );
     final track = currentTrack;
     if (track != null &&
@@ -4666,7 +4670,10 @@ class MusicController extends ChangeNotifier with WidgetsBindingObserver {
       return false;
     }
     _applyLibrarySnapshot(
-      libraryUseCase.applyCachedRecords(_cachedRecords, _playlistLibrary),
+      libraryUseCase.applyCachedRecords(
+        _cachedRecords,
+        libraryUseCase.latestPlaylistLibrary ?? _playlistLibrary,
+      ),
     );
     return true;
   }

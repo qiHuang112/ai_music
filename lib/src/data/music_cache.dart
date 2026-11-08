@@ -847,7 +847,7 @@ class CachedTrackStore {
       return;
     }
     await for (final entity in root.list()) {
-      if (entity is File && entity.path.contains('.download-')) {
+      if (entity is File && _downloadTemp.hasMatch(_fileName(entity.path))) {
         try {
           await entity.delete();
         } catch (_) {
@@ -913,6 +913,10 @@ class CachedTrackStore {
       final root = await _rootProvider();
       final index = await _readIndex(root);
       final tracks = <CachedTrack>[];
+      // Rows whose audio is not on disk right now (an unmounted volume, an
+      // iOS container move `_reanchor` could not repair) stay in the index so
+      // a later read can recover them; only regenerable playback cache drops.
+      final absent = <Map<String, dynamic>>[];
       for (final row in index) {
         final cached = CachedTrack.fromJson(row);
         if (cached == null) {
@@ -920,6 +924,7 @@ class CachedTrackStore {
         }
         final file = File(cached.filePath);
         if (!await file.exists()) {
+          if (!cached.playbackCache) absent.add(row);
           continue;
         }
         final stat = await file.stat();
@@ -941,9 +946,12 @@ class CachedTrackStore {
         );
       }
       final deduped = _dedupeCachedTracks(tracks);
-      if (deduped.length != index.length || _reanchored) {
+      if (deduped.length + absent.length != index.length || _reanchored) {
         // Also saves repaired paths once, so later reads skip the repair.
-        await _writeIndex(root, [for (final track in deduped) track.toJson()]);
+        await _writeIndex(root, [
+          for (final track in deduped) track.toJson(),
+          ...absent,
+        ]);
         _reanchored = false;
       }
       deduped.sort((a, b) => a.music.name.compareTo(b.music.name));
@@ -1037,8 +1045,12 @@ class CachedTrackStore {
     if (!await file.exists()) {
       return <Map<String, dynamic>>[];
     }
+    // A failed read (locked or briefly unavailable storage) says nothing about
+    // the content, so it must not rename a healthy index out of the way.
+    final bytes = await file.readAsBytes();
+    final List<Map<String, dynamic>> rows;
     try {
-      final decoded = jsonDecode(await file.readAsString());
+      final decoded = jsonDecode(utf8.decode(bytes));
       if (decoded is! List) {
         final backup = await _backupCorruptIndex(file);
         throw CacheIndexException(
@@ -1046,14 +1058,10 @@ class CachedTrackStore {
           backupPath: backup.path,
         );
       }
-      final rows = decoded
+      rows = decoded
           .whereType<Map>()
           .map((row) => row.cast<String, dynamic>())
           .toList(growable: true);
-      for (final row in rows) {
-        await _reanchor(root, row);
-      }
-      return rows;
     } on CacheIndexException {
       rethrow;
     } catch (error) {
@@ -1063,6 +1071,10 @@ class CachedTrackStore {
         backupPath: backup.path,
       );
     }
+    for (final row in rows) {
+      await _reanchor(root, row);
+    }
+    return rows;
   }
 
   /// iOS gives the app a new container path on every install or update, which
@@ -1518,8 +1530,27 @@ String sanitizeFilePart(String? value, String fallback) {
       .replaceAll(RegExp(r'[. ]+$'), '')
       .replaceAll(RegExp(r'^-+|-+$'), '');
   final safe = cleaned.isEmpty ? fallback : cleaned;
-  return safe.substring(0, min(100, safe.length));
+  // File names are limited to 255 bytes, and a CJK character takes three in
+  // UTF-8. Artist and title each get 100 bytes so the joined name plus id,
+  // extension and `.download-<nonce>.tmp` stays within the limit. Cut on a
+  // character boundary so emoji are never split.
+  const maxBytes = 100;
+  final buffer = StringBuffer();
+  var bytes = 0;
+  for (final rune in safe.runes) {
+    final char = String.fromCharCode(rune);
+    final size = utf8.encode(char).length;
+    if (bytes + size > maxBytes) break;
+    buffer.write(char);
+    bytes += size;
+  }
+  return buffer.toString().trim();
 }
+
+/// Temporary download files: `<target>.download-<nonce>.tmp`.
+final _downloadTemp = RegExp(r'\.download-[^.]+\.tmp$');
+
+String _fileName(String path) => path.split(Platform.pathSeparator).last;
 
 String extensionFromResolved(ResolvedMusic result) {
   try {

@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:ai_music/src/application/library_use_case.dart';
@@ -398,6 +399,33 @@ void main() {
     },
   );
 
+  test('cache update during a favourite write keeps both changes', () async {
+    final f = await _Fixture.create();
+    final before = await f.useCase.loadCache();
+    final track = before.cachedTracks.single;
+    expect(before.playlistLibrary.favoriteTrackIds, isNot(contains(track.id)));
+    f.store.gate = Completer<void>();
+    final pending = f.useCase.toggleFavorite(track, current: before);
+    await Future<void>.delayed(Duration.zero);
+    final streamed = f.cache.record.copyWith(
+      cacheId: 'streamed',
+      filePath: '${f.root.path}/streamed.mp3',
+    );
+    final records = [f.cache.record, streamed];
+    // A download lands while the favourite write is still queued.
+    f.useCase.applyCachedRecords(records, before.playlistLibrary);
+    f.store.gate!.complete();
+    final saved = await pending;
+    expect(saved.playlistLibrary.favoriteTrackIds, contains(track.id));
+    expect(saved.cachedRecords.map((r) => r.cacheId), contains('streamed'));
+    // A controller still holding the pre-write library reads the newest one.
+    final later = f.useCase.applyCachedRecords(
+      records,
+      f.useCase.latestPlaylistLibrary ?? before.playlistLibrary,
+    );
+    expect(later.playlistLibrary.favoriteTrackIds, contains(track.id));
+  });
+
   test('LAN sidecar artwork takes precedence over stale metadata', () async {
     final f = await _Fixture.create();
     final cover = File('${f.root.path}/local.jpg');
@@ -528,9 +556,14 @@ class _Cache extends CachedTrackStore {
 class _Store extends PlaylistStore {
   _Store(Directory root) : super(rootProvider: () async => root);
   bool fail = false;
+  Completer<void>? gate;
   @override
-  Future<void> write(PlaylistLibrary library, {Set<String>? validTrackIds}) {
+  Future<void> write(
+    PlaylistLibrary library, {
+    Set<String>? validTrackIds,
+  }) async {
     if (fail) throw StateError('disk full');
+    await gate?.future;
     return super.write(library, validTrackIds: validTrackIds);
   }
 }

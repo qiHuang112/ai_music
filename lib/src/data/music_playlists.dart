@@ -276,23 +276,31 @@ class PlaylistStore {
     if (!await file.exists()) {
       return const PlaylistLibrary.empty();
     }
+    // Only unreadable content is backed up. A failed read or write-back says
+    // nothing about the file, and treating it as corruption would rename the
+    // user's playlists away and let the next save replace them with nothing.
+    final bytes = await file.readAsBytes();
+    final PlaylistLibrary parsed;
     try {
-      final decoded = jsonDecode(await file.readAsString());
+      final decoded = jsonDecode(utf8.decode(bytes));
       if (decoded is! Map<String, dynamic>) {
-        return const PlaylistLibrary.empty();
+        throw const FormatException('Playlist library is not a JSON object');
       }
-      final library = _sanitize(
-        PlaylistLibrary.fromJson(decoded),
-        validTrackIds,
-      );
-      if (validTrackIds != null) {
-        await write(library, validTrackIds: validTrackIds);
-      }
-      return library;
+      parsed = PlaylistLibrary.fromJson(decoded);
     } catch (_) {
       await _jsonStore.backupCorruptFile(file);
       return const PlaylistLibrary.empty();
     }
+    final library = _sanitize(parsed, validTrackIds);
+    if (validTrackIds != null) {
+      try {
+        await write(library, validTrackIds: validTrackIds);
+      } catch (_) {
+        // The pruned copy is saved again with the next change; the file on
+        // disk is still the intact original.
+      }
+    }
+    return library;
   }
 
   Future<void> write(PlaylistLibrary library, {Set<String>? validTrackIds}) {
