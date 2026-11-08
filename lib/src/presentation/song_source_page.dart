@@ -8,6 +8,7 @@ import '../data/music_resolver.dart';
 import '../domain/music_models.dart';
 import '../data/saved_online_track.dart';
 import 'app_localizations.dart';
+import 'design/app_icons.dart';
 
 Future<void> showSongSourcePicker(
   BuildContext context,
@@ -168,7 +169,7 @@ class _SongSourcePageState extends State<SongSourcePage> {
           IconButton(
             tooltip: zh ? '刷新来源' : 'Refresh sources',
             onPressed: _saving || _loading ? null : _refresh,
-            icon: const Icon(Icons.refresh),
+            icon: const Icon(AppIcons.refresh),
           ),
         ],
       ),
@@ -187,7 +188,7 @@ class _SongSourcePageState extends State<SongSourcePage> {
 
                   suffixIcon: IconButton(
                     onPressed: _saving ? null : _search,
-                    icon: const Icon(Icons.search),
+                    icon: const Icon(AppIcons.search),
                   ),
                 ),
               ),
@@ -289,8 +290,8 @@ class _SongSourcePageState extends State<SongSourcePage> {
                                                   widget.track,
                                                 )!,
                                           ).trackId)
-                                ? Icons.radio_button_checked
-                                : Icons.radio_button_unchecked,
+                                ? AppIcons.radioOn
+                                : AppIcons.radioOff,
                           ),
                           onTap: _saving ? null : () => _choose(candidate),
                         );

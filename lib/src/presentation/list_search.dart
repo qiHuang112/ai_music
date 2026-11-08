@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import '../domain/music_models.dart';
 import 'app_localizations.dart';
 import 'desktop_scope.dart';
+import 'design/app_icons.dart';
 
 class ListSearchField extends StatelessWidget {
   const ListSearchField({
@@ -49,7 +50,7 @@ class ListSearchField extends StatelessWidget {
         onChanged: onChanged,
         decoration: InputDecoration(
           hintText: hintText ?? strings.listSearchHint,
-          prefixIcon: Icon(Icons.search, size: desktop ? 18 : null),
+          prefixIcon: Icon(AppIcons.search, size: desktop ? 18 : null),
           contentPadding: desktop
               ? const EdgeInsets.symmetric(vertical: 9)
               : null,
@@ -63,7 +64,7 @@ class ListSearchField extends StatelessWidget {
                     controller.clear();
                     onChanged('');
                   },
-                  icon: const Icon(Icons.close),
+                  icon: const Icon(AppIcons.close),
                 ),
 
           isDense: true,

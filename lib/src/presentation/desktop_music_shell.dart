@@ -30,6 +30,7 @@ import 'player_page.dart';
 import 'playlist_actions.dart';
 import 'song_actions.dart';
 import 'song_comments_page.dart';
+import 'design/app_icons.dart';
 
 class DesktopMusicShell extends StatefulWidget {
   const DesktopMusicShell({
@@ -787,7 +788,7 @@ class DesktopMusicShellState extends State<DesktopMusicShell> {
               children: [
                 DesktopToolButton(
                   key: const ValueKey('desktop-back'),
-                  icon: Icons.chevron_left_rounded,
+                  icon: AppIcons.chevronLeft,
                   tooltip: zh ? '返回（⌘[）' : 'Back (⌘[)',
                   size: 30,
                   iconSize: 22,
@@ -798,7 +799,7 @@ class DesktopMusicShellState extends State<DesktopMusicShell> {
                 const SizedBox(width: 4),
                 DesktopToolButton(
                   key: const ValueKey('desktop-mini-player'),
-                  icon: Icons.picture_in_picture_alt_rounded,
+                  icon: AppIcons.miniWindow,
                   tooltip: zh ? '迷你播放器（⇧⌘M）' : 'Mini player (⇧⌘M)',
                   onPressed: controller.audioHandler.mediaItem.value == null
                       ? null
@@ -809,7 +810,7 @@ class DesktopMusicShellState extends State<DesktopMusicShell> {
                   updates: controller.appUpdates,
                   child: DesktopToolButton(
                     key: const ValueKey('desktop-settings'),
-                    icon: Icons.settings_outlined,
+                    icon: AppIcons.settings,
                     tooltip: zh ? '设置（⌘,）' : 'Settings (⌘,)',
                     active: _section == 'settings',
                     onPressed: () => selectSection('settings'),
@@ -970,7 +971,7 @@ class DesktopMusicShellState extends State<DesktopMusicShell> {
               child: Row(
                 children: [
                   Icon(
-                    Icons.search_rounded,
+                    AppIcons.search,
                     size: 16,
                     color: DesktopUi.muted(context),
                   ),
@@ -991,17 +992,13 @@ class DesktopMusicShellState extends State<DesktopMusicShell> {
           ),
         ),
         const SizedBox(height: 10),
-        entry('home', zh ? '首页' : 'Home', icon: Icons.home_rounded),
-        entry(
-          'library',
-          zh ? '音乐库' : 'Library',
-          icon: Icons.library_music_rounded,
-        ),
+        entry('home', zh ? '首页' : 'Home', icon: AppIcons.home),
+        entry('library', zh ? '音乐库' : 'Library', icon: AppIcons.library),
         group(zh ? '我的音乐' : 'Your music'),
         entry(
           'playlist:$favoritePlaylistId',
           zh ? '我的收藏' : 'Favorites',
-          icon: Icons.favorite_rounded,
+          icon: AppIcons.heartFill,
           trailing: controller.favoriteTracks.isEmpty
               ? null
               : count(controller.favoriteTracks.length),
@@ -1009,7 +1006,7 @@ class DesktopMusicShellState extends State<DesktopMusicShell> {
         entry(
           'downloads',
           zh ? '下载' : 'Downloads',
-          icon: Icons.download_rounded,
+          icon: AppIcons.download,
           trailing: controller.hasActiveDownloads
               ? const SizedBox.square(
                   dimension: 11,
@@ -1022,7 +1019,7 @@ class DesktopMusicShellState extends State<DesktopMusicShell> {
         group(
           zh ? '歌单' : 'Playlists',
           action: DesktopToolButton(
-            icon: Icons.add_rounded,
+            icon: AppIcons.add,
             tooltip: strings.newPlaylist,
             size: 22,
             iconSize: 16,
@@ -1094,7 +1091,7 @@ class DesktopMusicShellState extends State<DesktopMusicShell> {
               if (close) ...[
                 const SizedBox(width: 6),
                 DesktopToolButton(
-                  icon: Icons.close_rounded,
+                  icon: AppIcons.close,
                   tooltip: zh ? '收起面板' : 'Close panel',
                   size: 28,
                   iconSize: 16,
@@ -1294,8 +1291,8 @@ class DesktopPlaybackBar extends StatelessWidget {
                               ),
                               child: Icon(
                                 playerOpen
-                                    ? Icons.keyboard_arrow_down_rounded
-                                    : Icons.keyboard_arrow_up_rounded,
+                                    ? AppIcons.chevronDown
+                                    : AppIcons.chevronUp,
                                 size: 18,
                                 color: Colors.white,
                               ),
@@ -1365,9 +1362,7 @@ class DesktopPlaybackBar extends StatelessWidget {
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
             DesktopToolButton(
-              icon: favorite
-                  ? Icons.favorite_rounded
-                  : Icons.favorite_border_rounded,
+              icon: favorite ? AppIcons.heartFill : AppIcons.heart,
               tooltip: favorite
                   ? strings.removeFromFavorites
                   : strings.addToFavorites,
@@ -1379,7 +1374,7 @@ class DesktopPlaybackBar extends StatelessWidget {
             ),
             const SizedBox(width: 10),
             DesktopToolButton(
-              icon: Icons.skip_previous_rounded,
+              icon: AppIcons.previous,
               tooltip: '${strings.isZh ? '上一首' : 'Previous'}  ⌘←',
               size: 36,
               iconSize: 24,
@@ -1394,7 +1389,7 @@ class DesktopPlaybackBar extends StatelessWidget {
             ),
             const SizedBox(width: 8),
             DesktopToolButton(
-              icon: Icons.skip_next_rounded,
+              icon: AppIcons.next,
               tooltip: '${strings.isZh ? '下一首' : 'Next'}  ⌘→',
               size: 36,
               iconSize: 24,
@@ -1419,9 +1414,9 @@ class DesktopPlaybackBar extends StatelessWidget {
   Widget _extras(BuildContext context) {
     final strings = AppStringsScope.of(context);
     final icons = {
-      DesktopDetail.lyrics: Icons.lyrics_outlined,
-      DesktopDetail.comments: Icons.forum_outlined,
-      DesktopDetail.queue: Icons.queue_music_rounded,
+      DesktopDetail.lyrics: AppIcons.lyrics,
+      DesktopDetail.comments: AppIcons.comments,
+      DesktopDetail.queue: AppIcons.queue,
     };
     return Padding(
       padding: const EdgeInsets.only(right: 16, left: 8),
@@ -1450,10 +1445,10 @@ class DesktopPlaybackBar extends StatelessWidget {
                     children: [
                       Icon(
                         level == 0
-                            ? Icons.volume_off_rounded
+                            ? AppIcons.volumeOff
                             : level < .5
-                            ? Icons.volume_down_rounded
-                            : Icons.volume_up_rounded,
+                            ? AppIcons.volumeLow
+                            : AppIcons.volumeHigh,
                         size: 17,
                         color: DesktopUi.muted(context),
                       ),
@@ -1564,7 +1559,7 @@ class _DesktopPlaybackQueueState extends State<DesktopPlaybackQueue> {
                       ),
                       const SizedBox(width: 4),
                       DesktopToolButton(
-                        icon: Icons.my_location_rounded,
+                        icon: AppIcons.locate,
                         tooltip: strings.isZh
                             ? '定位当前歌曲'
                             : 'Locate current song',
@@ -1713,7 +1708,7 @@ class _DesktopPlaybackQueueState extends State<DesktopPlaybackQueue> {
                                         key: menu,
                                         tooltip: strings.more,
                                         icon: const Icon(
-                                          Icons.more_horiz_rounded,
+                                          AppIcons.more,
                                           size: 18,
                                         ),
                                         itemBuilder: (_) => [
@@ -1851,7 +1846,7 @@ class _SkinMenuState extends State<_SkinMenu> {
             onPressed: () => widget.controller.saveTheme(skin),
             leadingIcon: _Swatch(palette: MusicPalette.of(skin)),
             trailingIcon: skin == current
-                ? Icon(Icons.check_rounded, size: 16, color: colors.primary)
+                ? Icon(AppIcons.check, size: 16, color: colors.primary)
                 : const SizedBox(width: 16),
             style: MenuItemButton.styleFrom(
               minimumSize: const Size(196, 38),
@@ -1870,7 +1865,7 @@ class _SkinMenuState extends State<_SkinMenu> {
       ],
       builder: (context, menu, _) => DesktopToolButton(
         key: const ValueKey('desktop-skins'),
-        icon: Icons.checkroom_rounded,
+        icon: AppIcons.paint,
         tooltip: strings.isZh ? '换肤' : 'Skins',
         active: menu.isOpen,
         onPressed: () => menu.isOpen ? menu.close() : menu.open(),

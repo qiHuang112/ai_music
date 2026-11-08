@@ -10,6 +10,7 @@ import 'package:flutter/services.dart';
 import 'package:audio_service/audio_service.dart';
 
 import '../application/music_controller.dart';
+import 'design/app_icons.dart';
 import 'player_page.dart' show artworkImageProvider;
 
 /// UIKit draws the tab bar, navigation bars, bar buttons and menus; Flutter
@@ -344,7 +345,9 @@ class NativeShell extends NavigatorObserver {
   /// A 120px square of the cover for the accessory, as PNG.
   static Future<Uint8List?> _thumbnail(Uri uri) async {
     try {
-      final stream = artworkImageProvider(uri).resolve(ImageConfiguration.empty);
+      final stream = artworkImageProvider(
+        uri,
+      ).resolve(ImageConfiguration.empty);
       final completer = Completer<ui.Image>();
       late final ImageStreamListener listener;
       listener = ImageStreamListener(
@@ -417,7 +420,7 @@ class NativeShell extends NavigatorObserver {
 
 /// SF Symbols for the icons the app uses in bars. Anything else is rendered
 /// from its icon font as a template image.
-String? sfSymbol(IconData icon) => _symbols[icon];
+String? sfSymbol(IconData icon) => appIconSymbols[icon] ?? _symbols[icon];
 
 final _symbols = <IconData, String>{
   Icons.arrow_back: 'chevron.backward',
@@ -553,11 +556,12 @@ class ShellGlyphs {
   /// The bytes once rendered; null until [of] has completed for the icon.
   static Uint8List? cached(IconData icon) => _done[icon];
 
-  static Future<Uint8List?> of(IconData icon) => _cache.putIfAbsent(icon, () async {
-    final bytes = await _render(icon);
-    if (bytes != null) _done[icon] = bytes;
-    return bytes;
-  });
+  static Future<Uint8List?> of(IconData icon) =>
+      _cache.putIfAbsent(icon, () async {
+        final bytes = await _render(icon);
+        if (bytes != null) _done[icon] = bytes;
+        return bytes;
+      });
 
   static Future<Uint8List?> _render(IconData icon) async {
     const size = 66.0;
@@ -604,7 +608,9 @@ String? shellLabelOf(Widget? widget) {
       return data ?? textSpan?.toPlainText();
     case ListTile(:final title):
       return shellLabelOf(title);
-    case Row(:final children) || Column(:final children) || Wrap(:final children):
+    case Row(:final children) ||
+        Column(:final children) ||
+        Wrap(:final children):
       for (final child in children) {
         final label = shellLabelOf(child);
         if (label != null && label.isNotEmpty) return label;

@@ -15,6 +15,7 @@ import '../data/music_playlists.dart';
 import '../platform/screenshot_ocr.dart';
 import 'app_localizations.dart';
 import 'playlist_actions.dart';
+import 'design/app_icons.dart';
 
 List<XFile> orderPickedScreenshots(List<XFile> picked) {
   final screenshotName = RegExp(
@@ -125,7 +126,7 @@ class _ScreenshotImportPageState extends State<ScreenshotImportPage> {
                 children: [
                   FilledButton.icon(
                     onPressed: _recognizing ? null : () => _pickImages(),
-                    icon: const Icon(Icons.add_photo_alternate_outlined),
+                    icon: const Icon(AppIcons.addPhoto),
                     label: Text(zh ? '选择截图' : 'Choose images'),
                   ),
                   const SizedBox(width: 12),
@@ -183,7 +184,7 @@ class _ScreenshotImportPageState extends State<ScreenshotImportPage> {
                             top: 0,
                             child: IconButton.filledTonal(
                               tooltip: zh ? '删除图片' : 'Remove image',
-                              icon: const Icon(Icons.close, size: 16),
+                              icon: const Icon(AppIcons.close, size: 16),
                               visualDensity: VisualDensity.compact,
                               onPressed: () {
                                 setState(() {
@@ -339,16 +340,16 @@ class _ScreenshotImportPageState extends State<ScreenshotImportPage> {
             mainAxisSize: MainAxisSize.min,
             children: [
               if (row.candidates.isNotEmpty)
-                Icon(row.expanded ? Icons.expand_less : Icons.expand_more)
+                Icon(row.expanded ? AppIcons.chevronUp : AppIcons.chevronDown)
               else if (row.searched && !row.searching)
                 IconButton(
                   tooltip: zh ? '重试查找' : 'Retry matches',
-                  icon: const Icon(Icons.refresh),
+                  icon: const Icon(AppIcons.refresh),
                   onPressed: () => _matchRow(row),
                 ),
               IconButton(
                 tooltip: zh ? '修改识别结果' : 'Edit recognition',
-                icon: const Icon(Icons.edit_outlined),
+                icon: const Icon(AppIcons.edit),
                 onPressed: () => _editRow(row),
               ),
             ],
@@ -377,8 +378,8 @@ class _ScreenshotImportPageState extends State<ScreenshotImportPage> {
               trailing: Icon(
                 row.selected != null &&
                         _candidateKey(row.selected!) == _candidateKey(candidate)
-                    ? Icons.radio_button_checked
-                    : Icons.radio_button_unchecked,
+                    ? AppIcons.radioOn
+                    : AppIcons.radioOff,
               ),
             ),
         const Divider(height: 1),
@@ -618,7 +619,7 @@ class _ScreenshotImportPageState extends State<ScreenshotImportPage> {
           shrinkWrap: true,
           children: [
             ListTile(
-              leading: const Icon(Icons.playlist_add),
+              leading: const Icon(AppIcons.playlistAdd),
               title: const Text('新建歌单'),
               onTap: () async {
                 Navigator.pop(sheetContext);
@@ -633,7 +634,7 @@ class _ScreenshotImportPageState extends State<ScreenshotImportPage> {
             ),
             for (final playlist in widget.controller.customPlaylists)
               ListTile(
-                leading: const Icon(Icons.queue_music),
+                leading: const Icon(AppIcons.playlist),
                 title: Text(playlist.name),
                 onTap: () => Navigator.pop(sheetContext, playlist),
               ),

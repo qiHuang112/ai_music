@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../application/music_controller.dart';
 import '../data/music_playlists.dart';
 import 'app_localizations.dart';
+import 'design/app_icons.dart';
 
 class PlaylistSyncButton extends StatefulWidget {
   const PlaylistSyncButton({
@@ -62,6 +63,6 @@ class _PlaylistSyncButtonState extends State<PlaylistSyncButton> {
             dimension: 20,
             child: CircularProgressIndicator(strokeWidth: 2),
           )
-        : const Icon(Icons.sync),
+        : const Icon(AppIcons.sync),
   );
 }

@@ -7,6 +7,7 @@ import 'package:flutter/services.dart';
 import '../app_theme.dart';
 import 'ambient_clock.dart';
 import 'glass_surface.dart';
+import 'app_icons.dart';
 
 /// Touch feedback for anything tappable: it sinks under the finger, springs
 /// back and ticks the haptic engine.
@@ -362,7 +363,7 @@ class _PlayPauseButtonState extends State<PlayPauseButton>
                 child: FadeTransition(opacity: animation, child: child),
               ),
               child: Icon(
-                playing ? Icons.pause_rounded : Icons.play_arrow_rounded,
+                playing ? AppIcons.pause : AppIcons.play,
                 key: ValueKey(playing),
                 size: size * .5,
                 color: colors.onPrimaryContainer,

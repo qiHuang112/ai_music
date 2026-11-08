@@ -9,6 +9,7 @@ import 'app_localizations.dart';
 import 'app_popup_menu.dart';
 import 'app_theme.dart';
 import 'comment_text.dart';
+import 'design/app_icons.dart';
 
 class SongCommentsPage extends StatefulWidget {
   const SongCommentsPage({
@@ -250,12 +251,12 @@ class _SongCommentsPageState extends State<SongCommentsPage> {
             key: const Key('comments-refresh'),
             tooltip: zh ? '刷新热评' : 'Refresh comments',
             onPressed: loading ? null : _refresh,
-            icon: const Icon(Icons.refresh_rounded),
+            icon: const Icon(AppIcons.refresh),
           ),
           MusicPopupMenuButton<String>(
             key: const Key('comments-more'),
             tooltip: zh ? '更多' : 'More',
-            icon: const Icon(Icons.more_vert_rounded),
+            icon: const Icon(AppIcons.moreVertical),
             initialValue: _platform?.name ?? 'all',
             onSelected: (value) => _selectPlatform(
               value == 'all' ? null : SongCommentPlatform.values.byName(value),
@@ -516,7 +517,7 @@ class _CommentEntry extends StatelessWidget {
                     mainAxisSize: MainAxisSize.min,
                     children: [
                       Icon(
-                        Icons.thumb_up_outlined,
+                        AppIcons.like,
                         size: 14,
                         color: theme.colorScheme.onSurfaceVariant,
                       ),

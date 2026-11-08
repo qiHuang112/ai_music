@@ -6,6 +6,7 @@ import 'package:crypto/crypto.dart';
 import 'package:ai_music/src/presentation/app_update_page.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:ai_music/src/presentation/design/app_icons.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -97,7 +98,7 @@ void main() {
       expect(find.textContaining('127.0.0.1'), findsNothing);
       expect(find.text('更新服务'), findsNothing);
       expect(find.byType(TextField), findsNothing);
-      expect(find.byIcon(Icons.edit), findsNothing);
+      expect(find.byIcon(AppIcons.edit), findsNothing);
       await tester.pumpWidget(const SizedBox.shrink());
     },
   );

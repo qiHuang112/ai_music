@@ -38,6 +38,7 @@ import 'package:ai_music/src/presentation/song_cache_progress.dart';
 import 'package:audio_service/audio_service.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:ai_music/src/presentation/design/app_icons.dart';
 
 void main() {
   testWidgets(
@@ -958,7 +959,7 @@ void main() {
         expect(find.byKey(const ValueKey('player-queue')), findsOneWidget);
         handler.emit(mediaItemFromTrack(track));
         await tester.pump();
-        expect(find.byIcon(Icons.stop), findsNothing);
+        expect(find.byIcon(AppIcons.stop), findsNothing);
         expect(
           find.descendant(
             of: find.byType(AppBar),
@@ -976,7 +977,7 @@ void main() {
         );
         await tester.tap(find.byKey(const ValueKey('lyrics-preview')));
         await tester.pumpAndSettle();
-        expect(find.byIcon(Icons.stop), findsNothing);
+        expect(find.byIcon(AppIcons.stop), findsNothing);
         await tester.tap(find.byKey(const ValueKey('player-queue')));
         await tester.pump();
         await tester.pump(const Duration(milliseconds: 350));

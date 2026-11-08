@@ -4,6 +4,7 @@ import 'design/ambient_backdrop.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter/rendering.dart';
+import 'design/app_icons.dart';
 
 class DateGroup<T> {
   const DateGroup(this.day, this.items);
@@ -212,7 +213,7 @@ class DateFilterButton extends StatelessWidget {
               child: SizedBox.square(
                 dimension: 48,
                 child: Icon(
-                  value == null ? Icons.filter_alt_outlined : Icons.filter_alt,
+                  value == null ? AppIcons.filter : AppIcons.filterFill,
                 ),
               ),
             )
@@ -222,14 +223,12 @@ class DateFilterButton extends StatelessWidget {
                 mainAxisSize: MainAxisSize.min,
                 children: [
                   Icon(
-                    value == null
-                        ? Icons.filter_alt_outlined
-                        : Icons.filter_alt,
+                    value == null ? AppIcons.filter : AppIcons.filterFill,
                     size: 20,
                   ),
                   const SizedBox(width: 4),
                   Text(label),
-                  const Icon(Icons.arrow_drop_down, size: 18),
+                  const Icon(AppIcons.dropDown, size: 18),
                 ],
               ),
             ),
@@ -450,7 +449,7 @@ class DateGroupSliver extends StatelessWidget {
                           right: MusicUi.pagePadding,
                         ),
                         child: Icon(
-                          collapsed ? Icons.expand_more : Icons.expand_less,
+                          collapsed ? AppIcons.chevronDown : AppIcons.chevronUp,
                         ),
                       ),
                     ],

@@ -12,6 +12,7 @@ import 'desktop_ui.dart';
 import 'desktop_window.dart';
 import 'music_thumbnail.dart';
 import 'player_page.dart';
+import 'design/app_icons.dart';
 
 /// The Mac mini player, a copy of NetEase Cloud Music's. One window, two
 /// heights (drag its bottom edge, and it snaps to the nearer):
@@ -116,14 +117,14 @@ class _DesktopMiniPlayerState extends State<DesktopMiniPlayer> {
       children: [
         _TinyButton(
           key: const ValueKey('mini-close'),
-          icon: Icons.close_rounded,
+          icon: AppIcons.close,
           tooltip: zh ? '关闭窗口（继续播放）' : 'Close (keeps playing)',
           onPressed: DesktopWindow.close,
         ),
         const SizedBox(height: 2),
         _TinyButton(
           key: const ValueKey('mini-expand'),
-          icon: Icons.crop_square_rounded,
+          icon: AppIcons.square,
           tooltip: zh ? '回到完整窗口（Esc）' : 'Full window (Esc)',
           onPressed: widget.onExpand,
         ),
@@ -227,7 +228,7 @@ class _DesktopMiniPlayerState extends State<DesktopMiniPlayer> {
       mainAxisSize: MainAxisSize.min,
       children: [
         DesktopToolButton(
-          icon: Icons.skip_previous_rounded,
+          icon: AppIcons.previous,
           tooltip: strings.isZh ? '上一首' : 'Previous',
           size: 26,
           iconSize: 21,
@@ -243,7 +244,7 @@ class _DesktopMiniPlayerState extends State<DesktopMiniPlayer> {
         ),
         const SizedBox(width: 10),
         DesktopToolButton(
-          icon: Icons.skip_next_rounded,
+          icon: AppIcons.next,
           tooltip: strings.isZh ? '下一首' : 'Next',
           size: 26,
           iconSize: 21,
@@ -269,9 +270,7 @@ class _DesktopMiniPlayerState extends State<DesktopMiniPlayer> {
       mainAxisSize: MainAxisSize.min,
       children: [
         DesktopToolButton(
-          icon: favorite
-              ? Icons.favorite_rounded
-              : Icons.favorite_border_rounded,
+          icon: favorite ? AppIcons.heartFill : AppIcons.heart,
           tooltip: favorite
               ? strings.removeFromFavorites
               : strings.addToFavorites,
@@ -284,7 +283,7 @@ class _DesktopMiniPlayerState extends State<DesktopMiniPlayer> {
         ),
         DesktopToolButton(
           key: const ValueKey('mini-remove'),
-          icon: Icons.delete_outline_rounded,
+          icon: AppIcons.delete,
           tooltip: zh ? '从播放队列移除' : 'Remove from queue',
           size: 30,
           iconSize: 20,
@@ -304,7 +303,7 @@ class _DesktopMiniPlayerState extends State<DesktopMiniPlayer> {
         ),
         DesktopToolButton(
           key: const ValueKey('mini-volume'),
-          icon: Icons.volume_down_rounded,
+          icon: AppIcons.volumeLow,
           tooltip: zh ? '音量' : 'Volume',
           active: _volume,
           size: 30,
@@ -324,7 +323,7 @@ class _DesktopMiniPlayerState extends State<DesktopMiniPlayer> {
       return Row(
         children: [
           Icon(
-            level == 0 ? Icons.volume_off_rounded : Icons.volume_up_rounded,
+            level == 0 ? AppIcons.volumeOff : AppIcons.volumeHigh,
             size: 16,
             color: DesktopUi.muted(context),
           ),
@@ -469,7 +468,7 @@ class _DesktopMiniPlayerState extends State<DesktopMiniPlayer> {
                   child: Builder(
                     builder: (context) => DesktopToolButton(
                       key: const ValueKey('mini-more'),
-                      icon: Icons.more_horiz_rounded,
+                      icon: AppIcons.more,
                       tooltip: zh ? '更多' : 'More',
                       size: 26,
                       iconSize: 19,
@@ -636,7 +635,7 @@ class _PlayDot extends StatelessWidget {
               ),
               child: ExcludeSemantics(
                 child: Icon(
-                  playing ? Icons.pause_rounded : Icons.play_arrow_rounded,
+                  playing ? AppIcons.pause : AppIcons.play,
                   size: 20,
                   color: colors.onPrimary,
                 ),

@@ -1,6 +1,7 @@
 import 'package:ai_music/src/presentation/app_popup_menu.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:ai_music/src/presentation/design/app_icons.dart';
 
 void main() {
   for (final horizontal in [false, true]) {
@@ -13,7 +14,7 @@ void main() {
             home: Scaffold(
               body: MusicPopupMenuButton<String>(
                 tooltip: 'More',
-                icon: Icon(horizontal ? Icons.more_horiz : Icons.more_vert),
+                icon: Icon(horizontal ? AppIcons.more : AppIcons.moreVertical),
                 onSelected: (value) => selection = value,
                 itemBuilder: (_) => const [
                   PopupMenuItem(value: 'share', child: Text('Share')),

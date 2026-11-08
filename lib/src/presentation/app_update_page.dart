@@ -5,6 +5,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import '../application/app_update_controller.dart';
 import 'app_localizations.dart';
+import 'design/app_icons.dart';
 
 String updateDateLabel(DateTime date) {
   final local = date.toLocal();
@@ -53,7 +54,7 @@ class _AppUpdateSettingState extends State<AppUpdateSetting> {
         key: const Key('check-app-update'),
         leading: UpdateBadge(
           updates: widget.updates,
-          child: const Icon(Icons.system_update),
+          child: const Icon(AppIcons.update),
         ),
         title: Text(zh ? '检测更新' : 'Check for updates'),
         subtitle: Text(
@@ -62,7 +63,7 @@ class _AppUpdateSettingState extends State<AppUpdateSetting> {
               : '${current.label}${current.channel == 'debug' ? ' · debug' : ''}\n${zh ? '更新时间' : 'Updated'} ${updateDateLabel(current.builtAt)}',
         ),
         isThreeLine: true,
-        trailing: const Icon(Icons.chevron_right),
+        trailing: const Icon(AppIcons.chevronRight),
         onTap: () => Navigator.of(context).push<void>(
           AppPageRoute(
             settings: const RouteSettings(name: 'app-updates'),
@@ -102,7 +103,7 @@ class _AppUpdatePageState extends State<AppUpdatePage> {
           child: ListView(
             padding: const EdgeInsets.all(20),
             children: [
-              const Icon(Icons.system_update, size: 56),
+              const Icon(AppIcons.update, size: 56),
               const SizedBox(height: 16),
               Text(
                 current?.label ?? '…',
@@ -171,7 +172,7 @@ class _AppUpdatePageState extends State<AppUpdatePage> {
                             onPressed: updates.installing
                                 ? null
                                 : updates.downloadAndInstall,
-                            icon: const Icon(Icons.download),
+                            icon: const Icon(AppIcons.download),
                             label: Text(
                               updates.downloadedApk == null
                                   ? (zh ? '更新' : 'Update')
@@ -201,7 +202,7 @@ class _AppUpdatePageState extends State<AppUpdatePage> {
                         updates.installing
                     ? null
                     : () => updates.check(force: true),
-                icon: const Icon(Icons.refresh),
+                icon: const Icon(AppIcons.refresh),
                 label: Text(zh ? '检测更新' : 'Check for updates'),
               ),
               const SizedBox(height: 24),

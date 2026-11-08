@@ -5,6 +5,7 @@ import 'package:flutter/services.dart';
 
 import '../data/music_settings.dart';
 import 'design/ambient_backdrop.dart';
+import 'design/app_icons.dart';
 
 /// The looks the app can wear. Day and night are the originals.
 enum MusicSkin { day, night, neon, berry, riso, aurora, silver }
@@ -602,7 +603,7 @@ abstract final class MusicAppTheme {
           ? null
           : ActionIconThemeData(
               backButtonIconBuilder: (context) =>
-                  const Icon(Icons.arrow_back_ios_new_rounded, size: 22),
+                  const Icon(AppIcons.back, size: 22),
             ),
       appBarTheme: AppBarTheme(
         // The bar is see-through, so say which status-bar icons to use.

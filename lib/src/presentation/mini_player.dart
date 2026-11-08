@@ -14,6 +14,7 @@ import 'native_shell.dart';
 import 'playback_queue.dart';
 import 'player_page.dart';
 import 'swipe_to_skip.dart';
+import 'design/app_icons.dart';
 
 class MiniPlayer extends StatelessWidget {
   const MiniPlayer({super.key, required this.controller});
@@ -247,22 +248,22 @@ Future<void> openPlayerPage(BuildContext context, MusicController controller) {
   }
   return Navigator.of(context).push<void>(
     PageRouteBuilder(
-        settings: const RouteSettings(name: 'player'),
-        transitionDuration: MusicMotion.slow,
-        reverseTransitionDuration: MusicMotion.base,
-        pageBuilder: (context, _, _) => PlayerPage(controller: controller),
-        transitionsBuilder: (context, animation, _, child) => SlideTransition(
-          position: Tween(begin: const Offset(0, 1), end: Offset.zero).animate(
-            CurvedAnimation(
-              parent: animation,
-              curve: MusicMotion.emphasized,
-              reverseCurve: Curves.easeInCubic,
-            ),
+      settings: const RouteSettings(name: 'player'),
+      transitionDuration: MusicMotion.slow,
+      reverseTransitionDuration: MusicMotion.base,
+      pageBuilder: (context, _, _) => PlayerPage(controller: controller),
+      transitionsBuilder: (context, animation, _, child) => SlideTransition(
+        position: Tween(begin: const Offset(0, 1), end: Offset.zero).animate(
+          CurvedAnimation(
+            parent: animation,
+            curve: MusicMotion.emphasized,
+            reverseCurve: Curves.easeInCubic,
           ),
-          child: child,
         ),
+        child: child,
       ),
-    );
+    ),
+  );
 }
 
 class _OutlinedPlayButton extends StatelessWidget {
@@ -300,7 +301,7 @@ class _OutlinedPlayButton extends StatelessWidget {
                 ),
               ),
               child: Icon(
-                playing ? Icons.pause_rounded : Icons.play_arrow_rounded,
+                playing ? AppIcons.pause : AppIcons.play,
                 size: 22,
                 color: colors.onSurface,
               ),

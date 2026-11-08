@@ -13,6 +13,7 @@ import '../application/music_controller.dart';
 import 'app_localizations.dart';
 import 'app_theme.dart';
 import 'design/controls.dart';
+import 'design/app_icons.dart';
 import 'design/glass_surface.dart';
 import 'desktop_scope.dart';
 import 'music_thumbnail.dart';
@@ -742,7 +743,7 @@ class _NowPlayingBarState extends State<_NowPlayingBar>
                                   onTap: chrome.toggleFavorite,
                                 ),
                                 _BarButton(
-                                  icon: Icons.skip_previous_rounded,
+                                  icon: AppIcons.previous,
                                   size: 30,
                                   label: strings.isZh ? '上一首' : 'Previous',
                                   onTap: () => unawaited(controller.previous()),
@@ -752,9 +753,7 @@ class _NowPlayingBarState extends State<_NowPlayingBar>
                                 key: const ValueKey(
                                   'floating-now-playing-toggle',
                                 ),
-                                icon: playing
-                                    ? Icons.pause_rounded
-                                    : Icons.play_arrow_rounded,
+                                icon: playing ? AppIcons.pause : AppIcons.play,
                                 size: 32,
                                 label: playing ? strings.pause : strings.play,
                                 onTap: () =>
@@ -762,7 +761,7 @@ class _NowPlayingBarState extends State<_NowPlayingBar>
                               ),
                               if (widget.wide)
                                 _BarButton(
-                                  icon: Icons.skip_next_rounded,
+                                  icon: AppIcons.next,
                                   size: 30,
                                   label: strings.isZh ? '下一首' : 'Next',
                                   onTap: () => unawaited(controller.next()),
@@ -771,7 +770,7 @@ class _NowPlayingBarState extends State<_NowPlayingBar>
                                 key: const ValueKey(
                                   'floating-now-playing-queue',
                                 ),
-                                icon: CupertinoIcons.list_bullet,
+                                icon: AppIcons.queue,
                                 size: 27,
                                 label: strings.isZh ? '当前队列' : 'Play queue',
                                 onTap: () => chrome.onOpenQueue?.call(),

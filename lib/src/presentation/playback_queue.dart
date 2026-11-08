@@ -16,6 +16,7 @@ import 'music_thumbnail.dart';
 import 'playlist_actions.dart';
 import 'initial_song_scroll.dart';
 import 'desktop_scope.dart';
+import 'design/app_icons.dart';
 
 Future<void> showPlaybackQueue(
   BuildContext context,
@@ -237,7 +238,7 @@ class _PlaybackQueueState extends State<PlaybackQueue> {
                                       });
                                       _remove(ids);
                                     },
-                              icon: const Icon(Icons.delete_outline_rounded),
+                              icon: const Icon(AppIcons.delete),
                             ),
                             TextButton(
                               onPressed: () => setState(() {
@@ -253,13 +254,13 @@ class _PlaybackQueueState extends State<PlaybackQueue> {
                               onPressed: editable
                                   ? () => setState(() => _selecting = true)
                                   : null,
-                              icon: const Icon(Icons.checklist_rounded),
+                              icon: const Icon(AppIcons.checklist),
                             ),
                             IconButton(
                               key: const ValueKey('queue-clear'),
                               tooltip: strings.isZh ? '清空队列' : 'Clear queue',
                               onPressed: items.isEmpty ? null : _clear,
-                              icon: const Icon(Icons.delete_sweep_outlined),
+                              icon: const Icon(AppIcons.clearAll),
                             ),
                             if (!widget.embedded)
                               IconButton(
@@ -267,7 +268,7 @@ class _PlaybackQueueState extends State<PlaybackQueue> {
                                   context,
                                 ).closeButtonTooltip,
                                 onPressed: () => Navigator.pop(context),
-                                icon: const Icon(Icons.close),
+                                icon: const Icon(AppIcons.close),
                               ),
                           ],
                         ],
@@ -375,7 +376,7 @@ class _PlaybackQueueState extends State<PlaybackQueue> {
                                                   onPressed: () =>
                                                       _remove([item.id]),
                                                   icon: Icon(
-                                                    Icons.close_rounded,
+                                                    AppIcons.close,
                                                     size: 20,
                                                     color:
                                                         colors.onSurfaceVariant,
@@ -431,7 +432,7 @@ class _PlaybackQueueState extends State<PlaybackQueue> {
                                       if (_picked.contains(track.id)) track,
                                   ],
                                 ),
-                          icon: const Icon(Icons.playlist_add_rounded),
+                          icon: const Icon(AppIcons.playlistAdd),
                           label: Text(strings.addToPlaylist),
                         ),
                       ),

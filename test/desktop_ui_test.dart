@@ -6,6 +6,7 @@ import 'package:ai_music/src/presentation/desktop_ui.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:ai_music/src/presentation/design/app_icons.dart';
 
 Widget _host(Widget child) => AppStringsScope(
   language: AppLanguage.zh,
@@ -86,7 +87,7 @@ void main() {
     await tester.pumpWidget(
       _host(
         DesktopToolButton(
-          icon: Icons.lyrics_outlined,
+          icon: AppIcons.lyrics,
           tooltip: '歌词',
           active: true,
           onPressed: () => taps++,

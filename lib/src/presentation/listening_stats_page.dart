@@ -18,6 +18,7 @@ import 'date_groups.dart';
 import 'music_thumbnail.dart';
 import 'playlist_actions.dart';
 import 'song_source_page.dart';
+import 'design/app_icons.dart';
 
 String listeningDuration(int milliseconds, bool zh) {
   final seconds = milliseconds ~/ 1000;
@@ -191,7 +192,7 @@ class _ListeningStatsPageState extends State<ListeningStatsPage> {
                 if (store.error != null)
                   Card(
                     child: ListTile(
-                      leading: Icon(Icons.info_outline, color: colors.error),
+                      leading: Icon(AppIcons.info, color: colors.error),
                       title: Text(
                         zh
                             ? '统计暂时无法完整读取或保存'
@@ -631,7 +632,7 @@ class _HistoryTree extends StatelessWidget {
                               dateGroupLabel(DateTime.parse(date), zh: zh),
                             ),
                             subtitle: Text(listeningDuration(days[date]!, zh)),
-                            trailing: const Icon(Icons.chevron_right),
+                            trailing: const Icon(AppIcons.chevronRight),
                             onTap: () => onOpen(DateTime.parse(date)),
                           ),
                       ];
@@ -717,7 +718,7 @@ class _ListeningRankTile extends StatelessWidget {
       ),
       trailing: song != null
           ? _ListeningSongMenu(controller: controller, track: track)
-          : Icon(playlist == null ? Icons.info_outline : Icons.chevron_right),
+          : Icon(playlist == null ? AppIcons.info : AppIcons.chevronRight),
       onTap: () {
         if (song != null && track != null) {
           _playListeningSong(context, controller, track);
@@ -773,7 +774,7 @@ class _ListeningSongMenu extends StatelessWidget {
       return IconButton(
         tooltip: strings.isZh ? '内容已移除' : 'Unavailable',
         onPressed: () => _unavailable(context),
-        icon: const Icon(Icons.info_outline),
+        icon: const Icon(AppIcons.info),
       );
     }
     return MusicPopupMenuButton<String>(

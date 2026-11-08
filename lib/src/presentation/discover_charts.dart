@@ -6,6 +6,7 @@ import '../application/music_controller.dart';
 import '../data/music_charts.dart';
 import '../data/music_playlists.dart';
 import 'app_localizations.dart';
+import 'design/app_icons.dart';
 
 class DiscoverChartsSection extends StatelessWidget {
   const DiscoverChartsSection({super.key, required this.onOpenChart});
@@ -189,7 +190,7 @@ class _MusicChartPageState extends State<MusicChartPage> {
           IconButton(
             tooltip: strings.refresh,
             onPressed: _loading ? null : _load,
-            icon: const Icon(Icons.refresh),
+            icon: const Icon(AppIcons.refresh),
           ),
         ],
       ),
@@ -200,12 +201,12 @@ class _MusicChartPageState extends State<MusicChartPage> {
                 if (_loading) const LinearProgressIndicator(),
                 if (_error != null)
                   ListTile(
-                    leading: const Icon(Icons.error_outline),
+                    leading: const Icon(AppIcons.error),
                     title: Text(_error!),
                     trailing: IconButton(
                       tooltip: strings.retrySearch,
                       onPressed: _loading ? null : _load,
-                      icon: const Icon(Icons.refresh),
+                      icon: const Icon(AppIcons.refresh),
                     ),
                   ),
                 if (_result?.updatedAt case final updatedAt?)

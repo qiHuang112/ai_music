@@ -17,6 +17,7 @@ import 'app_localizations.dart';
 import 'list_search.dart';
 import 'music_thumbnail.dart';
 import 'playlist_download_progress.dart';
+import 'design/app_icons.dart';
 
 enum _DownloadSortMode { initial, downloadedAt }
 
@@ -167,7 +168,7 @@ class _DownloadManagerPageState extends State<DownloadManagerPage> {
                           dimension: 18,
                           child: CircularProgressIndicator(strokeWidth: 2),
                         )
-                      : const Icon(Icons.wifi_tethering_rounded),
+                      : const Icon(AppIcons.lan),
                 ),
                 IconButton(
                   tooltip: strings.refresh,
@@ -179,7 +180,7 @@ class _DownloadManagerPageState extends State<DownloadManagerPage> {
                           dimension: 18,
                           child: CircularProgressIndicator(strokeWidth: 2),
                         )
-                      : const Icon(Icons.refresh),
+                      : const Icon(AppIcons.refresh),
                 ),
               ],
             ),
@@ -452,7 +453,7 @@ class _DownloadManagerPageState extends State<DownloadManagerPage> {
                   dimension: 20,
                   child: CircularProgressIndicator(strokeWidth: 2),
                 )
-              : const Icon(Icons.download_rounded, size: 21),
+              : const Icon(AppIcons.download, size: 21),
         ),
       ),
     );
@@ -689,11 +690,7 @@ class _LanSyncCard extends StatelessWidget {
                   color: colors.secondaryContainer,
                   borderRadius: BorderRadius.circular(16),
                 ),
-                child: Icon(
-                  Icons.devices_rounded,
-                  color: colors.primary,
-                  size: 26,
-                ),
+                child: Icon(AppIcons.devices, color: colors.primary, size: 26),
               ),
               const SizedBox(width: 14),
               Expanded(
@@ -705,7 +702,7 @@ class _LanSyncCard extends StatelessWidget {
               IconButton(
                 tooltip: strings.isZh ? '关闭' : 'Close',
                 onPressed: () => Navigator.pop(context),
-                icon: const Icon(Icons.close_rounded),
+                icon: const Icon(AppIcons.close),
               ),
             ],
           ),
@@ -722,11 +719,7 @@ class _LanSyncCard extends StatelessWidget {
           Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Icon(
-                Icons.dns_outlined,
-                size: 20,
-                color: colors.onSurfaceVariant,
-              ),
+              Icon(AppIcons.server, size: 20, color: colors.onSurfaceVariant),
               const SizedBox(width: 10),
               Expanded(
                 child: Column(
@@ -755,7 +748,7 @@ class _LanSyncCard extends StatelessWidget {
               onPressed: controller.isLanSyncing
                   ? null
                   : controller.syncLanLibrary,
-              icon: const Icon(Icons.sync_rounded, size: 20),
+              icon: const Icon(AppIcons.sync, size: 20),
               label: Text(
                 controller.isLanSyncing
                     ? (strings.isZh ? '正在同步' : 'Syncing')
@@ -765,7 +758,7 @@ class _LanSyncCard extends StatelessWidget {
           ),
           if (controller.isLanSyncing)
             status(
-              Icons.sync_rounded,
+              AppIcons.sync,
               Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
@@ -791,7 +784,7 @@ class _LanSyncCard extends StatelessWidget {
             ),
           if (result != null)
             status(
-              Icons.check_circle_outline_rounded,
+              AppIcons.checkCircle,
               Text(
                 strings.lanSyncSummary(
                   result.added,
@@ -805,16 +798,12 @@ class _LanSyncCard extends StatelessWidget {
             ),
           if (result?.playlistError != null)
             status(
-              Icons.info_outline_rounded,
+              AppIcons.info,
               Text(strings.lanPlaylistMergeFailed),
               error: true,
             ),
           if (controller.lanSyncError != null)
-            status(
-              Icons.error_outline_rounded,
-              Text(controller.lanSyncError!),
-              error: true,
-            ),
+            status(AppIcons.error, Text(controller.lanSyncError!), error: true),
         ],
       ),
     );
@@ -865,13 +854,13 @@ class _CachedSortButton extends StatelessWidget {
         ),
       ],
       child: MusicUi.compactActions(context)
-          ? const SizedBox.square(dimension: 48, child: Icon(Icons.sort))
+          ? const SizedBox.square(dimension: 48, child: Icon(AppIcons.sort))
           : Padding(
               padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
               child: Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  const Icon(Icons.sort, size: 18),
+                  const Icon(AppIcons.sort, size: 18),
                   const SizedBox(width: 6),
                   Text(
                     value == _DownloadSortMode.initial
@@ -892,7 +881,7 @@ class _EmptyLine extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return ListTile(leading: const Icon(Icons.info_outline), title: Text(text));
+    return ListTile(leading: const Icon(AppIcons.info), title: Text(text));
   }
 }
 
@@ -940,12 +929,12 @@ class _DownloadTaskTile extends StatelessWidget {
           ? IconButton(
               tooltip: AppStringsScope.of(context).cancel,
               onPressed: () => controller.cancelDownload(task.id),
-              icon: const Icon(Icons.close),
+              icon: const Icon(AppIcons.close),
             )
           : IconButton(
               tooltip: strings.clear,
               onPressed: () => controller.clearDownloadTask(task.id),
-              icon: const Icon(Icons.clear),
+              icon: const Icon(AppIcons.clearField),
             ),
     );
   }
@@ -959,9 +948,9 @@ class _TaskLeading extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return switch (task.status) {
-      DownloadTaskStatus.completed => const Icon(Icons.check_circle),
-      DownloadTaskStatus.failed => const Icon(Icons.error_outline),
-      DownloadTaskStatus.canceled => const Icon(Icons.cancel_outlined),
+      DownloadTaskStatus.completed => const Icon(AppIcons.checkCircleFill),
+      DownloadTaskStatus.failed => const Icon(AppIcons.error),
+      DownloadTaskStatus.canceled => const Icon(AppIcons.cancel),
       _ => const SizedBox.square(
         dimension: 24,
         child: CircularProgressIndicator(strokeWidth: 2),
@@ -1121,7 +1110,7 @@ class _CachedTrackTile extends StatelessWidget {
               child: MusicPopupMenuButton<String>(
                 key: menuKey,
                 tooltip: strings.more,
-                icon: const Icon(Icons.more_horiz_rounded, size: 18),
+                icon: const Icon(AppIcons.more, size: 18),
                 itemBuilder: (_) => _menuItems(strings),
                 onSelected: (value) => _onMenu(context, value, play),
               ),
@@ -1200,12 +1189,12 @@ class _CachedTrackTile extends StatelessWidget {
                             key: ValueKey('share-${track.id}'),
                             tooltip: strings.isZh ? '发送文件' : 'Send file',
                             onPressed: () => _share(context),
-                            icon: const Icon(Icons.ios_share_rounded),
+                            icon: const Icon(AppIcons.share),
                           ),
                         IconButton(
                           tooltip: strings.delete,
                           onPressed: () => _confirmDelete(context),
-                          icon: const Icon(Icons.delete_outline),
+                          icon: const Icon(AppIcons.delete),
                         ),
                       ],
                     ),

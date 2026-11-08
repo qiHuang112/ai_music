@@ -41,6 +41,7 @@ import 'package:ai_music/src/playback/music_audio_handler.dart';
 import 'package:audio_service/audio_service.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:ai_music/src/presentation/design/app_icons.dart';
 
 void main() {
   testWidgets('playing from favorites records its source for cold restore', (
@@ -153,7 +154,7 @@ void main() {
       expect(find.byType(SongSourceMenuLabel), findsOneWidget);
       expect(find.textContaining('切换来源（'), findsOneWidget);
       expect(find.byIcon(Icons.swap_horiz_rounded), findsNothing);
-      expect(find.byIcon(Icons.chevron_right_rounded), findsNothing);
+      expect(find.byIcon(AppIcons.chevronRight), findsNothing);
       expect(find.byIcon(Icons.vertical_align_top_rounded), findsNothing);
       await tester.tap(find.text('置顶'));
       await tester.pumpAndSettle();
@@ -2246,14 +2247,14 @@ void main() {
       expect(
         find.descendant(
           of: find.byKey(const ValueKey('queue-item-s0')),
-          matching: find.byIcon(Icons.close_rounded),
+          matching: find.byIcon(AppIcons.close),
         ),
         findsNothing,
       );
       await tester.tap(
         find.descendant(
           of: find.byKey(const ValueKey('queue-item-s1')),
-          matching: find.byIcon(Icons.close_rounded),
+          matching: find.byIcon(AppIcons.close),
         ),
       );
       await tester.pumpAndSettle();

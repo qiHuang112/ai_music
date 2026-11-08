@@ -15,6 +15,7 @@ import 'package:ai_music/src/playback/music_audio_handler.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:ai_music/src/presentation/design/app_icons.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -161,12 +162,12 @@ void main() {
         expect(resolver.queries, ['稻香']);
         expect(find.text('已选 1 首'), findsOneWidget);
         expect(find.textContaining('候选 3 首'), findsOneWidget);
-        expect(find.byIcon(Icons.radio_button_unchecked), findsNothing);
+        expect(find.byIcon(AppIcons.radioOff), findsNothing);
 
         await tester.tap(find.text('稻香'));
         await tester.pumpAndSettle();
         expect(resolver.queries, ['稻香']);
-        expect(find.byIcon(Icons.radio_button_unchecked), findsNWidgets(2));
+        expect(find.byIcon(AppIcons.radioOff), findsNWidgets(2));
         expect(find.text('候选 2'), findsOneWidget);
         await tester.tap(find.text('候选 2'));
         await tester.pumpAndSettle();

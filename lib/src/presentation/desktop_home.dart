@@ -16,6 +16,7 @@ import 'desktop_ui.dart';
 import 'mini_player.dart';
 import 'music_thumbnail.dart';
 import 'player_page.dart';
+import 'design/app_icons.dart';
 
 /// The Mac home page when nothing is being searched: what is playing, the
 /// favorites, the playlists as sleeves on a shelf, and the charts as tiles.
@@ -175,7 +176,7 @@ class _TextLink extends StatelessWidget {
               ),
             ),
             Icon(
-              Icons.chevron_right_rounded,
+              AppIcons.chevronRight,
               size: 16,
               color: Theme.of(context).colorScheme.primary,
             ),
@@ -218,7 +219,7 @@ class _SortToggle extends StatelessWidget {
             ),
             const SizedBox(width: 2),
             Icon(
-              Icons.unfold_more_rounded,
+              AppIcons.chevronUpDown,
               size: 15,
               color: DesktopUi.muted(context),
             ),
@@ -423,7 +424,7 @@ class _NowPlayingHero extends StatelessWidget {
                     const SizedBox(width: 12),
                     if (compact)
                       DesktopToolButton(
-                        icon: Icons.album_rounded,
+                        icon: AppIcons.record,
                         tooltip: zh ? '打开播放页' : 'Open player',
                         size: 34,
                         onPressed: desktop.openPlayer,
@@ -431,14 +432,14 @@ class _NowPlayingHero extends StatelessWidget {
                     else
                       Flexible(
                         child: _PillButton(
-                          icon: Icons.album_rounded,
+                          icon: AppIcons.record,
                           label: zh ? '打开播放页' : 'Open player',
                           onTap: desktop.openPlayer,
                         ),
                       ),
                     const SizedBox(width: 8),
                     DesktopToolButton(
-                      icon: Icons.lyrics_outlined,
+                      icon: AppIcons.lyrics,
                       tooltip: strings.lyrics,
                       size: 34,
                       onPressed: () => desktop.openDetail(DesktopDetail.lyrics),
@@ -592,7 +593,7 @@ class _FavoritesCard extends StatelessWidget {
         children: [
           Row(
             children: [
-              Icon(Icons.favorite_rounded, size: 16, color: colors.primary),
+              Icon(AppIcons.heartFill, size: 16, color: colors.primary),
               const SizedBox(width: 6),
               Text(
                 zh ? '我的收藏' : 'FAVORITES',
@@ -600,7 +601,7 @@ class _FavoritesCard extends StatelessWidget {
               ),
               const Spacer(),
               Icon(
-                Icons.chevron_right_rounded,
+                AppIcons.chevronRight,
                 size: 18,
                 color: DesktopUi.muted(context),
               ),
@@ -620,7 +621,7 @@ class _FavoritesCard extends StatelessWidget {
                             borderRadius: BorderRadius.circular(10),
                           ),
                           child: Icon(
-                            Icons.favorite_border_rounded,
+                            AppIcons.heart,
                             color: colors.primary,
                             size: 36,
                           ),
@@ -719,7 +720,7 @@ class _PlaylistShelf extends StatelessWidget {
         child: Row(
           children: [
             Icon(
-              Icons.playlist_add_rounded,
+              AppIcons.playlistAdd,
               color: Theme.of(context).colorScheme.primary,
             ),
             const SizedBox(width: 12),

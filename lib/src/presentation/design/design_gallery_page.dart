@@ -9,6 +9,7 @@ import 'glass_surface.dart';
 import 'record_sleeve.dart';
 import 'turntable.dart';
 import 'vinyl_disc.dart';
+import 'app_icons.dart';
 
 /// Every token and component of the design system on one page, for review on a
 /// device. Start the app with `--dart-define=AI_MUSIC_DESIGN_GALLERY=true`.
@@ -170,14 +171,14 @@ class _DesignGalleryPageState extends State<DesignGalleryPage>
       ),
       if (widget.onEnterApp != null) ...[
         GlassIconButton(
-          icon: Icons.arrow_forward_rounded,
+          icon: AppIcons.forward,
           tooltip: '进入应用',
           onPressed: widget.onEnterApp,
         ),
         const SizedBox(width: 10),
       ],
       GlassIconButton(
-        icon: _dark ? Icons.light_mode_outlined : Icons.dark_mode_outlined,
+        icon: _dark ? AppIcons.lightMode : AppIcons.darkMode,
         tooltip: _dark ? '浅色' : '深色',
         onPressed: () => setState(() => _chosen = !_dark),
       ),
@@ -270,13 +271,13 @@ class _DesignGalleryPageState extends State<DesignGalleryPage>
             mainAxisSize: MainAxisSize.min,
             children: [
               GlassIconButton(
-                icon: Icons.shuffle_rounded,
+                icon: AppIcons.shuffle,
                 tooltip: '随机',
                 onPressed: () {},
               ),
               const SizedBox(width: 14),
               GlassIconButton(
-                icon: Icons.skip_previous_rounded,
+                icon: AppIcons.previous,
                 tooltip: '上一首',
                 size: 52,
                 onPressed: () => _position.value = 0,
@@ -289,16 +290,14 @@ class _DesignGalleryPageState extends State<DesignGalleryPage>
               ),
               const SizedBox(width: 18),
               GlassIconButton(
-                icon: Icons.skip_next_rounded,
+                icon: AppIcons.next,
                 tooltip: '下一首',
                 size: 52,
                 onPressed: () => _position.value = 0,
               ),
               const SizedBox(width: 14),
               GlassIconButton(
-                icon: _favorite
-                    ? Icons.favorite_rounded
-                    : Icons.favorite_border_rounded,
+                icon: _favorite ? AppIcons.heartFill : AppIcons.heart,
                 tooltip: '收藏',
                 selected: _favorite,
                 onPressed: () => setState(() => _favorite = !_favorite),
@@ -561,12 +560,12 @@ class _DesignGalleryPageState extends State<DesignGalleryPage>
           children: [
             FilledButton.icon(
               onPressed: () {},
-              icon: const Icon(Icons.play_arrow_rounded),
+              icon: const Icon(AppIcons.play),
               label: const Text('播放全部'),
             ),
             OutlinedButton.icon(
               onPressed: () {},
-              icon: const Icon(Icons.download_rounded),
+              icon: const Icon(AppIcons.download),
               label: const Text('下载'),
             ),
             TextButton(onPressed: () {}, child: const Text('查看全部')),
@@ -576,20 +575,20 @@ class _DesignGalleryPageState extends State<DesignGalleryPage>
         Row(
           children: [
             GlassIconButton(
-              icon: Icons.queue_music_rounded,
+              icon: AppIcons.playlist,
               tooltip: '队列',
               onPressed: () {},
             ),
             const SizedBox(width: 10),
             GlassIconButton(
-              icon: Icons.favorite_rounded,
+              icon: AppIcons.heartFill,
               tooltip: '收藏',
               selected: true,
               onPressed: () {},
             ),
             const SizedBox(width: 10),
             const GlassIconButton(
-              icon: Icons.more_horiz_rounded,
+              icon: AppIcons.more,
               tooltip: '不可用',
               onPressed: null,
             ),
@@ -664,7 +663,7 @@ class _DesignGalleryPageState extends State<DesignGalleryPage>
           ),
           Text('3:42', style: MusicType.readout(context)),
           const SizedBox(width: 4),
-          Icon(Icons.more_horiz_rounded, color: colors.onSurfaceVariant),
+          Icon(AppIcons.more, color: colors.onSurfaceVariant),
         ],
       ),
     );
@@ -782,7 +781,7 @@ class _DesignGalleryPageState extends State<DesignGalleryPage>
           ),
           const SizedBox(width: 6),
           GlassIconButton(
-            icon: Icons.skip_next_rounded,
+            icon: AppIcons.next,
             tooltip: '下一首',
             blur: false,
             onPressed: () => _position.value = 0,

@@ -5,6 +5,7 @@ import '../application/music_controller.dart';
 import '../data/music_playlists.dart';
 import '../domain/music_models.dart';
 import 'app_localizations.dart';
+import 'design/app_icons.dart';
 
 Future<MusicPlaylist?> showCreatePlaylistDialog(
   BuildContext context,
@@ -61,7 +62,7 @@ Future<void> showAddTracksToPlaylistSheet(
           shrinkWrap: true,
           children: [
             ListTile(
-              leading: const Icon(Icons.playlist_add),
+              leading: const Icon(AppIcons.playlistAdd),
               title: Text(strings.newPlaylist),
               onTap: () async {
                 Navigator.of(sheetContext).pop();
@@ -91,8 +92,8 @@ Future<void> showAddTracksToPlaylistSheet(
                   ),
                   leading: Icon(
                     _allTracksInPlaylist(controller, playlist, selectedTracks)
-                        ? Icons.check
-                        : Icons.queue_music,
+                        ? AppIcons.check
+                        : AppIcons.playlist,
                   ),
                   title: Text(playlist.name),
                   subtitle: Text(

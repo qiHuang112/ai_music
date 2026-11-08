@@ -31,6 +31,7 @@ import 'desktop_scope.dart';
 import 'desktop_ui.dart';
 import 'desktop_window.dart';
 import 'song_comments_page.dart';
+import 'design/app_icons.dart';
 
 class PlayerPage extends StatefulWidget {
   const PlayerPage({super.key, required this.controller});
@@ -129,7 +130,7 @@ class _DesktopNowPlayingState extends State<DesktopNowPlaying> {
                     child: Row(
                       children: [
                         DesktopToolButton(
-                          icon: Icons.keyboard_arrow_down_rounded,
+                          icon: AppIcons.chevronDown,
                           tooltip: zh ? '收起（Esc）' : 'Close (Esc)',
                           size: 34,
                           iconSize: 24,
@@ -148,8 +149,8 @@ class _DesktopNowPlayingState extends State<DesktopNowPlaying> {
                                 : strings.addToFavorites,
                             onPressed: () => controller.toggleFavorite(track),
                             icon: controller.isFavorite(track)
-                                ? Icons.favorite_rounded
-                                : Icons.favorite_border_rounded,
+                                ? AppIcons.heartFill
+                                : AppIcons.heart,
                             color: controller.isFavorite(track)
                                 ? Theme.of(context).colorScheme.primary
                                 : null,
@@ -162,7 +163,7 @@ class _DesktopNowPlayingState extends State<DesktopNowPlaying> {
                               controller,
                               track,
                             ),
-                            icon: Icons.playlist_add_rounded,
+                            icon: AppIcons.playlistAdd,
                           ),
                         ],
                       ],
@@ -414,7 +415,7 @@ class _PlayerPageState extends State<PlayerPage> {
                 MusicPopupMenuButton<String>(
                   key: const ValueKey('player-more'),
                   tooltip: strings.more,
-                  icon: const Icon(Icons.more_horiz_rounded),
+                  icon: const Icon(AppIcons.more),
                   onSelected: (value) => switch (value) {
                     'playlist' => showAddToPlaylistSheet(
                       context,
@@ -875,7 +876,9 @@ class _Artwork extends StatelessWidget {
     final artUri = uri;
     final placeholder = ColoredBox(
       color: colors.surfaceContainerHighest,
-      child: Center(child: Icon(Icons.album, size: 44, color: colors.primary)),
+      child: Center(
+        child: Icon(AppIcons.record, size: 44, color: colors.primary),
+      ),
     );
     final label = artUri == null
         ? placeholder
@@ -1205,15 +1208,15 @@ class _LyricsDetailPage extends StatelessWidget {
                   onPressed: () => controller.toggleFavorite(currentTrack),
                   icon: Icon(
                     controller.isFavorite(currentTrack)
-                        ? Icons.favorite
-                        : Icons.favorite_border,
+                        ? AppIcons.heartFill
+                        : AppIcons.heart,
                   ),
                 ),
                 IconButton(
                   tooltip: strings.addToPlaylist,
                   onPressed: () =>
                       showAddToPlaylistSheet(context, controller, currentTrack),
-                  icon: const Icon(Icons.playlist_add),
+                  icon: const Icon(AppIcons.playlistAdd),
                 ),
               ],
             ],
@@ -1514,7 +1517,7 @@ class _PlaybackControls extends StatelessWidget {
                 _PlainControl(
                   tooltip: strings.previous,
                   onPressed: controller.previous,
-                  icon: Icons.skip_previous_rounded,
+                  icon: AppIcons.previous,
                   size: 40,
                 ),
                 PlayPauseButton(
@@ -1526,14 +1529,14 @@ class _PlaybackControls extends StatelessWidget {
                 _PlainControl(
                   tooltip: strings.next,
                   onPressed: controller.next,
-                  icon: Icons.skip_next_rounded,
+                  icon: AppIcons.next,
                   size: 40,
                 ),
                 _PlainControl(
                   key: const ValueKey('player-queue'),
                   tooltip: strings.isZh ? '当前队列' : 'Play queue',
                   onPressed: () => showPlaybackQueue(context, controller),
-                  icon: Icons.queue_music_rounded,
+                  icon: AppIcons.queue,
                   size: 24,
                 ),
               ],
@@ -1643,9 +1646,7 @@ class _SongInfo extends StatelessWidget {
                 ? strings.removeFromFavorites
                 : strings.addToFavorites,
             onPressed: onFavorite,
-            icon: liked
-                ? Icons.favorite_rounded
-                : Icons.favorite_border_rounded,
+            icon: liked ? AppIcons.heartFill : AppIcons.heart,
             size: 28,
           ),
       ],
@@ -1829,7 +1830,7 @@ class _MissingLyricsContentState extends State<_MissingLyricsContent> {
                     dimension: 16,
                     child: CircularProgressIndicator(strokeWidth: 2),
                   )
-                : const Icon(Icons.refresh),
+                : const Icon(AppIcons.refresh),
             label: Text(loading ? strings.fetchingLyrics : strings.retryLyrics),
           ),
         ],
@@ -2183,9 +2184,9 @@ bool _hasTimedLyrics(List<LyricLine> lyrics) =>
 
 IconData _modeIcon(PlaybackMode mode) {
   return switch (mode) {
-    PlaybackMode.sequential => Icons.playlist_play,
-    PlaybackMode.repeatOne => Icons.repeat_one,
-    PlaybackMode.shuffle => Icons.shuffle,
+    PlaybackMode.sequential => AppIcons.sequential,
+    PlaybackMode.repeatOne => AppIcons.repeatOne,
+    PlaybackMode.shuffle => AppIcons.shuffle,
   };
 }
 

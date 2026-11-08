@@ -11,6 +11,7 @@ import '../data/music_playlists.dart';
 import '../data/online_playlists.dart';
 import 'app_localizations.dart';
 import 'initial_song_scroll.dart';
+import 'design/app_icons.dart';
 
 class DirectPlaylistPage extends StatefulWidget {
   const DirectPlaylistPage({
@@ -194,7 +195,7 @@ class _DirectPlaylistPageState extends State<DirectPlaylistPage> {
                   dimension: 20,
                   child: CircularProgressIndicator(strokeWidth: 2),
                 )
-              : const Icon(Icons.more_vert_rounded),
+              : const Icon(AppIcons.moreVertical),
           onSelected: (action) {
             switch (action) {
               case _PlaylistAction.add:
@@ -215,7 +216,7 @@ class _DirectPlaylistPageState extends State<DirectPlaylistPage> {
                 value: _PlaylistAction.open,
                 child: ListTile(
                   contentPadding: EdgeInsets.zero,
-                  leading: const Icon(Icons.open_in_new_rounded),
+                  leading: const Icon(AppIcons.openExternal),
                   title: Text(zh ? '打开歌单' : 'Open playlist'),
                 ),
               )
@@ -226,7 +227,7 @@ class _DirectPlaylistPageState extends State<DirectPlaylistPage> {
                 enabled: detail.songs.isNotEmpty,
                 child: ListTile(
                   contentPadding: EdgeInsets.zero,
-                  leading: const Icon(Icons.playlist_add_rounded),
+                  leading: const Icon(AppIcons.playlistAdd),
                   title: Text(zh ? '添加到我的歌单' : 'Save playlist'),
                 ),
               ),
@@ -236,7 +237,7 @@ class _DirectPlaylistPageState extends State<DirectPlaylistPage> {
               enabled: detail.songs.isNotEmpty,
               child: ListTile(
                 contentPadding: EdgeInsets.zero,
-                leading: const Icon(Icons.queue_music_rounded),
+                leading: const Icon(AppIcons.playlist),
                 title: Text(zh ? '加入已有歌单' : 'Add to existing playlist'),
               ),
             ),
@@ -347,9 +348,7 @@ class _DirectPlaylistPageState extends State<DirectPlaylistPage> {
                                                 strokeWidth: 2,
                                               ),
                                             )
-                                          : const Icon(
-                                              Icons.play_arrow_rounded,
-                                            ),
+                                          : const Icon(AppIcons.play),
                                     ),
                                     title: Text(
                                       song.title,

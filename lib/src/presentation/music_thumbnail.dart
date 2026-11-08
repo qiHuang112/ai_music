@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart';
 import 'native_artwork_image.dart';
+import 'design/app_icons.dart';
 
 /// Uses existing artwork only, with bounded decoding and a stable fallback.
 class MusicThumbnail extends StatelessWidget {
@@ -10,7 +11,7 @@ class MusicThumbnail extends StatelessWidget {
     super.key,
     this.uri,
     this.label = '',
-    this.icon = Icons.music_note_rounded,
+    this.icon = AppIcons.music,
     this.size = 58,
     this.radius = 12,
     this.headers,

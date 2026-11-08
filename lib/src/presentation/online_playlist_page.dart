@@ -18,6 +18,7 @@ import '../data/music_resolver.dart';
 import '../data/online_playlists.dart';
 import 'app_localizations.dart';
 import 'direct_playlist_page.dart';
+import 'design/app_icons.dart';
 
 class OnlinePlaylistSearchPanel extends StatelessWidget {
   const OnlinePlaylistSearchPanel({
@@ -121,7 +122,7 @@ class OnlinePlaylistSearchPanel extends StatelessWidget {
                               ),
                               child: Text(zh ? '打开歌单' : 'Open playlist'),
                             )
-                          : const Icon(Icons.chevron_right),
+                          : const Icon(AppIcons.chevronRight),
                       onTap: () => Navigator.of(context).push(
                         AppPageRoute<void>(
                           builder: (_) => DirectPlaylistPage(
@@ -146,10 +147,7 @@ class _PlaylistCover extends StatelessWidget {
   final String url;
   @override
   Widget build(BuildContext context) {
-    return MusicThumbnail(
-      uri: Uri.tryParse(url),
-      icon: Icons.queue_music_rounded,
-    );
+    return MusicThumbnail(uri: Uri.tryParse(url), icon: AppIcons.playlist);
   }
 }
 
@@ -419,7 +417,7 @@ class _OnlinePlaylistPageState extends State<OnlinePlaylistPage> {
                                 onPressed: _task.saving
                                     ? null
                                     : _openDestination,
-                                icon: const Icon(Icons.open_in_new),
+                                icon: const Icon(AppIcons.openExternal),
                                 label: Text(zh ? '打开歌单' : 'Open playlist'),
                               ),
                             ),
@@ -437,7 +435,7 @@ class _OnlinePlaylistPageState extends State<OnlinePlaylistPage> {
                                     : _task.destination == null
                                     ? _task.startAutoSync
                                     : () => _import(_task.destination),
-                                icon: const Icon(Icons.playlist_add),
+                                icon: const Icon(AppIcons.playlistAdd),
                                 label: Text(
                                   _task.destination == null
                                       ? (zh ? '新建歌单' : 'New playlist')
@@ -462,7 +460,7 @@ class _OnlinePlaylistPageState extends State<OnlinePlaylistPage> {
                                   ? null
                                   : _task.retryAutoSync,
                               tooltip: zh ? '重试同步' : 'Retry sync',
-                              icon: const Icon(Icons.sync_problem),
+                              icon: const Icon(AppIcons.warning),
                             ),
                           if (!_task.matching &&
                               _task.detail!.songs.asMap().keys.any(
@@ -471,7 +469,7 @@ class _OnlinePlaylistPageState extends State<OnlinePlaylistPage> {
                             IconButton(
                               onPressed: _task.saving ? null : _matchPending,
                               tooltip: zh ? '重试未匹配歌曲' : 'Retry unmatched songs',
-                              icon: const Icon(Icons.refresh),
+                              icon: const Icon(AppIcons.refresh),
                             ),
                         ],
                       ),
@@ -512,7 +510,7 @@ class _OnlinePlaylistPageState extends State<OnlinePlaylistPage> {
           leading: saved
               ? Tooltip(
                   message: zh ? '已导入' : 'Imported',
-                  child: const Icon(Icons.check_circle_outline),
+                  child: const Icon(AppIcons.checkCircle),
                 )
               : Checkbox(
                   key: ValueKey('playlist-song-checkbox-$index'),
@@ -540,8 +538,8 @@ class _OnlinePlaylistPageState extends State<OnlinePlaylistPage> {
           trailing: candidates.isNotEmpty
               ? Icon(
                   _task.expanded.contains(index)
-                      ? Icons.expand_less
-                      : Icons.expand_more,
+                      ? AppIcons.chevronUp
+                      : AppIcons.chevronDown,
                 )
               : null,
           onTap: candidates.isEmpty
@@ -558,8 +556,8 @@ class _OnlinePlaylistPageState extends State<OnlinePlaylistPage> {
               subtitle: Text('${candidate.artist} · ${candidate.sourceLabel}'),
               trailing: Icon(
                 choice != null && _trackId(choice) == _trackId(candidate)
-                    ? Icons.radio_button_checked
-                    : Icons.radio_button_unchecked,
+                    ? AppIcons.radioOn
+                    : AppIcons.radioOff,
               ),
               onTap: _task.saving
                   ? null
@@ -783,7 +781,7 @@ class OnlinePlaylistTaskEntry extends StatelessWidget {
       return ListTile(
         key: const Key('playlist-task-entry'),
         dense: true,
-        leading: Icon(active > 0 ? Icons.sync : Icons.fact_check_outlined),
+        leading: Icon(active > 0 ? AppIcons.sync : AppIcons.checklist),
         title: Text(
           zh
               ? (active > 0 ? '歌单匹配 $matched / $total · 后台进行中' : '歌单匹配 · 查看结果')
@@ -791,7 +789,7 @@ class OnlinePlaylistTaskEntry extends StatelessWidget {
                     ? 'Matching playlists $matched / $total'
                     : 'Playlist matches · View results'),
         ),
-        trailing: const Icon(Icons.chevron_right),
+        trailing: const Icon(AppIcons.chevronRight),
         onTap: () => Navigator.of(context).push(
           AppPageRoute<void>(
             builder: (_) => OnlinePlaylistTasksPage(
@@ -853,7 +851,7 @@ class OnlinePlaylistTaskList extends StatelessWidget {
               subtitle: Text(
                 '${task.playlist.source.label} · ${_status(task, zh)}',
               ),
-              trailing: const Icon(Icons.chevron_right),
+              trailing: const Icon(AppIcons.chevronRight),
               onTap: () => Navigator.of(context).push(
                 AppPageRoute<void>(
                   builder: (_) => OnlinePlaylistPage(

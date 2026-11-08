@@ -13,6 +13,7 @@ import 'app_update_page.dart';
 import 'design/glass_surface.dart';
 import 'desktop_ui.dart';
 import '../application/diagnostics_upload_controller.dart';
+import 'design/app_icons.dart';
 
 /// Desktop settings keep the categories visible while changing their content.
 class DesktopSettingsPage extends StatefulWidget {
@@ -41,13 +42,13 @@ class _DesktopSettingsPageState extends State<DesktopSettingsPage> {
             'LAN',
           ];
     const icons = [
-      Icons.tune_rounded,
-      Icons.palette_outlined,
-      Icons.translate_rounded,
-      Icons.cloud_outlined,
-      Icons.high_quality_outlined,
-      Icons.sync_alt_rounded,
-      Icons.lan_outlined,
+      AppIcons.tune,
+      AppIcons.paint,
+      AppIcons.language,
+      AppIcons.cloud,
+      AppIcons.quality,
+      AppIcons.sync,
+      AppIcons.lan,
     ];
     final colors = Theme.of(context).colorScheme;
     return Column(
@@ -128,9 +129,7 @@ class _DesktopSettingsPageState extends State<DesktopSettingsPage> {
                                     ),
                                     _PlaybackCacheSetting(controller: c),
                                     ListTile(
-                                      leading: const Icon(
-                                        Icons.insights_outlined,
-                                      ),
+                                      leading: const Icon(AppIcons.insights),
                                       title: Text(
                                         strings.isZh
                                             ? '清空听歌统计'
@@ -147,7 +146,7 @@ class _DesktopSettingsPageState extends State<DesktopSettingsPage> {
                                       ),
                                     ),
                                     ListTile(
-                                      leading: const Icon(Icons.download_done),
+                                      leading: const Icon(AppIcons.downloaded),
                                       title: Text(
                                         strings.isZh
                                             ? '已下载歌曲'
@@ -158,7 +157,7 @@ class _DesktopSettingsPageState extends State<DesktopSettingsPage> {
                                       ),
                                     ),
                                     SwitchListTile(
-                                      secondary: const Icon(Icons.speed),
+                                      secondary: const Icon(AppIcons.speed),
                                       title: Text(
                                         strings.isZh
                                             ? '性能悬浮窗'
@@ -222,14 +221,14 @@ class SettingsPage extends StatelessWidget {
                       controller: controller.diagnostics,
                     ),
                     ListTile(
-                      leading: const Icon(Icons.language),
+                      leading: const Icon(AppIcons.language),
                       title: Text(strings.language),
                       subtitle: Text(
                         controller.language == AppLanguage.zh
                             ? strings.chinese
                             : strings.english,
                       ),
-                      trailing: const Icon(Icons.chevron_right),
+                      trailing: const Icon(AppIcons.chevronRight),
                       onTap: () => Navigator.of(context).push<void>(
                         AppPageRoute(
                           settings: const RouteSettings(
@@ -241,12 +240,12 @@ class SettingsPage extends StatelessWidget {
                       ),
                     ),
                     ListTile(
-                      leading: const Icon(Icons.contrast),
+                      leading: const Icon(AppIcons.contrast),
                       title: Text(strings.theme),
                       subtitle: Text(
                         strings.themeName(controller.themePreference),
                       ),
-                      trailing: const Icon(Icons.chevron_right),
+                      trailing: const Icon(AppIcons.chevronRight),
                       onTap: () => Navigator.of(context).push<void>(
                         AppPageRoute(
                           settings: const RouteSettings(
@@ -264,10 +263,10 @@ class SettingsPage extends StatelessWidget {
                   title: strings.isZh ? '音乐与下载' : 'Music & downloads',
                   children: [
                     ListTile(
-                      leading: const Icon(Icons.hub),
+                      leading: const Icon(AppIcons.source),
                       title: Text(strings.musicSource),
                       subtitle: Text(_sourceTitle(strings, controller.source)),
-                      trailing: const Icon(Icons.chevron_right),
+                      trailing: const Icon(AppIcons.chevronRight),
                       onTap: () => Navigator.of(context).push<void>(
                         AppPageRoute(
                           settings: const RouteSettings(
@@ -280,7 +279,7 @@ class SettingsPage extends StatelessWidget {
                     ),
                     ListTile(
                       key: const Key('default-download-quality'),
-                      leading: const Icon(Icons.high_quality),
+                      leading: const Icon(AppIcons.quality),
                       title: Text(
                         strings.isZh ? '默认下载品质' : 'Default download quality',
                       ),
@@ -290,7 +289,7 @@ class SettingsPage extends StatelessWidget {
                           controller.defaultDownloadQuality,
                         ),
                       ),
-                      trailing: const Icon(Icons.chevron_right),
+                      trailing: const Icon(AppIcons.chevronRight),
                       onTap: () => Navigator.of(context).push<void>(
                         AppPageRoute(
                           settings: const RouteSettings(
@@ -310,7 +309,7 @@ class SettingsPage extends StatelessWidget {
                     _PlaybackCacheSetting(controller: controller),
                     ListTile(
                       key: const Key('clear-listening-stats'),
-                      leading: const Icon(Icons.insights_outlined),
+                      leading: const Icon(AppIcons.insights),
                       title: Text(
                         strings.isZh ? '清空听歌统计' : 'Clear listening history',
                       ),
@@ -324,7 +323,7 @@ class SettingsPage extends StatelessWidget {
                     ),
                     ListTile(
                       key: const Key('manual-download-count'),
-                      leading: const Icon(Icons.download_done),
+                      leading: const Icon(AppIcons.downloaded),
                       title: Text(strings.isZh ? '已下载歌曲' : 'Downloaded songs'),
                       subtitle: Text(
                         strings.isZh
@@ -340,7 +339,7 @@ class SettingsPage extends StatelessWidget {
                   children: [
                     SwitchListTile(
                       key: const Key('performance-overlay-setting'),
-                      secondary: const Icon(Icons.speed),
+                      secondary: const Icon(AppIcons.speed),
                       title: Text(
                         strings.isZh ? '性能悬浮窗' : 'Performance overlay',
                       ),
@@ -354,14 +353,14 @@ class SettingsPage extends StatelessWidget {
                     ),
                     ListTile(
                       key: const Key('concurrency-settings'),
-                      leading: const Icon(Icons.tune),
+                      leading: const Icon(AppIcons.tune),
                       title: Text(strings.isZh ? '并发设置' : 'Concurrency'),
                       subtitle: Text(
                         strings.isZh
                             ? '截图搜歌 ${controller.screenshotSearchConcurrency} 首 · 歌单下载 ${controller.playlistDownloadConcurrency} 首'
                             : 'Screenshot search ${controller.screenshotSearchConcurrency} · Playlist downloads ${controller.playlistDownloadConcurrency}',
                       ),
-                      trailing: const Icon(Icons.chevron_right),
+                      trailing: const Icon(AppIcons.chevronRight),
                       onTap: () => Navigator.of(context).push<void>(
                         AppPageRoute(
                           settings: const RouteSettings(
@@ -373,10 +372,10 @@ class SettingsPage extends StatelessWidget {
                       ),
                     ),
                     ListTile(
-                      leading: const Icon(Icons.wifi_tethering),
+                      leading: const Icon(AppIcons.lan),
                       title: Text(strings.lanLibrary),
                       subtitle: Text(controller.lanLibraryUrl),
-                      trailing: const Icon(Icons.chevron_right),
+                      trailing: const Icon(AppIcons.chevronRight),
                       onTap: () => Navigator.of(context).push<void>(
                         AppPageRoute(
                           settings: const RouteSettings(
@@ -592,7 +591,7 @@ class _PlaybackCacheSettingState extends State<_PlaybackCacheSetting> {
       future: _bytes,
       builder: (context, snapshot) => ListTile(
         key: const Key('playback-cache-size'),
-        leading: const Icon(Icons.storage),
+        leading: const Icon(AppIcons.storage),
         title: Text(zh ? '播放缓存' : 'Playback cache'),
         subtitle: Text(
           snapshot.hasData
@@ -645,7 +644,7 @@ class _ScreenshotSearchConcurrencySettingState
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         ListTile(
-          leading: const Icon(Icons.image_search),
+          leading: const Icon(AppIcons.imageSearch),
           title: Text(strings.screenshotSearchConcurrency),
           subtitle: Text(
             strings.screenshotSearchConcurrencyDescription(_value),
@@ -708,7 +707,7 @@ class _PlaylistDownloadConcurrencySettingState
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         ListTile(
-          leading: const Icon(Icons.download_for_offline_outlined),
+          leading: const Icon(AppIcons.download),
           title: Text(strings.playlistDownloadConcurrency),
           subtitle: Text(
             strings.playlistDownloadConcurrencyDescription(_value),
@@ -807,7 +806,7 @@ class _LanLibrarySettingsPageState extends State<LanLibrarySettingsPage> {
                   children: [
                     FilledButton.icon(
                       onPressed: _save,
-                      icon: const Icon(Icons.save_outlined),
+                      icon: const Icon(AppIcons.save),
                       label: Text(strings.saveLanAddress),
                     ),
                     OutlinedButton.icon(
@@ -821,7 +820,7 @@ class _LanLibrarySettingsPageState extends State<LanLibrarySettingsPage> {
                               dimension: 16,
                               child: CircularProgressIndicator(strokeWidth: 2),
                             )
-                          : const Icon(Icons.network_check),
+                          : const Icon(AppIcons.network),
                       label: Text(strings.testLanConnection),
                     ),
                   ],
@@ -958,8 +957,8 @@ class SourceSettingsPage extends StatelessWidget {
                       ListTile(
                         leading: Icon(
                           policy.fallbackOnly
-                              ? Icons.auto_awesome_outlined
-                              : Icons.lock_outline,
+                              ? AppIcons.sparkles
+                              : AppIcons.lock,
                         ),
                         title: Text(_sourceTitle(strings, policy.source)),
                         subtitle: Text(
@@ -1027,7 +1026,7 @@ class _DiagnosticsUploadSettingState extends State<DiagnosticsUploadSetting> {
         if (!upload.available) return const SizedBox.shrink();
         return ListTile(
           key: const Key('upload-diagnostics'),
-          leading: const Icon(Icons.upload_file_outlined),
+          leading: const Icon(AppIcons.upload),
           title: Text(strings.isZh ? '上传日志' : 'Upload logs'),
           subtitle: Text(
             upload.uploading
@@ -1044,7 +1043,7 @@ class _DiagnosticsUploadSettingState extends State<DiagnosticsUploadSetting> {
                   height: 20,
                   child: CircularProgressIndicator(strokeWidth: 2),
                 )
-              : const Icon(Icons.chevron_right),
+              : const Icon(AppIcons.chevronRight),
           onTap: upload.uploading
               ? null
               : () async {
