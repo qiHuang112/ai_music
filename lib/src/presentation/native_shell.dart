@@ -356,7 +356,9 @@ class NativeShell extends NavigatorObserver {
   /// A 120px square of the cover for the accessory, as PNG.
   static Future<Uint8List?> _thumbnail(Uri uri) async {
     try {
-      final stream = artworkImageProvider(uri).resolve(ImageConfiguration.empty);
+      final stream = artworkImageProvider(
+        uri,
+      ).resolve(ImageConfiguration.empty);
       final completer = Completer<ui.Image>();
       late final ImageStreamListener listener;
       listener = ImageStreamListener(
@@ -563,14 +565,22 @@ class ShellGlyphs {
   /// The bytes once rendered; null until [of] has completed for the icon.
   static Uint8List? cached(IconData icon) => _done[icon];
 
-  static Future<Uint8List?> of(IconData icon) => _cache.putIfAbsent(icon, () async {
-    final bytes = await _render(icon);
-    if (bytes != null) _done[icon] = bytes;
-    return bytes;
-  });
+  static Future<Uint8List?> of(IconData icon) =>
+      _cache.putIfAbsent(icon, () async {
+        final bytes = await _render(icon);
+        if (bytes != null) _done[icon] = bytes;
+        return bytes;
+      });
 
-  static Future<Uint8List?> _render(IconData icon) async {
-    const size = 66.0;
+  static Future<Uint8List?> _render(IconData requested) async {
+    // Native bars hold outlined SF Symbols; the solid rounded lyrics glyph
+    // the pages use sat too heavy among them, so bars take its outline.
+    final lyrics = requested == AppIcons.lyrics;
+    final icon = lyrics ? Icons.lyrics_outlined : requested;
+    // Material glyphs leave more room in their box than SF Symbols; drawn at
+    // the shared size the lyrics bubble looked a size smaller than the
+    // comments bubble beside it.
+    final size = lyrics ? 90.0 : 66.0;
     final recorder = ui.PictureRecorder();
     final canvas = Canvas(recorder);
     final painter = TextPainter(
@@ -580,7 +590,7 @@ class ShellGlyphs {
         style: TextStyle(
           fontFamily: icon.fontFamily,
           package: icon.fontPackage,
-          fontSize: size * .82,
+          fontSize: lyrics ? size * .93 : size * .82,
           color: const Color(0xFF000000),
         ),
       ),
@@ -614,7 +624,9 @@ String? shellLabelOf(Widget? widget) {
       return data ?? textSpan?.toPlainText();
     case ListTile(:final title):
       return shellLabelOf(title);
-    case Row(:final children) || Column(:final children) || Wrap(:final children):
+    case Row(:final children) ||
+        Column(:final children) ||
+        Wrap(:final children):
       for (final child in children) {
         final label = shellLabelOf(child);
         if (label != null && label.isNotEmpty) return label;
