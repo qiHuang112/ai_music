@@ -31,6 +31,9 @@ class NativeShell extends NavigatorObserver {
   static const _channel = MethodChannel('ai_music/shell');
   bool _active = false;
 
+  @visibleForTesting
+  set debugActive(bool value) => _active = value;
+
   Future<void> connect() async {
     if (kIsWeb || defaultTargetPlatform != TargetPlatform.iOS) return;
     // A slow cold start can register the channel late; giving up after a

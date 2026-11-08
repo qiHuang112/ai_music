@@ -279,7 +279,11 @@ extension on DuoScaffold {
           // nothing playing) must not be a bottom bar: an empty bar makes the
           // Scaffold drop the body's bottom inset and lists end under the
           // tab bar.
-          final strip = shell.accessoryActive.value || !shell.nowPlaying.value
+          // Only the mini player gives way; a page's own bottom bar (restore,
+          // import buttons) always stays.
+          final strip =
+              bottomNavigationBar is MiniPlayer &&
+                  (shell.accessoryActive.value || !shell.nowPlaying.value)
               ? null
               : bottomNavigationBar;
           final scaffold = Scaffold(

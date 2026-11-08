@@ -145,7 +145,13 @@ class _LanBackupPageState extends State<LanBackupPage> {
         child: LayoutBuilder(
           builder: (context, box) => ListView(
             padding: MusicLayout.centered(
-              const EdgeInsets.fromLTRB(16, 8, 16, 32),
+              // Clear the system bars so the last device can scroll into view.
+              EdgeInsets.fromLTRB(
+                16,
+                8,
+                16,
+                32 + MediaQuery.paddingOf(context).bottom,
+              ),
               box.maxWidth,
             ),
             children: [
@@ -414,7 +420,12 @@ class _LanBackupRestorePageState extends State<LanBackupRestorePage> {
             : LayoutBuilder(
                 builder: (context, box) => ListView(
                   padding: MusicLayout.centered(
-                    const EdgeInsets.fromLTRB(8, 8, 8, 24),
+                    EdgeInsets.fromLTRB(
+                      8,
+                      8,
+                      8,
+                      24 + MediaQuery.paddingOf(context).bottom,
+                    ),
                     box.maxWidth,
                   ),
                   children: [

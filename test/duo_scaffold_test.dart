@@ -5,8 +5,39 @@ import 'package:ai_music/src/presentation/duo_window.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:ai_music/src/presentation/design/app_icons.dart';
+import 'package:ai_music/src/presentation/native_shell.dart';
 
 void main() {
+  testWidgets('under the iOS shell a page keeps its own bottom bar', (
+    tester,
+  ) async {
+    final shell = NativeShell.instance;
+    shell.debugActive = true;
+    addTearDown(() => shell.debugActive = false);
+    // Nothing playing: only a mini player would give way, never page buttons.
+    shell.nowPlaying.value = false;
+    await tester.pumpWidget(
+      MaterialApp(
+        home: DuoScaffold(
+          appBar: AppBar(title: const Text('Restore')),
+          body: const SizedBox.expand(),
+          bottomNavigationBar: FilledButton(
+            onPressed: () {},
+            child: const Text('restore picked'),
+          ),
+        ),
+      ),
+    );
+    expect(find.text('restore picked'), findsOneWidget);
+    shell.nowPlaying.value = true;
+    shell.accessoryActive.value = true;
+    addTearDown(() {
+      shell.nowPlaying.value = false;
+      shell.accessoryActive.value = false;
+    });
+    await tester.pump();
+    expect(find.text('restore picked'), findsOneWidget);
+  });
   _foldTests();
   _menuTests();
   _geometryTests();
