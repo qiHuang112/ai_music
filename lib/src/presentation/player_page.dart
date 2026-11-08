@@ -368,11 +368,8 @@ class _PlayerPageState extends State<PlayerPage> {
     ));
   }
 
-  void _openLyrics(BuildContext context) => Navigator.of(context).push(
-    AppPageRoute<void>(
-      builder: (_) => _LyricsDetailPage(controller: controller),
-    ),
-  );
+  // Named like openLyricsPage, so the shell hides its own lyrics entry there.
+  void _openLyrics(BuildContext context) => openLyricsPage(context, controller);
 
   @override
   Widget build(BuildContext context) {

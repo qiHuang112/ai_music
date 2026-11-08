@@ -459,11 +459,7 @@ class _ShellSpec {
           for (final (j, entry) in entries.indexed) {
             if (entry is! PopupMenuItem) continue;
             final itemId = '$id-m$j';
-            final value = entry.value;
-            callbacks[itemId] = () {
-              entry.onTap?.call();
-              (widget.onSelected as dynamic)?.call(value);
-            };
+            callbacks[itemId] = shellMenuCallback(widget, entry);
             menu.add({
               'id': itemId,
               'title': shellLabelOf(entry.child) ?? '',
@@ -1128,4 +1124,21 @@ class FoldSide extends StatelessWidget {
       },
     );
   }
+}
+
+/// What a native menu item runs: the entry's own tap, then the button's
+/// `onSelected` with the entry's value.
+///
+/// `onSelected` is read dynamically: the button is a `PopupMenuButton<T>`
+/// seen as `PopupMenuButton<dynamic>`, and reading a field whose type takes
+/// `T` as a parameter fails Dart's runtime covariance check. That error was
+/// swallowed by the platform channel, so every native menu item did nothing.
+@visibleForTesting
+VoidCallback shellMenuCallback(PopupMenuButton<dynamic> button, PopupMenuItem<dynamic> entry) {
+  final onSelected = (button as dynamic).onSelected;
+  final value = entry.value;
+  return () {
+    entry.onTap?.call();
+    onSelected?.call(value);
+  };
 }

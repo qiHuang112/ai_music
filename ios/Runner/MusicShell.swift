@@ -746,8 +746,8 @@ extension UIColor {
   }
 }
 
-/// The floating now-playing bar: cover, song, favorite, previous,
-/// play/pause, next and queue on the system glass material.
+/// The floating now-playing bar: cover, song, play/pause and the queue on the
+/// system glass material; swiping changes the song.
 final class ShellNowPlayingBar: UIView {
   static let height: CGFloat = 56
   static let gap: CGFloat = 12
@@ -926,11 +926,12 @@ final class ShellNowPlayingBar: UIView {
   override func layoutSubviews() {
     super.layoutSubviews()
     layer.cornerRadius = bounds.height / 2
-    // Few controls: a phone shows play and the queue beside the song; a wide
-    // window adds favorite, previous and next.
-    favorite.isHidden = !wide
-    previous.isHidden = !wide
-    skip.isHidden = !wide
+    // Play and the queue only, folded or open: songs change by swiping the
+    // bar. Extra buttons appearing on a wide window crowded the row while a
+    // fold opened.
+    favorite.isHidden = true
+    previous.isHidden = true
+    skip.isHidden = true
   }
 
   @objc private func open() { onAction?("open") }

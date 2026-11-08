@@ -8,6 +8,7 @@ import 'package:ai_music/src/presentation/design/app_icons.dart';
 
 void main() {
   _foldTests();
+  _menuTests();
   test('rail groups avoid camera, status and fold without wasting the edge', () {
     const bounds = Rect.fromLTWH(524, 0, 76, 500);
     const blocks = [
@@ -251,5 +252,20 @@ void _foldTests() {
       tester.getRect(find.byKey(const Key('fold-list'))).bottom,
       greaterThan(420),
     );
+  });
+}
+
+void _menuTests() {
+  test('a native menu item reaches a typed popup button', () {
+    String? chosen;
+    final button = PopupMenuButton<String>(
+      onSelected: (value) => chosen = value,
+      itemBuilder: (_) => const [],
+    );
+    shellMenuCallback(
+      button,
+      const PopupMenuItem<String>(value: 'comments', child: Text('Comments')),
+    )();
+    expect(chosen, 'comments');
   });
 }

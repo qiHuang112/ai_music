@@ -329,10 +329,7 @@ class MobileChromeOverlay extends StatelessWidget {
             _ChromeSlot(
               rect: ChromeMetrics.barRect(media.size, media.viewPadding),
               shown: showBar,
-              child: _NowPlayingBar(
-                chrome: chrome,
-                wide: media.size.width >= 600,
-              ),
+              child: _NowPlayingBar(chrome: chrome),
             ),
             _ChromeSlot(
               rect: ChromeMetrics.tabRect(media.size, media.viewPadding),
@@ -560,14 +557,13 @@ class _TabButton extends StatelessWidget {
 }
 
 /// The now-playing bar of the iOS shell: cover, "song - artist", then play
-/// and the queue (a wide window adds favorite, previous and next). Pressing
+/// and the queue, the same on every width (songs change by swiping). Pressing
 /// it lights it faintly; dragging sideways carries the song away and brings
 /// the next one in.
 class _NowPlayingBar extends StatefulWidget {
-  const _NowPlayingBar({required this.chrome, required this.wide});
+  const _NowPlayingBar({required this.chrome});
 
   final MobileChrome chrome;
-  final bool wide;
 
   @override
   State<_NowPlayingBar> createState() => _NowPlayingBarState();
@@ -733,22 +729,6 @@ class _NowPlayingBarState extends State<_NowPlayingBar>
                                 ),
                               ),
                               const SizedBox(width: 8),
-                              if (widget.wide) ...[
-                                _BarButton(
-                                  icon: chrome.favorite.value
-                                      ? CupertinoIcons.heart_fill
-                                      : CupertinoIcons.heart,
-                                  size: 24,
-                                  label: strings.isZh ? '收藏' : 'Favorite',
-                                  onTap: chrome.toggleFavorite,
-                                ),
-                                _BarButton(
-                                  icon: AppIcons.previous,
-                                  size: 30,
-                                  label: strings.isZh ? '上一首' : 'Previous',
-                                  onTap: () => unawaited(controller.previous()),
-                                ),
-                              ],
                               _BarButton(
                                 key: const ValueKey(
                                   'floating-now-playing-toggle',
@@ -761,13 +741,6 @@ class _NowPlayingBarState extends State<_NowPlayingBar>
                                 onTap: () =>
                                     unawaited(controller.togglePlayPause()),
                               ),
-                              if (widget.wide)
-                                _BarButton(
-                                  icon: AppIcons.next,
-                                  size: 30,
-                                  label: strings.isZh ? '下一首' : 'Next',
-                                  onTap: () => unawaited(controller.next()),
-                                ),
                               _BarButton(
                                 key: const ValueKey(
                                   'floating-now-playing-queue',
