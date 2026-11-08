@@ -923,6 +923,12 @@ class CachedTrackStore {
     });
   }
 
+  /// Whether [cacheId] is cached and its audio file is still on disk.
+  Future<bool> hasCachedAudio(String cacheId) async {
+    final existing = await _lookup(cacheId);
+    return existing != null && await File(existing.filePath).exists();
+  }
+
   Future<CachedTrack?> _lookup(String cacheId) async {
     final root = await _rootProvider();
     if (!await root.exists()) {

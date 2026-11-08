@@ -1,6 +1,9 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import '../application/app_update_controller.dart' show defaultUpdateUrl;
+import '../application/lan_backup_tasks.dart';
 import '../application/lan_backup_use_case.dart';
 import '../application/music_controller.dart';
 import '../data/lan_backup_client.dart';
@@ -21,24 +24,18 @@ class LanBackupPage extends StatefulWidget {
 }
 
 class _LanBackupPageState extends State<LanBackupPage> {
-  final _client = LanBackupClient();
   final _identities = LanBackupIdentityStore(defaultServerUrl: defaultUpdateUrl);
-  late final _useCase = LanBackupUseCase(
-    client: _client,
-    cacheStore: widget.controller.libraryUseCase.cacheStore,
-    playlistStore: widget.controller.libraryUseCase.playlistStore,
-    library: widget.controller.libraryUseCase,
-  );
+  late final LanBackupTasks _tasks = widget.controller.lanBackup;
+  LanBackupClient get _client => _tasks.client;
 
   LanBackupIdentity? _identity;
   List<LanBackupDevice>? _devices;
-  String? _listError, _uploadMessage;
-  LanBackupProgress? _progress;
-  bool _uploading = false;
+  String? _listError;
 
   @override
   void initState() {
     super.initState();
+    _tasks.addListener(_onTasks);
     _identities.load().then((identity) {
       if (!mounted) return;
       setState(() => _identity = identity);
@@ -46,9 +43,19 @@ class _LanBackupPageState extends State<LanBackupPage> {
     });
   }
 
+  bool _wasUploading = false;
+
+  void _onTasks() {
+    if (!mounted) return;
+    final finished = _wasUploading && !_tasks.uploading;
+    _wasUploading = _tasks.uploading;
+    setState(() {});
+    if (finished) _refresh();
+  }
+
   @override
   void dispose() {
-    _client.close();
+    _tasks.removeListener(_onTasks);
     super.dispose();
   }
 
@@ -69,35 +76,11 @@ class _LanBackupPageState extends State<LanBackupPage> {
     }
   }
 
-  Future<void> _upload() async {
+  void _upload() {
     final identity = _identity;
-    if (identity == null || _uploading) return;
-    setState(() {
-      _uploading = true;
-      _uploadMessage = null;
-    });
-    try {
-      final result = await _useCase.upload(
-        identity,
-        onProgress: (p) {
-          if (mounted) setState(() => _progress = p);
-        },
-      );
-      _uploadMessage =
-          '已上传：${result.playlists} 个歌单、${result.favorites} 首收藏，'
-          '共 ${result.tracks} 首歌（新传 ${result.uploadedFiles} 个文件，'
-          '${_size(result.uploadedBytes)}）';
-      await _refresh();
-    } on Object catch (error) {
-      _uploadMessage = '上传失败：${_message(error)}';
-    } finally {
-      if (mounted) {
-        setState(() {
-          _uploading = false;
-          _progress = null;
-        });
-      }
-    }
+    if (identity == null || _tasks.uploading) return;
+    _wasUploading = true;
+    unawaited(_tasks.upload(identity));
   }
 
   Future<void> _edit({required bool name}) async {
@@ -145,6 +128,7 @@ class _LanBackupPageState extends State<LanBackupPage> {
     final identity = _identity;
     final devices = _devices;
     final theme = Theme.of(context);
+    final uploading = _tasks.uploading;
     return DuoScaffold(
       appBar: AppBar(
         title: const Text('局域网备份'),
@@ -189,11 +173,11 @@ class _LanBackupPageState extends State<LanBackupPage> {
                         crossAxisAlignment: CrossAxisAlignment.stretch,
                         children: [
                           Text(
-                            '上传本机的歌单、我的收藏和其中已下载的歌曲。同一首歌有多份缓存时，只上传播放时会用的那份（音质最好）。再次上传会覆盖本机上一次的备份。',
+                            '上传本机的歌单、我的收藏和其中已下载的歌曲。同一首歌有多份缓存时，只上传播放时会用的那份（音质最好）。再次上传会覆盖本机上一次的备份。上传在后台进行，离开本页也不会中断；中途断开后再点上传，已传完的歌曲不会重传。',
                             style: theme.textTheme.bodySmall,
                           ),
                           const SizedBox(height: 12),
-                          if (_progress case final p?) ...[
+                          if (_tasks.uploadProgress case final p?) ...[
                             LinearProgressIndicator(
                               value: p.total == 0 ? null : p.done / p.total,
                             ),
@@ -208,14 +192,14 @@ class _LanBackupPageState extends State<LanBackupPage> {
                             alignment: Alignment.centerLeft,
                             child: FilledButton.icon(
                               key: const Key('lan-backup-upload'),
-                              onPressed: identity == null || _uploading
+                              onPressed: identity == null || uploading
                                   ? null
                                   : _upload,
                               icon: const Icon(AppIcons.upload),
-                              label: Text(_uploading ? '正在上传…' : '上传到局域网'),
+                              label: Text(uploading ? '正在上传…' : '上传到局域网'),
                             ),
                           ),
-                          if (_uploadMessage case final message?) ...[
+                          if (_tasks.uploadMessage case final message?) ...[
                             const SizedBox(height: 8),
                             Text(message, style: theme.textTheme.bodySmall),
                           ],
@@ -256,6 +240,7 @@ class _LanBackupPageState extends State<LanBackupPage> {
                             : device.deviceName,
                       ),
                       subtitle: Text(
+                        '${_tasks.restoringDeviceId == device.deviceId ? '正在恢复…\n' : ''}'
                         '${device.playlistCount} 个歌单 · ${device.favoriteCount} 首收藏 · '
                         '${device.trackCount} 首歌 · ${_size(device.totalBytes)}'
                         '${device.receivedAt == null ? '' : '\n上传于 ${_time(device.receivedAt!)}'}',
@@ -269,8 +254,6 @@ class _LanBackupPageState extends State<LanBackupPage> {
                           ),
                           builder: (_) => LanBackupRestorePage(
                             controller: widget.controller,
-                            useCase: _useCase,
-                            client: _client,
                             base: identity!.serverUrl,
                             device: device,
                           ),
@@ -292,15 +275,11 @@ class LanBackupRestorePage extends StatefulWidget {
   const LanBackupRestorePage({
     super.key,
     required this.controller,
-    required this.useCase,
-    required this.client,
     required this.base,
     required this.device,
   });
 
   final MusicController controller;
-  final LanBackupUseCase useCase;
-  final LanBackupClient client;
   final String base;
   final LanBackupDevice device;
 
@@ -312,19 +291,29 @@ class _LanBackupRestorePageState extends State<LanBackupRestorePage> {
   LanBackupManifest? _manifest;
   LanBackupSelection? _selection;
   String? _error;
-  LanBackupProgress? _progress;
-  bool _restoring = false;
+  late final LanBackupTasks _tasks = widget.controller.lanBackup;
 
   @override
   void initState() {
     super.initState();
+    _tasks.addListener(_onTasks);
     _load();
+  }
+
+  void _onTasks() {
+    if (mounted) setState(() {});
+  }
+
+  @override
+  void dispose() {
+    _tasks.removeListener(_onTasks);
+    super.dispose();
   }
 
   Future<void> _load() async {
     try {
       final manifest = LanBackupManifest.parse(
-        await widget.client.manifest(widget.base, widget.device.deviceId),
+        await _tasks.client.manifest(widget.base, widget.device.deviceId),
       );
       if (!mounted) return;
       setState(() {
@@ -338,38 +327,34 @@ class _LanBackupRestorePageState extends State<LanBackupRestorePage> {
 
   Future<void> _restore() async {
     final manifest = _manifest, selection = _selection;
-    if (manifest == null || selection == null || _restoring) return;
-    setState(() => _restoring = true);
-    String message;
-    try {
-      final result = await widget.useCase.restore(
-        widget.base,
-        manifest,
-        selection,
-        onProgress: (p) {
-          if (mounted) setState(() => _progress = p);
-        },
-      );
-      await widget.controller.loadCache();
-      message = result.failed.isEmpty
-          ? '已恢复 ${result.songs} 首（下载 ${result.downloaded} 首），已并入本机歌单和收藏'
-          : '已恢复 ${result.songs - result.failed.length} 首，${result.failed.length} 首下载失败：'
-                '${result.failed.take(3).join('、')}';
-    } on Object catch (error) {
-      message = '恢复失败：${_message(error)}';
+    if (manifest == null || selection == null || _tasks.restoringDeviceId != null) {
+      return;
     }
-    if (!mounted) return;
-    setState(() {
-      _restoring = false;
-      _progress = null;
-    });
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
+    final messenger = ScaffoldMessenger.of(context);
+    final controller = widget.controller;
+    // Runs on the app-level task: leaving this page does not stop it, and
+    // the result still shows wherever the user is.
+    final message = await _tasks.restore(
+      base: widget.base,
+      deviceId: widget.device.deviceId,
+      manifest: manifest,
+      selection: selection,
+      afterRestore: controller.loadCache,
+    );
+    if (message != null) {
+      messenger.showSnackBar(SnackBar(content: Text(message)));
+    }
   }
 
   @override
   Widget build(BuildContext context) {
     final manifest = _manifest, selection = _selection;
     final picked = selection?.allTrackIds.length ?? 0;
+    final restoringHere = _tasks.restoringDeviceId == widget.device.deviceId;
+    final restoringElsewhere =
+        _tasks.restoringDeviceId != null && !restoringHere;
+    final progress = restoringHere ? _tasks.restoreProgress : null;
+    final lastMessage = _tasks.restoreMessage(widget.device.deviceId);
     return DuoScaffold(
       appBar: AppBar(title: Text(widget.device.deviceName)),
       bottomNavigationBar: manifest == null
@@ -381,7 +366,7 @@ class _LanBackupRestorePageState extends State<LanBackupRestorePage> {
                   mainAxisSize: MainAxisSize.min,
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
-                    if (_progress case final p?) ...[
+                    if (progress case final p?) ...[
                       LinearProgressIndicator(
                         value: p.total == 0 ? null : p.done / p.total,
                       ),
@@ -395,12 +380,27 @@ class _LanBackupRestorePageState extends State<LanBackupRestorePage> {
                     ],
                     FilledButton.icon(
                       key: const Key('lan-backup-restore'),
-                      onPressed: picked == 0 || _restoring ? null : _restore,
+                      onPressed: picked == 0 || _tasks.restoringDeviceId != null
+                          ? null
+                          : _restore,
                       icon: const Icon(AppIcons.cloudDownload),
                       label: Text(
-                        _restoring ? '正在恢复…' : '恢复所选（$picked 首）',
+                        restoringHere
+                            ? '正在恢复…（可离开本页）'
+                            : restoringElsewhere
+                            ? '正在恢复其他设备的备份…'
+                            : '恢复所选（$picked 首）',
                       ),
                     ),
+                    if (lastMessage != null && !restoringHere) ...[
+                      const SizedBox(height: 6),
+                      Text(
+                        lastMessage,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: Theme.of(context).textTheme.bodySmall,
+                      ),
+                    ],
                   ],
                 ),
               ),
@@ -518,9 +518,7 @@ class _PickGroup extends StatelessWidget {
   }
 }
 
-String _size(int bytes) => bytes >= 1024 * 1024 * 1024
-    ? '${(bytes / 1024 / 1024 / 1024).toStringAsFixed(1)} GB'
-    : '${(bytes / 1024 / 1024).toStringAsFixed(1)} MB';
+String _size(int bytes) => formatBackupSize(bytes);
 
 String _time(DateTime value) {
   final local = value.toLocal();
@@ -529,7 +527,4 @@ String _time(DateTime value) {
       '${two(local.hour)}:${two(local.minute)}';
 }
 
-String _message(Object error) => switch (error) {
-  LanBackupException(:final message) => message,
-  _ => '$error'.split('\n').first,
-};
+String _message(Object error) => backupErrorMessage(error);

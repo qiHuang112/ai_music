@@ -5,6 +5,9 @@ import '../data/playlist_usage_store.dart';
 import '../data/provider_request_scheduler.dart';
 import '../data/listening_stats_store.dart';
 import 'listening_recorder.dart';
+import 'lan_backup_tasks.dart';
+import 'lan_backup_use_case.dart';
+import '../data/lan_backup_client.dart';
 import 'online_playlist_tasks.dart';
 import 'dart:async';
 import 'song_cache_progress.dart';
@@ -405,6 +408,19 @@ class MusicController extends ChangeNotifier with WidgetsBindingObserver {
   late final ListeningStatsStore listeningStats;
   late final ListeningRecorder _listeningRecorder;
   late final DiagnosticsUploadController diagnostics;
+
+  /// LAN backup uploads and restores; they keep running after the backup
+  /// page closes.
+  LanBackupTasks get lanBackup => _lanBackup ??= LanBackupTasks(
+    client: LanBackupClient(),
+    useCase: (client) => LanBackupUseCase(
+      client: client,
+      cacheStore: libraryUseCase.cacheStore,
+      playlistStore: libraryUseCase.playlistStore,
+      library: libraryUseCase,
+    ),
+  );
+  LanBackupTasks? _lanBackup;
   Future<void> clearListeningStats() => _listeningRecorder.clear();
   void refreshListeningStats() {
     _listeningRecorder.capture();
@@ -4881,6 +4897,7 @@ class MusicController extends ChangeNotifier with WidgetsBindingObserver {
     unawaited(_listeningRecorder.close());
     appUpdates.dispose();
     diagnostics.dispose();
+    _lanBackup?.dispose();
     _searchRequest += 1;
     _playRequest += 1;
     _isDisposed = true;

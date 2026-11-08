@@ -88,6 +88,8 @@ class LanBackupUseCase {
       final track = manifest.tracks[id]!;
       onProgress?.call(LanBackupProgress(track.title, i, ids.length));
       try {
+        // A song restored by an earlier, interrupted run stays; skip it.
+        if (await cacheStore.hasCachedAudio(track.cached!.cacheId)) continue;
         Future<File?> fetch(LanBackupFile? file, String suffix) async {
           if (file == null) return null;
           final target = File('${staging.path}/${file.sha256}$suffix');

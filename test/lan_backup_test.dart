@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:ai_music/src/application/lan_backup_tasks.dart';
 import 'package:ai_music/src/application/lan_backup_use_case.dart';
 import 'package:ai_music/src/application/library_use_case.dart';
 import 'package:ai_music/src/data/lan_backup_client.dart';
@@ -17,6 +18,7 @@ class _FakeServer extends LanBackupClient {
   final blobs = <String, List<int>>{};
   final manifests = <String, Map<String, dynamic>>{};
   final uploads = <String>[];
+  var downloads = 0;
 
   @override
   Future<Set<String>> missing(String base, Iterable<String> hashes) async =>
@@ -44,6 +46,7 @@ class _FakeServer extends LanBackupClient {
 
   @override
   Future<void> downloadBlob(String base, String sha256, File target) async {
+    downloads += 1;
     await target.parent.create(recursive: true);
     await target.writeAsBytes(blobs[sha256]!);
   }
@@ -192,6 +195,37 @@ void main() {
     ).restore('http://lan.test', manifest, selection);
     expect(restored.downloaded, 1);
     expect(restored.failed, isEmpty);
+
+    // Running it again (say after an interruption) skips songs already here.
+    final downloadsBefore = server.downloads;
+    final again = await LanBackupUseCase(
+      client: server,
+      cacheStore: deviceB.cache,
+      playlistStore: deviceB.playlists,
+      library: deviceB.library,
+    ).restore('http://lan.test', manifest, selection);
+    expect(again.failed, isEmpty);
+    expect(again.downloaded, 0);
+    expect(server.downloads, downloadsBefore);
+
+    // The app-level task keeps the result after every page has gone.
+    final tasks = LanBackupTasks(
+      client: server,
+      useCase: (client) => LanBackupUseCase(
+        client: client,
+        cacheStore: deviceA.cache,
+        playlistStore: deviceA.playlists,
+        library: deviceA.library,
+      ),
+    );
+    final run = tasks.upload(identity);
+    expect(tasks.uploading, isTrue);
+    expect(tasks.upload(identity), same(run));
+    await run;
+    expect(tasks.uploading, isFalse);
+    expect(tasks.uploadMessage, startsWith('已上传'));
+    // Everything was already on the server, so nothing went up again.
+    expect(tasks.uploadMessage, contains('新传 0 个文件'));
 
     final snapshot = await deviceB.library.loadCache();
     expect(snapshot.cachedRecords.single.cacheId, cacheIdForResolved(high));
