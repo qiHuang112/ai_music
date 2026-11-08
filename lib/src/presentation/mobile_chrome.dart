@@ -560,7 +560,7 @@ class _TabButton extends StatelessWidget {
 
 /// The now-playing bar of the iOS shell: cover, "song - artist", then play
 /// and the queue (a wide window adds favorite, previous and next). Pressing
-/// it shrinks it a touch; dragging sideways carries the song away and brings
+/// it lights it faintly; dragging sideways carries the song away and brings
 /// the next one in.
 class _NowPlayingBar extends StatefulWidget {
   const _NowPlayingBar({required this.chrome, required this.wide});
@@ -643,10 +643,8 @@ class _NowPlayingBarState extends State<_NowPlayingBar>
           onPointerDown: (_) => _press(true),
           onPointerUp: (_) => _press(false),
           onPointerCancel: (_) => _press(false),
-          child: AnimatedScale(
-            scale: _pressed ? .97 : 1,
-            duration: Duration(milliseconds: _pressed ? 120 : 320),
-            curve: _pressed ? Curves.easeOut : Curves.easeOutBack,
+          child: _PressHighlight(
+            pressed: _pressed,
             child: Material(
               type: MaterialType.transparency,
               child: GlassSurface(
@@ -790,6 +788,43 @@ class _NowPlayingBarState extends State<_NowPlayingBar>
           ),
         );
       },
+    );
+  }
+}
+
+/// A faint wash over the bar while a finger is on it. The bar keeps its
+/// size: a springy shrink read as the bar shaking.
+class _PressHighlight extends StatelessWidget {
+  const _PressHighlight({required this.pressed, required this.child});
+
+  final bool pressed;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    return Stack(
+      children: [
+        child,
+        Positioned.fill(
+          child: IgnorePointer(
+            child: AnimatedOpacity(
+              opacity: pressed ? 1 : 0,
+              duration: Duration(milliseconds: pressed ? 80 : 250),
+              curve: Curves.easeOut,
+              child: DecoratedBox(
+                decoration: BoxDecoration(
+                  color: Theme.of(
+                    context,
+                  ).colorScheme.onSurface.withValues(alpha: .08),
+                  borderRadius: BorderRadius.circular(
+                    ChromeMetrics.barHeight / 2,
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+      ],
     );
   }
 }

@@ -2,6 +2,8 @@
 
 2026-10-26 `CURRENT_STATE.md` 改为固定字段，此前的全部条目按原顺序原文移到这里，仅把相对链接改成从本目录出发的路径。更早的逐次原文见 Git 提交 `67f6e85` 的 `CURRENT_STATE.md`。
 
+- 2026-11-07 iOS 导航改为 UIKit 原生壳（系统 Tab／导航栏／菜单），Duo 内屏与 iPhone 18 Pro 模拟器验证通过，体验版已装到 Duo 真机 → [日志](2026-11-07.md)
+
 - 2026-11-07 Duo 侧栏重做为系统竖栏样式并修正播放器背景接缝，测试与模拟器外屏验证通过，内屏待复查 → [日志](2026-11-07.md)
 
 - 2026-10-25用户验收后已将合作者原始6a4b5e3及发布增量4504319合入并推送main；仓库恢复public，main维护者规则active，Android/Mac自动打包已由本次push实际验证。跨平台[CI40205505710](https://github.com/qiHuang112/ai_music/actions/runs/40205505710)全部成功，[GitHub正式1.0.4／10269](https://github.com/qiHuang112/ai_music/releases/tag/v1.0.4-10269)包含原签名Android APK及Mac Universal ZIP（24200116字节，SHA69f7ce6544df…），同提交／版本／云端完整下载校验通过。本次GitHub发布完成，Mac LAN旧10268包保持。见[Mac下载](../macos.md)、[当日日志](2026-10-25.md)。

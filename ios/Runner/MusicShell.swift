@@ -754,6 +754,7 @@ final class ShellNowPlayingBar: UIView {
     }
     return UIVisualEffectView(effect: UIBlurEffect(style: .systemThinMaterial))
   }()
+  private let highlight = UIView()
   private let cover = UIImageView()
   private let title = UILabel()
   private let favorite = UIButton(type: .system)
@@ -770,6 +771,12 @@ final class ShellNowPlayingBar: UIView {
     glass.frame = bounds
     glass.autoresizingMask = [.flexibleWidth, .flexibleHeight]
     addSubview(glass)
+    highlight.frame = bounds
+    highlight.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+    highlight.backgroundColor = UIColor.label.withAlphaComponent(0.08)
+    highlight.alpha = 0
+    highlight.isUserInteractionEnabled = false
+    glass.contentView.insertSubview(highlight, at: 0)
 
     cover.contentMode = .scaleAspectFill
     cover.clipsToBounds = true
@@ -873,8 +880,9 @@ final class ShellNowPlayingBar: UIView {
     }
   }
 
-  // Pressing the bar itself (not a button) focuses it: a slight shrink that
-  // springs back on release, like a tapped card.
+  // Pressing the bar itself (not a button) lights it faintly, the way a
+  // system row highlights. Its size never changes: a scale on this view
+  // fought the shell's frame layout and the bar shook.
   override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) {
     super.touchesBegan(touches, with: event)
     press(true)
@@ -892,10 +900,10 @@ final class ShellNowPlayingBar: UIView {
 
   private func press(_ down: Bool) {
     UIView.animate(
-      withDuration: down ? 0.12 : 0.32, delay: 0, usingSpringWithDamping: 0.7, initialSpringVelocity: 0.4,
-      options: [.allowUserInteraction, .beginFromCurrentState]
+      withDuration: down ? 0.08 : 0.25, delay: 0,
+      options: [.allowUserInteraction, .beginFromCurrentState, .curveEaseOut]
     ) {
-      self.transform = down ? CGAffineTransform(scaleX: 0.97, y: 0.97) : .identity
+      self.highlight.alpha = down ? 1 : 0
     }
   }
 
