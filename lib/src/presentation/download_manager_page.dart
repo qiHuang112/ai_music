@@ -17,6 +17,7 @@ import 'app_localizations.dart';
 import 'list_search.dart';
 import 'music_thumbnail.dart';
 import 'playlist_download_progress.dart';
+import 'design/adaptive_layout.dart';
 import 'design/app_icons.dart';
 
 enum _DownloadSortMode { initial, downloadedAt }
@@ -190,54 +191,62 @@ class _DownloadManagerPageState extends State<DownloadManagerPage> {
               bottom: false,
               child: Column(
                 children: [
-                  ListSearchField(
-                    key: const Key('manager-search'),
-                    controller: _searchController,
-                    hintText: strings.isZh
-                        ? switch (_section) {
-                            _DownloadSection.cached => '搜索歌曲、歌手',
-                            _DownloadSection.tasks => '搜索任务、歌曲或错误信息',
-                            _DownloadSection.playlists => '搜索歌单',
-                          }
-                        : switch (_section) {
-                            _DownloadSection.cached =>
-                              'Search songs or artists',
-                            _DownloadSection.tasks =>
-                              'Search tasks, songs or errors',
-                            _DownloadSection.playlists => 'Search playlists',
-                          },
-                    onChanged: (value) => setState(() {
-                      _query = value;
-                      _collapsedCache.clear();
-                      _collapsedTasks.clear();
-                      _resetScroll(_DownloadSection.values);
-                    }),
+                  // Search and tabs stay readable on wide screens instead of
+                  // stretching one field and three tabs across a tablet.
+                  AdaptiveBody(
+                    child: ListSearchField(
+                      key: const Key('manager-search'),
+                      controller: _searchController,
+                      hintText: strings.isZh
+                          ? switch (_section) {
+                              _DownloadSection.cached => '搜索歌曲、歌手',
+                              _DownloadSection.tasks => '搜索任务、歌曲或错误信息',
+                              _DownloadSection.playlists => '搜索歌单',
+                            }
+                          : switch (_section) {
+                              _DownloadSection.cached =>
+                                'Search songs or artists',
+                              _DownloadSection.tasks =>
+                                'Search tasks, songs or errors',
+                              _DownloadSection.playlists => 'Search playlists',
+                            },
+                      onChanged: (value) => setState(() {
+                        _query = value;
+                        _collapsedCache.clear();
+                        _collapsedTasks.clear();
+                        _resetScroll(_DownloadSection.values);
+                      }),
+                    ),
                   ),
-                  TabBar(
-                    onTap: (index) => setState(() {
-                      _section = _DownloadSection.values[index];
-                      FocusScope.of(context).unfocus();
-                      if (_resetOffsets.contains(_section)) {
-                        _resetScroll([_section]);
-                      }
-                    }),
-                    labelPadding: const EdgeInsets.symmetric(horizontal: 4),
-                    tabs: [
-                      for (final section in _DownloadSection.values)
-                        Tab(
-                          key: ValueKey('manager-tab-${section.name}'),
-                          height:
-                              MediaQuery.textScalerOf(context).scale(22) + 24,
-                          text: switch (section) {
-                            _DownloadSection.cached =>
-                              strings.isZh ? '已下载' : 'Downloaded',
-                            _DownloadSection.tasks =>
-                              strings.isZh ? '任务' : 'Tasks',
-                            _DownloadSection.playlists =>
-                              strings.isZh ? '歌单' : 'Playlists',
-                          },
-                        ),
-                    ],
+                  // Search and tabs stay readable on wide screens instead of
+                  // stretching one field and three tabs across a tablet.
+                  AdaptiveBody(
+                    child: TabBar(
+                      onTap: (index) => setState(() {
+                        _section = _DownloadSection.values[index];
+                        FocusScope.of(context).unfocus();
+                        if (_resetOffsets.contains(_section)) {
+                          _resetScroll([_section]);
+                        }
+                      }),
+                      labelPadding: const EdgeInsets.symmetric(horizontal: 4),
+                      tabs: [
+                        for (final section in _DownloadSection.values)
+                          Tab(
+                            key: ValueKey('manager-tab-${section.name}'),
+                            height:
+                                MediaQuery.textScalerOf(context).scale(22) + 24,
+                            text: switch (section) {
+                              _DownloadSection.cached =>
+                                strings.isZh ? '已下载' : 'Downloaded',
+                              _DownloadSection.tasks =>
+                                strings.isZh ? '任务' : 'Tasks',
+                              _DownloadSection.playlists =>
+                                strings.isZh ? '歌单' : 'Playlists',
+                            },
+                          ),
+                      ],
+                    ),
                   ),
                   Padding(
                     padding: MusicUi.horizontalInsets,
@@ -690,11 +699,7 @@ class _LanSyncCard extends StatelessWidget {
                   color: colors.secondaryContainer,
                   borderRadius: BorderRadius.circular(16),
                 ),
-                child: Icon(
-                  AppIcons.devices,
-                  color: colors.primary,
-                  size: 26,
-                ),
+                child: Icon(AppIcons.devices, color: colors.primary, size: 26),
               ),
               const SizedBox(width: 14),
               Expanded(
@@ -723,11 +728,7 @@ class _LanSyncCard extends StatelessWidget {
           Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Icon(
-                AppIcons.server,
-                size: 20,
-                color: colors.onSurfaceVariant,
-              ),
+              Icon(AppIcons.server, size: 20, color: colors.onSurfaceVariant),
               const SizedBox(width: 10),
               Expanded(
                 child: Column(
@@ -811,11 +812,7 @@ class _LanSyncCard extends StatelessWidget {
               error: true,
             ),
           if (controller.lanSyncError != null)
-            status(
-              AppIcons.error,
-              Text(controller.lanSyncError!),
-              error: true,
-            ),
+            status(AppIcons.error, Text(controller.lanSyncError!), error: true),
         ],
       ),
     );

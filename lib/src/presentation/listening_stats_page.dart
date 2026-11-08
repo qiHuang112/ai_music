@@ -18,6 +18,7 @@ import 'date_groups.dart';
 import 'music_thumbnail.dart';
 import 'playlist_actions.dart';
 import 'song_source_page.dart';
+import 'design/adaptive_layout.dart';
 import 'design/app_icons.dart';
 
 String listeningDuration(int milliseconds, bool zh) {
@@ -163,225 +164,254 @@ class _ListeningStatsPageState extends State<ListeningStatsPage> {
             builder: (context) => ListView(
               padding: MusicUi.scrollInsets(context),
               children: [
-                Wrap(
-                  spacing: 8,
-                  runSpacing: 8,
-                  children: [
-                    for (final entry in {
-                      'today': zh ? '今天' : 'Today',
-                      'yesterday': zh ? '昨天' : 'Yesterday',
-                      'week': zh ? '近7天' : '7 days',
-                      'month': zh ? '近30天' : '30 days',
-                      'all': zh ? '累计' : 'All time',
-                    }.entries)
-                      ChoiceChip(
-                        label: Text(entry.value),
-                        selected: _period == entry.key,
-                        onSelected: (_) => setState(() => _period = entry.key),
-                      ),
-                  ],
-                ),
-                if (_period == 'custom' && range.from != null)
-                  Padding(
-                    padding: const EdgeInsets.only(top: 12),
-                    child: Text(
-                      '${listeningDayKey(range.from!)} — ${listeningDayKey(range.until!)}',
-                    ),
-                  ),
-                const SizedBox(height: 16),
-                if (store.error != null)
-                  Card(
-                    child: ListTile(
-                      leading: Icon(AppIcons.info, color: colors.error),
-                      title: Text(
-                        zh
-                            ? '统计暂时无法完整读取或保存'
-                            : 'History could not be read or saved',
-                      ),
-                      trailing: TextButton(
-                        onPressed: store.retry,
-                        child: Text(zh ? '重试' : 'Retry'),
-                      ),
-                    ),
-                  ),
-                if (!store.loaded && store.error == null)
-                  const LinearProgressIndicator(),
-                Card(
-                  color: colors.secondaryContainer,
-                  child: Padding(
-                    padding: const EdgeInsets.all(20),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          zh ? '实际听歌时长' : 'Listening time',
-                          style: Theme.of(context).textTheme.labelLarge,
-                        ),
-                        const SizedBox(height: 8),
-                        Text(
-                          listeningDuration(report.milliseconds, zh),
-                          key: const Key('listening-total-time'),
-                          style: Theme.of(context).textTheme.headlineSmall
-                              ?.copyWith(color: colors.primary),
-                        ),
-                        const SizedBox(height: 12),
-                        Text(
-                          zh
-                              ? '只记录实际播放，暂停和缓冲不计时。'
-                              : 'Actual playback only; pauses and buffering are excluded.',
-                          style: Theme.of(context).textTheme.bodySmall,
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 12),
-                LayoutBuilder(
-                  builder: (context, constraints) => Wrap(
-                    spacing: 12,
-                    runSpacing: 12,
+                AdaptiveBody(
+                  maxWidth: MusicLayout.wideWidth,
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
-                      for (final metric in [
-                        (zh ? '听过歌曲' : 'Songs heard', '${report.songCount}'),
-                        (zh ? '有效播放' : 'Qualified plays', '${report.plays}'),
-                        (zh ? '听歌天数' : 'Listening days', '${report.dayCount}'),
-                        (
-                          zh ? '连续听歌' : 'Current streak',
-                          '${cumulative.streak(DateTime.now())}',
-                        ),
-                      ])
-                        SizedBox(
-                          width: (constraints.maxWidth - 12) / 2,
-                          child: DecoratedBox(
-                            decoration: BoxDecoration(
-                              color: colors.surfaceContainerHigh,
-                              borderRadius: BorderRadius.circular(
-                                MusicUi.radius,
-                              ),
+                      Wrap(
+                        spacing: 8,
+                        runSpacing: 8,
+                        children: [
+                          for (final entry in {
+                            'today': zh ? '今天' : 'Today',
+                            'yesterday': zh ? '昨天' : 'Yesterday',
+                            'week': zh ? '近7天' : '7 days',
+                            'month': zh ? '近30天' : '30 days',
+                            'all': zh ? '累计' : 'All time',
+                          }.entries)
+                            ChoiceChip(
+                              label: Text(entry.value),
+                              selected: _period == entry.key,
+                              onSelected: (_) =>
+                                  setState(() => _period = entry.key),
                             ),
+                        ],
+                      ),
+                      if (_period == 'custom' && range.from != null)
+                        Padding(
+                          padding: const EdgeInsets.only(top: 12),
+                          child: Text(
+                            '${listeningDayKey(range.from!)} — ${listeningDayKey(range.until!)}',
+                          ),
+                        ),
+                      const SizedBox(height: 16),
+                      if (store.error != null)
+                        Card(
+                          child: ListTile(
+                            leading: Icon(AppIcons.info, color: colors.error),
+                            title: Text(
+                              zh
+                                  ? '统计暂时无法完整读取或保存'
+                                  : 'History could not be read or saved',
+                            ),
+                            trailing: TextButton(
+                              onPressed: store.retry,
+                              child: Text(zh ? '重试' : 'Retry'),
+                            ),
+                          ),
+                        ),
+                      if (!store.loaded && store.error == null)
+                        const LinearProgressIndicator(),
+                      AdaptiveColumns(
+                        primary: [
+                          Card(
+                            color: colors.secondaryContainer,
                             child: Padding(
-                              padding: const EdgeInsets.all(14),
+                              padding: const EdgeInsets.all(20),
                               child: Column(
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
                                   Text(
-                                    metric.$1,
+                                    zh ? '实际听歌时长' : 'Listening time',
+                                    style: Theme.of(
+                                      context,
+                                    ).textTheme.labelLarge,
+                                  ),
+                                  const SizedBox(height: 8),
+                                  Text(
+                                    listeningDuration(report.milliseconds, zh),
+                                    key: const Key('listening-total-time'),
+                                    style: Theme.of(context)
+                                        .textTheme
+                                        .headlineSmall
+                                        ?.copyWith(color: colors.primary),
+                                  ),
+                                  const SizedBox(height: 12),
+                                  Text(
+                                    zh
+                                        ? '只记录实际播放，暂停和缓冲不计时。'
+                                        : 'Actual playback only; pauses and buffering are excluded.',
                                     style: Theme.of(
                                       context,
                                     ).textTheme.bodySmall,
-                                  ),
-                                  const SizedBox(height: 4),
-                                  Text(
-                                    metric.$2,
-                                    style: Theme.of(
-                                      context,
-                                    ).textTheme.titleLarge,
                                   ),
                                 ],
                               ),
                             ),
                           ),
+                          const SizedBox(height: 12),
+                          AdaptiveTiles(
+                            minTileWidth: 120,
+                            children: [
+                              for (final metric in [
+                                (
+                                  zh ? '听过歌曲' : 'Songs heard',
+                                  '${report.songCount}',
+                                ),
+                                (
+                                  zh ? '有效播放' : 'Qualified plays',
+                                  '${report.plays}',
+                                ),
+                                (
+                                  zh ? '听歌天数' : 'Listening days',
+                                  '${report.dayCount}',
+                                ),
+                                (
+                                  zh ? '连续听歌' : 'Current streak',
+                                  '${cumulative.streak(DateTime.now())}',
+                                ),
+                              ])
+                                DecoratedBox(
+                                  decoration: BoxDecoration(
+                                    color: colors.surfaceContainerHigh,
+                                    borderRadius: BorderRadius.circular(
+                                      MusicUi.radius,
+                                    ),
+                                  ),
+                                  child: Padding(
+                                    padding: const EdgeInsets.all(14),
+                                    child: Column(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
+                                      children: [
+                                        Text(
+                                          metric.$1,
+                                          style: Theme.of(
+                                            context,
+                                          ).textTheme.bodySmall,
+                                        ),
+                                        const SizedBox(height: 4),
+                                        Text(
+                                          metric.$2,
+                                          style: Theme.of(
+                                            context,
+                                          ).textTheme.titleLarge,
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ),
+                            ],
+                          ),
+                          const SizedBox(height: 24),
+                          Text(
+                            zh ? '听歌趋势' : 'Listening trend',
+                            style: Theme.of(context).textTheme.titleMedium,
+                          ),
+                          const SizedBox(height: 8),
+                          _ListeningTrend(
+                            report: report,
+                            from:
+                                range.from ?? store.startedAt ?? DateTime.now(),
+                            until: range.until ?? DateTime.now(),
+                            onOpen: (from, until, title) =>
+                                _openHistory(from, until, title),
+                          ),
+                        ],
+                        secondary: [
+                          Wrap(
+                            spacing: 16,
+                            crossAxisAlignment: WrapCrossAlignment.center,
+                            alignment: WrapAlignment.spaceBetween,
+                            children: [
+                              Text(
+                                zh ? '排行榜' : 'Rankings',
+                                style: Theme.of(context).textTheme.titleMedium,
+                              ),
+                              MusicPopupMenuButton<bool>(
+                                tooltip: zh ? '排行方式' : 'Ranking order',
+                                initialValue: _byTime,
+                                onSelected: (value) =>
+                                    setState(() => _byTime = value),
+                                itemBuilder: (_) => [
+                                  CheckedPopupMenuItem(
+                                    value: false,
+                                    checked: !_byTime,
+                                    child: Text(zh ? '播放次数' : 'Play count'),
+                                  ),
+                                  CheckedPopupMenuItem(
+                                    value: true,
+                                    checked: _byTime,
+                                    child: Text(zh ? '听歌时长' : 'Listening time'),
+                                  ),
+                                ],
+                                child: Padding(
+                                  padding: const EdgeInsets.all(12),
+                                  child: Text(
+                                    _byTime
+                                        ? (zh ? '按时长 ▾' : 'By time ▾')
+                                        : (zh ? '按次数 ▾' : 'By plays ▾'),
+                                    style: TextStyle(color: colors.primary),
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                          _rankSection(
+                            zh ? '最常听歌曲' : 'Top songs',
+                            report.songRanks,
+                            false,
+                            range,
+                          ),
+                          const SizedBox(height: 16),
+                          _rankSection(
+                            zh ? '最常听歌单' : 'Top playlists',
+                            report.playlistRanks,
+                            true,
+                            range,
+                          ),
+                          const SizedBox(height: 24),
+                          Text(
+                            zh ? '每日记录' : 'Daily history',
+                            style: Theme.of(context).textTheme.titleMedium,
+                          ),
+                          const SizedBox(height: 8),
+                          if (report.records.isEmpty)
+                            _empty(
+                              zh
+                                  ? '还没有听歌记录，播放音乐后会自动记录。'
+                                  : 'Play some music to start your listening history.',
+                            )
+                          else
+                            _HistoryTree(
+                              days: report.days,
+                              onOpen: (day) => _openHistory(
+                                day,
+                                day,
+                                dateGroupLabel(day, zh: zh),
+                              ),
+                            ),
+                        ],
+                      ),
+                      const SizedBox(height: 20),
+                      Text(
+                        zh
+                            ? '满30秒算一次有效播放；不足30秒的歌曲听满一半。暂停后继续不重复计次。'
+                            : 'A play counts after 30s; tracks shorter than 30s count at halfway. Resuming does not count twice.',
+                        style: Theme.of(context).textTheme.bodySmall,
+                      ),
+                      const SizedBox(height: 8),
+                      if (store.startedAt != null)
+                        Text(
+                          zh
+                              ? '统计始于 ${listeningDayKey(store.startedAt!.toLocal())} · 仅保存在本机'
+                              : 'Since ${listeningDayKey(store.startedAt!.toLocal())} · Stored on this device',
+                          style: Theme.of(context).textTheme.bodySmall,
                         ),
                     ],
                   ),
                 ),
-                const SizedBox(height: 24),
-                Text(
-                  zh ? '听歌趋势' : 'Listening trend',
-                  style: Theme.of(context).textTheme.titleMedium,
-                ),
-                const SizedBox(height: 8),
-                _ListeningTrend(
-                  report: report,
-                  from: range.from ?? store.startedAt ?? DateTime.now(),
-                  until: range.until ?? DateTime.now(),
-                  onOpen: (from, until, title) =>
-                      _openHistory(from, until, title),
-                ),
-                const SizedBox(height: 24),
-                Wrap(
-                  spacing: 16,
-                  crossAxisAlignment: WrapCrossAlignment.center,
-                  alignment: WrapAlignment.spaceBetween,
-                  children: [
-                    Text(
-                      zh ? '排行榜' : 'Rankings',
-                      style: Theme.of(context).textTheme.titleMedium,
-                    ),
-                    MusicPopupMenuButton<bool>(
-                      tooltip: zh ? '排行方式' : 'Ranking order',
-                      initialValue: _byTime,
-                      onSelected: (value) => setState(() => _byTime = value),
-                      itemBuilder: (_) => [
-                        CheckedPopupMenuItem(
-                          value: false,
-                          checked: !_byTime,
-                          child: Text(zh ? '播放次数' : 'Play count'),
-                        ),
-                        CheckedPopupMenuItem(
-                          value: true,
-                          checked: _byTime,
-                          child: Text(zh ? '听歌时长' : 'Listening time'),
-                        ),
-                      ],
-                      child: Padding(
-                        padding: const EdgeInsets.all(12),
-                        child: Text(
-                          _byTime
-                              ? (zh ? '按时长 ▾' : 'By time ▾')
-                              : (zh ? '按次数 ▾' : 'By plays ▾'),
-                          style: TextStyle(color: colors.primary),
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-                _rankSection(
-                  zh ? '最常听歌曲' : 'Top songs',
-                  report.songRanks,
-                  false,
-                  range,
-                ),
-                const SizedBox(height: 16),
-                _rankSection(
-                  zh ? '最常听歌单' : 'Top playlists',
-                  report.playlistRanks,
-                  true,
-                  range,
-                ),
-                const SizedBox(height: 24),
-                Text(
-                  zh ? '每日记录' : 'Daily history',
-                  style: Theme.of(context).textTheme.titleMedium,
-                ),
-                const SizedBox(height: 8),
-                if (report.records.isEmpty)
-                  _empty(
-                    zh
-                        ? '还没有听歌记录，播放音乐后会自动记录。'
-                        : 'Play some music to start your listening history.',
-                  )
-                else
-                  _HistoryTree(
-                    days: report.days,
-                    onOpen: (day) =>
-                        _openHistory(day, day, dateGroupLabel(day, zh: zh)),
-                  ),
-                const SizedBox(height: 20),
-                Text(
-                  zh
-                      ? '满30秒算一次有效播放；不足30秒的歌曲听满一半。暂停后继续不重复计次。'
-                      : 'A play counts after 30s; tracks shorter than 30s count at halfway. Resuming does not count twice.',
-                  style: Theme.of(context).textTheme.bodySmall,
-                ),
-                const SizedBox(height: 8),
-                if (store.startedAt != null)
-                  Text(
-                    zh
-                        ? '统计始于 ${listeningDayKey(store.startedAt!.toLocal())} · 仅保存在本机'
-                        : 'Since ${listeningDayKey(store.startedAt!.toLocal())} · Stored on this device',
-                    style: Theme.of(context).textTheme.bodySmall,
-                  ),
               ],
             ),
           ),

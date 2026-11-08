@@ -5,6 +5,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import '../application/app_update_controller.dart';
 import 'app_localizations.dart';
+import 'design/adaptive_layout.dart';
 import 'design/app_icons.dart';
 
 String updateDateLabel(DateTime date) {
@@ -100,118 +101,126 @@ class _AppUpdatePageState extends State<AppUpdatePage> {
       return DuoScaffold(
         appBar: AppBar(title: Text(zh ? '检测更新' : 'App updates')),
         body: SafeArea(
-          child: ListView(
-            padding: const EdgeInsets.all(20),
-            children: [
-              const Icon(AppIcons.update, size: 56),
-              const SizedBox(height: 16),
-              Text(
-                current?.label ?? '…',
-                textAlign: TextAlign.center,
-                style: Theme.of(context).textTheme.headlineSmall,
+          child: LayoutBuilder(
+            builder: (context, box) => ListView(
+              padding: MusicLayout.centered(
+                const EdgeInsets.all(20),
+                box.maxWidth,
               ),
-              if (current != null)
-                Padding(
-                  padding: const EdgeInsets.only(top: 8),
-                  child: Text(
-                    '${zh ? '更新时间' : 'Updated'} ${updateDateLabel(current.builtAt)}',
-                    textAlign: TextAlign.center,
-                  ),
-                ),
-              const SizedBox(height: 24),
-              if (current != null && !updates.releaseChannel)
+              children: [
+                const Icon(AppIcons.update, size: 56),
+                const SizedBox(height: 16),
                 Text(
-                  current.channel == 'preview'
-                      ? (zh
-                            ? '当前为独立体验版，请通过体验版安装包更新。'
-                            : 'Update this preview with a preview installation package.')
-                      : zh
-                      ? '当前为 ${current.channel} 版本，应用内更新仅提供 release 包。调试版继续通过电脑安装。'
-                      : 'This ${current.channel} build does not install release updates.',
+                  current?.label ?? '…',
+                  textAlign: TextAlign.center,
+                  style: Theme.of(context).textTheme.headlineSmall,
                 ),
-              if (updates.checking) const LinearProgressIndicator(),
-              if (updates.error != null)
-                Padding(
-                  padding: const EdgeInsets.symmetric(vertical: 12),
-                  child: Text(updates.error!, key: const Key('update-error')),
-                ),
-              if (updates.hasUpdate && latest != null)
-                Card(
-                  child: Padding(
-                    padding: const EdgeInsets.all(MusicUi.pagePadding),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          '${zh ? '新版本' : 'New version'} ${latest.name} (${latest.code})',
-                          style: Theme.of(context).textTheme.titleLarge,
-                        ),
-                        const SizedBox(height: 8),
-                        Text(
-                          '${updateDateLabel(latest.publishedAt)} · ${(latest.size / (1024 * 1024)).toStringAsFixed(1)} MB',
-                        ),
-                        if (latest.notes.isNotEmpty)
-                          Padding(
-                            padding: const EdgeInsets.only(top: 12),
-                            child: Text(latest.notes),
-                          ),
-                        const SizedBox(height: 16),
-                        if (updates.downloading) ...[
-                          LinearProgressIndicator(value: updates.progress),
-                          const SizedBox(height: 8),
-                          Text(
-                            '${(updates.received / (1024 * 1024)).toStringAsFixed(1)} / ${(latest.size / (1024 * 1024)).toStringAsFixed(1)} MB',
-                          ),
-                          TextButton(
-                            onPressed: updates.cancelDownload,
-                            child: Text(zh ? '取消下载' : 'Cancel download'),
-                          ),
-                        ] else
-                          FilledButton.icon(
-                            key: const Key('install-app-update'),
-                            onPressed: updates.installing
-                                ? null
-                                : updates.downloadAndInstall,
-                            icon: const Icon(AppIcons.download),
-                            label: Text(
-                              updates.downloadedApk == null
-                                  ? (zh ? '更新' : 'Update')
-                                  : (zh ? '安装' : 'Install'),
-                            ),
-                          ),
-                        if (updates.installNotice != null)
-                          Padding(
-                            padding: const EdgeInsets.only(top: 12),
-                            child: Text(updates.installNotice!),
-                          ),
-                      ],
+                if (current != null)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 8),
+                    child: Text(
+                      '${zh ? '更新时间' : 'Updated'} ${updateDateLabel(current.builtAt)}',
+                      textAlign: TextAlign.center,
                     ),
                   ),
+                const SizedBox(height: 24),
+                if (current != null && !updates.releaseChannel)
+                  Text(
+                    current.channel == 'preview'
+                        ? (zh
+                              ? '当前为独立体验版，请通过体验版安装包更新。'
+                              : 'Update this preview with a preview installation package.')
+                        : zh
+                        ? '当前为 ${current.channel} 版本，应用内更新仅提供 release 包。调试版继续通过电脑安装。'
+                        : 'This ${current.channel} build does not install release updates.',
+                  ),
+                if (updates.checking) const LinearProgressIndicator(),
+                if (updates.error != null)
+                  Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 12),
+                    child: Text(updates.error!, key: const Key('update-error')),
+                  ),
+                if (updates.hasUpdate && latest != null)
+                  Card(
+                    child: Padding(
+                      padding: const EdgeInsets.all(MusicUi.pagePadding),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            '${zh ? '新版本' : 'New version'} ${latest.name} (${latest.code})',
+                            style: Theme.of(context).textTheme.titleLarge,
+                          ),
+                          const SizedBox(height: 8),
+                          Text(
+                            '${updateDateLabel(latest.publishedAt)} · ${(latest.size / (1024 * 1024)).toStringAsFixed(1)} MB',
+                          ),
+                          if (latest.notes.isNotEmpty)
+                            Padding(
+                              padding: const EdgeInsets.only(top: 12),
+                              child: Text(latest.notes),
+                            ),
+                          const SizedBox(height: 16),
+                          if (updates.downloading) ...[
+                            LinearProgressIndicator(value: updates.progress),
+                            const SizedBox(height: 8),
+                            Text(
+                              '${(updates.received / (1024 * 1024)).toStringAsFixed(1)} / ${(latest.size / (1024 * 1024)).toStringAsFixed(1)} MB',
+                            ),
+                            TextButton(
+                              onPressed: updates.cancelDownload,
+                              child: Text(zh ? '取消下载' : 'Cancel download'),
+                            ),
+                          ] else
+                            FilledButton.icon(
+                              key: const Key('install-app-update'),
+                              onPressed: updates.installing
+                                  ? null
+                                  : updates.downloadAndInstall,
+                              icon: const Icon(AppIcons.download),
+                              label: Text(
+                                updates.downloadedApk == null
+                                    ? (zh ? '更新' : 'Update')
+                                    : (zh ? '安装' : 'Install'),
+                              ),
+                            ),
+                          if (updates.installNotice != null)
+                            Padding(
+                              padding: const EdgeInsets.only(top: 12),
+                              child: Text(updates.installNotice!),
+                            ),
+                        ],
+                      ),
+                    ),
+                  ),
+                if (updates.checked &&
+                    !updates.hasUpdate &&
+                    updates.error == null)
+                  Text(
+                    zh ? '已是最新版本' : 'Up to date',
+                    textAlign: TextAlign.center,
+                  ),
+                const SizedBox(height: 16),
+                OutlinedButton.icon(
+                  key: const Key('manual-check-update'),
+                  onPressed:
+                      !updates.releaseChannel ||
+                          updates.checking ||
+                          updates.downloading ||
+                          updates.installing
+                      ? null
+                      : () => updates.check(force: true),
+                  icon: const Icon(AppIcons.refresh),
+                  label: Text(zh ? '检测更新' : 'Check for updates'),
                 ),
-              if (updates.checked &&
-                  !updates.hasUpdate &&
-                  updates.error == null)
-                Text(zh ? '已是最新版本' : 'Up to date', textAlign: TextAlign.center),
-              const SizedBox(height: 16),
-              OutlinedButton.icon(
-                key: const Key('manual-check-update'),
-                onPressed:
-                    !updates.releaseChannel ||
-                        updates.checking ||
-                        updates.downloading ||
-                        updates.installing
-                    ? null
-                    : () => updates.check(force: true),
-                icon: const Icon(AppIcons.refresh),
-                label: Text(zh ? '检测更新' : 'Check for updates'),
-              ),
-              const SizedBox(height: 24),
-              const SelectableText(
-                'github.com/qiHuang112/ai_music',
-                key: Key('project-url'),
-                textAlign: TextAlign.center,
-              ),
-            ],
+                const SizedBox(height: 24),
+                const SelectableText(
+                  'github.com/qiHuang112/ai_music',
+                  key: Key('project-url'),
+                  textAlign: TextAlign.center,
+                ),
+              ],
+            ),
           ),
         ),
       );

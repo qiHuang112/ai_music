@@ -13,6 +13,7 @@ import 'app_update_page.dart';
 import 'design/glass_surface.dart';
 import 'desktop_ui.dart';
 import '../application/diagnostics_upload_controller.dart';
+import 'design/adaptive_layout.dart';
 import 'design/app_icons.dart';
 
 /// Desktop settings keep the categories visible while changing their content.
@@ -129,9 +130,7 @@ class _DesktopSettingsPageState extends State<DesktopSettingsPage> {
                                     ),
                                     _PlaybackCacheSetting(controller: c),
                                     ListTile(
-                                      leading: const Icon(
-                                        AppIcons.insights,
-                                      ),
+                                      leading: const Icon(AppIcons.insights),
                                       title: Text(
                                         strings.isZh
                                             ? '清空听歌统计'
@@ -211,186 +210,196 @@ class SettingsPage extends StatelessWidget {
           body: SafeArea(
             // The list runs on under the floating bottom bars.
             bottom: false,
-            child: ListView(
-              padding: MusicUi.scrollInsets(context),
-              children: [
-                _SettingsGroup(
-                  title: strings.isZh ? '通用' : 'General',
-                  children: [
-                    if (controller.appUpdates.supported)
-                      AppUpdateSetting(updates: controller.appUpdates),
-                    DiagnosticsUploadSetting(
-                      controller: controller.diagnostics,
-                    ),
-                    ListTile(
-                      leading: const Icon(AppIcons.language),
-                      title: Text(strings.language),
-                      subtitle: Text(
-                        controller.language == AppLanguage.zh
-                            ? strings.chinese
-                            : strings.english,
-                      ),
-                      trailing: const Icon(AppIcons.chevronRight),
-                      onTap: () => Navigator.of(context).push<void>(
-                        AppPageRoute(
-                          settings: const RouteSettings(
-                            name: 'language-settings',
-                          ),
-                          builder: (_) =>
-                              LanguageSettingsPage(controller: controller),
-                        ),
-                      ),
-                    ),
-                    ListTile(
-                      leading: const Icon(AppIcons.contrast),
-                      title: Text(strings.theme),
-                      subtitle: Text(
-                        strings.themeName(controller.themePreference),
-                      ),
-                      trailing: const Icon(AppIcons.chevronRight),
-                      onTap: () => Navigator.of(context).push<void>(
-                        AppPageRoute(
-                          settings: const RouteSettings(
-                            name: 'appearance-settings',
-                          ),
-                          builder: (_) =>
-                              ThemeSettingsPage(controller: controller),
-                        ),
-                      ),
-                    ),
-                  ],
+            child: LayoutBuilder(
+              builder: (context, box) => ListView(
+                padding: MusicLayout.centered(
+                  MusicUi.scrollInsets(context),
+                  box.maxWidth,
                 ),
-                const SizedBox(height: 12),
-                _SettingsGroup(
-                  title: strings.isZh ? '音乐与下载' : 'Music & downloads',
-                  children: [
-                    ListTile(
-                      leading: const Icon(AppIcons.source),
-                      title: Text(strings.musicSource),
-                      subtitle: Text(_sourceTitle(strings, controller.source)),
-                      trailing: const Icon(AppIcons.chevronRight),
-                      onTap: () => Navigator.of(context).push<void>(
-                        AppPageRoute(
-                          settings: const RouteSettings(
-                            name: 'source-settings',
+                children: [
+                  _SettingsGroup(
+                    title: strings.isZh ? '通用' : 'General',
+                    children: [
+                      if (controller.appUpdates.supported)
+                        AppUpdateSetting(updates: controller.appUpdates),
+                      DiagnosticsUploadSetting(
+                        controller: controller.diagnostics,
+                      ),
+                      ListTile(
+                        leading: const Icon(AppIcons.language),
+                        title: Text(strings.language),
+                        subtitle: Text(
+                          controller.language == AppLanguage.zh
+                              ? strings.chinese
+                              : strings.english,
+                        ),
+                        trailing: const Icon(AppIcons.chevronRight),
+                        onTap: () => Navigator.of(context).push<void>(
+                          AppPageRoute(
+                            settings: const RouteSettings(
+                              name: 'language-settings',
+                            ),
+                            builder: (_) =>
+                                LanguageSettingsPage(controller: controller),
                           ),
-                          builder: (_) =>
-                              SourceSettingsPage(controller: controller),
                         ),
                       ),
-                    ),
-                    ListTile(
-                      key: const Key('default-download-quality'),
-                      leading: const Icon(AppIcons.quality),
-                      title: Text(
-                        strings.isZh ? '默认下载品质' : 'Default download quality',
-                      ),
-                      subtitle: Text(
-                        _qualityTitle(
-                          strings.isZh,
-                          controller.defaultDownloadQuality,
+                      ListTile(
+                        leading: const Icon(AppIcons.contrast),
+                        title: Text(strings.theme),
+                        subtitle: Text(
+                          strings.themeName(controller.themePreference),
                         ),
-                      ),
-                      trailing: const Icon(AppIcons.chevronRight),
-                      onTap: () => Navigator.of(context).push<void>(
-                        AppPageRoute(
-                          settings: const RouteSettings(
-                            name: 'download-quality',
+                        trailing: const Icon(AppIcons.chevronRight),
+                        onTap: () => Navigator.of(context).push<void>(
+                          AppPageRoute(
+                            settings: const RouteSettings(
+                              name: 'appearance-settings',
+                            ),
+                            builder: (_) =>
+                                ThemeSettingsPage(controller: controller),
                           ),
-                          builder: (_) =>
-                              _DownloadQualityPage(controller: controller),
                         ),
                       ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 12),
-                _SettingsGroup(
-                  title: strings.isZh ? '存储' : 'Storage',
-                  children: [
-                    _PlaybackCacheSetting(controller: controller),
-                    ListTile(
-                      key: const Key('clear-listening-stats'),
-                      leading: const Icon(AppIcons.insights),
-                      title: Text(
-                        strings.isZh ? '清空听歌统计' : 'Clear listening history',
-                      ),
-                      subtitle: Text(
-                        strings.isZh
-                            ? '只清空统计，保留歌曲和歌单'
-                            : 'Reset statistics; keep songs and playlists',
-                      ),
-                      onTap: () =>
-                          confirmClearListeningStats(context, controller),
-                    ),
-                    ListTile(
-                      key: const Key('manual-download-count'),
-                      leading: const Icon(AppIcons.downloaded),
-                      title: Text(strings.isZh ? '已下载歌曲' : 'Downloaded songs'),
-                      subtitle: Text(
-                        strings.isZh
-                            ? '${controller.manuallyDownloadedSongCount} 首'
-                            : '${controller.manuallyDownloadedSongCount} songs',
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 12),
-                _SettingsGroup(
-                  title: strings.isZh ? '高级' : 'Advanced',
-                  children: [
-                    SwitchListTile(
-                      key: const Key('performance-overlay-setting'),
-                      secondary: const Icon(AppIcons.speed),
-                      title: Text(
-                        strings.isZh ? '性能悬浮窗' : 'Performance overlay',
-                      ),
-                      subtitle: Text(
-                        strings.isZh
-                            ? '实时 FPS、内存、CPU，并记录性能日志'
-                            : 'Live FPS, memory, CPU and performance logs',
-                      ),
-                      value: controller.performanceOverlayEnabled,
-                      onChanged: controller.savePerformanceOverlayEnabled,
-                    ),
-                    ListTile(
-                      key: const Key('concurrency-settings'),
-                      leading: const Icon(AppIcons.tune),
-                      title: Text(strings.isZh ? '并发设置' : 'Concurrency'),
-                      subtitle: Text(
-                        strings.isZh
-                            ? '截图搜歌 ${controller.screenshotSearchConcurrency} 首 · 歌单下载 ${controller.playlistDownloadConcurrency} 首'
-                            : 'Screenshot search ${controller.screenshotSearchConcurrency} · Playlist downloads ${controller.playlistDownloadConcurrency}',
-                      ),
-                      trailing: const Icon(AppIcons.chevronRight),
-                      onTap: () => Navigator.of(context).push<void>(
-                        AppPageRoute(
-                          settings: const RouteSettings(
-                            name: 'concurrency-settings',
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  _SettingsGroup(
+                    title: strings.isZh ? '音乐与下载' : 'Music & downloads',
+                    children: [
+                      ListTile(
+                        leading: const Icon(AppIcons.source),
+                        title: Text(strings.musicSource),
+                        subtitle: Text(
+                          _sourceTitle(strings, controller.source),
+                        ),
+                        trailing: const Icon(AppIcons.chevronRight),
+                        onTap: () => Navigator.of(context).push<void>(
+                          AppPageRoute(
+                            settings: const RouteSettings(
+                              name: 'source-settings',
+                            ),
+                            builder: (_) =>
+                                SourceSettingsPage(controller: controller),
                           ),
-                          builder: (_) =>
-                              _ConcurrencySettingsPage(controller: controller),
                         ),
                       ),
-                    ),
-                    ListTile(
-                      leading: const Icon(AppIcons.lan),
-                      title: Text(strings.lanLibrary),
-                      subtitle: Text(controller.lanLibraryUrl),
-                      trailing: const Icon(AppIcons.chevronRight),
-                      onTap: () => Navigator.of(context).push<void>(
-                        AppPageRoute(
-                          settings: const RouteSettings(
-                            name: 'lan-library-settings',
+                      ListTile(
+                        key: const Key('default-download-quality'),
+                        leading: const Icon(AppIcons.quality),
+                        title: Text(
+                          strings.isZh ? '默认下载品质' : 'Default download quality',
+                        ),
+                        subtitle: Text(
+                          _qualityTitle(
+                            strings.isZh,
+                            controller.defaultDownloadQuality,
                           ),
-                          builder: (_) =>
-                              LanLibrarySettingsPage(controller: controller),
+                        ),
+                        trailing: const Icon(AppIcons.chevronRight),
+                        onTap: () => Navigator.of(context).push<void>(
+                          AppPageRoute(
+                            settings: const RouteSettings(
+                              name: 'download-quality',
+                            ),
+                            builder: (_) =>
+                                _DownloadQualityPage(controller: controller),
+                          ),
                         ),
                       ),
-                    ),
-                  ],
-                ),
-              ],
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  _SettingsGroup(
+                    title: strings.isZh ? '存储' : 'Storage',
+                    children: [
+                      _PlaybackCacheSetting(controller: controller),
+                      ListTile(
+                        key: const Key('clear-listening-stats'),
+                        leading: const Icon(AppIcons.insights),
+                        title: Text(
+                          strings.isZh ? '清空听歌统计' : 'Clear listening history',
+                        ),
+                        subtitle: Text(
+                          strings.isZh
+                              ? '只清空统计，保留歌曲和歌单'
+                              : 'Reset statistics; keep songs and playlists',
+                        ),
+                        onTap: () =>
+                            confirmClearListeningStats(context, controller),
+                      ),
+                      ListTile(
+                        key: const Key('manual-download-count'),
+                        leading: const Icon(AppIcons.downloaded),
+                        title: Text(
+                          strings.isZh ? '已下载歌曲' : 'Downloaded songs',
+                        ),
+                        subtitle: Text(
+                          strings.isZh
+                              ? '${controller.manuallyDownloadedSongCount} 首'
+                              : '${controller.manuallyDownloadedSongCount} songs',
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  _SettingsGroup(
+                    title: strings.isZh ? '高级' : 'Advanced',
+                    children: [
+                      SwitchListTile(
+                        key: const Key('performance-overlay-setting'),
+                        secondary: const Icon(AppIcons.speed),
+                        title: Text(
+                          strings.isZh ? '性能悬浮窗' : 'Performance overlay',
+                        ),
+                        subtitle: Text(
+                          strings.isZh
+                              ? '实时 FPS、内存、CPU，并记录性能日志'
+                              : 'Live FPS, memory, CPU and performance logs',
+                        ),
+                        value: controller.performanceOverlayEnabled,
+                        onChanged: controller.savePerformanceOverlayEnabled,
+                      ),
+                      ListTile(
+                        key: const Key('concurrency-settings'),
+                        leading: const Icon(AppIcons.tune),
+                        title: Text(strings.isZh ? '并发设置' : 'Concurrency'),
+                        subtitle: Text(
+                          strings.isZh
+                              ? '截图搜歌 ${controller.screenshotSearchConcurrency} 首 · 歌单下载 ${controller.playlistDownloadConcurrency} 首'
+                              : 'Screenshot search ${controller.screenshotSearchConcurrency} · Playlist downloads ${controller.playlistDownloadConcurrency}',
+                        ),
+                        trailing: const Icon(AppIcons.chevronRight),
+                        onTap: () => Navigator.of(context).push<void>(
+                          AppPageRoute(
+                            settings: const RouteSettings(
+                              name: 'concurrency-settings',
+                            ),
+                            builder: (_) => _ConcurrencySettingsPage(
+                              controller: controller,
+                            ),
+                          ),
+                        ),
+                      ),
+                      ListTile(
+                        leading: const Icon(AppIcons.lan),
+                        title: Text(strings.lanLibrary),
+                        subtitle: Text(controller.lanLibraryUrl),
+                        trailing: const Icon(AppIcons.chevronRight),
+                        onTap: () => Navigator.of(context).push<void>(
+                          AppPageRoute(
+                            settings: const RouteSettings(
+                              name: 'lan-library-settings',
+                            ),
+                            builder: (_) =>
+                                LanLibrarySettingsPage(controller: controller),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
             ),
           ),
         );

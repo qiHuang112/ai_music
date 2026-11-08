@@ -645,6 +645,67 @@ void main() {
   );
 
   testWidgets(
+    'listening stats fill wide screens with columns instead of stretched tiles',
+    (tester) async {
+      final handler = _WidgetAudioHandler();
+      final stats = ListeningStatsStore.memory();
+      final controller = _QueueUiController(handler, stats: stats);
+      final today = DateUtils.dateOnly(DateTime.now());
+      await stats.load();
+      stats.addInterval(
+        'v',
+        const ListeningContext(
+          ListeningSong(id: 's', trackId: 's', title: 'Song', artist: 'A'),
+        ),
+        today,
+        today.add(const Duration(minutes: 2)),
+        qualifiedAt: today.add(const Duration(seconds: 30)),
+      );
+      addTearDown(tester.view.reset);
+      try {
+        for (final (width, wide) in [(390.0, false), (1200.0, true)]) {
+          tester.view.physicalSize = Size(width, 900);
+          tester.view.devicePixelRatio = 1;
+          await tester.pumpWidget(
+            MaterialApp(
+              theme: MusicAppTheme.create(Brightness.light),
+              home: ListeningStatsPage(
+                controller: controller,
+                onOpenPlaylist: (_) {},
+              ),
+            ),
+          );
+          await tester.pumpAndSettle();
+          final tile = tester.getSize(
+            find
+                .ancestor(
+                  of: find.text('听过歌曲'),
+                  matching: find.byType(DecoratedBox),
+                )
+                .first,
+          );
+          final total = tester.getTopLeft(find.text('实际听歌时长'));
+          final daily = tester.getTopLeft(find.text('每日记录'));
+          if (wide) {
+            // Four tiles in a row of the left column, rankings on the right.
+            expect(tile.width, lessThan(300));
+            expect(daily.dx, greaterThan(total.dx + 300));
+            expect(daily.dy, lessThan(500));
+          } else {
+            expect(tile.width, closeTo((width - 40 - 12) / 2, 2));
+            expect(daily.dx, closeTo(total.dx, 30));
+          }
+          expect(tester.takeException(), isNull);
+        }
+      } finally {
+        await tester.pumpWidget(const SizedBox.shrink());
+        controller.dispose();
+        unawaited(handler.dispose());
+      }
+    },
+  );
+
+  testWidgets(
     'old history stays collapsed and ranking/history keep deleted song snapshots',
     (tester) async {
       final handler = _WidgetAudioHandler();

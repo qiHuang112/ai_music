@@ -18,6 +18,7 @@ import '../data/music_resolver.dart';
 import '../data/online_playlists.dart';
 import 'app_localizations.dart';
 import 'direct_playlist_page.dart';
+import 'design/adaptive_layout.dart';
 import 'design/app_icons.dart';
 
 class OnlinePlaylistSearchPanel extends StatelessWidget {
@@ -147,10 +148,7 @@ class _PlaylistCover extends StatelessWidget {
   final String url;
   @override
   Widget build(BuildContext context) {
-    return MusicThumbnail(
-      uri: Uri.tryParse(url),
-      icon: AppIcons.queue,
-    );
+    return MusicThumbnail(uri: Uri.tryParse(url), icon: AppIcons.queue);
   }
 }
 
@@ -412,51 +410,47 @@ class _OnlinePlaylistPageState extends State<OnlinePlaylistPage> {
                     ),
                     Padding(
                       padding: const EdgeInsets.fromLTRB(16, 8, 16, 12),
-                      child: Row(
-                        children: [
+                      // Shared on a phone; natural width at the end on wide
+                      // screens, so three buttons never span a tablet.
+                      child: AdaptiveActions(
+                        actions: [
                           if (_task.destination != null)
-                            Expanded(
-                              child: FilledButton.icon(
-                                onPressed: _task.saving
-                                    ? null
-                                    : _openDestination,
-                                icon: const Icon(AppIcons.openExternal),
-                                label: Text(zh ? '打开歌单' : 'Open playlist'),
-                              ),
+                            FilledButton.icon(
+                              onPressed: _task.saving ? null : _openDestination,
+                              icon: const Icon(AppIcons.openExternal),
+                              label: Text(zh ? '打开歌单' : 'Open playlist'),
                             ),
                           if (_task.destination == null ||
                               (ready > 0 && !_task.autoSyncEnabled))
-                            Expanded(
-                              child: FilledButton.icon(
-                                onPressed:
-                                    _task.saving ||
-                                        (_task.destination != null &&
-                                            ready == 0) ||
-                                        (_task.destination == null &&
-                                            detail.songs.isEmpty)
-                                    ? null
-                                    : _task.destination == null
-                                    ? _task.startAutoSync
-                                    : () => _import(_task.destination),
-                                icon: const Icon(AppIcons.playlistAdd),
-                                label: Text(
-                                  _task.destination == null
-                                      ? (zh ? '新建歌单' : 'New playlist')
-                                      : (zh
-                                            ? '继续导入($ready)'
-                                            : 'Import $ready more'),
-                                ),
+                            FilledButton.icon(
+                              onPressed:
+                                  _task.saving ||
+                                      (_task.destination != null &&
+                                          ready == 0) ||
+                                      (_task.destination == null &&
+                                          detail.songs.isEmpty)
+                                  ? null
+                                  : _task.destination == null
+                                  ? _task.startAutoSync
+                                  : () => _import(_task.destination),
+                              icon: const Icon(AppIcons.playlistAdd),
+                              label: Text(
+                                _task.destination == null
+                                    ? (zh ? '新建歌单' : 'New playlist')
+                                    : (zh
+                                          ? '继续导入($ready)'
+                                          : 'Import $ready more'),
                               ),
                             ),
                           if (_task.destination == null)
-                            Expanded(
-                              child: TextButton(
-                                onPressed: _task.saving || ready == 0
-                                    ? null
-                                    : _chooseTarget,
-                                child: Text(zh ? '加入歌单' : 'Add to playlist'),
-                              ),
+                            TextButton(
+                              onPressed: _task.saving || ready == 0
+                                  ? null
+                                  : _chooseTarget,
+                              child: Text(zh ? '加入歌单' : 'Add to playlist'),
                             ),
+                        ],
+                        trailing: [
                           if (_task.autoSyncError && _task.destination != null)
                             IconButton(
                               onPressed: _task.saving

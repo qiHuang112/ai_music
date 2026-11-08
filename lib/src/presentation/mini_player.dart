@@ -14,6 +14,7 @@ import 'native_shell.dart';
 import 'playback_queue.dart';
 import 'player_page.dart';
 import 'swipe_to_skip.dart';
+import 'design/adaptive_layout.dart';
 import 'design/app_icons.dart';
 
 class MiniPlayer extends StatelessWidget {
@@ -60,167 +61,184 @@ class MiniPlayer extends StatelessWidget {
             final radius = BorderRadius.circular(height / 2);
             return SafeArea(
               top: false,
-              child: Padding(
-                padding: MusicUi.miniPlayerInsets,
-                // A glass pill: the record fills its left end, then the song
-                // on one line, then the lit play button.
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    GlassSurface(
-                      borderRadius: radius,
-                      child: Builder(
-                        builder: (context) {
-                          // Resolve colors inside the surface: silver provides
-                          // a light-on-dark theme for its display window.
-                          final text = Theme.of(context).textTheme;
-                          final colors = Theme.of(context).colorScheme;
-                          return Material(
-                            key: const ValueKey('mini-player-card'),
-                            type: MaterialType.transparency,
-                            borderRadius: radius,
-                            clipBehavior: Clip.antiAlias,
-                            child: SwipeToSkip(
-                              key: const ValueKey('mini-player-swipe-area'),
-                              onNext: controller.next,
-                              onPrevious: controller.previous,
-                              child: GestureDetector(
-                                // Swipe up for the queue; sideways changes the song.
-                                onVerticalDragEnd: (details) {
-                                  if ((details.primaryVelocity ?? 0) < -120) {
-                                    showPlaybackQueue(context, controller);
-                                  }
-                                },
-                                child: InkWell(
-                                  onTap: () => _openPlayer(context),
-                                  child: MediaQuery.withClampedTextScaling(
-                                    maxScaleFactor: 1.4,
-                                    child: SizedBox(
-                                      height: height,
-                                      child: Stack(
-                                        children: [
-                                          // A short line inside the top edge: the bar pulls up into the queue.
-                                          Align(
-                                            alignment: Alignment.topCenter,
-                                            child: Container(
-                                              key: const ValueKey(
-                                                'mini-player-grabber',
-                                              ),
-                                              margin: const EdgeInsets.only(
-                                                top: 5,
-                                              ),
-                                              width: 22,
-                                              height: 3,
-                                              decoration: BoxDecoration(
-                                                color: colors.onSurface
-                                                    .withValues(alpha: .24),
-                                                borderRadius:
-                                                    BorderRadius.circular(2),
-                                              ),
-                                            ),
-                                          ),
-                                          Row(
+              // Same width as the floating bar: a tablet rail must not stretch
+              // the pill across the whole screen.
+              child: Center(
+                heightFactor: 1,
+                child: ConstrainedBox(
+                  constraints: const BoxConstraints(
+                    maxWidth: MusicLayout.barMaxWidth,
+                  ),
+                  child: Padding(
+                    padding: MusicUi.miniPlayerInsets,
+                    // A glass pill: the record fills its left end, then the song
+                    // on one line, then the lit play button.
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        GlassSurface(
+                          borderRadius: radius,
+                          child: Builder(
+                            builder: (context) {
+                              // Resolve colors inside the surface: silver provides
+                              // a light-on-dark theme for its display window.
+                              final text = Theme.of(context).textTheme;
+                              final colors = Theme.of(context).colorScheme;
+                              return Material(
+                                key: const ValueKey('mini-player-card'),
+                                type: MaterialType.transparency,
+                                borderRadius: radius,
+                                clipBehavior: Clip.antiAlias,
+                                child: SwipeToSkip(
+                                  key: const ValueKey('mini-player-swipe-area'),
+                                  onNext: controller.next,
+                                  onPrevious: controller.previous,
+                                  child: GestureDetector(
+                                    // Swipe up for the queue; sideways changes the song.
+                                    onVerticalDragEnd: (details) {
+                                      if ((details.primaryVelocity ?? 0) <
+                                          -120) {
+                                        showPlaybackQueue(context, controller);
+                                      }
+                                    },
+                                    child: InkWell(
+                                      onTap: () => _openPlayer(context),
+                                      child: MediaQuery.withClampedTextScaling(
+                                        maxScaleFactor: 1.4,
+                                        child: SizedBox(
+                                          height: height,
+                                          child: Stack(
                                             children: [
-                                              // Its rim is the progress: from twelve
-                                              // o'clock, clockwise.
-                                              SizedBox.square(
-                                                dimension: height,
-                                                child: MiniPlaybackProgress(
-                                                  controller: controller,
-                                                  item: item,
-                                                  state: state,
-                                                  child: SpinningVinyl(
-                                                    spinning: state.playing,
-                                                    shadow: false,
-                                                    labelFraction: .62,
-                                                    label: MusicThumbnail(
-                                                      uri: item.artUri,
-                                                      label: item.title,
-                                                      size: 30,
-                                                      radius: 0,
-                                                    ),
+                                              // A short line inside the top edge: the bar pulls up into the queue.
+                                              Align(
+                                                alignment: Alignment.topCenter,
+                                                child: Container(
+                                                  key: const ValueKey(
+                                                    'mini-player-grabber',
+                                                  ),
+                                                  margin: const EdgeInsets.only(
+                                                    top: 5,
+                                                  ),
+                                                  width: 22,
+                                                  height: 3,
+                                                  decoration: BoxDecoration(
+                                                    color: colors.onSurface
+                                                        .withValues(alpha: .24),
+                                                    borderRadius:
+                                                        BorderRadius.circular(
+                                                          2,
+                                                        ),
                                                   ),
                                                 ),
                                               ),
-                                              const SizedBox(width: 10),
-                                              Expanded(
-                                                child: Row(
-                                                  children: [
-                                                    Flexible(
-                                                      flex: 3,
-                                                      child: Text(
-                                                        item.title,
-                                                        maxLines: 1,
-                                                        overflow: TextOverflow
-                                                            .ellipsis,
-                                                        style: text.titleMedium,
-                                                      ),
-                                                    ),
-                                                    if ((item.artist ?? '')
-                                                        .isNotEmpty)
-                                                      Flexible(
-                                                        flex: 2,
-                                                        child: Text(
-                                                          ' - ${item.artist}',
-                                                          maxLines: 1,
-                                                          overflow: TextOverflow
-                                                              .ellipsis,
-                                                          style: text.bodyLarge
-                                                              ?.copyWith(
-                                                                color: colors
-                                                                    .onSurfaceVariant,
-                                                              ),
+                                              Row(
+                                                children: [
+                                                  // Its rim is the progress: from twelve
+                                                  // o'clock, clockwise.
+                                                  SizedBox.square(
+                                                    dimension: height,
+                                                    child: MiniPlaybackProgress(
+                                                      controller: controller,
+                                                      item: item,
+                                                      state: state,
+                                                      child: SpinningVinyl(
+                                                        spinning: state.playing,
+                                                        shadow: false,
+                                                        labelFraction: .62,
+                                                        label: MusicThumbnail(
+                                                          uri: item.artUri,
+                                                          label: item.title,
+                                                          size: 30,
+                                                          radius: 0,
                                                         ),
                                                       ),
-                                                  ],
-                                                ),
+                                                    ),
+                                                  ),
+                                                  const SizedBox(width: 10),
+                                                  Expanded(
+                                                    child: Row(
+                                                      children: [
+                                                        Flexible(
+                                                          flex: 3,
+                                                          child: Text(
+                                                            item.title,
+                                                            maxLines: 1,
+                                                            overflow:
+                                                                TextOverflow
+                                                                    .ellipsis,
+                                                            style: text
+                                                                .titleMedium,
+                                                          ),
+                                                        ),
+                                                        if ((item.artist ?? '')
+                                                            .isNotEmpty)
+                                                          Flexible(
+                                                            flex: 2,
+                                                            child: Text(
+                                                              ' - ${item.artist}',
+                                                              maxLines: 1,
+                                                              overflow:
+                                                                  TextOverflow
+                                                                      .ellipsis,
+                                                              style: text
+                                                                  .bodyLarge
+                                                                  ?.copyWith(
+                                                                    color: colors
+                                                                        .onSurfaceVariant,
+                                                                  ),
+                                                            ),
+                                                          ),
+                                                      ],
+                                                    ),
+                                                  ),
+                                                  const SizedBox(width: 8),
+                                                  // By night the lit button; by day a quiet outlined one.
+                                                  if (Theme.of(
+                                                        context,
+                                                      ).brightness ==
+                                                      Brightness.dark) ...[
+                                                    PlayPauseButton(
+                                                      key: const ValueKey(
+                                                        'mini-player-play',
+                                                      ),
+                                                      playing: state.playing,
+                                                      size: 42,
+                                                      tooltip: state.playing
+                                                          ? strings.pause
+                                                          : strings.play,
+                                                      onPressed: controller
+                                                          .togglePlayPause,
+                                                    ),
+                                                    const SizedBox(width: 3),
+                                                  ] else
+                                                    _OutlinedPlayButton(
+                                                      key: const ValueKey(
+                                                        'mini-player-play',
+                                                      ),
+                                                      playing: state.playing,
+                                                      tooltip: state.playing
+                                                          ? strings.pause
+                                                          : strings.play,
+                                                      onPressed: controller
+                                                          .togglePlayPause,
+                                                    ),
+                                                  const SizedBox(width: 6),
+                                                ],
                                               ),
-                                              const SizedBox(width: 8),
-                                              // By night the lit button; by day a quiet outlined one.
-                                              if (Theme.of(
-                                                    context,
-                                                  ).brightness ==
-                                                  Brightness.dark) ...[
-                                                PlayPauseButton(
-                                                  key: const ValueKey(
-                                                    'mini-player-play',
-                                                  ),
-                                                  playing: state.playing,
-                                                  size: 42,
-                                                  tooltip: state.playing
-                                                      ? strings.pause
-                                                      : strings.play,
-                                                  onPressed: controller
-                                                      .togglePlayPause,
-                                                ),
-                                                const SizedBox(width: 3),
-                                              ] else
-                                                _OutlinedPlayButton(
-                                                  key: const ValueKey(
-                                                    'mini-player-play',
-                                                  ),
-                                                  playing: state.playing,
-                                                  tooltip: state.playing
-                                                      ? strings.pause
-                                                      : strings.play,
-                                                  onPressed: controller
-                                                      .togglePlayPause,
-                                                ),
-                                              const SizedBox(width: 6),
                                             ],
                                           ),
-                                        ],
+                                        ),
                                       ),
                                     ),
                                   ),
                                 ),
-                              ),
-                            ),
-                          );
-                        },
-                      ),
+                              );
+                            },
+                          ),
+                        ),
+                      ],
                     ),
-                  ],
+                  ),
                 ),
               ),
             );
@@ -248,22 +266,22 @@ Future<void> openPlayerPage(BuildContext context, MusicController controller) {
   }
   return Navigator.of(context).push<void>(
     PageRouteBuilder(
-        settings: const RouteSettings(name: 'player'),
-        transitionDuration: MusicMotion.slow,
-        reverseTransitionDuration: MusicMotion.base,
-        pageBuilder: (context, _, _) => PlayerPage(controller: controller),
-        transitionsBuilder: (context, animation, _, child) => SlideTransition(
-          position: Tween(begin: const Offset(0, 1), end: Offset.zero).animate(
-            CurvedAnimation(
-              parent: animation,
-              curve: MusicMotion.emphasized,
-              reverseCurve: Curves.easeInCubic,
-            ),
+      settings: const RouteSettings(name: 'player'),
+      transitionDuration: MusicMotion.slow,
+      reverseTransitionDuration: MusicMotion.base,
+      pageBuilder: (context, _, _) => PlayerPage(controller: controller),
+      transitionsBuilder: (context, animation, _, child) => SlideTransition(
+        position: Tween(begin: const Offset(0, 1), end: Offset.zero).animate(
+          CurvedAnimation(
+            parent: animation,
+            curve: MusicMotion.emphasized,
+            reverseCurve: Curves.easeInCubic,
           ),
-          child: child,
         ),
+        child: child,
       ),
-    );
+    ),
+  );
 }
 
 class _OutlinedPlayButton extends StatelessWidget {
