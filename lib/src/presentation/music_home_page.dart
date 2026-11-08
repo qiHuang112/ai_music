@@ -373,22 +373,26 @@ class _MusicHomePageState extends State<MusicHomePage>
                 bottomNavigationBar:
                     floatingChrome || (_tab == 0 && _searchFocusNode.hasFocus)
                     ? null
+                    // With side navigation the strip is the mini player alone;
+                    // pass it bare so the iOS shell recognises it and drops it
+                    // (with the body's inset intact) while its own bar shows.
+                    : sideNavigation
+                    ? MiniPlayer(controller: controller)
                     : Column(
                         mainAxisSize: MainAxisSize.min,
                         children: [
                           MediaQuery.removePadding(
                             context: context,
-                            removeBottom: !sideNavigation,
+                            removeBottom: true,
                             child: MiniPlayer(controller: controller),
                           ),
-                          if (!sideNavigation)
-                            NavBlur(
-                              child: GlassTabBar(
-                                index: _tab,
-                                onSelected: _selectTab,
-                                tabs: tabs,
-                              ),
+                          NavBlur(
+                            child: GlassTabBar(
+                              index: _tab,
+                              onSelected: _selectTab,
+                              tabs: tabs,
                             ),
+                          ),
                         ],
                       ),
               ),

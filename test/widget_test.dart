@@ -38,6 +38,7 @@ import 'package:ai_music/src/playback/music_audio_handler.dart';
 import 'package:audio_service/audio_service.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:ai_music/src/presentation/native_shell.dart';
 import 'package:ai_music/src/presentation/design/app_icons.dart';
 
 void main() {
@@ -4275,6 +4276,28 @@ void main() {
       beta.cacheId,
     ]);
   });
+
+  testWidgets(
+    'under the iOS shell the home tabs drop the empty mini player strip',
+    (tester) async {
+      // The native now-playing bar is showing: the Flutter strip is empty,
+      // and keeping it as a bottom bar would strip the lists' bottom inset.
+      final shell = NativeShell.instance;
+      shell.debugActive = true;
+      shell.nowPlaying.value = true;
+      shell.accessoryActive.value = true;
+      addTearDown(() {
+        shell.debugActive = false;
+        shell.nowPlaying.value = false;
+        shell.accessoryActive.value = false;
+      });
+      await tester.pumpWidget(_app());
+      await tester.pump();
+      for (final scaffold in tester.widgetList<Scaffold>(find.byType(Scaffold))) {
+        expect(scaffold.bottomNavigationBar, isNull);
+      }
+    },
+  );
 
   testWidgets('favorite and custom playlist details filter visible tracks', (
     tester,
