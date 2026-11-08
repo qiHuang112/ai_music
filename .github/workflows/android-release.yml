@@ -1,8 +1,9 @@
 name: Android and macOS release
 
+# Releases are minted only on request ("推送／发GitHub": push main, then
+# `gh workflow run android-release.yml --ref main`). Every push is checked by
+# ci.yml without producing a release, so commits no longer need [skip ci].
 on:
-  push:
-    branches: [main]
   workflow_dispatch:
 
 permissions:
@@ -46,7 +47,7 @@ jobs:
       - name: Check code
         if: steps.plan.outputs.skip != 'true'
         run: |
-          flutter pub get
+          flutter pub get --enforce-lockfile
           flutter analyze
           flutter test
           python3 -m unittest discover -s tool -p 'test_*.py'

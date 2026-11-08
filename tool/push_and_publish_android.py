@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Push main to trigger GitHub CI; retain explicit local LAN delivery support."""
+"""Push main and start the GitHub release workflow; retain explicit local LAN delivery support."""
 import argparse
 import fcntl
 import hashlib
@@ -112,10 +112,11 @@ def push_for_ci(publish_only=False):
         subprocess.run(['git', 'push', 'origin', 'main'], cwd=PROJECT, check=True)
     if git('ls-remote', 'origin', 'refs/heads/main').split()[0] != commit:
         raise RuntimeError('Remote main differs from HEAD')
-    if publish_only:
-        subprocess.run(['gh', 'workflow', 'run', 'android-release.yml', '--ref', 'main',
-                        '--repo', 'qiHuang112/ai_music'], cwd=PROJECT, check=True)
-    print(f'Pushed {commit[:7]}; GitHub Actions handles signed release publication')
+    # Pushing only runs the checks (ci.yml); the release workflow is started
+    # explicitly, and skips a commit that is already released.
+    subprocess.run(['gh', 'workflow', 'run', 'android-release.yml', '--ref', 'main',
+                    '--repo', 'qiHuang112/ai_music'], cwd=PROJECT, check=True)
+    print(f'Pushed {commit[:7]} and started the release workflow')
     print('https://github.com/qiHuang112/ai_music/actions/workflows/android-release.yml')
     return commit
 

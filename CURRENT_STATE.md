@@ -17,7 +17,7 @@
 - 局域网更新服务：`http://192.168.31.167:8788`（`/api/v1/update/android`、`/api/v1/update/macos`），后台约 60 秒自动镜像 GitHub 最新 Android Release。
 - 开发手机 77：Mi 10 Pro（序列号 `6595e6a1`），无线 ADB 现为 `192.168.31.78:38015`（2026-11-08 更新，端口会变）。
 - 仓库 `qiHuang112/ai_music` 公开；main 由维护者维护，合作者 `wangtangji29-ctrl` 在 `ui-vinyl` 等非 main 分支开发。
-- 发布分三档，见[开发 skill](.agents/skills/ai-music-developer/SKILL.md) 开头的表；push main 会生成新正式版本。
+- 发布分三档，见[开发 skill](.agents/skills/ai-music-developer/SKILL.md) 开头的表；push 只跑 `ci.yml` 检查，正式发版手动启动 `android-release.yml`（2026-11-08 起）；77 自测包用 `tool/build_android_selftest.py`，号段 60000 起。
 
 ## 进行中
 

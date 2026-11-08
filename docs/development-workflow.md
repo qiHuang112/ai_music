@@ -1,5 +1,7 @@
 # AI Music 开发工作流讨论记录
 
+**2026-11-08更新**：用户按全量 review 的建议批准拆分 CI——push（及 PR）只跑 `ci.yml` 的分析与全部测试，正式发版改为手动启动 `android-release.yml`；不再需要 `[skip ci]`，此前为避免发版而带 `[skip ci]` 的代码提交从未经过 CI 的问题随之消除。开发手机自测包改用 `tool/build_android_selftest.py`：独立号段 60000 起、开发证书、安装前核对序列号，不再与正式版本号（102xx）混用。三档本身不变，详见开发 skill。
+
 **2026-10-26现行规则**：用户确认发布分三档——①日常开发（只本地自测／提交）、②“走流程”（增量review→复用正式包→局域网发布，不push不CI）、③明确要求“推送／发GitHub”（push main触发CI，Android＋Mac进同一公开Release，局域网自动镜像Android）。原因是10-21“默认不push”与10-25“push即自动打包”两条规则并存时无法一眼判断一次push会发生什么。每次push main都会生成新正式版本，只改文档／规则须带 `[skip ci]`。详见[开发skill](../.agents/skills/ai-music-developer/SKILL.md)开头的表；以下内容均为历史记录，与该表冲突时以该表为准（包括2026-10-10第5步“走流程已授权提交推送”，已作废）。
 
 2026-10-25追加决定：用户已验收ui-vinyl的Mac重设计，明确要求合入main、恢复公开仓库、main自动打包并将Mac发布到GitHub Release。仓库已恢复public，Actions和main触发保持启用；本次按明确授权执行GitHub CI发布。Android任务保留原签名发布，新增Mac任务复用同提交的最终版本号并向同一Release上传Universal ZIP及独立macos-latest.json；不替换Android元数据。日常本地开发与未要求GitHub发布的“走流程”仍沿用下面的精简路径。

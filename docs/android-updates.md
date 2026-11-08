@@ -32,6 +32,8 @@
 
 一次性配置：本机登录 GitHub CLI 后运行 `python3 tool/configure_github_android_signing.py`，把本机现有签名保存为该仓库的四项加密 Actions Secrets：`ANDROID_KEYSTORE_BASE64`、`ANDROID_KEY_ALIAS`、`ANDROID_KEY_PASSWORD`、`ANDROID_STORE_PASSWORD`。不生成新签名，不提交签名文件/密码，不写明文到仓库；CI 只在临时目录还原 key，并在结束时清理。Release 发布使用每次工作流自带的 `GITHUB_TOKEN` 与 job 的 `contents: write`，无需长期发布 token。
 
+> 2026-11-08 起：push 只触发 `ci.yml` 检查，不再自动发版；`push_and_publish_android.py` 推送后会用 `gh workflow run` 启动发布工作流。下段为此前记录。
+
 常规交付仍执行 `python3 tool/push_and_publish_android.py`，现在只推送并触发 CI；成功推送不能等同成功出包。到 [Actions](https://github.com/qiHuang112/ai_music/actions/workflows/android-release.yml) 确认完成，下载入口为 [最新 Release](https://github.com/qiHuang112/ai_music/releases/latest)。同一干净提交重试用 `--publish-only`，由 `gh workflow run` 手动触发。特殊需要 Mac 局域网交付时显式加 `--lan`；旧脚本和历史包保留。
 
 用户2026-10-10最新流程授权：“走流程”由开发按唯一[开发skill](../.agents/skills/ai-music-developer/SKILL.md)启动临时独立代码／发布审查，修复复核通过后自动提交推送、跟进同提交CI正式发布，并验证局域网镜像元数据及完整APK下载。固定review会话已归档，无需再到该会话要求上架或逐步确认；单独要求review不触发发布。

@@ -88,8 +88,21 @@ def main():
     parser.add_argument("--apksigner", required=True)
     parser.add_argument("--release-cert", required=True, help="Trusted release certificate SHA-256")
     parser.add_argument("--notes", default="")
+    parser.add_argument(
+        "--source-commit",
+        default="",
+        help="Commit the APK was built from; lets a retry recognise an already published release",
+    )
     args = parser.parse_args()
-    result = publish(args.apk, args.root, args.aapt, args.apksigner, args.notes, release_cert=args.release_cert)
+    result = publish(
+        args.apk,
+        args.root,
+        args.aapt,
+        args.apksigner,
+        args.notes,
+        release_cert=args.release_cert,
+        source_commit=args.source_commit,
+    )
     print(f"Published {result['versionName']} ({result['versionCode']}) · {result['sha256']}")
 
 

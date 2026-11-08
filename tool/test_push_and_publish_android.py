@@ -51,6 +51,14 @@ class DeliveryTest(unittest.TestCase):
             self.assertEqual(run.call_count, 1)
             publish.assert_not_called()
 
+    def test_ci_push_starts_the_release_workflow(self):
+        with patch.object(delivery, 'git', side_effect=['main', 'abc', 'abc refs/heads/main']), \
+             patch.object(delivery.subprocess, 'run') as run:
+            delivery.push_for_ci()
+        commands = [call.args[0] for call in run.call_args_list]
+        self.assertEqual(commands[0][:2], ['git', 'push'])
+        self.assertEqual(commands[1][:3], ['gh', 'workflow', 'run'])
+
     def test_remote_mismatch_never_builds(self):
         with patch.object(delivery, 'require_clean', return_value='abc'), \
              patch.object(delivery, 'git', return_value='other refs/heads/main'), \

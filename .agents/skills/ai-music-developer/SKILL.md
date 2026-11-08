@@ -11,9 +11,11 @@ description: Develop and self-test AI Music on phone 77; review only current cha
 |---|---|---|---|
 | ① 日常开发 | 默认 | 改代码，77或本机Mac自测，可本地提交 | 不push、不发布 |
 | ② 走流程 | 用户说“走流程” | 增量review → 复用已有正式包 → 局域网发布 → 一次完整下载核验 | 不push、不触发CI、不重新构建 |
-| ③ 推送发版 | 用户明确说“推送／发GitHub” | push main → CI自动构建Android＋Mac Universal → 同一个公开GitHub Release（APP联网更新可见）；Mac局域网服务约60秒内自动镜像Android包 → 核对run与产物 | Mac局域网包不自动镜像，需要时再按②发布 |
+| ③ 推送发版 | 用户明确说“推送／发GitHub” | push main → 手动启动 `gh workflow run android-release.yml --ref main` → 构建Android＋Mac Universal → 同一个公开GitHub Release（APP联网更新可见）；Mac局域网服务约60秒内自动镜像Android包 → 核对run与产物 | Mac局域网包不自动镜像，需要时再按②发布 |
 
-**每次push main都会铸一个新正式版本**（仅同一提交已发布时跳过），所以只改文档／规则的提交必须在提交信息带 `[skip ci]`。
+push 只触发 `.github/workflows/ci.yml`（分析＋全部测试，纯文档改动不跑），**不再铸版本**，提交信息无需 `[skip ci]`；正式版本只在手动启动 `android-release.yml` 时生成（同一提交已发布则跳过）。CI 未通过的提交不发版。（用户 2026-11-08 批准，取代 2026-10-26 “每次 push main 即发版”。）
+
+**版本号**：正式版本号只由 `android-release.yml` 按 GitHub Release 取号（当前 102xx）。77 等开发手机的自测包统一用 `python3 tool/build_android_selftest.py --device <adb地址>` 构建安装：独立号段 60000 起、开发证书签名、安装前核对序列号，记录在 `build/device-check/selftest/builds.json`。不再手动挑构建号（构建号＝版本号−2000），自测包不进任何发布通道。
 
 ## 工作边界
 
@@ -27,7 +29,7 @@ description: Develop and self-test AI Music on phone 77; review only current cha
 1. 在对应功能文档简短记录最新需求和失败场景；歌曲、音源、缓存或设备影响问题时，使用实际场景复现。
 2. 界面改动用 `design/adaptive_layout.dart` 的尺寸档与组件，不在页面里新写断点数值；验收至少看紧凑（手机竖持）、中等（约 744 宽）、宽（约 1194 宽）三档，可用离屏渲染或模拟器，同时开的模拟器不超过两台、用完关闭，见 [设计体系](../../../docs/design-system.md)「多形态适配」。
 3. 修复后做与改动相称的定向检查；新风险或项目明确要求时才扩大测试。小范围UI修改不默认扩展功能测试。已有通过记录且源码未变时直接复用，不重复跑全量套件。
-4. 完成一轮修复后再构建／归档，保留数据安装77，实机自测后交用户体验。已有匹配源码和交付身份的成品直接复用，不每次编辑后重编。安装或宿主机接口探针不冒充手机自测；77不可用或自测失败继续排查并如实说明，不改装191。
+4. 完成一轮修复后用 `tool/build_android_selftest.py` 构建并保留数据安装77，实机自测后交用户体验。已有匹配源码和交付身份的成品直接复用，不每次编辑后重编。安装或宿主机接口探针不冒充手机自测；77不可用或自测失败继续排查并如实说明，不改装191。
 5. 留下实际APK路径、版本、哈希及源码记录供后续直接交付。用户要求独立体验包时保留独立身份，preview不能改名冒充正式包。验收后源码未变，不重复安装、自测、分析或全量测试。
 
 ## 增量独立review
@@ -40,7 +42,7 @@ description: Develop and self-test AI Music on phone 77; review only current cha
 
 ## 复用成品并发布局域网
 
-1. review通过后确认最终改动与所选APK的源码记录一致。**不重新构建、不重新分配版本号、不触发或等待CI，不调用 `push_and_publish_android.py` 的任一路径。** 也不自动git push间接触发构建；当前GitHub工作流仍监听main推送。
+1. review通过后确认最终改动与所选APK的源码记录一致。**不重新构建、不重新分配版本号、不触发或等待CI，不调用 `push_and_publish_android.py` 的任一路径。** push 不再触发发版，但“走流程”本身仍不 push。
 2. 从已有记录选正确正式包，只核对本次成品：`com.qi.ai.music`、名称“来听”、arm64 release不可调试、原可信证书、真实版本与大小／SHA256。可靠的已有核验结果直接复用；版本冲突看归档元数据和当前LAN指针，不逐个打开历史APK。旧源码包、debug或preview不能进入正式通道。
 3. 若确实没有匹配源码及正式身份的包，立即简短说明缺哪个成品；仅补必要的正式包构建一次，不默默回到云端CI／整套测试。不因review、记录或发布阶段本身生成新包；不能实际只有preview却声称已有正式包。
 4. 用现有发布工具校验归档该APK，原子切换LAN latest；保留旧包，失败保持旧latest。同版本同哈希已发布则直接核验，不重复发布。源码提交字段仅在确实匹配时记录，不为填字段强制提交推送或冒写HEAD。
@@ -53,6 +55,7 @@ description: Develop and self-test AI Music on phone 77; review only current cha
      --aapt /Users/huangqi/Library/Android/sdk/build-tools/35.0.0/aapt \
      --apksigner /Users/huangqi/Library/Android/sdk/build-tools/35.0.0/apksigner \
      --release-cert f05004de4b5fa23bdd1beee45c4e7c227852129930bcd3bb1cfcff2048464843 \
+     --source-commit <该APK对应的提交，确实匹配时才填> \
      --notes '本次实际更新说明'
    ```
 
@@ -62,7 +65,7 @@ description: Develop and self-test AI Music on phone 77; review only current cha
 ## 例外与节奏
 
 - Mac任务在当前Mac自测，不套用77安装或APK步骤。各平台对外版本名／构建号统一，Mac不另起版本系列；当前版本号见 `CURRENT_STATE.md`。复用对应Mac release `.app`，用ditto保留签名／符号链接打ZIP，归档在 `releases/ai_music/macos/`，通过现有8788服务的 `/api/v1/update/macos` 和 `/releases/macos/文件.zip` 发布，Android指针保持。首版缺release成品时仅补必要本机构建；如仅有ad-hoc本地签名，明确未做Developer ID签名／Apple公证，不宣称已公证。
-- 档位③仅在用户明确要求推送／GitHub发布时执行：push后跟进同提交的 `.github/workflows/android-release.yml` run，核对Release中Android APK与Mac ZIP的版本、大小、SHA256和sourceCommit，并读一次局域网Android接口确认已镜像。只要求review就到审查结束。
+- 档位③仅在用户明确要求推送／GitHub发布时执行：push 并确认同提交的 `ci.yml` 通过后，手动启动 `.github/workflows/android-release.yml` 并跟进该 run，核对Release中Android APK与Mac ZIP的版本、大小、SHA256和sourceCommit，并读一次局域网Android接口确认已镜像。只要求review就到审查结束。
 - Claude执行“走流程”时，用一个全新的只读子agent代替 `collaboration.spawn_agent` 做增量review，要求相同。
 - 发布工具、签名或更新链路**本身被改动**时，才对相应改动补专项检查。普通业务修复不重复审计未改的基础设施。
 - 开始时说明实际下一步，有结果或阻碍时简短更新。无真实风险时不新增审批、仪式性快照、轮询或检查清单。已验收修改的收尾不能变成再次完整开发一轮。
