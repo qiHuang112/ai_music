@@ -6,7 +6,7 @@
 
 - Android：1.0.5／10270，源码 `8c9a464`。[GitHub Release](https://github.com/qiHuang112/ai_music/releases/tag/v1.0.5-10270) 与局域网 latest 一致（18171712 字节，SHA256 `c6eb9184…`）。
 - Mac：GitHub 1.0.5／10270 Universal（ad-hoc 签名，未公证，SHA256 `59d5380c…`）；局域网仍为 1.0.4／10268 桌面优化版。下载与核验见 [Mac 记录](docs/macos.md)。
-- iOS：未公开发布；个人体验版 1.0.5／8268（`8c9a464` 加播控条按压去抖修复）已装到用户 iPhone Duo 并启动，签名有效至 2026-11-14。
+- iOS：未公开发布；个人体验版 1.0.5／8268（`115d609`，含数据／队列／原生壳修复、统一布局体系与折叠悬停）已装到用户 iPhone Duo，自动启动因锁屏被拒，签名有效至 2026-11-14。
 
 ## 环境
 
