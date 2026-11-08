@@ -5,6 +5,8 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import 'native_shell.dart';
+
 /// UIKit reserved regions are separate from Flutter's traditional safe area.
 /// Keep the Navigator mounted while its available window changes.
 class DuoWindow extends StatefulWidget {
@@ -65,7 +67,11 @@ class _DuoWindowState extends State<DuoWindow> with WidgetsBindingObserver {
     final geometry = DuoGeometry.fromMap(_geometry, data.size);
     // Keep the complete window when UIKit asks for a vertical bar. Each
     // DuoScaffold puts controls in that strip, below the actual occlusions.
-    final inset = geometry.edge == DuoBarEdge.none
+    // Under the native shell the system bars already keep their controls
+    // clear of the camera, and content sits below them through the safe
+    // area; padding the whole window as well left a strip of the dimmer app
+    // backdrop showing above every page, read as a dark band at the top.
+    final inset = geometry.edge == DuoBarEdge.none && !NativeShell.active
         ? geometry.occlusionInsets
         : EdgeInsets.zero;
     EdgeInsets remaining(EdgeInsets value) => EdgeInsets.fromLTRB(

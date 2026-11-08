@@ -8,6 +8,8 @@ import 'design/controls.dart';
 import 'design/glass_surface.dart';
 import 'design/vinyl_disc.dart';
 import 'music_thumbnail.dart';
+import 'app_page_route.dart';
+import 'native_shell.dart';
 import 'playback_queue.dart';
 import 'player_page.dart';
 import 'swipe_to_skip.dart';
@@ -22,6 +24,15 @@ class MiniPlayer extends StatelessWidget {
     if (DesktopMusicScope.maybeOf(context) != null) {
       return const SizedBox.shrink();
     }
+    // On iOS 26 the system tab bar carries the mini player instead.
+    return ValueListenableBuilder<bool>(
+      valueListenable: NativeShell.instance.accessoryActive,
+      builder: (context, native, _) =>
+          native ? const SizedBox.shrink() : _buildStrip(context),
+    );
+  }
+
+  Widget _buildStrip(BuildContext context) {
     return StreamBuilder<MediaItem?>(
       stream: controller.mediaItemStream,
       initialData: controller.audioHandler.mediaItem.value,
@@ -210,10 +221,23 @@ class MiniPlayer extends StatelessWidget {
     );
   }
 
-  Future<void> _openPlayer(BuildContext context) {
-    // The player rises from the bar it was opened from.
+  Future<void> _openPlayer(BuildContext context) =>
+      openPlayerPage(context, controller);
+}
+
+/// Shows the full player. Under the iOS shell it is a system push, in step
+/// with the native bars; elsewhere it rises from the bar it was opened from.
+Future<void> openPlayerPage(BuildContext context, MusicController controller) {
+  if (NativeShell.active) {
     return Navigator.of(context).push<void>(
-      PageRouteBuilder(
+      AppPageRoute(
+        settings: const RouteSettings(name: 'player'),
+        builder: (_) => PlayerPage(controller: controller),
+      ),
+    );
+  }
+  return Navigator.of(context).push<void>(
+    PageRouteBuilder(
         settings: const RouteSettings(name: 'player'),
         transitionDuration: MusicMotion.slow,
         reverseTransitionDuration: MusicMotion.base,
@@ -230,7 +254,6 @@ class MiniPlayer extends StatelessWidget {
         ),
       ),
     );
-  }
 }
 
 class _OutlinedPlayButton extends StatelessWidget {

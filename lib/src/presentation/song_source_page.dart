@@ -1,4 +1,5 @@
 import 'duo_scaffold.dart';
+import 'app_page_route.dart';
 import 'app_theme.dart';
 import 'desktop_scope.dart';
 import 'package:flutter/material.dart';
@@ -27,7 +28,7 @@ Future<void> showSongSourcePicker(
     );
   }
   return Navigator.of(context).push<void>(
-    MaterialPageRoute(
+    AppPageRoute(
       settings: const RouteSettings(name: 'song-source'),
       builder: (_) => SongSourcePage(controller: controller, track: track),
     ),

@@ -927,16 +927,10 @@ void main() {
           MaterialApp(home: PlayerPage(controller: controller)),
         );
         await tester.pump();
-        final entry = find.byKey(const ValueKey('player-comments'));
-        await tester.scrollUntilVisible(
-          entry,
-          200,
-          scrollable: find.byType(Scrollable).first,
-        );
-        // Built but possibly just below the 600px test surface.
-        await tester.ensureVisible(entry);
-        await tester.pump();
-        await tester.tap(entry);
+        // Comments wait behind the page's menu with the other rare actions.
+        await tester.tap(find.byKey(const ValueKey('player-more')));
+        await tester.pumpAndSettle();
+        await tester.tap(find.byKey(const ValueKey('player-comments')));
         await tester.pumpAndSettle();
         final page = tester.widget<SongCommentsPage>(
           find.byType(SongCommentsPage),

@@ -220,7 +220,8 @@ String _restoredLanLibraryUrl(Object? value) {
     return defaultLanLibraryUrl;
   }
   try {
-    return normalizeLanLibraryBaseUri(text).toString();
+    final normalized = normalizeLanLibraryBaseUri(text).toString();
+    return normalized == legacyLanLibraryUrl ? defaultLanLibraryUrl : normalized;
   } on FormatException {
     return defaultLanLibraryUrl;
   }

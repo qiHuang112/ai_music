@@ -190,7 +190,8 @@ extension on DuoScaffold {
   Widget _buildShell(BuildContext context) {
     final nested = _DuoChrome.of(context);
     final id = NativeShell.instance.idOf(ModalRoute.of(context));
-    final spec = id == null
+    final root = id == 0;
+    _ShellSpec? describe(BuildContext context) => id == null
         ? null
         : _ShellSpec.build(
             context,
@@ -199,27 +200,92 @@ extension on DuoScaffold {
             extraActions: extraActions,
             tabs: navigationItems,
             immersive: extendBodyBehindAppBar,
+            root: root,
           );
+    final spec = describe(context);
     final ownBar = spec == null || spec.chromeless;
+    // A tab's root keeps the app's own masthead; the system bar above it
+    // holds only actions. Pushed pages take the system title and sit below.
+    final masthead = !ownBar && root && appBar?.title != null
+        ? AppBar(
+            automaticallyImplyLeading: false,
+            title: appBar!.title,
+            titleTextStyle: appBar!.titleTextStyle,
+            centerTitle: appBar!.centerTitle,
+            backgroundColor: appBar!.backgroundColor,
+            foregroundColor: appBar!.foregroundColor,
+            elevation: appBar!.elevation,
+            toolbarHeight: 56,
+            bottom: appBar!.bottom,
+          )
+        : null;
+    final shell = NativeShell.instance;
     Widget child = _DuoChrome(
       consumed: true,
-      child: Scaffold(
-        appBar: ownBar ? appBar : null,
-        body: body,
-        backgroundColor: backgroundColor,
-        extendBody: extendBody,
-        extendBodyBehindAppBar: extendBodyBehindAppBar,
-        resizeToAvoidBottomInset: resizeToAvoidBottomInset,
-        bottomNavigationBar: bottomNavigationBar,
-        floatingActionButton: floatingActionButton,
-        floatingActionButtonLocation: floatingActionButtonLocation,
+      child: ListenableBuilder(
+        listenable: Listenable.merge([
+          shell.accessoryActive,
+          shell.nowPlaying,
+          shell.chromeInsets,
+        ]),
+        builder: (context, _) {
+          // A Flutter strip that would be empty (system accessory showing, or
+          // nothing playing) must not be a bottom bar: an empty bar makes the
+          // Scaffold drop the body's bottom inset and lists end under the
+          // tab bar.
+          final strip = shell.accessoryActive.value || !shell.nowPlaying.value
+              ? null
+              : bottomNavigationBar;
+          final scaffold = Scaffold(
+            appBar: ownBar ? appBar : masthead,
+            // Pushed pages sit below the system bar. A tab shell passes the
+            // padding on, so the tab page inside can lay its masthead under
+            // the transparent bar itself.
+            body:
+                !ownBar &&
+                    !root &&
+                    masthead == null &&
+                    !extendBodyBehindAppBar &&
+                    body != null
+                ? SafeArea(bottom: false, child: body!)
+                : body,
+            backgroundColor: backgroundColor,
+            extendBody: extendBody,
+            extendBodyBehindAppBar: extendBodyBehindAppBar,
+            resizeToAvoidBottomInset: resizeToAvoidBottomInset,
+            bottomNavigationBar: strip,
+            floatingActionButton: floatingActionButton,
+            floatingActionButtonLocation: floatingActionButtonLocation,
+          );
+          if (masthead == null) return scaffold;
+          // The root's masthead sits where the transparent system bar is, so
+          // the inset stays the same on both sides of every push.
+          final data = MediaQuery.of(context);
+          final bar = shell.chromeInsets.value.top;
+          return MediaQuery(
+            data: data.copyWith(
+              padding: data.padding.copyWith(
+                top: math.max(0, data.padding.top - bar),
+              ),
+              viewPadding: data.viewPadding.copyWith(
+                top: math.max(0, data.viewPadding.top - bar),
+              ),
+            ),
+            child: scaffold,
+          );
+        },
       ),
     );
     if (background != null) {
       child = Stack(fit: StackFit.expand, children: [background!, child]);
     }
     if (spec == null) return child;
-    return _ShellPageBinding(id: id!, nested: nested, spec: spec, child: child);
+    return _ShellPageBinding(
+      id: id!,
+      nested: nested,
+      describe: (context) => describe(context)!,
+      child: child,
+    );
   }
 }
 
@@ -228,12 +294,14 @@ class _ShellPageBinding extends StatefulWidget {
   const _ShellPageBinding({
     required this.id,
     required this.nested,
-    required this.spec,
+    required this.describe,
     required this.child,
   });
   final int id;
   final bool nested;
-  final _ShellSpec spec;
+
+  /// Built on every send, so a glyph rendered after the first pass is in.
+  final _ShellSpec Function(BuildContext context) describe;
   final Widget child;
 
   @override
@@ -249,12 +317,13 @@ class _ShellPageBindingState extends State<_ShellPageBinding> {
     final visible = !widget.nested || TickerMode.valuesOf(context).enabled;
     final shell = NativeShell.instance;
     if (visible) {
-      widget.spec.callbacks.forEach(shell.register);
-      shell.updatePage(widget.id, widget.spec.map, nested: widget.nested);
+      final spec = widget.describe(context);
+      spec.callbacks.forEach(shell.register);
+      shell.updatePage(widget.id, spec.map, nested: widget.nested);
       _registered = true;
-      if (widget.spec.pending.isNotEmpty) {
+      if (spec.pending.isNotEmpty) {
         // Icons without an SF Symbol are rasterised once; redraw with them.
-        Future.wait(widget.spec.pending).then((_) {
+        Future.wait(spec.pending).then((_) {
           if (mounted) setState(() {});
         });
       }
@@ -292,6 +361,7 @@ class _ShellSpec {
     required List<DuoRailItem> extraActions,
     required List<DuoRailItem> tabs,
     required bool immersive,
+    bool root = false,
   }) {
     final callbacks = <String, VoidCallback>{};
     final pending = <Future<void>>[];
@@ -395,7 +465,7 @@ class _ShellSpec {
       if (leading == null) chromeless = true;
     }
     final map = <String, Object?>{
-      'title': immersive ? null : shellLabelOf(controls?.title),
+      'title': immersive || root ? null : shellLabelOf(controls?.title),
       'immersive': immersive,
       'chromeless': chromeless,
       'hidesBack':

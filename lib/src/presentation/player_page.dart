@@ -1,8 +1,11 @@
-import 'package:flutter/cupertino.dart' show CupertinoIcons, CupertinoSlidingSegmentedControl;
+import 'package:flutter/cupertino.dart'
+    show CupertinoIcons, CupertinoSlidingSegmentedControl;
+import 'app_page_route.dart';
+import 'app_popup_menu.dart';
 import 'duo_scaffold.dart';
-import 'duo_window.dart';
 import 'native_shell.dart';
 import 'dart:async';
+import 'dart:math' as math;
 import 'dart:ui' as ui;
 import 'app_theme.dart';
 import 'playback_queue.dart';
@@ -200,7 +203,6 @@ class _DesktopNowPlayingState extends State<DesktopNowPlaying> {
                                       controller: controller,
                                       playing: state.data?.playing ?? false,
                                       cueing: false,
-                                      swipe: _disc,
                                       maxWidth: [
                                         constraints.maxWidth * .8,
                                         constraints.maxHeight - 150,
@@ -329,6 +331,44 @@ class _PlayerPageState extends State<PlayerPage> {
     });
   }
 
+  /// The record, title and artist of the song before (-1) or after (1)
+  /// this one, sliding in beside the finger. Unknown in shuffle.
+  Widget? _neighborSlab(BuildContext context, int step) {
+    final item = _neighborItem(controller, step);
+    if (item == null) return null;
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        _Artwork(
+          uri: item.artUri,
+          controller: controller,
+          playing: false,
+          cueing: false,
+        ),
+        const SizedBox(height: 18),
+        _SongInfo(title: item.title, artist: item.artist ?? ''),
+      ],
+    );
+  }
+
+  void _openComments(BuildContext context, Track track) {
+    final query = SongCommentQuery.fromTrack(
+      track,
+      original: controller.originalSongForTrack(track),
+      candidate: controller.selectedSongSource(track),
+      lyrics: controller.currentLyrics,
+    );
+    Navigator.of(
+      context,
+    ).push(AppPageRoute<void>(builder: (_) => SongCommentsPage(query: query)));
+  }
+
+  void _openLyrics(BuildContext context) => Navigator.of(context).push(
+    AppPageRoute<void>(
+      builder: (_) => _LyricsDetailPage(controller: controller),
+    ),
+  );
+
   @override
   Widget build(BuildContext context) {
     return AnimatedBuilder(
@@ -344,45 +384,69 @@ class _PlayerPageState extends State<PlayerPage> {
             closeOnSwipe: false,
             child: const SizedBox.expand(),
           ),
+          // Under the iOS shell the side rail already carries lyrics and
+          // the queue for every page, and the controls row has the queue.
           extraActions: [
-            DuoRailItem(
-              icon: CupertinoIcons.text_quote,
-              label: strings.isZh ? '完整歌词' : 'Full lyrics',
-              onPressed: () => Navigator.of(context).push(
-                MaterialPageRoute<void>(
-                  builder: (_) => _LyricsDetailPage(controller: controller),
-                ),
+            if (!NativeShell.active) ...[
+              DuoRailItem(
+                icon: CupertinoIcons.text_quote,
+                label: strings.isZh ? '完整歌词' : 'Full lyrics',
+                onPressed: () => _openLyrics(context),
               ),
-            ),
-            DuoRailItem(
-              icon: CupertinoIcons.music_note_list,
-              label: strings.isZh ? '当前队列' : 'Play queue',
-              onPressed: () => showPlaybackQueue(context, controller),
-            ),
+              DuoRailItem(
+                icon: CupertinoIcons.music_note_list,
+                label: strings.isZh ? '当前队列' : 'Play queue',
+                onPressed: () => showPlaybackQueue(context, controller),
+              ),
+            ],
           ],
           appBar: AppBar(
             backgroundColor: Colors.transparent,
             title: Text(strings.nowPlaying),
             actions: [
-              if (currentTrack != null) ...[
-                IconButton(
-                  tooltip: controller.isFavorite(currentTrack)
-                      ? strings.removeFromFavorites
-                      : strings.addToFavorites,
-                  onPressed: () => controller.toggleFavorite(currentTrack),
-                  icon: Icon(
-                    controller.isFavorite(currentTrack)
-                        ? Icons.favorite
-                        : Icons.favorite_border,
-                  ),
+              // One menu instead of a row of icons: the heart sits by the
+              // title, and the rarer actions wait behind the ellipsis.
+              if (currentTrack != null)
+                MusicPopupMenuButton<String>(
+                  key: const ValueKey('player-more'),
+                  tooltip: strings.more,
+                  icon: const Icon(Icons.more_horiz_rounded),
+                  onSelected: (value) => switch (value) {
+                    'playlist' => showAddToPlaylistSheet(
+                      context,
+                      controller,
+                      currentTrack,
+                    ),
+                    'source' => showSongSourcePicker(
+                      context,
+                      controller,
+                      currentTrack,
+                    ),
+                    'comments' => _openComments(context, currentTrack),
+                    _ => _openLyrics(context),
+                  },
+                  itemBuilder: (context) => [
+                    PopupMenuItem(
+                      value: 'playlist',
+                      child: Text(strings.addToPlaylist),
+                    ),
+                    if (controller.canSwitchSongSource(currentTrack))
+                      PopupMenuItem(
+                        key: const Key('player-switch-source'),
+                        value: 'source',
+                        child: Text(strings.isZh ? '切换来源' : 'Choose source'),
+                      ),
+                    PopupMenuItem(
+                      key: const ValueKey('player-comments'),
+                      value: 'comments',
+                      child: Text(strings.isZh ? '歌曲热评' : 'Song comments'),
+                    ),
+                    PopupMenuItem(
+                      value: 'lyrics',
+                      child: Text(strings.isZh ? '完整歌词' : 'Full lyrics'),
+                    ),
+                  ],
                 ),
-                IconButton(
-                  tooltip: strings.addToPlaylist,
-                  onPressed: () =>
-                      showAddToPlaylistSheet(context, controller, currentTrack),
-                  icon: const Icon(Icons.playlist_add),
-                ),
-              ],
             ],
           ),
           body: Builder(
@@ -412,6 +476,8 @@ class _PlayerPageState extends State<PlayerPage> {
                           onSettle: _disc.settle,
                           child: _AdaptivePlayerBody(
                             controller: controller,
+                            swipe: _disc,
+                            neighbor: _neighborSlab,
                             contentOrigin: Offset(
                               MediaQuery.paddingOf(bodyContext).left,
                               MediaQuery.paddingOf(bodyContext).top,
@@ -439,28 +505,19 @@ class _PlayerPageState extends State<PlayerPage> {
                                 controller: controller,
                                 playing: state.playing,
                                 cueing: _cueing,
-                                swipe: _disc,
                               ),
-                              const SizedBox(height: 14),
-                              Text(
-                                item.title,
-                                maxLines: 2,
-                                overflow: TextOverflow.ellipsis,
-                                textAlign: TextAlign.center,
-                                style: MusicType.masthead(context, size: 26),
-                              ),
-                              const SizedBox(height: 6),
-                              Text(
-                                item.artist ?? '',
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                textAlign: TextAlign.center,
-                                style: Theme.of(context).textTheme.bodyLarge
-                                    ?.copyWith(
-                                      color: Theme.of(
-                                        context,
-                                      ).colorScheme.onSurfaceVariant,
-                                    ),
+                              const SizedBox(height: 18),
+                              _SongInfo(
+                                title: item.title,
+                                artist: item.artist ?? '',
+                                favorite: currentTrack == null
+                                    ? null
+                                    : controller.isFavorite(currentTrack),
+                                onFavorite: currentTrack == null
+                                    ? null
+                                    : () => controller.toggleFavorite(
+                                        currentTrack,
+                                      ),
                               ),
                             ],
                             controls: [
@@ -472,65 +529,11 @@ class _PlayerPageState extends State<PlayerPage> {
                                 duration: duration,
                                 bufferedPosition: state.bufferedPosition,
                               ),
-                              const SizedBox(height: 10),
+                              const SizedBox(height: 6),
                               _PlaybackControls(
                                 controller: controller,
                                 playing: state.playing || _cueing,
                                 onToggle: () => _togglePlayPause(state.playing),
-                              ),
-                              const SizedBox(height: 8),
-                              Wrap(
-                                alignment: WrapAlignment.center,
-                                spacing: 12,
-                                children: [
-                                  if (currentTrack != null &&
-                                      controller.canSwitchSongSource(
-                                        currentTrack,
-                                      ))
-                                    TextButton.icon(
-                                      key: const Key('player-switch-source'),
-                                      onPressed: () => showSongSourcePicker(
-                                        context,
-                                        controller,
-                                        currentTrack,
-                                      ),
-                                      icon: const Icon(Icons.swap_horiz),
-                                      label: Text(
-                                        strings.isZh ? '切换来源' : 'Choose source',
-                                      ),
-                                    ),
-                                  if (currentTrack != null)
-                                    TextButton.icon(
-                                      key: const ValueKey('player-comments'),
-                                      onPressed: () {
-                                        final query =
-                                            SongCommentQuery.fromTrack(
-                                              currentTrack,
-                                              original: controller
-                                                  .originalSongForTrack(
-                                                    currentTrack,
-                                                  ),
-                                              candidate: controller
-                                                  .selectedSongSource(
-                                                    currentTrack,
-                                                  ),
-                                              lyrics: controller.currentLyrics,
-                                            );
-                                        Navigator.of(context).push(
-                                          MaterialPageRoute<void>(
-                                            builder: (_) =>
-                                                SongCommentsPage(query: query),
-                                          ),
-                                        );
-                                      },
-                                      icon: const Icon(
-                                        Icons.chat_bubble_outline_rounded,
-                                      ),
-                                      label: Text(
-                                        strings.isZh ? '歌曲热评' : 'Song comments',
-                                      ),
-                                    ),
-                                ],
                               ),
                             ],
                           ),
@@ -553,6 +556,8 @@ class _PlayerPageState extends State<PlayerPage> {
 class _AdaptivePlayerBody extends StatefulWidget {
   const _AdaptivePlayerBody({
     required this.controller,
+    required this.swipe,
+    required this.neighbor,
     required this.contentOrigin,
     required this.header,
     required this.controls,
@@ -561,6 +566,11 @@ class _AdaptivePlayerBody extends StatefulWidget {
   });
 
   final MusicController controller;
+
+  /// A horizontal drag moves the whole record-and-title slab with the
+  /// finger, as the next song's slides in beside it.
+  final _DiscSwipe swipe;
+  final Widget? Function(BuildContext context, int step) neighbor;
   final Offset contentOrigin;
   final List<Widget> header;
   final List<Widget> controls;
@@ -625,13 +635,49 @@ class _AdaptivePlayerBodyState extends State<_AdaptivePlayerBody> {
     );
   }
 
+  /// The part of the page that changes with the song, following the finger.
+  /// [height] is what the whole stack may take, for sizing the record;
+  /// [fill] fixes the slab's own height so spacers inside it can spread
+  /// the record, title and lyric preview over it.
+  Widget _slab(List<Widget> parts, {double? height, double? fill}) {
+    Widget frame(Widget child) => height == null
+        ? child
+        : MediaQuery(
+            data: MediaQuery.of(
+              context,
+            ).copyWith(size: Size(MediaQuery.sizeOf(context).width, height)),
+            child: child,
+          );
+    return _DiscCarousel(
+      swipe: widget.swipe,
+      neighbor: (context, step) {
+        final slab = widget.neighbor(context, step);
+        return slab == null
+            ? null
+            : frame(_SwipingScope(swiping: true, child: slab));
+      },
+      builder: (context, swiping) => frame(
+        _SwipingScope(
+          swiping: swiping,
+          child: SizedBox(
+            height: fill,
+            child: Column(
+              mainAxisSize: fill == null ? MainAxisSize.min : MainAxisSize.max,
+              children: parts,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
   Widget _deck() => ListView(
     key: const PageStorageKey('player-expanded-scroll'),
     padding: const EdgeInsets.symmetric(
       horizontal: MusicUi.pagePadding,
       vertical: 8,
     ),
-    children: [...widget.header, ...widget.controls],
+    children: [_slab(widget.header), ...widget.controls],
   );
 
   @override
@@ -664,7 +710,10 @@ class _AdaptivePlayerBodyState extends State<_AdaptivePlayerBody> {
           // fall back to a single scrollable surface on the larger side.
           final minimum = horizontal ? 160.0 : 240.0;
           if (before >= minimum && after >= minimum) {
-            final details = Padding(padding: padding, child: _details(context));
+            final details = Padding(
+              padding: padding.copyWith(bottom: 0),
+              child: _details(context),
+            );
             return Flex(
               key: const ValueKey('player-fold-layout'),
               direction: horizontal ? Axis.vertical : Axis.horizontal,
@@ -697,7 +746,10 @@ class _AdaptivePlayerBodyState extends State<_AdaptivePlayerBody> {
             child: ListView(
               key: const PageStorageKey('player-compact-scroll'),
               padding: padding,
-              children: [...widget.header, widget.preview, ...widget.controls],
+              children: [
+                _slab([...widget.header, widget.preview]),
+                ...widget.controls,
+              ],
             ),
           );
         }
@@ -708,7 +760,7 @@ class _AdaptivePlayerBodyState extends State<_AdaptivePlayerBody> {
             child: Row(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                Expanded(child: ListView(children: widget.header)),
+                Expanded(child: ListView(children: [_slab(widget.header)])),
                 const SizedBox(width: 16),
                 Expanded(
                   child: ListView(
@@ -723,15 +775,49 @@ class _AdaptivePlayerBodyState extends State<_AdaptivePlayerBody> {
         final wide =
             constraints.maxWidth >= paneWidth * 2 + gap + padding.horizontal;
         if (!wide) {
-          return ListView(
+          // Spread record, lyric preview and controls over a tall window
+          // instead of leaving the bottom empty. The record is sized from the
+          // height actually available here, not the window, so an open inner
+          // display held upright still fits without scrolling.
+          final available = constraints.maxHeight - padding.vertical;
+          // The slider and buttons take about this much; the slab gets the
+          // rest and spreads the record, title and lyric preview over it.
+          // Too short for that and it falls back to its natural height.
+          final controlsHeight = 140 + 24 * scale;
+          final record = (available - 400).clamp(
+            150.0,
+            MusicUi.playerCoverMaxWidth,
+          );
+          final natural =
+              record + 18 + 60 * scale + _lyricsPreviewHeight(context) + 80;
+          final fill = available - controlsHeight >= natural
+              ? available - controlsHeight
+              : null;
+          final gap = fill == null
+              ? const SizedBox(height: 16)
+              : const Spacer();
+          // A minimum height, not a fill sliver: the latter measures the
+          // record's intrinsic height at full width and overshoots.
+          return SingleChildScrollView(
             key: const PageStorageKey('player-compact-scroll'),
             padding: padding,
-            children: [
-              ...widget.header,
-              const SizedBox(height: 10),
-              widget.preview,
-              ...widget.controls,
-            ],
+            child: ConstrainedBox(
+              constraints: BoxConstraints(minHeight: math.max(0, available)),
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  _slab(
+                    [...widget.header, gap, widget.preview, gap],
+                    height: available,
+                    fill: fill,
+                  ),
+                  Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: widget.controls,
+                  ),
+                ],
+              ),
+            ),
           );
         }
         return Padding(
@@ -746,7 +832,14 @@ class _AdaptivePlayerBodyState extends State<_AdaptivePlayerBody> {
             children: [
               Expanded(child: _deck()),
               const SizedBox(width: gap),
-              Expanded(child: _details(context)),
+              Expanded(
+                child: Padding(
+                  padding: EdgeInsets.only(
+                    bottom: MediaQuery.paddingOf(context).bottom,
+                  ),
+                  child: _details(context),
+                ),
+              ),
             ],
           ),
         );
@@ -762,14 +855,12 @@ class _Artwork extends StatelessWidget {
     required this.controller,
     required this.playing,
     required this.cueing,
-    required this.swipe,
     this.maxWidth,
   });
 
   final Uri? uri;
   final MusicController controller;
   final bool playing, cueing;
-  final _DiscSwipe swipe;
 
   /// The Mac window has room for a larger deck than a phone.
   final double? maxWidth;
@@ -793,51 +884,56 @@ class _Artwork extends StatelessWidget {
       child: ConstrainedBox(
         constraints: BoxConstraints(
           // Sized so the whole player fits one screen without scrolling.
+          // The compact player hands in the height left for the whole stack.
+          // Title, lyric preview, slider, controls and their gaps take about
+          // 400pt; the record gets the rest, so every window fits on one
+          // screen and a tall one still shows a big record.
           maxWidth:
               maxWidth ??
-              (MediaQuery.sizeOf(context).height * .35).clamp(
-                180.0,
+              (MediaQuery.sizeOf(context).height - 400).clamp(
+                150.0,
                 MusicUi.playerCoverMaxWidth,
               ),
         ),
-        child: _DiscCarousel(
-          swipe: swipe,
-          neighbor: _neighborLabel,
-          // The arm does not follow the song: the position updates several
-          // times a second, and redrawing the deck for each kept the phone
-          // busy for as long as music played.
-          builder: (context, swiping) => Turntable(
-            playing: playing,
-            // The arm lifts off while the record is being changed.
-            armDown: (playing || cueing) && !swiping,
-            label: label,
-          ),
+        // The arm does not follow the song: the position updates several
+        // times a second, and redrawing the deck for each kept the phone
+        // busy for as long as music played. It lifts off while the record is
+        // being changed.
+        child: Turntable(
+          playing: playing,
+          armDown: (playing || cueing) && !_SwipingScope.of(context),
+          label: label,
         ),
       ),
     );
-  }
-
-  /// The cover of the song before (-1) or after (1) this one in the queue,
-  /// for the record that slides in. Unknown in shuffle: the label is blank.
-  Widget? _neighborLabel(int step) {
-    if (controller.playbackMode == PlaybackMode.shuffle) return null;
-    final queue = controller.audioHandler.queue.value;
-    final id = controller.audioHandler.mediaItem.value?.id;
-    final index = queue.indexWhere((item) => item.id == id);
-    if (index < 0 || queue.length < 2) return null;
-    final art = queue[(index + step) % queue.length].artUri;
-    return art == null
-        ? null
-        : Image(
-            image: artworkImageProvider(art),
-            fit: BoxFit.cover,
-            errorBuilder: (_, _, _) => const SizedBox.shrink(),
-          );
   }
 }
 
 /// What the finger is doing to the record, passed from the page's swipe area
 /// to the deck.
+/// Whether the slab is mid-swipe, for the arm that lifts while it moves.
+class _SwipingScope extends InheritedWidget {
+  const _SwipingScope({required this.swiping, required super.child});
+  final bool swiping;
+  static bool of(BuildContext context) =>
+      context.dependOnInheritedWidgetOfExactType<_SwipingScope>()?.swiping ??
+      false;
+  @override
+  bool updateShouldNotify(_SwipingScope oldWidget) =>
+      swiping != oldWidget.swiping;
+}
+
+/// The queue item before (-1) or after (1) the playing one; null in shuffle
+/// or when there is nothing else to show.
+MediaItem? _neighborItem(MusicController controller, int step) {
+  if (controller.playbackMode == PlaybackMode.shuffle) return null;
+  final queue = controller.audioHandler.queue.value;
+  final id = controller.audioHandler.mediaItem.value?.id;
+  final index = queue.indexWhere((item) => item.id == id);
+  if (index < 0 || queue.length < 2) return null;
+  return queue[(index + step) % queue.length];
+}
+
 class _DiscSwipe extends ChangeNotifier {
   double dx = 0;
   bool dragging = false;
@@ -870,7 +966,7 @@ class _DiscCarousel extends StatefulWidget {
   });
 
   final _DiscSwipe swipe;
-  final Widget? Function(int step) neighbor;
+  final Widget? Function(BuildContext context, int step) neighbor;
   final Widget Function(BuildContext context, bool swiping) builder;
 
   @override
@@ -938,6 +1034,13 @@ class _DiscCarouselState extends State<_DiscCarousel>
   Widget build(BuildContext context) {
     final deck = widget.builder(context, _swiping);
     if (!_swiping) return deck;
+    // The two neighbouring decks are built once per swipe and only moved
+    // afterwards, so following the finger costs no rebuilds.
+    final neighbours = {
+      for (final step in const [-1, 1])
+        if (widget.neighbor(context, step) case final slab?)
+          step: RepaintBoundary(child: slab),
+    };
     return AnimatedBuilder(
       animation: _x,
       builder: (context, deck) {
@@ -949,17 +1052,13 @@ class _DiscCarouselState extends State<_DiscCarousel>
             if (x != 0)
               Transform.translate(
                 offset: Offset(x + step * _width, 0),
-                child: Turntable(
-                  playing: false,
-                  armDown: false,
-                  label: widget.neighbor(step),
-                ),
+                child: neighbours[step],
               ),
             Transform.translate(offset: Offset(x, 0), child: deck),
           ],
         );
       },
-      child: deck,
+      child: RepaintBoundary(child: deck),
     );
   }
 }
@@ -1034,6 +1133,34 @@ class _PlayerBackdropState extends State<_PlayerBackdrop> {
     );
   }
 }
+
+/// Opens the comments for the playing song from any page.
+Future<void> openSongCommentsPage(
+  BuildContext context,
+  MusicController controller,
+) {
+  final track = controller.currentTrack;
+  if (track == null) return Future.value();
+  final query = SongCommentQuery.fromTrack(
+    track,
+    original: controller.originalSongForTrack(track),
+    candidate: controller.selectedSongSource(track),
+    lyrics: controller.currentLyrics,
+  );
+  return Navigator.of(context).push<void>(
+    AppPageRoute<void>(builder: (_) => SongCommentsPage(query: query)),
+  );
+}
+
+/// Opens the full lyrics page, from the player or straight from the
+/// now-playing bar on any page.
+Future<void> openLyricsPage(BuildContext context, MusicController controller) =>
+    Navigator.of(context).push<void>(
+      AppPageRoute(
+        settings: const RouteSettings(name: 'lyrics'),
+        builder: (_) => _LyricsDetailPage(controller: controller),
+      ),
+    );
 
 class _LyricsDetailPage extends StatelessWidget {
   const _LyricsDetailPage({required this.controller});
@@ -1360,53 +1487,164 @@ class _PlaybackControls extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final strings = AppStringsScope.of(context);
-    // Scales down as one piece on narrow phones instead of overflowing.
-    return FittedBox(
-      fit: BoxFit.scaleDown,
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          GlassIconButton(
-            blur: false,
-            tooltip: _modeTooltip(strings, controller.playbackMode),
-            onPressed: controller.cyclePlaybackMode,
-            icon: _modeIcon(controller.playbackMode),
-          ),
-          const SizedBox(width: 12),
-          GlassIconButton(
-            blur: false,
-            tooltip: strings.previous,
-            size: 54,
-            onPressed: controller.previous,
-            icon: Icons.skip_previous_rounded,
-          ),
-          const SizedBox(width: 16),
-          PlayPauseButton(
-            playing: playing,
-            tooltip: playing ? strings.pause : strings.play,
-            onPressed: onToggle ?? controller.togglePlayPause,
-          ),
-          const SizedBox(width: 16),
-          GlassIconButton(
-            blur: false,
-            tooltip: strings.next,
-            size: 54,
-            onPressed: controller.next,
-            icon: Icons.skip_next_rounded,
-          ),
-          if (!NativeShell.active &&
-              DuoWindowScope.of(context).edge == DuoBarEdge.none) ...[
-            const SizedBox(width: 12),
-            GlassIconButton(
-              blur: false,
-              key: const ValueKey('player-queue'),
-              tooltip: strings.isZh ? '当前队列' : 'Play queue',
-              onPressed: () => showPlaybackQueue(context, controller),
-              icon: Icons.queue_music_rounded,
+    // One row, evenly spread, the way the system's players lay it out: play
+    // in the middle, skip either side, mode and queue at the ends as quiet
+    // glyphs rather than a row of five rings.
+    return LayoutBuilder(
+      builder: (context, constraints) => Center(
+        // Narrower than the five targets (a fold pane) scales the row down
+        // as one piece instead of overflowing.
+        child: FittedBox(
+          fit: BoxFit.scaleDown,
+          child: SizedBox(
+            width: constraints.maxWidth.clamp(264.0, 380.0),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                _PlainControl(
+                  tooltip: _modeTooltip(strings, controller.playbackMode),
+                  onPressed: controller.cyclePlaybackMode,
+                  icon: _modeIcon(controller.playbackMode),
+                  size: 24,
+                ),
+                _PlainControl(
+                  tooltip: strings.previous,
+                  onPressed: controller.previous,
+                  icon: Icons.skip_previous_rounded,
+                  size: 40,
+                ),
+                PlayPauseButton(
+                  playing: playing,
+                  tooltip: playing ? strings.pause : strings.play,
+                  onPressed: onToggle ?? controller.togglePlayPause,
+                  size: 72,
+                ),
+                _PlainControl(
+                  tooltip: strings.next,
+                  onPressed: controller.next,
+                  icon: Icons.skip_next_rounded,
+                  size: 40,
+                ),
+                _PlainControl(
+                  key: const ValueKey('player-queue'),
+                  tooltip: strings.isZh ? '当前队列' : 'Play queue',
+                  onPressed: () => showPlaybackQueue(context, controller),
+                  icon: Icons.queue_music_rounded,
+                  size: 24,
+                ),
+              ],
             ),
-          ],
-        ],
+          ),
+        ),
       ),
+    );
+  }
+}
+
+/// A bare glyph with a 48pt touch target that dips when pressed.
+class _PlainControl extends StatelessWidget {
+  const _PlainControl({
+    super.key,
+    required this.icon,
+    required this.tooltip,
+    required this.onPressed,
+    required this.size,
+  });
+
+  final IconData icon;
+  final String tooltip;
+  final VoidCallback? onPressed;
+  final double size;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+    return Tooltip(
+      message: tooltip,
+      child: Semantics(
+        button: true,
+        enabled: onPressed != null,
+        child: Pressable(
+          onTap: onPressed,
+          pressedScale: .88,
+          child: SizedBox.square(
+            dimension: math.max(48, size + 8),
+            child: Icon(
+              icon,
+              size: size,
+              color: colors.onSurface.withValues(alpha: size < 32 ? .72 : 1),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Title and artist, left-aligned under the record, with the heart at the
+/// end of the line the way the system and QQ Music set it.
+class _SongInfo extends StatelessWidget {
+  const _SongInfo({
+    required this.title,
+    required this.artist,
+    this.favorite,
+    this.onFavorite,
+  });
+
+  final String title;
+  final String artist;
+
+  /// Null hides the heart but keeps its room, so neighbouring slabs line up.
+  final bool? favorite;
+  final VoidCallback? onFavorite;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final colors = theme.colorScheme;
+    final strings = AppStringsScope.of(context);
+    final liked = favorite ?? false;
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.center,
+      children: [
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                title,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: MusicType.masthead(context, size: 24),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                artist,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: theme.textTheme.bodyLarge?.copyWith(
+                  color: colors.onSurfaceVariant,
+                ),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(width: 12),
+        if (favorite == null)
+          const SizedBox(width: 48, height: 48)
+        else
+          _PlainControl(
+            key: const ValueKey('player-favorite'),
+            tooltip: liked
+                ? strings.removeFromFavorites
+                : strings.addToFavorites,
+            onPressed: onFavorite,
+            icon: liked
+                ? Icons.favorite_rounded
+                : Icons.favorite_border_rounded,
+            size: 28,
+          ),
+      ],
     );
   }
 }
@@ -1422,7 +1660,7 @@ class _LyricsPreview extends StatelessWidget {
       key: const ValueKey('lyrics-preview'),
       borderRadius: BorderRadius.circular(MusicUi.radius),
       onTap: () => Navigator.of(context).push<void>(
-        MaterialPageRoute(
+        AppPageRoute(
           builder: (context) => _LyricsDetailPage(controller: controller),
         ),
       ),

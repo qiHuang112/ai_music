@@ -1,4 +1,5 @@
 import 'duo_scaffold.dart';
+import 'app_page_route.dart';
 import 'app_popup_menu.dart';
 import 'file_sharing.dart';
 import 'song_actions.dart';
@@ -409,7 +410,7 @@ class _ListeningStatsPageState extends State<ListeningStatsPage> {
             TextButton(
               onPressed: () => Navigator.push(
                 context,
-                MaterialPageRoute<void>(
+                AppPageRoute<void>(
                   builder: (_) => _ListeningRankPage(
                     controller: widget.controller,
                     title: title,
@@ -441,7 +442,7 @@ class _ListeningStatsPageState extends State<ListeningStatsPage> {
   void _openHistory(DateTime from, DateTime until, String title) =>
       Navigator.push(
         context,
-        MaterialPageRoute<void>(
+        AppPageRoute<void>(
           builder: (_) => _ListeningHistoryPage(
             controller: widget.controller,
             from: from,

@@ -1,4 +1,5 @@
 import 'package:flutter/cupertino.dart' show CupertinoIcons;
+import 'app_page_route.dart';
 import 'duo_scaffold.dart';
 import 'native_shell.dart';
 import 'initial_song_scroll.dart';
@@ -10,6 +11,8 @@ import 'app_popup_menu.dart';
 import 'playlist_sliver_header.dart';
 import 'playlist_sync_button.dart';
 import 'mini_player.dart';
+import 'playback_queue.dart';
+import 'player_page.dart';
 import 'date_groups.dart';
 import 'dart:async';
 
@@ -119,8 +122,23 @@ class _MusicHomePageState extends State<MusicHomePage>
       }),
     );
     unawaited(controller.initialize());
-    // The system tab bar on iOS reports taps here.
+    // The system tab bar on iOS reports taps here; its mini player opens the
+    // full player through the same navigator the Flutter strip would use.
     NativeShell.instance.onTabSelected = _selectTab;
+    NativeShell.instance.onOpenPlayer = () {
+      if (mounted) unawaited(openPlayerPage(_contentNavigator.context, controller));
+    };
+    NativeShell.instance.onOpenQueue = () {
+      if (mounted) unawaited(showPlaybackQueue(_contentNavigator.context, controller));
+    };
+    NativeShell.instance.onOpenLyrics = () {
+      if (mounted) unawaited(openLyricsPage(_contentNavigator.context, controller));
+    };
+    NativeShell.instance.onOpenComments = () {
+      if (mounted) {
+        unawaited(openSongCommentsPage(_contentNavigator.context, controller));
+      }
+    };
   }
 
   void _onSearchFocusChanged() {
@@ -151,7 +169,7 @@ class _MusicHomePageState extends State<MusicHomePage>
 
   void _openMatchedPlaylist(MusicPlaylist playlist) {
     _contentNavigator.push(
-      MaterialPageRoute<void>(
+      AppPageRoute<void>(
         settings: const RouteSettings(name: 'playlist-detail'),
         builder: (_) => _PlaylistDetailPage(
           controller: controller,
@@ -165,6 +183,10 @@ class _MusicHomePageState extends State<MusicHomePage>
   void dispose() {
     if (NativeShell.instance.onTabSelected == _selectTab) {
       NativeShell.instance.onTabSelected = null;
+      NativeShell.instance.onOpenPlayer = null;
+      NativeShell.instance.onOpenQueue = null;
+      NativeShell.instance.onOpenLyrics = null;
+      NativeShell.instance.onOpenComments = null;
     }
     WidgetsBinding.instance.removeObserver(this);
     _playlistSearch.dispose();
@@ -558,7 +580,7 @@ class _MusicHomePageState extends State<MusicHomePage>
 
   void _openScreenshotImport() {
     _contentNavigator.push(
-      MaterialPageRoute<void>(
+      AppPageRoute<void>(
         settings: const RouteSettings(name: 'screenshot-import'),
         builder: (_) => ScreenshotImportPage(
           controller: controller,
@@ -683,7 +705,7 @@ class _MusicHomePageState extends State<MusicHomePage>
 
   Future<void> _openChart(MusicChart chart) {
     return _contentNavigator.push<void>(
-      MaterialPageRoute(builder: (context) => _chartPage(controller, chart)),
+      AppPageRoute(builder: (context) => _chartPage(controller, chart)),
     );
   }
 }
@@ -1183,7 +1205,7 @@ class _SearchBody extends StatelessWidget {
     if (DesktopMusicScope.maybeOf(context) != null) {
       Future<void> open(_LibraryListSpec selection) =>
           Navigator.of(context).push<void>(
-            MaterialPageRoute(
+            AppPageRoute(
               settings: const RouteSettings(name: 'playlist-detail'),
               builder: (context) => _PlaylistDetailPage(
                 controller: controller,
@@ -1388,7 +1410,7 @@ class _HomeLibrarySection extends StatelessWidget {
 
   Future<void> _openList(BuildContext context, _LibraryListSpec selection) {
     return Navigator.of(context).push<void>(
-      MaterialPageRoute(
+      AppPageRoute(
         settings: const RouteSettings(name: 'playlist-detail'),
         builder: (context) =>
             _PlaylistDetailPage(controller: controller, selection: selection),
@@ -1606,30 +1628,36 @@ class _LibraryLanding extends StatelessWidget {
           const LinearProgressIndicator(),
           const SizedBox(height: 12),
         ],
-        Row(
-          children: [
-            Expanded(
-              child: _LibraryShortcutButton(
-                selection: _LibraryListSpec.favorite(),
-                count: controller.favoriteTracks.length,
-                title: strings.favorite,
-                onPressed: () =>
-                    _openList(context, _LibraryListSpec.favorite()),
+        // On a wide window these entries keep a card's width instead of
+        // stretching into two half-screen slabs.
+        _LibraryLead(
+          child: Row(
+            children: [
+              Expanded(
+                child: _LibraryShortcutButton(
+                  selection: _LibraryListSpec.favorite(),
+                  count: controller.favoriteTracks.length,
+                  title: strings.favorite,
+                  onPressed: () =>
+                      _openList(context, _LibraryListSpec.favorite()),
+                ),
               ),
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: _LibraryShortcutButton(
-                selection: _LibraryListSpec.local(),
-                count: controller.cachedTracks.length,
-                title: strings.localLibrary,
-                onPressed: () => _openList(context, _LibraryListSpec.local()),
+              const SizedBox(width: 12),
+              Expanded(
+                child: _LibraryShortcutButton(
+                  selection: _LibraryListSpec.local(),
+                  count: controller.cachedTracks.length,
+                  title: strings.localLibrary,
+                  onPressed: () =>
+                      _openList(context, _LibraryListSpec.local()),
+                ),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
         const SizedBox(height: 24),
-        Card(
+        _LibraryLead(
+          child: Card(
           child: ListTile(
             key: const Key('library-listening-stats'),
             leading: Icon(
@@ -1643,7 +1671,7 @@ class _LibraryLanding extends StatelessWidget {
             trailing: const Icon(Icons.chevron_right),
             onTap: () => Navigator.push(
               context,
-              MaterialPageRoute<void>(
+              AppPageRoute<void>(
                 settings: const RouteSettings(name: 'listening-stats'),
                 builder: (_) => ListeningStatsPage(
                   controller: controller,
@@ -1654,6 +1682,7 @@ class _LibraryLanding extends StatelessWidget {
               ),
             ),
           ),
+        ),
         ),
         SizedBox(height: desktop ? 30 : 24),
         Text(strings.customPlaylists, style: heading),
@@ -1709,11 +1738,11 @@ class _LibraryLanding extends StatelessWidget {
     ].where((c) => c.playlistId == selection.id).firstOrNull;
     if (chart != null) {
       return Navigator.of(context).push<void>(
-        MaterialPageRoute(builder: (_) => _chartPage(controller, chart)),
+        AppPageRoute(builder: (_) => _chartPage(controller, chart)),
       );
     }
     return Navigator.of(context).push<void>(
-      MaterialPageRoute(
+      AppPageRoute(
         settings: const RouteSettings(name: 'playlist-detail'),
         builder: (context) =>
             _PlaylistDetailPage(controller: controller, selection: selection),
@@ -2282,7 +2311,8 @@ class _PlaylistDetailPageState extends State<_PlaylistDetailPage> {
             ? _selectionAppBar(context, list, selectedTracks)
             : AppBar(
                 title: Text(
-                  list.playlist != null
+                  // The system bar carries the list's own name.
+                  list.playlist != null && !NativeShell.active
                       ? (strings.isZh ? '歌单详情' : 'Playlist')
                       : list.title,
                 ),
@@ -2488,6 +2518,23 @@ class _PlaylistDetailPageState extends State<_PlaylistDetailPage> {
               ]
             : immersive
             ? <Widget>[
+                if (NativeShell.active)
+                  // The title sits in the system bar; keep only the note.
+                  SliverPadding(
+                    padding: const EdgeInsets.only(top: 4),
+                    sliver: SliverToBoxAdapter(
+                      child: widget.chartUpdatedAt == null
+                          ? const SizedBox.shrink()
+                          : Padding(
+                              padding: const EdgeInsets.fromLTRB(20, 0, 20, 8),
+                              child: Text(
+                                strings.chartUpdated(widget.chartUpdatedAt!),
+                                style: Theme.of(context).textTheme.bodySmall,
+                              ),
+                            ),
+                    ),
+                  )
+                else
                 PlaylistSliverHeader(
                   title: list.title,
                   note: widget.chartUpdatedAt == null
@@ -2578,7 +2625,7 @@ class _PlaylistDetailPageState extends State<_PlaylistDetailPage> {
 
   void _openOnlineSyncTask(OnlinePlaylistTask task) {
     Navigator.of(context).push<void>(
-      MaterialPageRoute(
+      AppPageRoute(
         settings: const RouteSettings(name: 'online-playlist'),
         builder: (_) => OnlinePlaylistPage(
           playlist: task.playlist,
@@ -4607,4 +4654,19 @@ class _DesktopTrackRow extends StatelessWidget {
       ),
     );
   }
+}
+
+/// Leading library entries stay at most as wide as a card on big windows.
+class _LibraryLead extends StatelessWidget {
+  const _LibraryLead({required this.child});
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) => Align(
+    alignment: AlignmentDirectional.centerStart,
+    child: ConstrainedBox(
+      constraints: const BoxConstraints(maxWidth: 560),
+      child: child,
+    ),
+  );
 }

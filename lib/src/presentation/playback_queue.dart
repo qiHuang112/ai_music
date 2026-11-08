@@ -1,4 +1,5 @@
 import 'duo_scaffold.dart';
+import 'app_page_route.dart';
 import 'duo_window.dart';
 import 'dart:async';
 import 'dart:math' as math;
@@ -28,7 +29,7 @@ Future<void> showPlaybackQueue(
   if (DuoWindowScope.of(context).edge != DuoBarEdge.none) {
     final strings = AppStringsScope.of(context);
     return Navigator.of(context).push<void>(
-      MaterialPageRoute<void>(
+      AppPageRoute<void>(
         settings: const RouteSettings(name: 'playback-queue'),
         builder: (_) => DuoScaffold(
           appBar: AppBar(title: Text(strings.isZh ? '当前队列' : 'Play queue')),
@@ -173,6 +174,9 @@ class _PlaybackQueueState extends State<PlaybackQueue> {
       height: widget.embedded ? null : MediaQuery.sizeOf(context).height,
       child: SafeArea(
         top: false,
+        // Embedded in the player the list itself runs under the home
+        // indicator and pads its last row instead.
+        bottom: !widget.embedded,
         child: StreamBuilder<List<MediaItem>>(
           stream: controller.audioHandler.queue,
           initialData: controller.audioHandler.queue.value,
@@ -291,9 +295,14 @@ class _PlaybackQueueState extends State<PlaybackQueue> {
                             : ReorderableListView.builder(
                                 scrollController: scrollController,
                                 buildDefaultDragHandles: false,
-                                padding: const EdgeInsets.symmetric(
-                                  horizontal: 12,
-                                  vertical: 8,
+                                padding: EdgeInsets.fromLTRB(
+                                  12,
+                                  8,
+                                  12,
+                                  8 +
+                                      (widget.embedded
+                                          ? MediaQuery.paddingOf(context).bottom
+                                          : 0),
                                 ),
                                 itemCount: items.length,
                                 // flutter_ohos does not support onReorderItem

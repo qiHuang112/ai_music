@@ -1,4 +1,6 @@
+import '../data/lan_library_models.dart';
 import 'duo_scaffold.dart';
+import 'app_page_route.dart';
 import 'app_theme.dart';
 import 'listening_stats_page.dart';
 import 'package:flutter/material.dart';
@@ -229,7 +231,7 @@ class SettingsPage extends StatelessWidget {
                       ),
                       trailing: const Icon(Icons.chevron_right),
                       onTap: () => Navigator.of(context).push<void>(
-                        MaterialPageRoute(
+                        AppPageRoute(
                           settings: const RouteSettings(
                             name: 'language-settings',
                           ),
@@ -246,7 +248,7 @@ class SettingsPage extends StatelessWidget {
                       ),
                       trailing: const Icon(Icons.chevron_right),
                       onTap: () => Navigator.of(context).push<void>(
-                        MaterialPageRoute(
+                        AppPageRoute(
                           settings: const RouteSettings(
                             name: 'appearance-settings',
                           ),
@@ -267,7 +269,7 @@ class SettingsPage extends StatelessWidget {
                       subtitle: Text(_sourceTitle(strings, controller.source)),
                       trailing: const Icon(Icons.chevron_right),
                       onTap: () => Navigator.of(context).push<void>(
-                        MaterialPageRoute(
+                        AppPageRoute(
                           settings: const RouteSettings(
                             name: 'source-settings',
                           ),
@@ -290,7 +292,7 @@ class SettingsPage extends StatelessWidget {
                       ),
                       trailing: const Icon(Icons.chevron_right),
                       onTap: () => Navigator.of(context).push<void>(
-                        MaterialPageRoute(
+                        AppPageRoute(
                           settings: const RouteSettings(
                             name: 'download-quality',
                           ),
@@ -361,7 +363,7 @@ class SettingsPage extends StatelessWidget {
                       ),
                       trailing: const Icon(Icons.chevron_right),
                       onTap: () => Navigator.of(context).push<void>(
-                        MaterialPageRoute(
+                        AppPageRoute(
                           settings: const RouteSettings(
                             name: 'concurrency-settings',
                           ),
@@ -376,7 +378,7 @@ class SettingsPage extends StatelessWidget {
                       subtitle: Text(controller.lanLibraryUrl),
                       trailing: const Icon(Icons.chevron_right),
                       onTap: () => Navigator.of(context).push<void>(
-                        MaterialPageRoute(
+                        AppPageRoute(
                           settings: const RouteSettings(
                             name: 'lan-library-settings',
                           ),
@@ -794,7 +796,7 @@ class _LanLibrarySettingsPageState extends State<LanLibrarySettingsPage> {
                   autocorrect: false,
                   decoration: InputDecoration(
                     labelText: strings.lanLibraryAddress,
-                    hintText: 'http://192.168.31.57:8787',
+                    hintText: defaultLanLibraryUrl,
                     errorText: _inputError,
                   ),
                 ),

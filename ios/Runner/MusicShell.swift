@@ -22,6 +22,8 @@ final class MusicShellController: UIViewController, UITabBarControllerDelegate,
   private var poppedByFlutter = Set<Int>()
   private var theme = ShellTheme()
   private var modalDepth = 0
+  private let nowPlayingBar = ShellNowPlayingBar()
+  private var barShown = false
   private var lastInsets = UIEdgeInsets(top: -1, left: -1, bottom: -1, right: -1)
 
   init(flutter: FlutterViewController) {
@@ -54,9 +56,8 @@ final class MusicShellController: UIViewController, UITabBarControllerDelegate,
       let nav = UINavigationController(rootViewController: root)
       nav.delegate = self
       nav.view.backgroundColor = .clear
-      nav.navigationBar.prefersLargeTitles = true
       nav.tabBarItem = UITabBarItem(title: nil, image: nil, tag: index)
-      roots[index].navigationItem.largeTitleDisplayMode = .always
+      roots[index].navigationItem.largeTitleDisplayMode = .never
       tabs.addChild(nav)
     }
     tabs.viewControllers = tabs.children
@@ -68,6 +69,17 @@ final class MusicShellController: UIViewController, UITabBarControllerDelegate,
     view.addSubview(tabs.view)
     tabs.didMove(toParent: self)
     applyTheme()
+    // The now-playing bar floats over the content, above the tab bar and
+    // clear of the vertical strip, in the system glass material.
+    nowPlayingBar.isHidden = true
+    nowPlayingBar.onAction = { [weak self] action in self?.perform(action: "shell.player.\(action)") }
+    view.addSubview(nowPlayingBar)
+
+    if #available(iOS 27.1, *) {
+      registerForTraitChanges(UITraitCollection.systemTraitsAffectingVerticalBarEdge) {
+        (shell: MusicShellController, _: UITraitCollection) in shell.refreshBar()
+      }
+    }
 
     let channel = FlutterMethodChannel(name: "ai_music/shell", binaryMessenger: flutter.binaryMessenger)
     self.channel = channel
@@ -83,6 +95,7 @@ final class MusicShellController: UIViewController, UITabBarControllerDelegate,
 
   override func viewDidLayoutSubviews() {
     super.viewDidLayoutSubviews()
+    layoutBar()
     syncInsets()
   }
 
@@ -120,6 +133,9 @@ final class MusicShellController: UIViewController, UITabBarControllerDelegate,
       result(nil)
     case "modal":
       setModal(args["active"] as? Bool ?? false)
+      result(nil)
+    case "nowPlaying":
+      updateNowPlaying(args)
       result(nil)
     default:
       result(FlutterMethodNotImplemented)
@@ -194,7 +210,7 @@ final class MusicShellController: UIViewController, UITabBarControllerDelegate,
     modalDepth = max(0, modalDepth + (active ? 1 : -1))
     let hidden = modalDepth > 0
     for case let nav as UINavigationController in tabs.children {
-      nav.setNavigationBarHidden(hidden || (nav.topViewController as? ShellPageController)?.spec.chromeless == true, animated: true)
+      nav.setNavigationBarHidden(hidden || (nav.topViewController as? ShellPageController)?.hidesBar == true, animated: true)
     }
     if #available(iOS 18.0, *) {
       tabs.setTabBarHidden(hidden || visiblePage?.hidesBottomBarWhenPushed == true, animated: true)
@@ -204,29 +220,217 @@ final class MusicShellController: UIViewController, UITabBarControllerDelegate,
     if !hidden { syncInsets() }
   }
 
+  // MARK: - Now playing
+
+  /// Feeds the floating bar; it shows whenever something is loaded and the
+  /// visible page is not immersive (the player draws its own controls).
+  private func updateNowPlaying(_ args: [String: Any]) {
+    nowPlayingPresent = args["present"] as? Bool ?? false
+    nowPlayingBar.update(
+      title: args["title"] as? String ?? "",
+      artist: args["artist"] as? String ?? "",
+      playing: args["playing"] as? Bool ?? false,
+      favorite: args["favorite"] as? Bool ?? false,
+      artwork: (args["art"] as? FlutterStandardTypedData).flatMap { UIImage(data: $0.data, scale: 3) }
+    )
+    refreshBar()
+  }
+
+  private var nowPlayingPresent = false
+
+  /// With the bars in a vertical strip, lyrics, comments and the queue are
+  /// reachable from every page, under that page's own controls.
+  var sharedActions: [ShellAction] {
+    guard nowPlayingPresent, verticalBarActive else { return [] }
+    return [
+      ShellAction(id: "shell.player.lyrics", title: "歌词", symbol: "quote.bubble"),
+      ShellAction(id: "shell.player.comments", title: "歌曲热评", symbol: "bubble.left"),
+      ShellAction(id: "shell.player.queue", title: "当前队列", symbol: "list.bullet"),
+    ]
+  }
+
+  private var verticalBarActive: Bool {
+    if #available(iOS 27.1, *) {
+      switch traitCollection.verticalBarEdge {
+      case .leading, .trailing: return true
+      default: return false
+      }
+    }
+    return false
+  }
+
+  /// Re-applies every page so shared actions follow the bar's edge and the
+  /// playing state.
+  private func reapplyPages() {
+    for case let nav as UINavigationController in tabs.children {
+      for case let page as ShellPageController in nav.viewControllers {
+        page.apply(page.spec, theme: theme)
+      }
+    }
+  }
+
+  private var sharedActionsShown = false
+
+  private func refreshBar() {
+    let sharing = !sharedActions.isEmpty
+    if sharing != sharedActionsShown {
+      sharedActionsShown = sharing
+      reapplyPages()
+    }
+    // Immersive pages take the whole display: on a wide window the tab bar
+    // sits at the top and would otherwise stay as a strip over the player.
+    if #available(iOS 18.0, *), modalDepth == 0 {
+      let immersive = visiblePage?.spec.immersive == true
+      if tabs.isTabBarHidden != immersive {
+        tabs.setTabBarHidden(immersive, animated: true)
+      }
+    }
+    // Like QQ Music, the bar lives on the top-level tabs only; pushed pages
+    // and the player keep the full width for themselves.
+    let wanted = nowPlayingPresent && visiblePage?.isRoot == true && visiblePage?.spec.immersive != true
+    if wanted != barShown {
+      barShown = wanted
+      nowPlayingBar.isHidden = !wanted
+      channel?.invokeMethod("accessory", arguments: ["active": nowPlayingPresent])
+    }
+    layoutBar()
+    syncInsets()
+  }
+
+  /// Centered in the content area (left of a vertical bar), above a horizontal
+  /// tab bar: near full width on a phone, a long capsule on a wide window.
+  /// The top of a visible horizontal tab bar, in the shell's coordinates;
+  /// nil when the bar is hidden or has moved into the vertical strip.
+  private var horizontalTabBarTop: CGFloat? {
+    let bar = tabs.tabBar
+    guard !bar.isHidden, bar.alpha > 0, bar.window != nil else { return nil }
+    let frame = view.convert(bar.bounds, from: bar)
+    guard frame.width > frame.height, frame.maxY > view.bounds.midY else { return nil }
+    return frame.minY
+  }
+
+  /// The glass capsule the tab bar actually draws: it sits inset inside the
+  /// full-width bar, and the now-playing bar lines up with it.
+  private var tabBarCapsule: CGRect? {
+    var union: CGRect?
+    func walk(_ view: UIView) {
+      for sub in view.subviews {
+        let name = NSStringFromClass(type(of: sub))
+        if name.contains("Platter"), sub.bounds.width > 100, sub.bounds.height > 30 {
+          let frame = self.view.convert(sub.bounds, from: sub)
+          union = union.map { $0.union(frame) } ?? frame
+        } else {
+          walk(sub)
+        }
+      }
+    }
+    walk(tabs.tabBar)
+    return union
+  }
+
+  private func layoutBar() {
+    // Sides come from the window's own safe area (the vertical strip); the
+    // bottom from the page, which knows about a horizontal tab bar.
+    var insets = view.safeAreaInsets
+    if let page = visiblePage, page.isViewLoaded {
+      insets.bottom = max(insets.bottom, page.view.safeAreaInsets.bottom)
+    }
+    var tabBar: CGRect?
+    if let top = horizontalTabBarTop {
+      insets.bottom = max(insets.bottom, view.bounds.maxY - top)
+      tabBar = tabBarCapsule ?? view.convert(tabs.tabBar.bounds, from: tabs.tabBar).insetBy(dx: 16, dy: 0)
+    }
+    let content = view.bounds.inset(by: insets)
+    let wide = traitCollection.horizontalSizeClass == .regular
+    var x: CGFloat
+    var width: CGFloat
+    if let tabBar, !wide {
+      // Edge to edge with the tab bar's own capsule, so the two stack neatly.
+      x = tabBar.minX
+      width = tabBar.width
+    } else {
+      width = wide ? min(640, max(360, content.width * 0.6)) : content.width - 24
+      x = content.midX - width / 2
+    }
+    let frame = CGRect(
+      x: x,
+      y: content.maxY - ShellNowPlayingBar.gap - ShellNowPlayingBar.height,
+      width: width,
+      height: ShellNowPlayingBar.height
+    )
+    if nowPlayingBar.frame != frame { nowPlayingBar.frame = frame }
+    nowPlayingBar.wide = wide
+    view.bringSubviewToFront(nowPlayingBar)
+  }
+
   // MARK: - Shell → Flutter
 
   func tabBarController(_ tabBarController: UITabBarController, didSelect viewController: UIViewController) {
     channel?.invokeMethod("tabSelected", arguments: ["index": tabBarController.selectedIndex])
+    refreshBar()
+    syncInsets()
+  }
+
+  func navigationController(
+    _ navigationController: UINavigationController, willShow viewController: UIViewController, animated: Bool
+  ) {
+    // Give Flutter the destination's insets as the transition starts, so the
+    // page it reveals is already laid out for them instead of jumping after.
+    reportPopped(in: navigationController)
+    refreshBar()
+    navigationController.view.layoutIfNeeded()
     syncInsets()
   }
 
   func navigationController(
     _ navigationController: UINavigationController, didShow viewController: UIViewController, animated: Bool
   ) {
-    // Anything we pushed that UIKit no longer holds was popped by the person:
-    // the back button, the edge swipe or a long-press jump.
-    let gone = pages.filter { $0.value.navigationController == nil && !poppedByFlutter.contains($0.key) }
+    flushPopped()
+    refreshBar()
+    syncInsets()
+  }
+
+  /// Anything we pushed that UIKit no longer holds was popped by the person:
+  /// the back button, the edge swipe or a long-press jump. Flutter learns of
+  /// it as the transition starts, so its own slide runs together with
+  /// UIKit's instead of after it (which read as going back twice). An edge
+  /// swipe can still be cancelled, so that one waits for the finger to decide.
+  /// Whether UIKit has let go of a page. During a pop the controller is still
+  /// parented until the transition ends, so the stack is what tells.
+  private func isGone(_ page: ShellPageController) -> Bool {
+    guard let nav = page.navigationController else { return true }
+    return !nav.viewControllers.contains(page)
+  }
+
+  private func reportPopped(in navigationController: UINavigationController) {
+    guard pages.contains(where: { isGone($0.value) && !poppedByFlutter.contains($0.key) })
+    else { return }
+    if let coordinator = navigationController.transitionCoordinator, coordinator.isInteractive {
+      coordinator.notifyWhenInteractionChanges { [weak self] context in
+        guard let self, !context.isCancelled else { return }
+        self.flushPopped()
+      }
+      return
+    }
+    flushPopped()
+  }
+
+  private func flushPopped() {
+    let gone = pages.filter { isGone($0.value) && !poppedByFlutter.contains($0.key) }
     for (id, _) in gone.sorted(by: { $0.key > $1.key }) {
       pages[id] = nil
       channel?.invokeMethod("popped", arguments: ["id": id])
     }
     poppedByFlutter = poppedByFlutter.filter { pages[$0] != nil }
-    syncInsets()
   }
 
   func perform(action id: String) {
     channel?.invokeMethod("action", arguments: ["id": id])
+  }
+
+  override func traitCollectionDidChange(_ previousTraitCollection: UITraitCollection?) {
+    super.traitCollectionDidChange(previousTraitCollection)
+    refreshBar()
   }
 
   // MARK: - Geometry
@@ -237,28 +441,43 @@ final class MusicShellController: UIViewController, UITabBarControllerDelegate,
     guard modalDepth == 0, let page = visiblePage, page.isViewLoaded, page.view.window != nil,
       page.transitionCoordinator == nil || page.navigationController?.topViewController === page
     else { return }
-    let want = page.view.safeAreaInsets
+    var want = page.view.safeAreaInsets
+    if let top = horizontalTabBarTop {
+      want.bottom = max(want.bottom, view.bounds.maxY - top)
+    }
     // The window's own safe area (status bar, home indicator, Duo strips).
     // Not the Flutter view's: that already carries the extra we add here.
     let have = view.safeAreaInsets
+    // Content also keeps clear of the floating now-playing bar.
+    let bar = barShown ? ShellNowPlayingBar.height + ShellNowPlayingBar.gap * 2 : 0
     let extra = UIEdgeInsets(
       top: max(0, want.top - have.top),
       left: max(0, want.left - have.left),
-      bottom: max(0, want.bottom - have.bottom),
+      bottom: max(0, want.bottom - have.bottom) + bar,
       right: max(0, want.right - have.right)
     )
     guard extra != lastInsets else { return }
     lastInsets = extra
     flutter.additionalSafeAreaInsets = extra
+    // Root pages lay their masthead under the transparent bar; tell Flutter
+    // how much of the inset is bar.
+    channel?.invokeMethod("chrome", arguments: ["top": extra.top, "bottom": extra.bottom])
   }
 
   // MARK: - Appearance
 
   private func applyTheme() {
     overrideUserInterfaceStyle = theme.dark ? .dark : .light
+    // No bar background of its own anywhere: on a wide window the tab bar
+    // moves to the top and would otherwise lay a dark strip over the skin.
+    let tabAppearance = UITabBarAppearance()
+    tabAppearance.configureWithTransparentBackground()
+    tabs.tabBar.standardAppearance = tabAppearance
+    tabs.tabBar.scrollEdgeAppearance = tabAppearance
     // Tint inherits down the view tree; set it at the top so the vertical
     // bar's items pick it up as well as the horizontal bars.
     view.tintColor = theme.tint
+    nowPlayingBar.tintColor = theme.tint
     tabs.view.tintColor = theme.tint
     tabs.tabBar.tintColor = theme.tint
     for case let nav as UINavigationController in tabs.children {
@@ -311,15 +530,8 @@ final class ShellView: UIView {
   }
 }
 
-/// A page's transparent stand-in inside the navigation controller. It is a
-/// scroll view that never scrolls: UIKit looks for one at the top of the
-/// content to decide that a large title may be shown expanded.
-final class ShellPassView: UIScrollView {
-  override func layoutSubviews() {
-    super.layoutSubviews()
-    if contentSize != bounds.size { contentSize = bounds.size }
-  }
-}
+/// A page's transparent stand-in inside the navigation controller.
+final class ShellPassView: UIView {}
 
 final class ShellPageController: UIViewController {
   let id: Int
@@ -339,17 +551,19 @@ final class ShellPageController: UIViewController {
   override func loadView() {
     let view = ShellPassView()
     view.backgroundColor = .clear
-    view.isScrollEnabled = false
-    view.showsVerticalScrollIndicator = false
-    view.showsHorizontalScrollIndicator = false
     self.view = view
   }
 
   override var preferredStatusBarStyle: UIStatusBarStyle { shell?.statusBarStyle ?? .default }
 
+  /// Only a page that draws its own Flutter bar hides the system one. Roots
+  /// keep it (transparent, title-less) so pushes and pops never change the
+  /// content inset; their masthead is drawn under it by Flutter.
+  var hidesBar: Bool { spec.chromeless }
+
   override func viewWillAppear(_ animated: Bool) {
     super.viewWillAppear(animated)
-    navigationController?.setNavigationBarHidden(spec.chromeless, animated: animated)
+    navigationController?.setNavigationBarHidden(hidesBar, animated: animated)
   }
 
   override func viewDidAppear(_ animated: Bool) {
@@ -365,13 +579,17 @@ final class ShellPageController: UIViewController {
   func apply(_ spec: ShellPageSpec, theme: ShellTheme) {
     self.spec = spec
     navigationItem.title = spec.title
-    navigationItem.largeTitleDisplayMode = isRoot && !spec.immersive && spec.title != nil ? .always : .never
+    navigationItem.largeTitleDisplayMode = .never
     navigationItem.hidesBackButton = spec.hidesBack
     navigationItem.leftItemsSupplementBackButton = false
     navigationItem.leftBarButtonItems = spec.leading.map { [$0.barButton(shell: shell)] }
-    navigationItem.rightBarButtonItems = spec.actions.reversed().map { $0.barButton(shell: shell) }
+    // Shared now-playing actions sit after the page's own, skipping any the
+    // page already offers.
+    let own = Set(spec.actions.compactMap(\.symbol))
+    let shared = (shell?.sharedActions ?? []).filter { !own.contains($0.symbol ?? "") }
+    navigationItem.rightBarButtonItems = (spec.actions + shared).reversed().map { $0.barButton(shell: shell) }
     if isViewLoaded, let nav = navigationController, nav.topViewController === self {
-      nav.setNavigationBarHidden(spec.chromeless, animated: false)
+      nav.setNavigationBarHidden(hidesBar, animated: false)
     }
   }
 }
@@ -415,6 +633,16 @@ struct ShellAction {
     enabled = raw["enabled"] as? Bool ?? true
     prominent = raw["prominent"] as? Bool ?? false
     menu = (raw["menu"] as? [[String: Any]] ?? []).map(ShellMenuEntry.init)
+  }
+
+  init(id: String, title: String, symbol: String) {
+    self.id = id
+    self.title = title
+    self.symbol = symbol
+    glyph = nil
+    enabled = true
+    prominent = false
+    menu = []
   }
 
   func barButton(shell: MusicShellController?) -> UIBarButtonItem {
@@ -502,5 +730,183 @@ extension UIColor {
       blue: CGFloat(argb & 0xFF) / 255,
       alpha: CGFloat((argb >> 24) & 0xFF) / 255
     )
+  }
+}
+
+/// The floating now-playing bar: cover, song, favorite, previous,
+/// play/pause, next and queue on the system glass material.
+final class ShellNowPlayingBar: UIView {
+  static let height: CGFloat = 56
+  static let gap: CGFloat = 12
+
+  var onAction: ((String) -> Void)?
+
+  /// A wide window shows the full transport; a phone keeps play and the queue.
+  var wide = false {
+    didSet { if wide != oldValue { setNeedsLayout() } }
+  }
+
+  private let glass: UIVisualEffectView = {
+    if #available(iOS 26.0, *) {
+      // Not the interactive variant: it claims touches, and the bar's own
+      // drag and tap would never arrive. The press scale below stands in.
+      return UIVisualEffectView(effect: UIGlassEffect())
+    }
+    return UIVisualEffectView(effect: UIBlurEffect(style: .systemThinMaterial))
+  }()
+  private let cover = UIImageView()
+  private let title = UILabel()
+  private let favorite = UIButton(type: .system)
+  private let previous = UIButton(type: .system)
+  private let toggle = UIButton(type: .system)
+  private let skip = UIButton(type: .system)
+  private let queue = UIButton(type: .system)
+  private let lyrics = UIButton(type: .system)
+
+  override init(frame: CGRect) {
+    super.init(frame: frame)
+    layer.cornerCurve = .continuous
+    clipsToBounds = true
+    glass.frame = bounds
+    glass.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+    addSubview(glass)
+
+    cover.contentMode = .scaleAspectFill
+    cover.clipsToBounds = true
+    cover.layer.cornerRadius = 8
+    cover.layer.cornerCurve = .continuous
+    cover.backgroundColor = UIColor.secondarySystemFill
+    title.font = .systemFont(ofSize: 15, weight: .semibold)
+    title.textColor = .label
+    title.lineBreakMode = .byTruncatingTail
+    title.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+    title.setContentHuggingPriority(.defaultLow, for: .horizontal)
+
+    let symbols = UIImage.SymbolConfiguration(pointSize: 18, weight: .semibold)
+    func button(_ control: UIButton, _ name: String, _ action: String, _ label: String) {
+      control.setImage(UIImage(systemName: name, withConfiguration: symbols), for: .normal)
+      control.accessibilityLabel = label
+      control.addAction(UIAction { [weak self] _ in self?.onAction?(action) }, for: .touchUpInside)
+      control.widthAnchor.constraint(equalToConstant: 40).isActive = true
+    }
+    button(favorite, "heart", "favorite", "收藏")
+    button(previous, "backward.end.fill", "previous", "上一首")
+    button(toggle, "play.fill", "toggle", "播放")
+    button(skip, "forward.end.fill", "next", "下一首")
+    button(queue, "list.bullet", "queue", "当前队列")
+    lyrics.isHidden = true
+
+    let row = UIStackView(arrangedSubviews: [cover, title, favorite, previous, toggle, skip, queue])
+    self.row = row
+    row.axis = .horizontal
+    row.alignment = .center
+    row.spacing = 2
+    row.setCustomSpacing(12, after: cover)
+    row.setCustomSpacing(8, after: title)
+    row.translatesAutoresizingMaskIntoConstraints = false
+    glass.contentView.addSubview(row)
+    NSLayoutConstraint.activate([
+      cover.widthAnchor.constraint(equalToConstant: 38),
+      cover.heightAnchor.constraint(equalToConstant: 38),
+      row.leadingAnchor.constraint(equalTo: glass.contentView.leadingAnchor, constant: 9),
+      row.trailingAnchor.constraint(equalTo: glass.contentView.trailingAnchor, constant: -6),
+      row.centerYAnchor.constraint(equalTo: glass.contentView.centerYAnchor),
+    ])
+    addGestureRecognizer(UITapGestureRecognizer(target: self, action: #selector(open)))
+    let pan = UIPanGestureRecognizer(target: self, action: #selector(swipe(_:)))
+    pan.maximumNumberOfTouches = 1
+    addGestureRecognizer(pan)
+  }
+
+  private var row: UIStackView?
+
+  /// A horizontal drag on the bar changes the song, the way QQ Music's does:
+  /// the song slides with the finger, leaves, and the next one comes in.
+  @objc private func swipe(_ pan: UIPanGestureRecognizer) {
+    guard let row else { return }
+    let dx = pan.translation(in: self).x
+    switch pan.state {
+    case .changed:
+      // Only a sideways drag moves the song; a mostly vertical one does not.
+      let dy = pan.translation(in: self).y
+      guard abs(dx) > abs(dy) * 0.8 else { return }
+      row.transform = CGAffineTransform(translationX: dx * 0.6, y: 0)
+    case .ended, .cancelled:
+      let velocity = pan.velocity(in: self).x
+      let direction: Int = dx <= -56 || velocity <= -400 ? -1 : (dx >= 56 || velocity >= 400 ? 1 : 0)
+      if direction == 0 || pan.state == .cancelled {
+        UIView.animate(withDuration: 0.3, delay: 0, usingSpringWithDamping: 0.8, initialSpringVelocity: 0.3,
+                       options: [.allowUserInteraction]) { row.transform = .identity }
+        return
+      }
+      onAction?(direction < 0 ? "next" : "previous")
+      let width = bounds.width
+      UIView.animate(withDuration: 0.18, delay: 0, options: [.curveEaseIn]) {
+        row.transform = CGAffineTransform(translationX: CGFloat(direction) * width, y: 0)
+        row.alpha = 0
+      } completion: { _ in
+        row.transform = CGAffineTransform(translationX: CGFloat(-direction) * width * 0.5, y: 0)
+        UIView.animate(withDuration: 0.32, delay: 0, usingSpringWithDamping: 0.85, initialSpringVelocity: 0.4,
+                       options: [.allowUserInteraction]) {
+          row.transform = .identity
+          row.alpha = 1
+        }
+      }
+    default:
+      break
+    }
+  }
+
+  // Pressing the bar itself (not a button) focuses it: a slight shrink that
+  // springs back on release, like a tapped card.
+  override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) {
+    super.touchesBegan(touches, with: event)
+    press(true)
+  }
+
+  override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent?) {
+    super.touchesEnded(touches, with: event)
+    press(false)
+  }
+
+  override func touchesCancelled(_ touches: Set<UITouch>, with event: UIEvent?) {
+    super.touchesCancelled(touches, with: event)
+    press(false)
+  }
+
+  private func press(_ down: Bool) {
+    UIView.animate(
+      withDuration: down ? 0.12 : 0.32, delay: 0, usingSpringWithDamping: 0.7, initialSpringVelocity: 0.4,
+      options: [.allowUserInteraction, .beginFromCurrentState]
+    ) {
+      self.transform = down ? CGAffineTransform(scaleX: 0.97, y: 0.97) : .identity
+    }
+  }
+
+  @available(*, unavailable)
+  required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
+
+  override func layoutSubviews() {
+    super.layoutSubviews()
+    layer.cornerRadius = bounds.height / 2
+    // Few controls: a phone shows play and the queue beside the song; a wide
+    // window adds favorite, previous and next.
+    favorite.isHidden = !wide
+    previous.isHidden = !wide
+    skip.isHidden = !wide
+  }
+
+  @objc private func open() { onAction?("open") }
+
+  func update(title text: String, artist name: String, playing: Bool, favorite liked: Bool, artwork: UIImage?) {
+    title.text = name.isEmpty ? text : "\(text) - \(name)"
+    cover.image = artwork
+    let symbols = UIImage.SymbolConfiguration(pointSize: 18, weight: .semibold)
+    toggle.setImage(
+      UIImage(systemName: playing ? "pause.fill" : "play.fill", withConfiguration: symbols), for: .normal)
+    toggle.accessibilityLabel = playing ? "暂停" : "播放"
+    favorite.setImage(
+      UIImage(systemName: liked ? "heart.fill" : "heart", withConfiguration: symbols), for: .normal)
+    favorite.accessibilityLabel = liked ? "取消收藏" : "收藏"
   }
 }

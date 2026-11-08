@@ -680,7 +680,9 @@ class _AmbientPainter extends CustomPainter {
       }
     }
 
-    final f = size.width / 286;
+    // Scale with the shorter side and stop early: on a big window the dots
+    // would otherwise grow into blots that cover the page.
+    final f = (size.shortestSide / 286).clamp(1.0, 1.5);
     fan(
       Offset(size.width + 10, -10),
       300 * f,

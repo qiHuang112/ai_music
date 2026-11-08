@@ -1,4 +1,8 @@
-const defaultLanLibraryUrl = 'http://192.168.31.57:8787';
+const defaultLanLibraryUrl = 'http://192.168.31.167:8787';
+
+/// The Windows machine the library first lived on; a saved copy of it now
+/// means the default.
+const legacyLanLibraryUrl = 'http://192.168.31.57:8787';
 
 Uri normalizeLanLibraryBaseUri(String input) {
   final value = input.trim();

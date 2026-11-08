@@ -1,4 +1,5 @@
 import 'duo_scaffold.dart';
+import 'app_page_route.dart';
 import 'app_theme.dart';
 import 'dart:async';
 import 'package:flutter/material.dart';
@@ -63,7 +64,7 @@ class _AppUpdateSettingState extends State<AppUpdateSetting> {
         isThreeLine: true,
         trailing: const Icon(Icons.chevron_right),
         onTap: () => Navigator.of(context).push<void>(
-          MaterialPageRoute(
+          AppPageRoute(
             settings: const RouteSettings(name: 'app-updates'),
             builder: (_) => AppUpdatePage(updates: widget.updates),
           ),

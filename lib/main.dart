@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'src/presentation/app_page_route.dart';
 import 'src/presentation/native_shell.dart';
 import 'src/presentation/duo_window.dart';
 
@@ -72,6 +73,7 @@ Future<void> main() async {
   // iOS draws tab and navigation bars natively; ask before the first frame so
   // no page paints a Flutter bar first.
   await NativeShell.instance.connect();
+  NativeShell.instance.attachPlayback(controller);
   runApp(AiMusicApp(controller: controller));
 }
 
@@ -199,7 +201,7 @@ class _DesignGalleryHome extends StatelessWidget {
         title: item?.title,
         artist: item?.artist,
         onEnterApp: () => Navigator.of(context).push<void>(
-          MaterialPageRoute(
+          AppPageRoute(
             builder: (_) => MusicHomePage(controller: controller),
           ),
         ),
@@ -207,3 +209,4 @@ class _DesignGalleryHome extends StatelessWidget {
     },
   );
 }
+

@@ -7,6 +7,11 @@ import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:flutter/services.dart';
 
+import 'package:audio_service/audio_service.dart';
+
+import '../application/music_controller.dart';
+import 'player_page.dart' show artworkImageProvider;
+
 /// UIKit draws the tab bar, navigation bars, bar buttons and menus; Flutter
 /// draws the content. This is the Dart end of `ios/Runner/MusicShell.swift`.
 ///
@@ -121,6 +126,31 @@ class NativeShell extends NavigatorObserver {
   /// Who switches the home tabs when the system tab bar is tapped.
   void Function(int index)? onTabSelected;
 
+  /// Opens the full player when the native now-playing bar is tapped.
+  VoidCallback? onOpenPlayer;
+
+  /// Shows the play queue from the native now-playing bar.
+  VoidCallback? onOpenQueue;
+
+  /// Opens the full lyrics from the native now-playing bar.
+  VoidCallback? onOpenLyrics;
+
+  /// Opens the song's comments from the system bar.
+  VoidCallback? onOpenComments;
+
+  /// True while the tab bar carries the system mini player; Flutter's own
+  /// strip then stays out of the way.
+  final ValueNotifier<bool> accessoryActive = ValueNotifier<bool>(false);
+
+  /// Whether anything is loaded in the player at all.
+  final ValueNotifier<bool> nowPlaying = ValueNotifier<bool>(false);
+
+  /// The part of the window's padding that is the system bars: the top
+  /// navigation bar and the bottom tab bar with its accessory.
+  final ValueNotifier<EdgeInsets> chromeInsets = ValueNotifier<EdgeInsets>(
+    EdgeInsets.zero,
+  );
+
   void updatePage(int id, Map<String, Object?> spec, {bool nested = false}) {
     final target = nested ? _nested : _roots;
     final previous = target[id];
@@ -210,9 +240,156 @@ class NativeShell extends NavigatorObserver {
           _nativePopping = null;
         }
       case 'action':
-        _callbacks[args['id']]?.call();
+        switch (args['id']) {
+          case 'shell.player.open':
+            onOpenPlayer?.call();
+          case 'shell.player.toggle':
+            _playback?.togglePlayPause();
+          case 'shell.player.next':
+            _playback?.next();
+          case 'shell.player.previous':
+            _playback?.previous();
+          case 'shell.player.favorite':
+            final track = _playback?.currentTrack;
+            if (track != null) _playback?.toggleFavorite(track);
+          case 'shell.player.queue':
+            onOpenQueue?.call();
+          case 'shell.player.lyrics':
+            onOpenLyrics?.call();
+          case 'shell.player.comments':
+            onOpenComments?.call();
+          default:
+            _callbacks[args['id']]?.call();
+        }
+      case 'accessory':
+        accessoryActive.value = args['active'] == true;
+      case 'chrome':
+        chromeInsets.value = EdgeInsets.only(
+          top: (args['top'] as num?)?.toDouble() ?? 0,
+          bottom: (args['bottom'] as num?)?.toDouble() ?? 0,
+        );
     }
     return null;
+  }
+
+  // ---- Now playing -----------------------------------------------------------
+
+  MusicController? _playback;
+  StreamSubscription<MediaItem?>? _itemSub;
+  StreamSubscription<PlaybackState>? _stateSub;
+  MediaItem? _item;
+  bool _playing = false;
+  Uri? _artUri;
+  Uint8List? _art;
+  int _artRequest = 0;
+
+  /// Feeds the system mini player from the audio handler's streams.
+  void attachPlayback(MusicController controller) {
+    if (!_active || identical(_playback, controller)) return;
+    _playback = controller;
+    _itemSub?.cancel();
+    _stateSub?.cancel();
+    _item = controller.audioHandler.mediaItem.value;
+    _playing = controller.audioHandler.playbackState.value.playing;
+    _itemSub = controller.mediaItemStream.listen((item) {
+      _item = item;
+      _sendNowPlaying();
+    });
+    _stateSub = controller.playbackStateStream.listen((state) {
+      if (state.playing == _playing) return;
+      _playing = state.playing;
+      _sendNowPlaying();
+    });
+    // Favorites change through the controller, not the audio streams.
+    controller.addListener(_onPlaybackChanged);
+    _sendNowPlaying();
+  }
+
+  bool _favorite = false;
+
+  void _onPlaybackChanged() {
+    final track = _playback?.currentTrack;
+    final liked = track != null && (_playback?.isFavorite(track) ?? false);
+    if (liked != _favorite) _sendNowPlaying();
+  }
+
+  void _sendNowPlaying() {
+    final item = _item;
+    final artUri = item?.artUri ?? _playback?.currentArtworkUri;
+    if (artUri != _artUri) {
+      _artUri = artUri;
+      _art = null;
+      final request = ++_artRequest;
+      if (artUri != null) {
+        _thumbnail(artUri).then((bytes) {
+          if (request != _artRequest) return;
+          _art = bytes;
+          _sendNowPlaying();
+        });
+      }
+    }
+    nowPlaying.value = item != null;
+    final track = _playback?.currentTrack;
+    _favorite = track != null && (_playback?.isFavorite(track) ?? false);
+    _channel.invokeMethod('nowPlaying', {
+      'present': item != null,
+      'title': item?.title ?? '',
+      'artist': item?.artist ?? '',
+      'playing': _playing,
+      'favorite': _favorite,
+      'art': _art,
+    });
+  }
+
+  /// A 120px square of the cover for the accessory, as PNG.
+  static Future<Uint8List?> _thumbnail(Uri uri) async {
+    try {
+      final stream = artworkImageProvider(uri).resolve(ImageConfiguration.empty);
+      final completer = Completer<ui.Image>();
+      late final ImageStreamListener listener;
+      listener = ImageStreamListener(
+        (info, _) {
+          if (!completer.isCompleted) completer.complete(info.image);
+          stream.removeListener(listener);
+        },
+        onError: (error, _) {
+          if (!completer.isCompleted) completer.completeError(error);
+          stream.removeListener(listener);
+        },
+      );
+      stream.addListener(listener);
+      final image = await completer.future.timeout(const Duration(seconds: 8));
+      const side = 120.0;
+      final recorder = ui.PictureRecorder();
+      final canvas = Canvas(recorder);
+      final source = Rect.fromLTWH(
+        0,
+        0,
+        image.width.toDouble(),
+        image.height.toDouble(),
+      );
+      final square = source.shortestSide;
+      final crop = Rect.fromCenter(
+        center: source.center,
+        width: square,
+        height: square,
+      );
+      canvas.drawImageRect(
+        image,
+        crop,
+        const Rect.fromLTWH(0, 0, side, side),
+        Paint()..filterQuality = FilterQuality.medium,
+      );
+      final scaled = await recorder.endRecording().toImage(
+        side.toInt(),
+        side.toInt(),
+      );
+      final data = await scaled.toByteData(format: ui.ImageByteFormat.png);
+      scaled.dispose();
+      return data?.buffer.asUint8List();
+    } catch (_) {
+      return null;
+    }
   }
 
   // ---- Theme ---------------------------------------------------------------
@@ -342,6 +519,27 @@ final _symbols = <IconData, String>{
   Icons.system_update: 'arrow.down.app',
   Icons.clear: 'xmark.circle',
   Icons.clear_all: 'xmark.circle',
+  Icons.wifi_tethering_rounded: 'antenna.radiowaves.left.and.right',
+  Icons.checklist_rounded: 'checklist',
+  Icons.delete_sweep_outlined: 'trash',
+  Icons.my_location: 'location',
+  Icons.filter_alt: 'line.3.horizontal.decrease.circle',
+  Icons.filter_alt_outlined: 'line.3.horizontal.decrease.circle',
+  Icons.reorder_rounded: 'line.3.horizontal',
+  Icons.playlist_remove_rounded: 'text.badge.minus',
+  Icons.palette_outlined: 'paintpalette',
+  Icons.language: 'globe',
+  Icons.cloud_download_outlined: 'icloud.and.arrow.down',
+  Icons.folder_outlined: 'folder',
+  Icons.save_alt: 'square.and.arrow.down',
+  Icons.content_copy: 'doc.on.doc',
+  Icons.upload_file: 'square.and.arrow.up',
+  Icons.bug_report_outlined: 'ladybug',
+  Icons.restart_alt: 'arrow.counterclockwise',
+  Icons.stop: 'stop.fill',
+  Icons.pause: 'pause.fill',
+  Icons.skip_next_rounded: 'forward.end.fill',
+  Icons.skip_previous_rounded: 'backward.end.fill',
 };
 
 /// A bar glyph for an icon with no SF Symbol: the icon font character drawn

@@ -1,4 +1,6 @@
 import 'duo_scaffold.dart';
+import 'app_page_route.dart';
+import 'native_shell.dart';
 import 'playlist_sliver_header.dart';
 import 'initial_song_scroll.dart';
 import 'music_thumbnail.dart';
@@ -121,7 +123,7 @@ class OnlinePlaylistSearchPanel extends StatelessWidget {
                             )
                           : const Icon(Icons.chevron_right),
                       onTap: () => Navigator.of(context).push(
-                        MaterialPageRoute<void>(
+                        AppPageRoute<void>(
                           builder: (_) => DirectPlaylistPage(
                             playlist: item,
                             repository: search.repository,
@@ -316,15 +318,20 @@ class _OnlinePlaylistPageState extends State<OnlinePlaylistPage> {
                         builder: (context, scrollController, anchor) => PlaylistScrollView(
                           controller: scrollController,
                           slivers: [
-                            PlaylistSliverHeader(
-                              title: widget.playlist.name,
-                              actions: DuoScaffold.usesSystemRail(context)
-                                  ? const []
-                                  : actions,
-                              leading: DuoScaffold.usesSystemRail(context)
-                                  ? const SizedBox.shrink()
-                                  : null,
-                            ),
+                            if (NativeShell.active)
+                              SliverPadding(
+                                padding: const EdgeInsets.only(top: 4),
+                              )
+                            else
+                              PlaylistSliverHeader(
+                                title: widget.playlist.name,
+                                actions: DuoScaffold.usesSystemRail(context)
+                                    ? const []
+                                    : actions,
+                                leading: DuoScaffold.usesSystemRail(context)
+                                    ? const SizedBox.shrink()
+                                    : null,
+                              ),
                             SliverToBoxAdapter(
                               child: Column(
                                 children: [
@@ -786,7 +793,7 @@ class OnlinePlaylistTaskEntry extends StatelessWidget {
         ),
         trailing: const Icon(Icons.chevron_right),
         onTap: () => Navigator.of(context).push(
-          MaterialPageRoute<void>(
+          AppPageRoute<void>(
             builder: (_) => OnlinePlaylistTasksPage(
               controller: controller,
               onOpenPlaylist: onOpenPlaylist,
@@ -848,7 +855,7 @@ class OnlinePlaylistTaskList extends StatelessWidget {
               ),
               trailing: const Icon(Icons.chevron_right),
               onTap: () => Navigator.of(context).push(
-                MaterialPageRoute<void>(
+                AppPageRoute<void>(
                   builder: (_) => OnlinePlaylistPage(
                     playlist: task.playlist,
                     repository: task.repository,
