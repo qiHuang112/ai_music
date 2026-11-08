@@ -6,6 +6,7 @@ import '../application/music_controller.dart';
 import '../data/music_charts.dart';
 import '../data/music_playlists.dart';
 import 'app_localizations.dart';
+import 'design/adaptive_layout.dart';
 import 'design/app_icons.dart';
 
 class DiscoverChartsSection extends StatelessWidget {
@@ -219,24 +220,36 @@ class _MusicChartPageState extends State<MusicChartPage> {
                 Expanded(
                   child: entries.isEmpty
                       ? Center(child: Text(_error ?? strings.chartEmpty))
-                      : ListView.builder(
-                          itemCount: entries.length,
-                          itemBuilder: (context, index) {
-                            final entry = entries[index];
-                            return ListTile(
-                              key: ValueKey('chart-entry-${entry.rank}'),
-                              leading: SizedBox(
-                                width: 44,
-                                child: Center(child: Text('${entry.rank}')),
-                              ),
-                              title: Text(entry.title, maxLines: 1),
-                              subtitle: Text(
-                                entry.artist,
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                              ),
-                            );
-                          },
+                      : LayoutBuilder(
+                          // Rank lists read best at a readable width; the
+                          // margins still scroll.
+                          builder: (context, box) => ListView.builder(
+                            padding: MusicLayout.centered(
+                              EdgeInsets.zero,
+                              box.maxWidth,
+                            ),
+                            itemCount: entries.length,
+                            itemBuilder: (context, index) {
+                              final entry = entries[index];
+                              return ListTile(
+                                key: ValueKey('chart-entry-${entry.rank}'),
+                                leading: SizedBox(
+                                  width: 44,
+                                  child: Center(child: Text('${entry.rank}')),
+                                ),
+                                title: Text(
+                                  entry.title,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                                subtitle: Text(
+                                  entry.artist,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                              );
+                            },
+                          ),
                         ),
                 ),
               ],

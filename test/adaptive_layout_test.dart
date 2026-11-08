@@ -52,6 +52,24 @@ void main() {
 
     expect(await tileWidth(350), closeTo((350 - 12) / 2, 1));
     expect(await tileWidth(1000), closeTo((1000 - 36) / 4, 1));
+    // A growing list keeps every column that fits, last row partly filled.
+    await tester.pumpWidget(
+      _sized(
+        1000,
+        AdaptiveTiles(
+          minTileWidth: 300,
+          minColumns: 1,
+          fullRows: false,
+          children: [
+            for (var i = 0; i < 4; i++) SizedBox(key: Key('l$i'), height: 40),
+          ],
+        ),
+      ),
+    );
+    expect(
+      tester.getTopLeft(find.byKey(const Key('l2'))).dy,
+      tester.getTopLeft(find.byKey(const Key('l0'))).dy,
+    );
     // 3 would fit at 500 but leave an orphan; 4 tiles go two across.
     expect(await tileWidth(500), closeTo((500 - 12) / 2, 1));
   });

@@ -104,6 +104,9 @@ class AdaptiveBody extends StatelessWidget {
   @override
   Widget build(BuildContext context) => Align(
     alignment: Alignment.topCenter,
+    // As tall as the content: in a bottom bar or a Column it must not take
+    // the whole height.
+    heightFactor: 1,
     child: ConstrainedBox(
       constraints: BoxConstraints(maxWidth: maxWidth),
       child: child,
@@ -167,11 +170,18 @@ class AdaptiveTiles extends StatelessWidget {
     this.minColumns = 2,
     this.maxColumns = 4,
     this.spacing = 12,
+    this.runSpacing,
+    this.fullRows = true,
   });
 
   final List<Widget> children;
   final double minTileWidth, spacing;
+  final double? runSpacing;
   final int minColumns, maxColumns;
+
+  /// Use only column counts that leave no orphan in the last row. Right for a
+  /// fixed set of tiles (four metrics); lists that grow set it to false.
+  final bool fullRows;
 
   @override
   Widget build(BuildContext context) => LayoutBuilder(
@@ -184,7 +194,8 @@ class AdaptiveTiles extends StatelessWidget {
         maxColumns: maxColumns,
       );
       // Full rows only: four tiles go 4 or 2 across, never 3 and an orphan.
-      while (columns > minColumns &&
+      while (fullRows &&
+          columns > minColumns &&
           columns < children.length &&
           children.length % columns != 0) {
         columns -= 1;
@@ -192,7 +203,7 @@ class AdaptiveTiles extends StatelessWidget {
       final width = (constraints.maxWidth - spacing * (columns - 1)) / columns;
       return Wrap(
         spacing: spacing,
-        runSpacing: spacing,
+        runSpacing: runSpacing ?? spacing,
         children: [
           for (final child in children)
             SizedBox(width: width.floorToDouble(), child: child),

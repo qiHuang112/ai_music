@@ -15,6 +15,7 @@ import '../data/music_playlists.dart';
 import '../platform/screenshot_ocr.dart';
 import 'app_localizations.dart';
 import 'playlist_actions.dart';
+import 'design/adaptive_layout.dart';
 import 'design/app_icons.dart';
 
 List<XFile> orderPickedScreenshots(List<XFile> picked) {
@@ -257,25 +258,28 @@ class _ScreenshotImportPageState extends State<ScreenshotImportPage> {
           ? null
           : SafeArea(
               minimum: const EdgeInsets.fromLTRB(16, 8, 16, 12),
-              child: Row(
-                children: [
-                  Expanded(
-                    child: Text(
-                      zh ? '已选 $selected 首' : '$selected selected',
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
+              // Keep the count and the button together on wide screens.
+              child: AdaptiveBody(
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        zh ? '已选 $selected 首' : '$selected selected',
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                      ),
                     ),
-                  ),
-                  const SizedBox(width: 12),
-                  Flexible(
-                    child: OutlinedButton(
-                      onPressed: selected == 0 || _adding
-                          ? null
-                          : _addToPlaylist,
-                      child: Text(zh ? '加入歌单' : 'Add to playlist'),
+                    const SizedBox(width: 12),
+                    Flexible(
+                      child: OutlinedButton(
+                        onPressed: selected == 0 || _adding
+                            ? null
+                            : _addToPlaylist,
+                        child: Text(zh ? '加入歌单' : 'Add to playlist'),
+                      ),
                     ),
-                  ),
-                ],
+                  ],
+                ),
               ),
             ),
     );

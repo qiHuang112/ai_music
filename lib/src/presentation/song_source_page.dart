@@ -8,6 +8,7 @@ import '../data/music_resolver.dart';
 import '../domain/music_models.dart';
 import '../data/saved_online_track.dart';
 import 'app_localizations.dart';
+import 'design/adaptive_layout.dart';
 import 'design/app_icons.dart';
 
 Future<void> showSongSourcePicker(
@@ -15,7 +16,9 @@ Future<void> showSongSourcePicker(
   MusicController controller,
   Track track,
 ) {
-  if (DesktopMusicScope.maybeOf(context) != null) {
+  // A dialog on the desktop and on wide touch screens; a page on phones.
+  if (DesktopMusicScope.maybeOf(context) != null ||
+      MusicLayout.of(context).isExpanded) {
     return showDialog<void>(
       context: context,
       builder: (_) => Dialog(

@@ -54,6 +54,7 @@ import 'listening_stats_page.dart';
 import 'music_thumbnail.dart';
 import 'file_sharing.dart';
 import 'song_actions.dart';
+import 'design/adaptive_layout.dart';
 import 'design/app_icons.dart';
 
 class MusicHomePage extends StatefulWidget {
@@ -910,9 +911,7 @@ class _SearchHeader extends StatelessWidget {
                             : IconButton(
                                 tooltip: strings.importScreenshots,
                                 onPressed: onImportScreenshots,
-                                icon: const Icon(
-                                  AppIcons.scan,
-                                ),
+                                icon: const Icon(AppIcons.scan),
                               ))
                       : Row(
                           mainAxisSize: MainAxisSize.min,
@@ -927,9 +926,7 @@ class _SearchHeader extends StatelessWidget {
                               IconButton(
                                 tooltip: strings.importScreenshots,
                                 onPressed: onImportScreenshots,
-                                icon: const Icon(
-                                  AppIcons.scan,
-                                ),
+                                icon: const Icon(AppIcons.scan),
                               ),
                           ],
                         ),
@@ -1270,9 +1267,9 @@ class _SearchBody extends StatelessWidget {
           context,
           base: const EdgeInsets.fromLTRB(20, 0, 20, 24),
         );
-        // An open inner display held wide: the vertical stack reflows into
-        // two columns, the way Music does, instead of stretching across.
-        if (constraints.maxWidth >= 840) {
+        // From the medium class up (Duo opened, tablets) the vertical stack
+        // reflows into two columns instead of stretching across.
+        if (constraints.maxWidth >= MusicLayout.mediumWidth) {
           return Row(
             key: const ValueKey('home-two-columns'),
             crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -1666,61 +1663,77 @@ class _LibraryLanding extends StatelessWidget {
           const LinearProgressIndicator(),
           const SizedBox(height: 12),
         ],
-        // On a wide window these entries keep a card's width instead of
-        // stretching into two half-screen slabs.
-        _LibraryLead(
-          child: Row(
-            children: [
-              Expanded(
-                child: _LibraryShortcutButton(
-                  selection: _LibraryListSpec.favorite(),
-                  count: controller.favoriteTracks.length,
-                  title: strings.favorite,
-                  onPressed: () =>
-                      _openList(context, _LibraryListSpec.favorite()),
+        // Phones: the two shortcuts share a row and listening sits below.
+        // Wider: all three share one row instead of stretching into slabs.
+        LayoutBuilder(
+          builder: (context, box) {
+            final favorite = _LibraryShortcutButton(
+              selection: _LibraryListSpec.favorite(),
+              count: controller.favoriteTracks.length,
+              title: strings.favorite,
+              onPressed: () => _openList(context, _LibraryListSpec.favorite()),
+            );
+            final local = _LibraryShortcutButton(
+              selection: _LibraryListSpec.local(),
+              count: controller.cachedTracks.length,
+              title: strings.localLibrary,
+              onPressed: () => _openList(context, _LibraryListSpec.local()),
+            );
+            final listening = Card(
+              margin: EdgeInsets.zero,
+              child: ListTile(
+                key: const Key('library-listening-stats'),
+                leading: Icon(
+                  AppIcons.insights,
+                  color: Theme.of(context).colorScheme.primary,
+                ),
+                title: Text(strings.isZh ? '我的听歌' : 'My listening'),
+                subtitle: Text(
+                  strings.isZh
+                      ? '时长、排行与每日记录'
+                      : 'Time, rankings and daily history',
+                ),
+                trailing: const Icon(AppIcons.chevronRight),
+                onTap: () => Navigator.push(
+                  context,
+                  AppPageRoute<void>(
+                    settings: const RouteSettings(name: 'listening-stats'),
+                    builder: (_) => ListeningStatsPage(
+                      controller: controller,
+                      bottomPlayer: MiniPlayer(controller: controller),
+                      onOpenPlaylist: (playlist) =>
+                          _openList(context, _LibraryListSpec.custom(playlist)),
+                    ),
+                  ),
                 ),
               ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: _LibraryShortcutButton(
-                  selection: _LibraryListSpec.local(),
-                  count: controller.cachedTracks.length,
-                  title: strings.localLibrary,
-                  onPressed: () =>
-                      _openList(context, _LibraryListSpec.local()),
+            );
+            if (box.maxWidth >= MusicLayout.mediumWidth) {
+              return Row(
+                children: [
+                  Expanded(child: favorite),
+                  const SizedBox(width: 12),
+                  Expanded(child: local),
+                  const SizedBox(width: 12),
+                  Expanded(flex: 2, child: listening),
+                ],
+              );
+            }
+            return Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Row(
+                  children: [
+                    Expanded(child: favorite),
+                    const SizedBox(width: 12),
+                    Expanded(child: local),
+                  ],
                 ),
-              ),
-            ],
-          ),
-        ),
-        const SizedBox(height: 24),
-        _LibraryLead(
-          child: Card(
-          child: ListTile(
-            key: const Key('library-listening-stats'),
-            leading: Icon(
-              AppIcons.insights,
-              color: Theme.of(context).colorScheme.primary,
-            ),
-            title: Text(strings.isZh ? '我的听歌' : 'My listening'),
-            subtitle: Text(
-              strings.isZh ? '时长、排行与每日记录' : 'Time, rankings and daily history',
-            ),
-            trailing: const Icon(AppIcons.chevronRight),
-            onTap: () => Navigator.push(
-              context,
-              AppPageRoute<void>(
-                settings: const RouteSettings(name: 'listening-stats'),
-                builder: (_) => ListeningStatsPage(
-                  controller: controller,
-                  bottomPlayer: MiniPlayer(controller: controller),
-                  onOpenPlaylist: (playlist) =>
-                      _openList(context, _LibraryListSpec.custom(playlist)),
-                ),
-              ),
-            ),
-          ),
-        ),
+                const SizedBox(height: 24),
+                listening,
+              ],
+            );
+          },
         ),
         SizedBox(height: desktop ? 30 : 24),
         Text(strings.customPlaylists, style: heading),
@@ -1730,16 +1743,28 @@ class _LibraryLanding extends StatelessWidget {
         else if (desktop)
           sleeves(playlists)
         else
-          for (final playlist in playlists) ...[
-            _CustomPlaylistTile(
-              playlist: playlist,
-              artwork: _homePlaylistArtwork(controller, playlist),
-              subtitle: _homePlaylistSubtitle(controller, playlist, strings),
-              onTap: () =>
-                  _openList(context, _LibraryListSpec.custom(playlist)),
-            ),
-            const SizedBox(height: 4),
-          ],
+          // One list on a phone, two or three side by side when wider.
+          AdaptiveTiles(
+            minTileWidth: 340,
+            minColumns: 1,
+            maxColumns: 3,
+            runSpacing: 4,
+            fullRows: false,
+            children: [
+              for (final playlist in playlists)
+                _CustomPlaylistTile(
+                  playlist: playlist,
+                  artwork: _homePlaylistArtwork(controller, playlist),
+                  subtitle: _homePlaylistSubtitle(
+                    controller,
+                    playlist,
+                    strings,
+                  ),
+                  onTap: () =>
+                      _openList(context, _LibraryListSpec.custom(playlist)),
+                ),
+            ],
+          ),
         const SizedBox(height: 24),
         if (controller.builtInPlaylists.isNotEmpty) ...[
           if (desktop) const SizedBox(height: 6),
@@ -1748,14 +1773,27 @@ class _LibraryLanding extends StatelessWidget {
           if (desktop)
             sleeves(controller.builtInPlaylists)
           else
-            for (final playlist in controller.builtInPlaylists)
-              _CustomPlaylistTile(
-                playlist: playlist,
-                artwork: _homePlaylistArtwork(controller, playlist),
-                subtitle: _homePlaylistSubtitle(controller, playlist, strings),
-                onTap: () =>
-                    _openList(context, _LibraryListSpec.custom(playlist)),
-              ),
+            AdaptiveTiles(
+              minTileWidth: 340,
+              minColumns: 1,
+              maxColumns: 3,
+              runSpacing: 4,
+              fullRows: false,
+              children: [
+                for (final playlist in controller.builtInPlaylists)
+                  _CustomPlaylistTile(
+                    playlist: playlist,
+                    artwork: _homePlaylistArtwork(controller, playlist),
+                    subtitle: _homePlaylistSubtitle(
+                      controller,
+                      playlist,
+                      strings,
+                    ),
+                    onTap: () =>
+                        _openList(context, _LibraryListSpec.custom(playlist)),
+                  ),
+              ],
+            ),
           const SizedBox(height: 24),
         ],
         Text(strings.isZh ? '匹配歌单' : 'Matching playlists', style: heading),
@@ -1775,9 +1813,9 @@ class _LibraryLanding extends StatelessWidget {
       ...neteaseMusicCharts,
     ].where((c) => c.playlistId == selection.id).firstOrNull;
     if (chart != null) {
-      return Navigator.of(context).push<void>(
-        AppPageRoute(builder: (_) => _chartPage(controller, chart)),
-      );
+      return Navigator.of(
+        context,
+      ).push<void>(AppPageRoute(builder: (_) => _chartPage(controller, chart)));
     }
     return Navigator.of(context).push<void>(
       AppPageRoute(
@@ -2573,19 +2611,19 @@ class _PlaylistDetailPageState extends State<_PlaylistDetailPage> {
                     ),
                   )
                 else
-                PlaylistSliverHeader(
-                  title: list.title,
-                  note: widget.chartUpdatedAt == null
-                      ? null
-                      : strings.chartUpdated(widget.chartUpdatedAt!),
-                  actions: DuoScaffold.usesSystemRail(context)
-                      ? const []
-                      : appBar.actions ?? const [],
-                  leading: DuoScaffold.usesSystemRail(context)
-                      ? const SizedBox.shrink()
-                      : appBar.leading,
-                  toolbarTitle: selecting ? appBar.title : null,
-                ),
+                  PlaylistSliverHeader(
+                    title: list.title,
+                    note: widget.chartUpdatedAt == null
+                        ? null
+                        : strings.chartUpdated(widget.chartUpdatedAt!),
+                    actions: DuoScaffold.usesSystemRail(context)
+                        ? const []
+                        : appBar.actions ?? const [],
+                    leading: DuoScaffold.usesSystemRail(context)
+                        ? const SizedBox.shrink()
+                        : appBar.leading,
+                    toolbarTitle: selecting ? appBar.title : null,
+                  ),
                 SliverToBoxAdapter(child: Column(children: headerChildren)),
               ]
             : null;
@@ -3709,11 +3747,15 @@ class _TrackTileState extends State<_TrackTile> {
                         ? dragHandle
                         : isSelecting
                         ? null
-                        : _TrackActions(
-                            menuKey: menuKey,
-                            controller: controller,
-                            list: list,
-                            track: track,
+                        : _WideAlbumColumn(
+                            album: track.album,
+                            color: cached ? colors.onSurfaceVariant : faded,
+                            child: _TrackActions(
+                              menuKey: menuKey,
+                              controller: controller,
+                              list: list,
+                              track: track,
+                            ),
                           ),
                     onTap: tap,
                     onLongPress: isReorderEditing
@@ -3899,9 +3941,7 @@ class _TrackActions extends StatelessWidget {
                 ? strings.removeFromFavorites
                 : strings.addToFavorites,
             onPressed: () => controller.toggleFavorite(track),
-            icon: favorite
-                ? AppIcons.heartFill
-                : AppIcons.heart,
+            icon: favorite ? AppIcons.heartFill : AppIcons.heart,
             color: favorite ? Theme.of(context).colorScheme.primary : null,
             size: 30,
             iconSize: 17,
@@ -4373,10 +4413,7 @@ class _DesktopListHero extends StatelessWidget {
                                         fontWeight: FontWeight.w600,
                                       ),
                                     ),
-                                    icon: const Icon(
-                                      AppIcons.play,
-                                      size: 20,
-                                    ),
+                                    icon: const Icon(AppIcons.play, size: 20),
                                     label: Text(zh ? '播放全部' : 'Play all'),
                                   ),
                                   const SizedBox(width: 6),
@@ -4436,6 +4473,47 @@ class _DesktopListHero extends StatelessWidget {
 }
 
 /// Mac track table geometry, shared by the column header and its rows.
+/// On wide screens a phone-style song row gains the album column the desktop
+/// table has, so a tablet uses its width for information, not empty space.
+class _WideAlbumColumn extends StatelessWidget {
+  const _WideAlbumColumn({
+    required this.album,
+    required this.color,
+    required this.child,
+  });
+
+  final String album;
+  final Color? color;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    final wide =
+        album.isNotEmpty &&
+        MusicLayout.classOf(MediaQuery.sizeOf(context).width).isExpanded &&
+        DesktopMusicScope.maybeOf(context) == null;
+    if (!wide) return child;
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        SizedBox(
+          width: 220,
+          child: Text(
+            album,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: Theme.of(
+              context,
+            ).textTheme.bodyMedium?.copyWith(color: color),
+          ),
+        ),
+        const SizedBox(width: 16),
+        child,
+      ],
+    );
+  }
+}
+
 abstract final class _DesktopColumns {
   static const index = 30.0;
   static const cover = 38.0;
@@ -4692,19 +4770,4 @@ class _DesktopTrackRow extends StatelessWidget {
       ),
     );
   }
-}
-
-/// Leading library entries stay at most as wide as a card on big windows.
-class _LibraryLead extends StatelessWidget {
-  const _LibraryLead({required this.child});
-  final Widget child;
-
-  @override
-  Widget build(BuildContext context) => Align(
-    alignment: AlignmentDirectional.centerStart,
-    child: ConstrainedBox(
-      constraints: const BoxConstraints(maxWidth: 560),
-      child: child,
-    ),
-  );
 }

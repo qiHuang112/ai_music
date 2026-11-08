@@ -1690,9 +1690,36 @@ void main() {
     },
   );
 
+  testWidgets('home splits into two columns from the medium class up', (
+    tester,
+  ) async {
+    addTearDown(tester.view.reset);
+    final fixture = _homeLibraryFixture();
+    for (final (width, split) in [(390.0, false), (700.0, true)]) {
+      tester.view.physicalSize = Size(width, 900);
+      tester.view.devicePixelRatio = 1;
+      await tester.pumpWidget(
+        _app(
+          cacheStore: fixture.cacheStore,
+          playlistStore: fixture.playlistStore,
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(
+        find.byKey(const ValueKey('home-two-columns')),
+        split ? findsOneWidget : findsNothing,
+      );
+      expect(tester.takeException(), isNull);
+    }
+  });
+
   testWidgets('home defaults to favorite and custom playlist summaries', (
     tester,
   ) async {
+    // A phone: discovery stacks under the playlists (wider splits in two).
+    tester.view.physicalSize = const Size(390, 844);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
     final fixture = _homeLibraryFixture();
     await tester.pumpWidget(
       _app(
