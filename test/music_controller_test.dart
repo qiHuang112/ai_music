@@ -5925,7 +5925,7 @@ void main() {
   );
 
   test(
-    'deleting a queued non-current cached track rebuilds queue around current track',
+    'deleting a queued non-current cached track removes it without reloading',
     () async {
       final handler = _SpyAudioHandler();
       final first = _cachedTrack(id: 'song-1', name: '第一首');
@@ -5958,8 +5958,11 @@ void main() {
 
         await controller.deleteCachedTrack(secondTrack);
 
-        expect(handler.loadedIds, [first.cacheId]);
-        expect(handler.loadedInitialPosition, const Duration(seconds: 21));
+        // Removed in place: no reload, so the playing song is not restarted.
+        expect(handler.loadedIds, isEmpty);
+        expect(handler.loadedInitialPosition, isNull);
+        expect(handler.queue.value.map((item) => item.id), [first.cacheId]);
+        expect(controller.queueTracks.map((t) => t.id), [first.cacheId]);
         expect(handler.mediaItem.value?.id, first.cacheId);
       } finally {
         controller.dispose();
@@ -6002,7 +6005,7 @@ void main() {
         expect(handler.stopCalls, 0);
         expect(handler.mediaItem.value?.id, online.id);
         expect(handler.queue.value.map((item) => item.id), [online.id]);
-        expect(handler.loadedInitialPosition, const Duration(seconds: 12));
+        expect(controller.queueTracks.map((t) => t.id), [online.id]);
       } finally {
         controller.dispose();
         await handler.dispose();
@@ -7439,6 +7442,7 @@ class _SpyAudioHandler extends MusicAudioHandler {
     int initialIndex = 0,
     Duration initialPosition = Duration.zero,
     bool playWhenReady = true,
+    bool restoreOnFailure = false,
   }) async {
     loadedItems = items;
     loadedIds = [for (final item in items) item.mediaItem.id];
@@ -7561,6 +7565,7 @@ class _DelayedFirstLoadHandler extends _SpyAudioHandler {
     int initialIndex = 0,
     Duration initialPosition = Duration.zero,
     bool playWhenReady = true,
+    bool restoreOnFailure = false,
   }) async {
     _loads += 1;
     if (_loads == 1) {
@@ -7588,6 +7593,7 @@ class _DelayedSecondLoadHandler extends _SpyAudioHandler {
     int initialIndex = 0,
     Duration initialPosition = Duration.zero,
     bool playWhenReady = true,
+    bool restoreOnFailure = false,
   }) async {
     _loads += 1;
     if (_loads == 2) {
@@ -8788,6 +8794,7 @@ class _MediaHealthHandler extends _SpyAudioHandler {
     int initialIndex = 0,
     Duration initialPosition = Duration.zero,
     bool playWhenReady = true,
+    bool restoreOnFailure = false,
   }) async {
     loadCalls++;
     if (loadCalls == 1 && failFirstLoad) {

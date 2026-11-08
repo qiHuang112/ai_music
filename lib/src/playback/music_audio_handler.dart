@@ -163,11 +163,13 @@ class MusicAudioHandler extends BaseAudioHandler
     int initialIndex = 0,
     Duration initialPosition = Duration.zero,
     bool playWhenReady = true,
+    bool restoreOnFailure = false,
   }) => _loadQueue(
     items,
     initialIndex: initialIndex,
     initialPosition: initialPosition,
     playWhenReady: playWhenReady,
+    restoreOnFailure: restoreOnFailure,
   );
 
   Future<void> restoreQueue(
@@ -188,11 +190,18 @@ class MusicAudioHandler extends BaseAudioHandler
     Duration initialPosition = Duration.zero,
     bool playWhenReady = true,
     bool preload = true,
+    bool restoreOnFailure = false,
   }) async {
     // App 内播放器、通知栏、锁屏和耳机按键都消费 audio_service 队列，不能绕过这里直接播。
+    final previousItems = _items;
+    final previousIndex = currentQueueIndex;
+    final previousPosition = _awaitingPlayback
+        ? _pendingPosition
+        : _player.position;
     _loadingQueue = true;
     _queueRevision += 1;
     _queueLoadRevision = _queueRevision;
+    final revision = _queueRevision;
     if (_preparingRestoreRevision != _queueRevision) {
       _invalidateRestorePreparation();
     }
@@ -228,6 +237,16 @@ class MusicAudioHandler extends BaseAudioHandler
         initialPosition: initialPosition,
         preload: preload,
       );
+    } catch (_) {
+      // The caller keeps its previous queue when a trial load fails, so the
+      // player must hold that queue too; otherwise index-based edits and
+      // next/previous would act on the queue that never loaded.
+      if (restoreOnFailure &&
+          revision == _queueRevision &&
+          previousItems.isNotEmpty) {
+        await _restoreItems(previousItems, previousIndex, previousPosition);
+      }
+      rethrow;
     } finally {
       _loadingQueue = false;
     }
@@ -243,6 +262,26 @@ class MusicAudioHandler extends BaseAudioHandler
     if (playWhenReady) {
       await play();
     }
+  }
+
+  Future<void> _restoreItems(
+    List<PlayableAudio> items,
+    int? index,
+    Duration position,
+  ) async {
+    final safeIndex = (index ?? 0).clamp(0, items.length - 1);
+    _items = items;
+    _indexTracker.reset();
+    _shuffleSkipPlanner.reset(_items.map((item) => item.mediaItem.id).toList());
+    _resetShuffleHistory(_items[safeIndex].mediaItem.id);
+    queue.add(_items.map((item) => item.mediaItem).toList(growable: false));
+    // Like a restored session: the sources load on the next play, so a failed
+    // trial does not spend a second network round trip here.
+    _awaitingPlayback = true;
+    _pendingIndex = safeIndex;
+    _pendingPosition = position;
+    _publishCurrentItem(safeIndex);
+    _publishPendingState();
   }
 
   /// Adds newly recognized playlist songs without resetting the current

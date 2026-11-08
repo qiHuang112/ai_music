@@ -939,6 +939,52 @@ void main() {
       }
     },
   );
+
+  for (final restore in [true, false]) {
+    test('failed queue load restores the previous queue: $restore', () async {
+      final original = JustAudioPlatform.instance;
+      final platform = _TestJustAudioPlatform();
+      JustAudioPlatform.instance = platform;
+      final handler = MusicAudioHandler();
+      PlayableAudio item(String id) => PlayableAudio(
+        mediaItem: MediaItem(id: id, title: id),
+        source: AudioSource.uri(Uri.parse('https://example.test/$id.mp3')),
+      );
+      try {
+        await handler.loadQueue(
+          [item('a'), item('b'), item('c')],
+          initialIndex: 1,
+          playWhenReady: false,
+        );
+        platform.loadError = PlatformException(code: '500', message: 'off');
+        await expectLater(
+          handler.loadQueue(
+            [item('x'), item('y')],
+            playWhenReady: false,
+            restoreOnFailure: restore,
+          ),
+          throwsA(anything),
+        );
+        final ids = handler.queue.value.map((m) => m.id).toList();
+        if (!restore) {
+          expect(ids, ['x', 'y']);
+          return;
+        }
+        expect(ids, ['a', 'b', 'c']);
+        expect(handler.mediaItem.value?.id, 'b');
+        expect(handler.currentQueueIndex, 1);
+        expect(handler.isAwaitingPlayback, isTrue);
+        await handler.play();
+        await Future<void>.delayed(const Duration(milliseconds: 10));
+        final load = platform._players.values.single.loads.last;
+        expect(load.initialIndex, 1);
+        expect(handler.mediaItem.value?.id, 'b');
+      } finally {
+        await handler.dispose();
+        JustAudioPlatform.instance = original;
+      }
+    });
+  }
 }
 
 class _TestJustAudioPlatform extends JustAudioPlatform {

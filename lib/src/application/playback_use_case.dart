@@ -53,6 +53,7 @@ class PlaybackUseCase {
     AudioSource? selectedSource,
     bool Function()? shouldPlay,
     bool forceReload = false,
+    bool restoreOnFailure = false,
   }) async {
     final queue = (queueTracks ?? fallbackQueue).isEmpty
         ? <Track>[track]
@@ -87,6 +88,7 @@ class PlaybackUseCase {
       initialIndex: safeIndex,
       initialPosition: initialPosition,
       playWhenReady: shouldPlay == null,
+      restoreOnFailure: restoreOnFailure,
     );
     if (shouldPlay?.call() ?? false) {
       _startPlayback();

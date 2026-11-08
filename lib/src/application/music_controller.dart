@@ -1798,6 +1798,7 @@ class MusicController extends ChangeNotifier with WidgetsBindingObserver {
         selectedSource: preparedSource,
         shouldPlay: isCurrent,
         forceReload: forceReload,
+        restoreOnFailure: restoreQueueOnLoadFailure,
       );
       handoverCompleted = true;
       if (identical(_activeQueueTracks, queue)) {
@@ -4403,49 +4404,37 @@ class MusicController extends ChangeNotifier with WidgetsBindingObserver {
   Future<void> _handleDeletedTracksPlaybackImpact(
     Set<String> deletedIds,
   ) async {
-    final currentItem = audioHandler.mediaItem.value;
-    final currentId = currentItem?.id;
+    final currentId = audioHandler.mediaItem.value?.id;
     if (currentId != null && deletedIds.contains(currentId)) {
       await stop();
       return;
     }
-    final queuedIds = [for (final item in audioHandler.queue.value) item.id];
-    if (!queuedIds.any(deletedIds.contains)) {
+    if (!audioHandler.queue.value.any((item) => deletedIds.contains(item.id))) {
       return;
     }
     if (currentId == null) {
       await stop();
       return;
     }
-    final byId = {
-      for (final track in cachedTracks) track.id: track,
-      for (final track in _activeQueueTracks) track.id: track,
-    };
-    final remainingQueue = [
-      for (final id in queuedIds)
-        if (!deletedIds.contains(id) && byId[id] != null) byId[id]!,
-    ];
-    final currentIndex = remainingQueue.indexWhere(
-      (track) => track.id == currentId,
-    );
-    if (currentIndex == -1) {
-      await stop();
-      return;
-    }
-    final wasPlaying = audioHandler.playbackState.value.playing;
-    final loaded = await playbackUseCase.playTrack(
-      remainingQueue[currentIndex],
-      index: currentIndex,
-      fallbackQueue: remainingQueue,
-      queueTracks: remainingQueue,
-    );
-    _activeQueueTracks = remainingQueue;
-    if (loaded) {
-      await setPlaybackMode(playbackMode);
-    }
-    if (!wasPlaying) {
-      await audioHandler.pause();
-    }
+    // Take the deleted songs out like any other queue edit: behind the load
+    // lock, without reloading (which would restart or briefly sound a paused
+    // song) and without racing a load that is selecting another song.
+    await _editQueue(() async {
+      final playing = audioHandler.mediaItem.value?.id;
+      final indexes = {
+        for (var i = 0; i < _activeQueueTracks.length; i++)
+          if (deletedIds.contains(_activeQueueTracks[i].id) &&
+              _activeQueueTracks[i].id != playing)
+            i,
+      };
+      if (indexes.isEmpty) return;
+      await playbackUseCase.removeTracksAt(_activeQueueTracks, indexes);
+      _activeQueueTracks = [
+        for (var i = 0; i < _activeQueueTracks.length; i++)
+          if (!indexes.contains(i)) _activeQueueTracks[i],
+      ];
+      _retiredQueueTrackIds.removeAll(deletedIds);
+    });
   }
 
   void _handleMediaItemChanged(MediaItem? item) {
