@@ -1305,6 +1305,97 @@ void main() {
     }
   });
 
+  testWidgets(
+    'the center guide shows only while lyrics are dragged, not as they follow',
+    (tester) async {
+      final cached = _cachedTrack();
+      final handler = _SpyAudioHandler();
+      final positions = StreamController<Duration>.broadcast();
+      final controller = MusicController(
+        songSearchCache: SongSearchCache.memory(),
+        downloadHistoryStore: MemoryDownloadHistory(),
+        connectivityChanges: const Stream.empty(),
+        audioHandler: handler,
+        resolver: _FakeMusicResolver(),
+        cacheStore: _FakeCacheStore(cached: [cached]),
+        playlistStore: _FakePlaylistStore(),
+        settingsStore: _FakeSettingsStore(),
+        metadataRepository: _StaticMetadataRepository(
+          metadata: TrackMetadata(
+            lyricsStatus: LyricsStatus.available,
+            lyrics: List.generate(
+              30,
+              (i) => LyricLine(
+                time: Duration(seconds: i * 5),
+                text: '歌词第 $i 句',
+              ),
+            ),
+          ),
+        ),
+      );
+      double guide() => tester
+          .widget<AnimatedOpacity>(
+            find.byKey(const ValueKey('lyrics-center-guide')),
+          )
+          .opacity;
+      try {
+        await controller.initialize();
+        final track = trackFromCached(cached);
+        await controller.playTrack(track);
+        handler.emit(mediaItemFromTrack(track));
+        await controller.loadMetadataForCurrentTrack();
+        await tester.pumpWidget(
+          AppStringsScope(
+            language: AppLanguage.zh,
+            child: MaterialApp(
+              theme: MusicAppTheme.create(Brightness.light),
+              home: Scaffold(
+                body: SizedBox(
+                  height: 420,
+                  child: AnimatedBuilder(
+                    animation: controller,
+                    builder: (context, _) => LyricsPanelForTesting(
+                      controller: controller,
+                      positionStream: positions.stream,
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        );
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 300));
+        expect(find.text('歌词第 0 句'), findsOneWidget);
+        expect(guide(), 0);
+
+        // Playback moves on and the list follows: still no guide.
+        positions.add(const Duration(seconds: 26));
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 400));
+        expect(guide(), 0);
+
+        // A finger on the lyrics raises it.
+        final gesture = await tester.startGesture(
+          tester.getCenter(find.byType(ListView)),
+        );
+        await gesture.moveBy(const Offset(0, -40));
+        await gesture.moveBy(const Offset(0, -40));
+        await tester.pump();
+        expect(guide(), 1);
+        await gesture.up();
+        await tester.pumpAndSettle();
+        // Shortly after letting go the lyrics follow again and it fades.
+        await tester.pump(const Duration(seconds: 3));
+        await tester.pumpAndSettle();
+        expect(guide(), 0);
+      } finally {
+        await positions.close();
+        controller.dispose();
+      }
+    },
+  );
+
   testWidgets('plain lyrics show all lines without seek or timing guide', (
     tester,
   ) async {

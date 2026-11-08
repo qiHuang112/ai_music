@@ -13,6 +13,7 @@ import 'dart:io';
 
 import 'package:audio_service/audio_service.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart' show ScrollDirection;
 
 import '../application/music_controller.dart';
 import '../data/song_comments.dart';
@@ -1951,10 +1952,21 @@ class _LyricsPanelState extends State<_LyricsPanel> {
                 children: [
                   NotificationListener<ScrollNotification>(
                     onNotification: (notification) {
-                      if (notification is ScrollUpdateNotification ||
-                          notification is UserScrollNotification) {
-                        _userScrolling = true;
+                      // Only a finger counts as browsing: the follow
+                      // animation scrolls too and must not raise the guide.
+                      final byHand =
+                          (notification is ScrollUpdateNotification &&
+                              notification.dragDetails != null) ||
+                          (notification is UserScrollNotification &&
+                              notification.direction != ScrollDirection.idle);
+                      if (byHand) {
+                        if (!_userScrolling) {
+                          setState(() => _userScrolling = true);
+                        }
                         _followState.reset();
+                      }
+                      if (_userScrolling &&
+                          notification is ScrollUpdateNotification) {
                         _updatePreviewIndex(lyrics.length);
                       }
                       if (notification is ScrollEndNotification &&
@@ -2117,6 +2129,9 @@ class LyricFollowState {
   }
 }
 
+/// While the lyrics are being browsed by hand, a fine line through the middle
+/// and the time of the line it crosses. At rest it is gone: a permanent rule
+/// across the lyrics read as a stray line.
 class _CenterLyricGuide extends StatelessWidget {
   const _CenterLyricGuide({required this.line, required this.emphasized});
 
@@ -2126,33 +2141,48 @@ class _CenterLyricGuide extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final colors = Theme.of(context).colorScheme;
-    final lineAlpha = emphasized ? 0.74 : 0.22;
-    final chipAlpha = emphasized ? 0.92 : 0.52;
     return IgnorePointer(
-      child: Stack(
-        alignment: Alignment.center,
-        children: [
-          Divider(color: colors.primary.withValues(alpha: lineAlpha)),
-          Align(
-            alignment: Alignment.centerRight,
-            child: Container(
+      child: AnimatedOpacity(
+        key: const ValueKey('lyrics-center-guide'),
+        opacity: emphasized ? 1 : 0,
+        duration: MusicMotion.base,
+        curve: Curves.easeOut,
+        child: Row(
+          children: [
+            Expanded(
+              child: Container(
+                height: 1,
+                margin: const EdgeInsets.only(left: 24, right: 10),
+                decoration: BoxDecoration(
+                  // Fades out at both ends instead of ruling the panel.
+                  gradient: LinearGradient(
+                    colors: [
+                      colors.primary.withValues(alpha: 0),
+                      colors.primary.withValues(alpha: .55),
+                      colors.primary.withValues(alpha: .55),
+                      colors.primary.withValues(alpha: 0),
+                    ],
+                    stops: const [0, .25, .75, 1],
+                  ),
+                ),
+              ),
+            ),
+            Container(
               margin: const EdgeInsets.only(right: 18),
               padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
               decoration: BoxDecoration(
-                color: colors.primaryContainer.withValues(alpha: chipAlpha),
+                color: colors.primaryContainer.withValues(alpha: .92),
                 borderRadius: BorderRadius.circular(999),
               ),
               child: Text(
                 _formatDuration(line.time),
                 style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                  color: colors.onPrimaryContainer.withValues(
-                    alpha: emphasized ? 1 : 0.8,
-                  ),
+                  color: colors.onPrimaryContainer,
                 ),
               ),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }
