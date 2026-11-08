@@ -478,6 +478,7 @@ class _Handler extends MusicAudioHandler {
     int initialIndex = 0,
     Duration initialPosition = Duration.zero,
     bool playWhenReady = true,
+    bool restoreOnFailure = false,
   }) async {
     queue.add(items.map((item) => item.mediaItem).toList(growable: false));
     if (items.isNotEmpty) mediaItem.add(items[initialIndex].mediaItem);
