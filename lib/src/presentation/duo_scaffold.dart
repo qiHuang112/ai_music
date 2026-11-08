@@ -362,7 +362,7 @@ class _ShellPageBindingState extends State<_ShellPageBinding> {
     if (visible) {
       final spec = widget.describe(context);
       spec.callbacks.forEach(shell.register);
-      shell.updatePage(widget.id, spec.map, nested: widget.nested);
+      shell.updatePage(widget.id, spec.map, nested: widget.nested, owner: this);
       _registered = true;
       if (spec.pending.isNotEmpty) {
         // Icons without an SF Symbol are rasterised once; redraw with them.
@@ -371,7 +371,7 @@ class _ShellPageBindingState extends State<_ShellPageBinding> {
         });
       }
     } else if (_registered) {
-      shell.clearPage(widget.id, nested: widget.nested);
+      shell.clearPage(widget.id, nested: widget.nested, owner: this);
       _registered = false;
     }
     return widget.child;
@@ -380,7 +380,7 @@ class _ShellPageBindingState extends State<_ShellPageBinding> {
   @override
   void dispose() {
     if (_registered && widget.nested) {
-      NativeShell.instance.clearPage(widget.id, nested: true);
+      NativeShell.instance.clearPage(widget.id, nested: true, owner: this);
     }
     super.dispose();
   }

@@ -118,6 +118,8 @@ class NativeShell extends NavigatorObserver {
     _routes.remove(id);
     _roots.remove(id);
     _nested.remove(id);
+    _rootOwners.remove(id);
+    _nestedOwners.remove(id);
     _callbacks.removeWhere((key, _) => key.startsWith('$id-'));
     if (id == 0) return;
     final pending = _pendingPush.remove(id);
@@ -131,6 +133,7 @@ class NativeShell extends NavigatorObserver {
   // ---- Page descriptions ---------------------------------------------------
 
   final Map<int, Map<String, Object?>> _roots = {}, _nested = {};
+  final Map<int, Object?> _rootOwners = {}, _nestedOwners = {};
   final Map<String, VoidCallback> _callbacks = {};
   final Set<int> _dirty = {};
   bool _flushScheduled = false;
@@ -163,18 +166,34 @@ class NativeShell extends NavigatorObserver {
     EdgeInsets.zero,
   );
 
-  void updatePage(int id, Map<String, Object?> spec, {bool nested = false}) {
+  void updatePage(
+    int id,
+    Map<String, Object?> spec, {
+    bool nested = false,
+    Object? owner,
+  }) {
     final target = nested ? _nested : _roots;
     final previous = target[id];
     target[id] = spec;
+    (nested ? _nestedOwners : _rootOwners)[id] = owner;
     if (previous != null && _sameSpec(previous, spec)) return;
     _markDirty(id);
   }
 
-  void clearPage(int id, {bool nested = false}) {
+  /// Drops a page description, but only the one [owner] wrote. Home tabs
+  /// share one route id: when switching back to an earlier tab it rebuilds
+  /// (and writes its bar) before the tab being left gets to clear, so an
+  /// unconditional clear would wipe the bar of the tab now showing.
+  void clearPage(int id, {bool nested = false, Object? owner}) {
     final target = nested ? _nested : _roots;
+    final owners = nested ? _nestedOwners : _rootOwners;
+    if (owner != null && owners[id] != owner) return;
+    owners.remove(id);
     if (target.remove(id) != null) _markDirty(id);
   }
+
+  @visibleForTesting
+  Map<String, Object?>? nestedSpecFor(int id) => _nested[id];
 
   void register(String id, VoidCallback callback) => _callbacks[id] = callback;
 
