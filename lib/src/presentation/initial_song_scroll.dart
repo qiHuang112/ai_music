@@ -85,6 +85,20 @@ class _InitialSongScrollState extends State<InitialSongScroll> {
     _done = true;
     final position = _controller.position;
     final viewport = RenderAbstractViewport.of(box);
+    // A song in full view where the list opened stays where it is: nudging
+    // the list a few points as the page settles reads as a jolt of the whole
+    // page. (A far song may already be on screen here after the estimating
+    // jumps; that one still rolls in from the opening position.)
+    final media = MediaQuery.of(context);
+    final origin = _origin ?? position.pixels;
+    final top = viewport.getOffsetToReveal(box, 0).offset - origin;
+    final clearTop = media.padding.top + kToolbarHeight + 8;
+    final clearBottom = position.viewportDimension - media.padding.bottom;
+    if (top >= clearTop && top + box.size.height <= clearBottom) {
+      if (position.pixels != origin) position.jumpTo(origin);
+      _reveal();
+      return;
+    }
     // Leave room for the pinned playlist toolbar above the song.
     final destination = viewport
         .getOffsetToReveal(box, .35)

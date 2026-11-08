@@ -796,16 +796,32 @@ final class ShellNowPlayingBar: UIView {
     button(queue, "list.bullet", "queue", "当前队列")
     lyrics.isHidden = true
 
-    let row = UIStackView(arrangedSubviews: [cover, title, favorite, previous, toggle, skip, queue])
-    self.row = row
+    // Only the song (cover and title) moves with a swipe; it slides inside
+    // its own clipped lane so the buttons at the end hold still.
+    let song = UIStackView(arrangedSubviews: [cover, title])
+    self.song = song
+    song.axis = .horizontal
+    song.alignment = .center
+    song.spacing = 12
+    song.translatesAutoresizingMaskIntoConstraints = false
+    let lane = UIView()
+    lane.clipsToBounds = true
+    lane.addSubview(song)
+    lane.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+    lane.setContentHuggingPriority(.defaultLow, for: .horizontal)
+
+    let row = UIStackView(arrangedSubviews: [lane, favorite, previous, toggle, skip, queue])
     row.axis = .horizontal
     row.alignment = .center
     row.spacing = 2
-    row.setCustomSpacing(12, after: cover)
-    row.setCustomSpacing(8, after: title)
+    row.setCustomSpacing(8, after: lane)
     row.translatesAutoresizingMaskIntoConstraints = false
     glass.contentView.addSubview(row)
     NSLayoutConstraint.activate([
+      song.leadingAnchor.constraint(equalTo: lane.leadingAnchor),
+      song.trailingAnchor.constraint(equalTo: lane.trailingAnchor),
+      song.topAnchor.constraint(equalTo: lane.topAnchor),
+      song.bottomAnchor.constraint(equalTo: lane.bottomAnchor),
       cover.widthAnchor.constraint(equalToConstant: 38),
       cover.heightAnchor.constraint(equalToConstant: 38),
       row.leadingAnchor.constraint(equalTo: glass.contentView.leadingAnchor, constant: 9),
@@ -818,12 +834,12 @@ final class ShellNowPlayingBar: UIView {
     addGestureRecognizer(pan)
   }
 
-  private var row: UIStackView?
+  private var song: UIStackView?
 
   /// A horizontal drag on the bar changes the song, the way QQ Music's does:
   /// the song slides with the finger, leaves, and the next one comes in.
   @objc private func swipe(_ pan: UIPanGestureRecognizer) {
-    guard let row else { return }
+    guard let row = song else { return }
     let dx = pan.translation(in: self).x
     switch pan.state {
     case .changed:

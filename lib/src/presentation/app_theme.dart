@@ -1,4 +1,5 @@
 import 'package:flutter/cupertino.dart' show CupertinoPageTransitionsBuilder;
+import 'package:flutter/foundation.dart' show defaultTargetPlatform;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
@@ -590,13 +591,19 @@ abstract final class MusicAppTheme {
           for (final platform in TargetPlatform.values)
             platform: platform == TargetPlatform.macOS
                 ? const _DesktopBackdropTransitions()
-                : _BackdropTransitions(
-                    platform == TargetPlatform.iOS
-                        ? const CupertinoPageTransitionsBuilder()
-                        : const ZoomPageTransitionsBuilder(),
-                  ),
+                // Phones push sideways the iOS way on every platform, so pages
+                // slide under the floating bars instead of zooming through
+                // them.
+                : const _BackdropTransitions(CupertinoPageTransitionsBuilder()),
         },
       ),
+      // The back control is the iOS chevron everywhere but the Mac window.
+      actionIconTheme: defaultTargetPlatform == TargetPlatform.macOS
+          ? null
+          : ActionIconThemeData(
+              backButtonIconBuilder: (context) =>
+                  const Icon(Icons.arrow_back_ios_new_rounded, size: 22),
+            ),
       appBarTheme: AppBarTheme(
         // The bar is see-through, so say which status-bar icons to use.
         systemOverlayStyle: systemOverlayStyle(brightness),

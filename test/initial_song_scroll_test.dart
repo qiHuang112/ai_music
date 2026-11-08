@@ -374,4 +374,42 @@ void main() {
     expect(find.text('Song 0').hitTestable(), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
+
+  testWidgets('a song already in view on opening leaves the list still', (
+    tester,
+  ) async {
+    late ScrollController scroll;
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: InitialSongScroll(
+            targetIndex: 2,
+            builder: (context, controller, anchor) {
+              scroll = controller;
+              return ListView.builder(
+                controller: controller,
+                itemCount: 40,
+                itemBuilder: (_, i) => anchor(
+                  i,
+                  '$i',
+                  SizedBox(
+                    height: 90,
+                    key: ValueKey('song-$i'),
+                    child: Text('Song $i'),
+                  ),
+                ),
+              );
+            },
+          ),
+        ),
+      ),
+    );
+    final offsets = <double>[];
+    for (var frame = 0; frame < 12; frame++) {
+      await tester.pump(const Duration(milliseconds: 40));
+      offsets.add(scroll.offset);
+    }
+    expect(offsets, everyElement(0.0));
+    expect(find.byKey(const ValueKey('song-2')).hitTestable(), findsOneWidget);
+  });
 }

@@ -1274,6 +1274,10 @@ void main() {
   });
 
   testWidgets('mini player and song page swipe between songs', (tester) async {
+    // A phone held upright: the player stacks the record, song and lyrics
+    // preview in one column.
+    await tester.binding.setSurfaceSize(const Size(400, 860));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
     final handler = _WidgetAudioHandler();
     final controller = _SwipePlaybackController(handler);
     try {
@@ -1325,13 +1329,11 @@ void main() {
       expect(controller.previousCalls, 2);
       expect(controller.seekCalls, 1);
 
-      await tester.scrollUntilVisible(
-        find.byKey(const ValueKey('lyrics-preview')),
-        -180,
-        scrollable: find.descendant(
-          of: player,
-          matching: find.byType(Scrollable),
-        ),
+      // The phone layout fits the page to the window: the lyrics preview is
+      // on screen without scrolling.
+      expect(
+        find.byKey(const ValueKey('lyrics-preview')).hitTestable(),
+        findsOneWidget,
       );
       await tester.tapAt(
         tester.getTopLeft(find.byKey(const ValueKey('lyrics-preview'))) +

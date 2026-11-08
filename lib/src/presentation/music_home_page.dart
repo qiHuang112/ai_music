@@ -11,6 +11,7 @@ import 'app_popup_menu.dart';
 import 'playlist_sliver_header.dart';
 import 'playlist_sync_button.dart';
 import 'mini_player.dart';
+import 'mobile_chrome.dart';
 import 'playback_queue.dart';
 import 'player_page.dart';
 import 'date_groups.dart';
@@ -125,6 +126,19 @@ class _MusicHomePageState extends State<MusicHomePage>
     // The system tab bar on iOS reports taps here; its mini player opens the
     // full player through the same navigator the Flutter strip would use.
     NativeShell.instance.onTabSelected = _selectTab;
+    // Android: the floating bars over the navigator report here the same way.
+    MobileChrome.instance
+      ..onTabSelected = _selectTab
+      ..onOpenPlayer = () {
+        if (mounted) {
+          unawaited(openPlayerPage(_contentNavigator.context, controller));
+        }
+      }
+      ..onOpenQueue = () {
+        if (mounted) {
+          unawaited(showPlaybackQueue(_contentNavigator.context, controller));
+        }
+      };
     NativeShell.instance.onOpenPlayer = () {
       if (mounted) unawaited(openPlayerPage(_contentNavigator.context, controller));
     };
@@ -187,6 +201,12 @@ class _MusicHomePageState extends State<MusicHomePage>
       NativeShell.instance.onOpenQueue = null;
       NativeShell.instance.onOpenLyrics = null;
       NativeShell.instance.onOpenComments = null;
+    }
+    if (MobileChrome.instance.onTabSelected == _selectTab) {
+      MobileChrome.instance
+        ..onTabSelected = null
+        ..onOpenPlayer = null
+        ..onOpenQueue = null;
     }
     WidgetsBinding.instance.removeObserver(this);
     _playlistSearch.dispose();
@@ -271,6 +291,22 @@ class _MusicHomePageState extends State<MusicHomePage>
                 constraints.maxWidth >= 720 ||
                 (constraints.maxWidth >= 560 &&
                     constraints.maxWidth > constraints.maxHeight * 1.25);
+            // Phones without the iOS shell: the floating bars live over the
+            // navigator and stay put across pushes, so the page draws none.
+            final chrome = MobileChrome.instance;
+            final floatingChrome = chrome.enabled && !sideNavigation;
+            if (chrome.enabled) {
+              chrome.publishTabs(
+                MobileTabs(
+                  labels: [for (final tab in tabs) tab.label],
+                  index: _tab,
+                  floating: !sideNavigation,
+                  visible: !(_tab == 0 && _searchFocusNode.hasFocus),
+                  downloading: controller.hasActiveDownloads,
+                  updateBadge: controller.appUpdates.hasUpdate,
+                ),
+              );
+            }
             return PopScope(
               canPop: false,
               onPopInvokedWithResult: (didPop, _) {
@@ -332,7 +368,8 @@ class _MusicHomePageState extends State<MusicHomePage>
                       TickerMode(enabled: i == _tab, child: tab),
                   ],
                 ),
-                bottomNavigationBar: _tab == 0 && _searchFocusNode.hasFocus
+                bottomNavigationBar:
+                    floatingChrome || (_tab == 0 && _searchFocusNode.hasFocus)
                     ? null
                     : Column(
                         mainAxisSize: MainAxisSize.min,

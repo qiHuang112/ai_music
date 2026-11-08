@@ -1,6 +1,7 @@
 import 'dart:io';
 import 'src/presentation/app_page_route.dart';
 import 'src/presentation/native_shell.dart';
+import 'src/presentation/mobile_chrome.dart';
 import 'src/presentation/duo_window.dart';
 
 import 'package:audio_service/audio_service.dart';
@@ -74,6 +75,9 @@ Future<void> main() async {
   // no page paints a Flutter bar first.
   await NativeShell.instance.connect();
   NativeShell.instance.attachPlayback(controller);
+  // Elsewhere on phones Flutter draws the same floating bars itself.
+  MobileChrome.instance.enabled = MobileChrome.supported;
+  MobileChrome.instance.attachPlayback(controller);
   runApp(AiMusicApp(controller: controller));
 }
 
@@ -116,6 +120,7 @@ class AiMusicApp extends StatelessWidget {
           navigatorObservers: [
             controller.performanceMonitor.routes,
             NativeShell.instance,
+            MobileChrome.instance,
           ],
           // The page backdrop swaps whole with the theme; a cross-fade would
           // show it under half-changed colors.
@@ -158,8 +163,14 @@ class AiMusicApp extends StatelessWidget {
                 children: [
                   const PageBackdrop(),
                   DuoWindow(
-                    child: DismissKeyboardOnTap(
-                      child: child ?? const SizedBox.shrink(),
+                    child: Stack(
+                      fit: StackFit.expand,
+                      children: [
+                        DismissKeyboardOnTap(
+                          child: child ?? const SizedBox.shrink(),
+                        ),
+                        const MobileChromeOverlay(),
+                      ],
                     ),
                   ),
                   PerformanceOverlayPanel(

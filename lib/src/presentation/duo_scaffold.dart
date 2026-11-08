@@ -8,6 +8,8 @@ import 'app_popup_menu.dart';
 import 'design/controls.dart';
 import 'design/glass_surface.dart';
 import 'duo_window.dart';
+import 'mini_player.dart';
+import 'mobile_chrome.dart';
 import 'native_shell.dart';
 
 /// Page chrome shares the system's vertical strip instead of allocating another
@@ -60,6 +62,43 @@ class DuoScaffold extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     if (NativeShell.active) return _buildShell(context);
+    final chrome = MobileChrome.instance;
+    if (!chrome.enabled || _DuoChrome.of(context)) return _buildPage(context);
+    // Android and other phones: the floating tab bar and now-playing bar sit
+    // over the navigator, and the page keeps clear of them through its
+    // bottom inset, the way the iOS shell hands UIKit's safe area on.
+    final route = ModalRoute.of(context);
+    chrome.markImmersive(route, extendBodyBehindAppBar);
+    return ListenableBuilder(
+      listenable: chrome.layout,
+      builder: (context, _) {
+        if (!chrome.floating) return _buildPage(context);
+        final data = MediaQuery.of(context);
+        if (extendBodyBehindAppBar || data.viewInsets.bottom > 0) {
+          return _buildPage(context, floating: true);
+        }
+        final root = route == null || route.isFirst;
+        final bottom = ChromeMetrics.inset(
+          data.viewPadding,
+          bar:
+              root &&
+              chrome.nowPlaying.value != null &&
+              (chrome.tabs.value?.visible ?? true),
+        );
+        return MediaQuery(
+          data: data.copyWith(
+            padding: data.padding.copyWith(bottom: bottom),
+            viewPadding: data.viewPadding.copyWith(bottom: bottom),
+          ),
+          child: Builder(
+            builder: (context) => _buildPage(context, floating: true),
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildPage(BuildContext context, {bool floating = false}) {
     final data = MediaQuery.of(context);
     final geometry = DuoWindowScope.of(context);
     final nested = _DuoChrome.of(context);
@@ -149,7 +188,7 @@ class DuoScaffold extends StatelessWidget {
               ],
             ),
             child: _DuoChrome(
-              consumed: nested || rail,
+              consumed: nested || rail || floating,
               child: Scaffold(
                 appBar: titleBar,
                 body: body,
@@ -157,7 +196,11 @@ class DuoScaffold extends StatelessWidget {
                 extendBody: extendBody,
                 extendBodyBehindAppBar: extendBodyBehindAppBar,
                 resizeToAvoidBottomInset: resizeToAvoidBottomInset,
-                bottomNavigationBar: bottomNavigationBar,
+                // The floating bar carries the mini player; a page's own
+                // copy would only cost the body its bottom inset.
+                bottomNavigationBar: floating && bottomNavigationBar is MiniPlayer
+                    ? null
+                    : bottomNavigationBar,
                 floatingActionButton: floatingActionButton,
                 floatingActionButtonLocation: floatingActionButtonLocation,
               ),

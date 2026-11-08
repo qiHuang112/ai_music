@@ -3,6 +3,7 @@ import 'package:flutter/cupertino.dart'
 import 'app_page_route.dart';
 import 'app_popup_menu.dart';
 import 'duo_scaffold.dart';
+import 'mobile_chrome.dart';
 import 'native_shell.dart';
 import 'dart:async';
 import 'dart:math' as math;
@@ -402,7 +403,10 @@ class _PlayerPageState extends State<PlayerPage> {
           ],
           appBar: AppBar(
             backgroundColor: Colors.transparent,
-            title: Text(strings.nowPlaying),
+            // Immersive like the iOS shell's player: back and the menu only.
+            title: MobileChrome.instance.floating
+                ? null
+                : Text(strings.nowPlaying),
             actions: [
               // One menu instead of a row of icons: the heart sits by the
               // title, and the rarer actions wait behind the ellipsis.

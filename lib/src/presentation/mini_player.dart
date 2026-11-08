@@ -9,6 +9,7 @@ import 'design/glass_surface.dart';
 import 'design/vinyl_disc.dart';
 import 'music_thumbnail.dart';
 import 'app_page_route.dart';
+import 'mobile_chrome.dart';
 import 'native_shell.dart';
 import 'playback_queue.dart';
 import 'player_page.dart';
@@ -24,11 +25,18 @@ class MiniPlayer extends StatelessWidget {
     if (DesktopMusicScope.maybeOf(context) != null) {
       return const SizedBox.shrink();
     }
-    // On iOS 26 the system tab bar carries the mini player instead.
-    return ValueListenableBuilder<bool>(
-      valueListenable: NativeShell.instance.accessoryActive,
-      builder: (context, native, _) =>
-          native ? const SizedBox.shrink() : _buildStrip(context),
+    // On iOS the shell's native bar carries the mini player instead, and on
+    // other phones the floating bar over the navigator does.
+    return ListenableBuilder(
+      listenable: Listenable.merge([
+        NativeShell.instance.accessoryActive,
+        MobileChrome.instance.tabs,
+      ]),
+      builder: (context, _) =>
+          NativeShell.instance.accessoryActive.value ||
+              MobileChrome.instance.floating
+          ? const SizedBox.shrink()
+          : _buildStrip(context),
     );
   }
 
@@ -225,10 +233,11 @@ class MiniPlayer extends StatelessWidget {
       openPlayerPage(context, controller);
 }
 
-/// Shows the full player. Under the iOS shell it is a system push, in step
-/// with the native bars; elsewhere it rises from the bar it was opened from.
+/// Shows the full player. Under the iOS shell, and with the floating bars on
+/// other phones, it is an ordinary push like every other page; elsewhere it
+/// rises from the bar it was opened from.
 Future<void> openPlayerPage(BuildContext context, MusicController controller) {
-  if (NativeShell.active) {
+  if (NativeShell.active || MobileChrome.instance.floating) {
     return Navigator.of(context).push<void>(
       AppPageRoute(
         settings: const RouteSettings(name: 'player'),
