@@ -10,14 +10,15 @@ import subprocess
 import urllib.request
 from pathlib import Path
 
+import dev_env
 from android_release_archive import retained_versions
 from publish_android_release import publish
 
 PROJECT = Path(__file__).resolve().parent.parent
-ARCHIVE = Path('/Users/huangqi/ClaudeProject/releases/ai_music/android')
-FLUTTER = '/Users/huangqi/ClaudeProject/tools/flutter/bin/flutter'
+ARCHIVE = dev_env.RELEASES_ROOT / 'android'
+FLUTTER = dev_env.FLUTTER_BIN
 CERT = 'f05004de4b5fa23bdd1beee45c4e7c227852129930bcd3bb1cfcff2048464843'
-SERVER = 'http://192.168.31.167:8788'
+SERVER = dev_env.LAN_UPDATE_SERVER
 
 
 def git(*args):
@@ -81,12 +82,12 @@ def push_and_publish(root=ARCHIVE, server=SERVER, publish_only=False):
         if not signing.exists() and not all(os.environ.get('AI_MUSIC_' + key) for key in
                                            ['STOREFILE', 'KEYALIAS', 'KEYPASSWORD', 'STOREPASSWORD']):
             raise RuntimeError('Local release signing configuration is missing')
-        sdk = Path(os.environ.get('ANDROID_HOME', '/Users/huangqi/Library/Android/sdk'))
+        sdk = dev_env.ANDROID_HOME
         versions = sorted((sdk / 'build-tools').iterdir(), key=lambda p: tuple(int(v) for v in p.name.split('.') if v.isdigit()))
         tools = next(p for p in reversed(versions) if (p / 'aapt').exists() and (p / 'apksigner').exists())
         name, number = next_version(root)
         build_env = os.environ.copy()
-        build_env.setdefault('JAVA_HOME', '/Users/huangqi/Library/Java/JavaVirtualMachines/openjdk-22.0.1/Contents/Home')
+        build_env.setdefault('JAVA_HOME', dev_env.JAVA_HOME)
         build_env.setdefault('ANDROID_HOME', str(sdk))
         subprocess.run([FLUTTER, 'build', 'apk', '--release', '--no-pub',
                         '--target-platform', 'android-arm64', '--split-per-abi',

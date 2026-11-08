@@ -20,6 +20,8 @@ import re
 import subprocess
 from pathlib import Path
 
+import dev_env
+
 PROJECT = Path(__file__).resolve().parent.parent
 OUT = PROJECT / 'build/device-check/selftest'
 RECORD = OUT / 'builds.json'
@@ -61,11 +63,11 @@ def main():
     parser.add_argument('--expect-serial', default=PHONE_77_SERIAL)
     args = parser.parse_args()
 
-    sdk = Path(os.environ.get('ANDROID_HOME', '/Users/huangqi/Library/Android/sdk'))
+    sdk = dev_env.ANDROID_HOME
     tools = sdk / 'build-tools/35.0.0'
     env = os.environ.copy()
     env.setdefault('ANDROID_HOME', str(sdk))
-    env.setdefault('JAVA_HOME', '/Users/huangqi/Library/Java/JavaVirtualMachines/openjdk-22.0.1/Contents/Home')
+    env.setdefault('JAVA_HOME', dev_env.JAVA_HOME)
 
     if args.device:
         serial = adb(args.device, 'shell', 'getprop', 'ro.serialno')
