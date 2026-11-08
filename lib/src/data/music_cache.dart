@@ -908,6 +908,78 @@ class CachedTrackStore {
     return updated;
   }
 
+  /// Where songs being restored from a LAN backup are downloaded before
+  /// they join the cache: inside the cache folder, so moving them is cheap.
+  Future<Directory> backupStagingDirectory() async {
+    final root = await _rootProvider();
+    final staging = Directory('${root.path}${Platform.pathSeparator}.backup-restore');
+    await staging.create(recursive: true);
+    return staging;
+  }
+
+  /// Adds a song restored from a LAN backup. The record keeps its original
+  /// identity (cache ID, source, quality), so restored playlist entries and
+  /// favorites find it exactly as on the device it came from. A song already
+  /// cached under that ID is kept as it is.
+  Future<CachedTrack> importBackupTrack(
+    CachedTrack original, {
+    required File audio,
+    File? lyrics,
+    File? artwork,
+  }) async {
+    final existing = await _lookup(original.cacheId);
+    if (existing != null && await File(existing.filePath).exists()) {
+      for (final file in [audio, ?lyrics, ?artwork]) {
+        await _deleteIfExists(file);
+      }
+      return existing;
+    }
+    final root = await _rootProvider();
+    await root.create(recursive: true);
+    final separator = Platform.pathSeparator;
+    final artist = sanitizeFilePart(original.music.artist, 'unknown-artist');
+    final title = sanitizeFilePart(original.music.name, 'unknown-title');
+    final shortId = original.cacheId.substring(
+      0,
+      min(10, original.cacheId.length),
+    );
+    final stem = '$artist-$title-$shortId';
+    Future<String> place(File file, String suffix) async {
+      final target = '${root.path}$separator$stem$suffix';
+      try {
+        await file.rename(target);
+      } on FileSystemException {
+        await file.copy(target);
+        await _deleteIfExists(file);
+      }
+      return target;
+    }
+
+    final audioPath = await place(audio, _suffixOf(audio.path, '.mp3'));
+    final lyricsPath = lyrics == null ? '' : await place(lyrics, '.lrc');
+    final artworkPath = artwork == null
+        ? ''
+        : await place(artwork, _suffixOf(artwork.path, '.jpg'));
+    final restored = original.copyWith(
+      filePath: audioPath,
+      sizeBytes: await File(audioPath).length(),
+      lyricsPath: lyricsPath,
+      artworkPath: artworkPath,
+      fromCache: true,
+      playbackCache: false,
+      cachedAt: original.cachedAt ?? DateTime.now(),
+    );
+    await _upsert(restored);
+    return restored;
+  }
+
+  static String _suffixOf(String path, String fallback) {
+    final name = path.split(Platform.pathSeparator).last;
+    final dot = name.lastIndexOf('.');
+    if (dot <= 0 || name.length - dot > 6) return fallback;
+    return name.substring(dot);
+  }
+
   Future<List<CachedTrack>> listCached() async {
     return _withIndexLock(() async {
       final root = await _rootProvider();

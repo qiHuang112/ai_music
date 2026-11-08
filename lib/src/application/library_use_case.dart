@@ -1205,6 +1205,60 @@ class LibraryUseCase {
     );
   }
 
+  /// Merges songs restored from a LAN backup: favorites are appended, and
+  /// each playlist joins the local one of the same name (only songs it does
+  /// not have yet) or is created. Nothing local is removed.
+  Future<LibrarySnapshot> mergeBackup({
+    required LibrarySnapshot current,
+    required List<PlaylistTrackEntry> favorites,
+    required List<({String name, List<PlaylistTrackEntry> entries})> playlists,
+  }) => _enqueuePlaylistMutation(() async {
+    final base = _currentSnapshot(current);
+    final library = base.playlistLibrary;
+    final favoriteIds = library.favoriteTrackIds.toSet();
+    final mergedFavorites = [
+      ...library.favoriteEntries,
+      for (final entry in favorites)
+        if (favoriteIds.add(entry.trackId)) entry,
+    ];
+    final now = DateTime.now();
+    final local = [...library.playlists];
+    var created = 0;
+    for (final restored in playlists) {
+      if (restored.entries.isEmpty) continue;
+      final index = local.indexWhere(
+        (p) => !p.isBuiltIn && p.name.trim() == restored.name.trim(),
+      );
+      if (index == -1) {
+        local.add(
+          MusicPlaylist(
+            id: 'playlist-${now.microsecondsSinceEpoch + created++}',
+            name: restored.name,
+            entries: restored.entries,
+            createdAt: now,
+            updatedAt: now,
+          ),
+        );
+        continue;
+      }
+      final existing = local[index];
+      final ids = existing.trackIds.toSet();
+      final additions = [
+        for (final entry in restored.entries)
+          if (ids.add(entry.trackId)) entry,
+      ];
+      if (additions.isEmpty) continue;
+      local[index] = existing.copyWith(
+        entries: [...existing.entries, ...additions],
+        updatedAt: now,
+      );
+    }
+    return _savePlaylistLibrary(
+      library.copyWith(favoriteEntries: mergedFavorites, playlists: local),
+      current: base,
+    );
+  });
+
   Future<LibrarySnapshot> _savePlaylistLibrary(
     PlaylistLibrary library, {
     required LibrarySnapshot current,

@@ -14,6 +14,7 @@ import 'design/glass_surface.dart';
 import 'desktop_ui.dart';
 import '../application/diagnostics_upload_controller.dart';
 import 'design/adaptive_layout.dart';
+import 'lan_backup_page.dart';
 import 'design/app_icons.dart';
 
 /// Desktop settings keep the categories visible while changing their content.
@@ -393,6 +394,25 @@ class SettingsPage extends StatelessWidget {
                             ),
                             builder: (_) =>
                                 LanLibrarySettingsPage(controller: controller),
+                          ),
+                        ),
+                      ),
+                      ListTile(
+                        key: const Key('lan-backup-settings'),
+                        leading: const Icon(AppIcons.sync),
+                        title: Text(
+                          strings.isZh ? '局域网备份与恢复' : 'LAN backup & restore',
+                        ),
+                        subtitle: Text(
+                          strings.isZh
+                              ? '按设备上传歌单、收藏和歌曲，按需挑选恢复'
+                              : 'Upload playlists and songs per device; restore what you pick',
+                        ),
+                        trailing: const Icon(AppIcons.chevronRight),
+                        onTap: () => Navigator.of(context).push<void>(
+                          AppPageRoute(
+                            settings: const RouteSettings(name: 'lan-backup'),
+                            builder: (_) => LanBackupPage(controller: controller),
                           ),
                         ),
                       ),
