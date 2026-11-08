@@ -3,7 +3,6 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'json_file_store.dart';
-import 'lan_library_models.dart';
 import 'music_resolver.dart';
 import '../platform/app_storage.dart';
 
@@ -52,7 +51,6 @@ class MusicAppSettings {
     this.source = MusicDataSource.auto,
     this.language = AppLanguage.zh,
     this.theme = AppThemePreference.dark,
-    this.lanLibraryUrl = defaultLanLibraryUrl,
     this.screenshotSearchConcurrency = 3,
     this.playlistDownloadConcurrency = 3,
     this.downloadPlaylistsOnWifi = true,
@@ -63,7 +61,6 @@ class MusicAppSettings {
   final MusicDataSource source;
   final AppLanguage language;
   final AppThemePreference theme;
-  final String lanLibraryUrl;
   final int screenshotSearchConcurrency;
   final int playlistDownloadConcurrency;
   final bool downloadPlaylistsOnWifi;
@@ -74,7 +71,6 @@ class MusicAppSettings {
     MusicDataSource? source,
     AppLanguage? language,
     AppThemePreference? theme,
-    String? lanLibraryUrl,
     int? screenshotSearchConcurrency,
     int? playlistDownloadConcurrency,
     bool? downloadPlaylistsOnWifi,
@@ -85,7 +81,6 @@ class MusicAppSettings {
       source: source ?? this.source,
       language: language ?? this.language,
       theme: theme ?? this.theme,
-      lanLibraryUrl: lanLibraryUrl ?? this.lanLibraryUrl,
       screenshotSearchConcurrency:
           screenshotSearchConcurrency ?? this.screenshotSearchConcurrency,
       playlistDownloadConcurrency:
@@ -104,7 +99,6 @@ class MusicAppSettings {
       'source': source.storageValue,
       'language': language.storageValue,
       'themeMode': theme.storageValue,
-      'lanLibraryUrl': lanLibraryUrl,
       'screenshotSearchConcurrency': screenshotSearchConcurrency,
       'playlistDownloadConcurrency': playlistDownloadConcurrency,
       'downloadPlaylistsOnWifi': downloadPlaylistsOnWifi,
@@ -141,7 +135,6 @@ class MusicSettingsStore {
           theme: AppThemePreference.fromStorage(
             decoded['themeMode']?.toString() ?? decoded['theme']?.toString(),
           ),
-          lanLibraryUrl: _restoredLanLibraryUrl(decoded['lanLibraryUrl']),
           screenshotSearchConcurrency: _restoredScreenshotSearchConcurrency(
             decoded['screenshotSearchConcurrency'],
           ),
@@ -212,19 +205,6 @@ int _restoredPlaylistDownloadConcurrency(Object? value) {
       ? value.toInt()
       : int.tryParse(value?.toString() ?? '');
   return (parsed ?? 3).clamp(1, 10);
-}
-
-String _restoredLanLibraryUrl(Object? value) {
-  final text = value?.toString().trim() ?? '';
-  if (text.isEmpty) {
-    return defaultLanLibraryUrl;
-  }
-  try {
-    final normalized = normalizeLanLibraryBaseUri(text).toString();
-    return normalized == legacyLanLibraryUrl ? defaultLanLibraryUrl : normalized;
-  } on FormatException {
-    return defaultLanLibraryUrl;
-  }
 }
 
 Future<Object?> _tryDecodeJson(File file, String text) async {

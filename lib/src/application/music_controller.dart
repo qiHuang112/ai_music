@@ -21,8 +21,6 @@ import 'package:just_audio/just_audio.dart';
 
 import '../data/lyrics_artwork.dart';
 import '../data/legacy_cache_repairer.dart';
-import '../data/lan_library_client.dart';
-import '../data/lan_library_models.dart';
 import '../data/music_cache.dart';
 import '../data/music_playlists.dart';
 import '../data/music_charts.dart';
@@ -41,11 +39,9 @@ import '../playback/on_demand_audio_source.dart';
 import '../playback/resumable_audio_source.dart';
 import 'download_queue_controller.dart';
 import 'download_use_case.dart';
-import 'lan_folder_playlist_merger.dart';
 import 'library_controller.dart';
 import 'library_use_case.dart';
 import 'playlist_duplicates.dart';
-import 'lan_sync_use_case.dart';
 import 'metadata_use_case.dart';
 import 'music_mappers.dart';
 import 'music_ui_message.dart';
@@ -116,8 +112,6 @@ class MusicController extends ChangeNotifier with WidgetsBindingObserver {
     DownloadHistoryStore? downloadHistoryStore,
     TrackMetadataRepository? metadataRepository,
     LegacyCacheRepairer? legacyRepairer,
-    LanLibraryGateway? lanLibraryGateway,
-    LanSyncUseCase? lanSyncUseCase,
     Stream<List<ConnectivityResult>>? connectivityChanges,
     Future<List<ConnectivityResult>> Function()? checkConnectivity,
     AppUpdateController? appUpdates,
@@ -140,8 +134,6 @@ class MusicController extends ChangeNotifier with WidgetsBindingObserver {
     this.appUpdates = appUpdates ?? AppUpdateController();
     _songSearchCache = songSearchCache ?? SongSearchCache();
     downloadQueue.onHistoryChanged = () => unawaited(_saveDownloadHistory());
-    _lanLibraryGateway = lanLibraryGateway ?? LanLibraryClient();
-    _ownsLanLibraryGateway = lanLibraryGateway == null;
     settingsController = SettingsController(settingsStore: _settingsStore);
     libraryUseCase = LibraryUseCase(
       cacheStore: _cacheStore,
@@ -154,13 +146,6 @@ class MusicController extends ChangeNotifier with WidgetsBindingObserver {
       cacheStore: _cacheStore,
       queue: downloadQueue,
     );
-    this.lanSyncUseCase =
-        lanSyncUseCase ??
-        LanSyncUseCase(
-          gateway: _lanLibraryGateway,
-          cacheStore: _cacheStore,
-          playlistMerger: LanFolderPlaylistMerger(store: _playlistStore),
-        );
     playbackUseCase = PlaybackUseCase(
       audioHandler: audioHandler,
       prepareOnlineTrack: _prepareOnlineTrack,
@@ -487,8 +472,6 @@ class MusicController extends ChangeNotifier with WidgetsBindingObserver {
   final PlaylistAutoDownloadStore _playlistAutoDownloadStore;
   final TrackMetadataRepository _metadataRepository;
   final LegacyCacheRepairer? _legacyRepairerOverride;
-  late final LanLibraryGateway _lanLibraryGateway;
-  late final bool _ownsLanLibraryGateway;
   final LibraryController libraryController = const LibraryController();
   final DownloadQueueController downloadQueue = DownloadQueueController();
   // Byte progress does not change library contents or playlist layout.
@@ -536,7 +519,6 @@ class MusicController extends ChangeNotifier with WidgetsBindingObserver {
   late final SettingsController settingsController;
   late final LibraryUseCase libraryUseCase;
   late final DownloadUseCase downloadUseCase;
-  late final LanSyncUseCase lanSyncUseCase;
   late final PlaybackUseCase playbackUseCase;
   late final MetadataUseCase metadataUseCase;
   late final StreamSubscription<MediaItem?> _mediaItemSubscription;
@@ -654,15 +636,6 @@ class MusicController extends ChangeNotifier with WidgetsBindingObserver {
   MusicQualityLevel defaultDownloadQuality = MusicQualityLevel.high;
   bool get isOnWifi => _isOnWifi;
   bool get isConnectivityKnown => _connectivityKnown;
-  String lanLibraryUrl = defaultLanLibraryUrl;
-  bool isTestingLanConnection = false;
-  bool isLanSyncing = false;
-  int lanSyncCompleted = 0;
-  int lanSyncTotal = 0;
-  String lanSyncCurrentTitle = '';
-  String? lanConnectionStatus;
-  String? lanSyncError;
-  LanSyncResult? lastLanSyncResult;
   TrackMetadata currentMetadata = const TrackMetadata();
   bool isSearching = false;
   bool isLoadingCache = false;
@@ -837,7 +810,6 @@ class MusicController extends ChangeNotifier with WidgetsBindingObserver {
       'skin': settings.theme.storageValue,
     });
     performanceMonitor.setEnabled(settings.performanceOverlayEnabled);
-    lanLibraryUrl = settings.lanLibraryUrl;
     screenshotSearchConcurrency = settings.screenshotSearchConcurrency;
     playlistDownloadConcurrency = settings.playlistDownloadConcurrency;
     downloadPlaylistsOnWifi = settings.downloadPlaylistsOnWifi;
@@ -1009,70 +981,6 @@ class MusicController extends ChangeNotifier with WidgetsBindingObserver {
       }
     }
     notifyListeners();
-  }
-
-  Future<void> saveLanLibraryUrl(String value) async {
-    lanLibraryUrl = normalizeLanLibraryBaseUri(value).toString();
-    lanConnectionStatus = null;
-    notifyListeners();
-    await _saveSettings();
-  }
-
-  Future<LanLibraryHealth?> testLanConnection([String? value]) async {
-    if (isTestingLanConnection) {
-      return null;
-    }
-    isTestingLanConnection = true;
-    lanConnectionStatus = null;
-    notifyListeners();
-    try {
-      final candidate = normalizeLanLibraryBaseUri(
-        value ?? lanLibraryUrl,
-      ).toString();
-      final health = await _lanLibraryGateway.testConnection(candidate);
-      lanConnectionStatus = '连接成功，共 ${health.trackCount} 首';
-      return health;
-    } on Object catch (error) {
-      lanConnectionStatus = friendlyError(error);
-      return null;
-    } finally {
-      isTestingLanConnection = false;
-      notifyListeners();
-    }
-  }
-
-  Future<LanSyncResult?> syncLanLibrary() async {
-    OperationLog.event('library.lan_sync');
-    if (isLanSyncing) {
-      return null;
-    }
-    isLanSyncing = true;
-    lanSyncCompleted = 0;
-    lanSyncTotal = 0;
-    lanSyncCurrentTitle = '';
-    lanSyncError = null;
-    lastLanSyncResult = null;
-    notifyListeners();
-    try {
-      final result = await lanSyncUseCase.sync(
-        lanLibraryUrl,
-        onProgress: (progress) {
-          lanSyncCompleted = progress.completed;
-          lanSyncTotal = progress.total;
-          lanSyncCurrentTitle = progress.currentTitle;
-          notifyListeners();
-        },
-      );
-      lastLanSyncResult = result;
-      await loadCache(repairLegacy: false);
-      return result;
-    } on Object catch (error) {
-      lanSyncError = friendlyError(error);
-      return null;
-    } finally {
-      isLanSyncing = false;
-      notifyListeners();
-    }
   }
 
   Future<void> search(String query, {bool refresh = false}) async {
@@ -4297,7 +4205,6 @@ class MusicController extends ChangeNotifier with WidgetsBindingObserver {
       source: source,
       language: language,
       theme: themePreference,
-      lanLibraryUrl: lanLibraryUrl,
       screenshotSearchConcurrency: screenshotSearchConcurrency,
       playlistDownloadConcurrency: playlistDownloadConcurrency,
       downloadPlaylistsOnWifi: downloadPlaylistsOnWifi,
@@ -5004,9 +4911,6 @@ class MusicController extends ChangeNotifier with WidgetsBindingObserver {
     unawaited(_playbackSubscription.cancel());
     unawaited(_connectivitySubscription?.cancel());
     unawaited(_playbackPrefetch.cancel());
-    if (_ownsLanLibraryGateway && _lanLibraryGateway is LanLibraryClient) {
-      _lanLibraryGateway.close();
-    }
     if (_resolver is RemoteMusicResolver) _resolver.close();
     super.dispose();
   }

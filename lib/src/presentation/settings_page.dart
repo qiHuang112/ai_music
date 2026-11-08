@@ -1,4 +1,3 @@
-import '../data/lan_library_models.dart';
 import 'duo_scaffold.dart';
 import 'app_page_route.dart';
 import 'app_theme.dart';
@@ -177,7 +176,7 @@ class _DesktopSettingsPageState extends State<DesktopSettingsPage> {
                               3 => SourceSettingsPage(controller: c),
                               4 => _DownloadQualityPage(controller: c),
                               5 => _ConcurrencySettingsPage(controller: c),
-                              _ => LanLibrarySettingsPage(controller: c),
+                              _ => LanBackupPage(controller: c),
                             },
                       ],
                     ),
@@ -379,21 +378,6 @@ class SettingsPage extends StatelessWidget {
                             builder: (_) => _ConcurrencySettingsPage(
                               controller: controller,
                             ),
-                          ),
-                        ),
-                      ),
-                      ListTile(
-                        leading: const Icon(AppIcons.lan),
-                        title: Text(strings.lanLibrary),
-                        subtitle: Text(controller.lanLibraryUrl),
-                        trailing: const Icon(AppIcons.chevronRight),
-                        onTap: () => Navigator.of(context).push<void>(
-                          AppPageRoute(
-                            settings: const RouteSettings(
-                              name: 'lan-library-settings',
-                            ),
-                            builder: (_) =>
-                                LanLibrarySettingsPage(controller: controller),
                           ),
                         ),
                       ),
@@ -759,113 +743,6 @@ class _PlaylistDownloadConcurrencySettingState
           ),
         ),
       ],
-    );
-  }
-}
-
-class LanLibrarySettingsPage extends StatefulWidget {
-  const LanLibrarySettingsPage({super.key, required this.controller});
-
-  final MusicController controller;
-
-  @override
-  State<LanLibrarySettingsPage> createState() => _LanLibrarySettingsPageState();
-}
-
-class _LanLibrarySettingsPageState extends State<LanLibrarySettingsPage> {
-  late final TextEditingController _addressController;
-  String? _inputError;
-
-  @override
-  void initState() {
-    super.initState();
-    _addressController = TextEditingController(
-      text: widget.controller.lanLibraryUrl,
-    );
-  }
-
-  @override
-  void dispose() {
-    _addressController.dispose();
-    super.dispose();
-  }
-
-  Future<void> _save() async {
-    try {
-      await widget.controller.saveLanLibraryUrl(_addressController.text);
-      _addressController.text = widget.controller.lanLibraryUrl;
-      if (mounted) {
-        setState(() => _inputError = null);
-      }
-    } on FormatException catch (error) {
-      if (mounted) {
-        setState(() => _inputError = error.message);
-      }
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final strings = AppStringsScope.of(context);
-    return AnimatedBuilder(
-      animation: widget.controller,
-      builder: (context, _) {
-        final controller = widget.controller;
-        return DuoScaffold(
-          appBar: AppBar(title: Text(strings.lanLibrary)),
-          body: SafeArea(
-            child: ListView(
-              padding: const EdgeInsets.all(MusicUi.pagePadding),
-              children: [
-                Text(strings.lanLibraryDescription),
-                const SizedBox(height: 16),
-                TextField(
-                  key: const Key('lanLibraryUrlField'),
-                  controller: _addressController,
-                  keyboardType: TextInputType.url,
-                  autocorrect: false,
-                  decoration: InputDecoration(
-                    labelText: strings.lanLibraryAddress,
-                    hintText: defaultLanLibraryUrl,
-                    errorText: _inputError,
-                  ),
-                ),
-                const SizedBox(height: 12),
-                Wrap(
-                  spacing: 12,
-                  runSpacing: 8,
-                  children: [
-                    FilledButton.icon(
-                      onPressed: _save,
-                      icon: const Icon(AppIcons.save),
-                      label: Text(strings.saveLanAddress),
-                    ),
-                    OutlinedButton.icon(
-                      onPressed: controller.isTestingLanConnection
-                          ? null
-                          : () => controller.testLanConnection(
-                              _addressController.text,
-                            ),
-                      icon: controller.isTestingLanConnection
-                          ? const SizedBox.square(
-                              dimension: 16,
-                              child: CircularProgressIndicator(strokeWidth: 2),
-                            )
-                          : const Icon(AppIcons.network),
-                      label: Text(strings.testLanConnection),
-                    ),
-                  ],
-                ),
-                if (controller.lanConnectionStatus != null)
-                  Padding(
-                    padding: const EdgeInsets.only(top: 16),
-                    child: Text(controller.lanConnectionStatus!),
-                  ),
-              ],
-            ),
-          ),
-        );
-      },
     );
   }
 }

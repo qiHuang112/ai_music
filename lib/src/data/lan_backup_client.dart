@@ -59,8 +59,20 @@ class LanBackupClient {
 
   final HttpClient _http;
 
-  Uri _uri(String base, String path) =>
-      Uri.parse('${base.replaceAll(RegExp(r'/+$'), '')}/api/v1/backup$path');
+  Uri _uri(String base, String path) {
+    final uri = Uri.parse(
+      '${base.trim().replaceAll(RegExp(r'/+$'), '')}/api/v1/backup$path',
+    );
+    // Songs and the library travel unencrypted; keep that inside the home
+    // network.
+    if (uri.scheme == 'http' && !isPrivateOrLoopbackHost(uri.host)) {
+      throw const LanBackupException('明文 HTTP 只允许回环或私网 IP 地址');
+    }
+    if (uri.scheme != 'http' && uri.scheme != 'https') {
+      throw const LanBackupException('局域网服务地址需以 http:// 开头');
+    }
+    return uri;
+  }
 
   Future<List<LanBackupDevice>> devices(String base) async {
     final document = await _json('GET', _uri(base, '/devices'));
@@ -194,6 +206,21 @@ class LanBackupClient {
   };
 
   void close() => _http.close(force: true);
+}
+
+/// Loopback, or an IPv4/IPv6 address in a private range.
+bool isPrivateOrLoopbackHost(String host) {
+  if (host == 'localhost') return true;
+  final address = InternetAddress.tryParse(host);
+  if (address == null) return false;
+  if (address.isLoopback || address.isLinkLocal) return true;
+  final b = address.rawAddress;
+  if (address.type == InternetAddressType.IPv4) {
+    return b[0] == 10 ||
+        (b[0] == 172 && b[1] >= 16 && b[1] <= 31) ||
+        (b[0] == 192 && b[1] == 168);
+  }
+  return (b[0] & 0xfe) == 0xfc; // fc00::/7 unique local
 }
 
 /// SHA-256 of a file, streamed.

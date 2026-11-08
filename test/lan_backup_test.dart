@@ -277,4 +277,18 @@ void main() {
       throwsA(isA<LanBackupException>().having((e) => e.statusCode, 'status', 409)),
     );
   });
+
+  test('plain HTTP backups stay on the home network', () async {
+    expect(isPrivateOrLoopbackHost('192.168.31.167'), isTrue);
+    expect(isPrivateOrLoopbackHost('10.1.2.3'), isTrue);
+    expect(isPrivateOrLoopbackHost('127.0.0.1'), isTrue);
+    expect(isPrivateOrLoopbackHost('8.8.8.8'), isFalse);
+    expect(isPrivateOrLoopbackHost('example.com'), isFalse);
+    final client = LanBackupClient();
+    addTearDown(client.close);
+    await expectLater(
+      client.devices('http://8.8.8.8:8788'),
+      throwsA(isA<LanBackupException>()),
+    );
+  });
 }

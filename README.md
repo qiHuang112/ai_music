@@ -2,9 +2,10 @@
 
 Flutter music search, cache, and playback app.
 
-The active baseline is the Flutter version with LAN library synchronization on
-`main`. See [current project state](CURRENT_STATE.md) and the
-[LAN server guide](tool/LAN_MUSIC_SERVER_README.txt).
+The active baseline is the Flutter version on `main`. See
+[current project state](CURRENT_STATE.md). Devices back up playlists,
+favorites and songs to the LAN service per device; see
+[LAN backup](docs/lan-backup.md).
 
 ## Local SDK
 

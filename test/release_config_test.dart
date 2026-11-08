@@ -13,14 +13,14 @@ void main() {
         'android/app/src/debug/AndroidManifest.xml',
       ).readAsString();
 
-      final lanModels = await File(
-        'lib/src/data/lan_library_models.dart',
+      final lanBackup = await File(
+        'lib/src/data/lan_backup_client.dart',
       ).readAsString();
 
       expect(mainManifest, contains('usesCleartextTraffic="true"'));
       expect(debugManifest, contains('usesCleartextTraffic="true"'));
-      expect(lanModels, contains('_isPrivateOrLoopbackHost'));
-      expect(lanModels, contains('明文 HTTP 只允许回环或私网 IP 地址'));
+      expect(lanBackup, contains('isPrivateOrLoopbackHost'));
+      expect(lanBackup, contains('明文 HTTP 只允许回环或私网 IP 地址'));
     },
   );
 
