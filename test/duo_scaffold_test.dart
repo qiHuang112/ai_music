@@ -1,3 +1,5 @@
+import 'dart:ui' as ui;
+
 import 'package:ai_music/src/presentation/duo_scaffold.dart';
 import 'package:ai_music/src/presentation/duo_window.dart';
 import 'package:flutter/material.dart';
@@ -5,6 +7,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:ai_music/src/presentation/design/app_icons.dart';
 
 void main() {
+  _foldTests();
   test('rail groups avoid camera, status and fold without wasting the edge', () {
     const bounds = Rect.fromLTWH(524, 0, 76, 500);
     const blocks = [
@@ -190,5 +193,63 @@ void main() {
     await tester.pumpAndSettle();
     expect(selected, 4);
     expect(tester.takeException(), isNull);
+  });
+}
+
+Widget _foldedApp({required bool immersive, double foldTop = 380}) =>
+    MaterialApp(
+      home: Builder(
+        builder: (context) => MediaQuery(
+          data: MediaQuery.of(context).copyWith(
+            size: const Size(600, 800),
+            displayFeatures: [
+              ui.DisplayFeature(
+                bounds: Rect.fromLTWH(0, foldTop, 600, 40),
+                type: ui.DisplayFeatureType.hinge,
+                state: ui.DisplayFeatureState.postureHalfOpened,
+              ),
+            ],
+          ),
+          child: DuoScaffold(
+            extendBodyBehindAppBar: immersive,
+            appBar: AppBar(title: const Text('Page')),
+            body: ListView(
+              key: const Key('fold-list'),
+              children: [
+                for (var i = 0; i < 40; i++) ListTile(title: Text('Row $i')),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+
+void _foldTests() {
+  testWidgets('a list page keeps to one side of a tabletop fold', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(600, 800);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+
+    await tester.pumpWidget(_foldedApp(immersive: false));
+    final list = tester.getRect(find.byKey(const Key('fold-list')));
+    expect(list.bottom, lessThanOrEqualTo(380));
+    expect(find.byKey(const ValueKey('fold-side-top')), findsOneWidget);
+
+    // A lower fold leaves more room below: the page moves under it.
+    await tester.pumpWidget(_foldedApp(immersive: false, foldTop: 200));
+    expect(
+      tester.getRect(find.byKey(const Key('fold-list'))).top,
+      greaterThanOrEqualTo(240),
+    );
+
+    // Immersive pages (the player) lay out both halves themselves.
+    await tester.pumpWidget(_foldedApp(immersive: true));
+    expect(find.byKey(const ValueKey('fold-side-top')), findsNothing);
+    expect(
+      tester.getRect(find.byKey(const Key('fold-list'))).bottom,
+      greaterThan(420),
+    );
   });
 }

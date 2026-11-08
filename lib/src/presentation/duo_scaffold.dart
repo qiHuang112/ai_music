@@ -187,7 +187,9 @@ class DuoScaffold extends StatelessWidget {
                   ),
               ],
             ),
-            child: _DuoChrome(
+            child: FoldSide(
+              enabled: !nested && !extendBodyBehindAppBar,
+              child: _DuoChrome(
               consumed: nested || rail || floating,
               child: Scaffold(
                 appBar: titleBar,
@@ -204,6 +206,7 @@ class DuoScaffold extends StatelessWidget {
                 floatingActionButton: floatingActionButton,
                 floatingActionButtonLocation: floatingActionButtonLocation,
               ),
+            ),
             ),
           ),
         ),
@@ -318,6 +321,10 @@ extension on DuoScaffold {
           );
         },
       ),
+    );
+    child = FoldSide(
+      enabled: !nested && !extendBodyBehindAppBar,
+      child: child,
     );
     if (background != null) {
       child = Stack(fit: StackFit.expand, children: [background!, child]);
@@ -1044,6 +1051,81 @@ class _RailOverflow extends StatelessWidget {
           ),
         ),
       ),
+    );
+  }
+}
+
+/// On a screen half folded across its width (tabletop, "hover"), a page lays
+/// itself out on one side of the fold instead of running a list across the
+/// crease: the larger side, the upper one when they match. Immersive pages
+/// (player, lyrics) arrange both halves themselves and opt out.
+class FoldSide extends StatelessWidget {
+  const FoldSide({super.key, this.enabled = true, required this.child});
+
+  final bool enabled;
+  final Widget child;
+
+  /// A side smaller than this is no place for a page; it is left empty.
+  static const minimumSide = 120.0;
+
+  @override
+  Widget build(BuildContext context) {
+    if (!enabled) return child;
+    final data = MediaQuery.of(context);
+    final candidates = [
+      for (final f in data.displayFeatures)
+        if (f.state == ui.DisplayFeatureState.postureHalfOpened &&
+            f.bounds.width > f.bounds.height)
+          f,
+    ];
+    if (candidates.isEmpty) return child;
+    return LayoutBuilder(
+      builder: (context, box) {
+        final bounds = Offset.zero & box.biggest;
+        ui.DisplayFeature? feature;
+        Rect? fold;
+        for (final f in candidates) {
+          final r = f.bounds.intersect(bounds);
+          if (!r.isEmpty && r.width >= box.maxWidth / 2) {
+            feature = f;
+            fold = r;
+            break;
+          }
+        }
+        if (fold == null) return child;
+        final above = fold.top;
+        final below = box.maxHeight - fold.bottom;
+        if (math.max(above, below) < minimumSide) return child;
+        final top = above >= below;
+        EdgeInsets clip(EdgeInsets value) => top
+            ? value.copyWith(bottom: 0)
+            : value.copyWith(top: 0);
+        return Padding(
+          key: ValueKey(top ? 'fold-side-top' : 'fold-side-bottom'),
+          padding: top
+              ? EdgeInsets.only(bottom: box.maxHeight - fold.top)
+              : EdgeInsets.only(top: fold.bottom),
+          child: MediaQuery(
+            data: data.copyWith(
+              size: Size(box.maxWidth, top ? above : below),
+              padding: clip(data.padding),
+              viewPadding: clip(data.viewPadding),
+              displayFeatures: [
+                for (final f in data.displayFeatures)
+                  if (!identical(f, feature))
+                    ui.DisplayFeature(
+                      bounds: f.bounds.shift(
+                        Offset(0, top ? 0 : -fold.bottom),
+                      ),
+                      type: f.type,
+                      state: f.state,
+                    ),
+              ],
+            ),
+            child: child,
+          ),
+        );
+      },
     );
   }
 }
