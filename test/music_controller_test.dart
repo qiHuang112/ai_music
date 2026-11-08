@@ -519,6 +519,87 @@ void main() {
   }
 
   test(
+    'search lists downloaded songs first, skipping playback cache, and marks online duplicates',
+    () async {
+      CachedTrack record(
+        String id,
+        String name,
+        String artist, {
+        bool playbackCache = false,
+      }) => CachedTrack(
+        cacheId: id,
+        filePath: '/tmp/$id.mp3',
+        sizeBytes: 1024,
+        fromCache: true,
+        playbackCache: playbackCache,
+        music: ResolvedMusic(
+          query: name,
+          source: MusicDataSource.flac,
+          platform: 'qq',
+          id: id,
+          name: name,
+          artist: artist,
+          album: '叶惠美',
+          url: '',
+          quality: const MusicQuality(format: 'mp3', bitrate: '320'),
+        ),
+      );
+      final controller = MusicController(
+        audioHandler: _SpyAudioHandler(),
+        songSearchCache: SongSearchCache.memory(),
+        downloadHistoryStore: MemoryDownloadHistory(),
+        connectivityChanges: const Stream.empty(),
+        resolver: _FakeMusicResolver(),
+        cacheStore: _FakeCacheStore(
+          cached: [
+            record('qing-tian', '晴天', '周杰伦'),
+            record('dao-xiang', '稻香', '周杰伦', playbackCache: true),
+            record('other', '后来', '刘若英'),
+          ],
+        ),
+        playlistStore: _MemoryPlaylistStore(),
+        settingsStore: _FakeSettingsStore(),
+        metadataRepository: _StaticMetadataRepository(),
+      );
+      try {
+        await controller.initialize();
+        await controller.search('周杰倫 晴天');
+        expect(controller.localSearchMatches.map((t) => t.id), ['qing-tian']);
+        expect(controller.errorMessage, isNull);
+        expect(controller.hasSearchState, isTrue);
+        expect(
+          controller.isCandidateManuallyDownloaded(
+            const MusicSearchCandidate(
+              query: '晴天',
+              source: MusicDataSource.buguyy,
+              platform: 'buguyy',
+              keyword: '晴天',
+              page: 1,
+              id: 'online-qing-tian',
+              name: '晴天',
+              artist: '周杰伦',
+              album: '',
+              duration: 269,
+              link: '',
+              coverUrl: '',
+              qualities: [MusicQuality(format: 'mp3')],
+              score: 100,
+              raw: {},
+            ),
+          ),
+          isTrue,
+        );
+        await controller.search('稻香');
+        expect(controller.localSearchMatches, isEmpty);
+        controller.clearSearch();
+        expect(controller.localSearchMatches, isEmpty);
+      } finally {
+        controller.dispose();
+      }
+    },
+  );
+
+  test(
     'skin changes persist from/to and save outcome while the performance panel is off',
     () async {
       final root = await Directory.systemTemp.createTemp('skin_operation_log_');

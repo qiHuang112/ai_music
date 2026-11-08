@@ -1793,6 +1793,55 @@ void main() {
     expect(find.byKey(const ValueKey('home-playlist-road')), findsNothing);
   });
 
+  testWidgets('search shows downloaded songs first and tags them as local', (
+    tester,
+  ) async {
+    final local = CachedTrack(
+      cacheId: 'local-qing-tian',
+      filePath: '/tmp/local-qing-tian.mp3',
+      sizeBytes: 1024,
+      fromCache: true,
+      music: const ResolvedMusic(
+        query: '晴天',
+        source: MusicDataSource.flac,
+        platform: 'qq',
+        id: 'qq-qing-tian',
+        name: '晴天',
+        artist: '周杰伦',
+        album: '叶惠美',
+        url: '',
+        quality: MusicQuality(format: 'flac'),
+      ),
+    );
+    final resolver = _FakeMusicResolver(
+      candidates: [
+        _candidate(id: 'online-qing-tian', name: '晴天', artist: '周杰伦'),
+        _candidate(id: 'online-dao-xiang', name: '稻香', artist: '周杰伦'),
+      ],
+    );
+    await tester.pumpWidget(
+      _app(
+        resolver: resolver,
+        cacheStore: _FakeCacheStore(cached: [local]),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.enterText(find.byType(TextField), '周杰伦');
+    await tester.tap(find.byTooltip('在线搜索'));
+    await tester.pumpAndSettle();
+
+    final localRow = find.byKey(const ValueKey('search-local-local-qing-tian'));
+    expect(localRow, findsOneWidget);
+    // The local row leads, the online duplicate is tagged too, the other is not.
+    expect(find.text('本地歌曲'), findsNWidgets(2));
+    expect(find.text('稻香'), findsOneWidget);
+    expect(
+      tester.getTopLeft(localRow).dy,
+      lessThan(tester.getTopLeft(find.text('稻香')).dy),
+    );
+  });
+
   testWidgets('clearing search restores home default library summaries', (
     tester,
   ) async {

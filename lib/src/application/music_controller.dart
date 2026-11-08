@@ -28,6 +28,7 @@ import '../data/music_playlists.dart';
 import '../data/music_charts.dart';
 import '../data/music_resolver.dart';
 import '../data/music_settings.dart';
+import '../data/song_match_identity.dart';
 import '../data/song_search_cache.dart';
 import '../data/cached_track_lookup.dart';
 import '../data/playlist_auto_download_store.dart';
@@ -619,6 +620,11 @@ class MusicController extends ChangeNotifier with WidgetsBindingObserver {
 
   MusicDataSource source = MusicDataSource.auto;
   List<MusicSearchCandidate> candidates = const [];
+
+  /// Downloaded songs (manual or LAN, not playback cache) matching the
+  /// current search, shown above online results so they are not fetched again.
+  List<Track> localSearchMatches = const [];
+  String _localSearchQuery = '';
   List<Track> cachedTracks = const [];
   List<Track> onlineTracks = const [];
   List<Track> favoriteTracks = const [];
@@ -694,6 +700,7 @@ class MusicController extends ChangeNotifier with WidgetsBindingObserver {
   bool get hasSearchState {
     return isSearching ||
         candidates.isNotEmpty ||
+        localSearchMatches.isNotEmpty ||
         errorMessage != null ||
         errorDetail != null;
   }
@@ -1085,6 +1092,8 @@ class MusicController extends ChangeNotifier with WidgetsBindingObserver {
     errorMessage = null;
     statusMessage = null;
     candidates = const [];
+    _localSearchQuery = trimmed;
+    localSearchMatches = _downloadedTracksMatching(trimmed);
     notifyListeners();
     try {
       final searchSource = source;
@@ -1127,7 +1136,7 @@ class MusicController extends ChangeNotifier with WidgetsBindingObserver {
         'query': trimmed,
         'count': result.length,
       });
-      if (result.isEmpty) {
+      if (result.isEmpty && localSearchMatches.isEmpty) {
         errorMessage = const MusicUiMessage(
           MusicUiMessageCode.noOnlineMatchesFound,
         );
@@ -1151,6 +1160,8 @@ class MusicController extends ChangeNotifier with WidgetsBindingObserver {
     _activeSearchKey = null;
     isSearching = false;
     candidates = const [];
+    _localSearchQuery = '';
+    localSearchMatches = const [];
     errorDetail = null;
     errorMessage = null;
     statusMessage = null;
@@ -1627,6 +1638,27 @@ class MusicController extends ChangeNotifier with WidgetsBindingObserver {
 
   bool isCandidateManuallyDownloaded(MusicSearchCandidate candidate) =>
       _matchingCachedRecords(candidate).any((record) => !record.playbackCache);
+
+  List<Track> _downloadedTracksMatching(String query) {
+    final terms = query
+        .split(RegExp(r'\s+'))
+        .map(normalizeSongText)
+        .where((term) => term.isNotEmpty)
+        .toList(growable: false);
+    if (terms.isEmpty) return const [];
+    final tracks = {for (final track in cachedTracks) track.id: track};
+    final matches = <Track>[];
+    for (final record in _cachedRecords) {
+      if (record.playbackCache) continue;
+      final track = tracks[record.cacheId];
+      if (track == null) continue;
+      final text = normalizeSongText(
+        '${track.title} ${track.artist} ${track.album}',
+      );
+      if (terms.every(text.contains)) matches.add(track);
+    }
+    return List.unmodifiable(matches);
+  }
 
   Future<void> playCandidate(MusicSearchCandidate candidate) async {
     OperationLog.event('play.candidate', {
@@ -4300,6 +4332,9 @@ class MusicController extends ChangeNotifier with WidgetsBindingObserver {
       }
     }
     cachedTracks = snapshot.cachedTracks;
+    if (_localSearchQuery.isNotEmpty) {
+      localSearchMatches = _downloadedTracksMatching(_localSearchQuery);
+    }
     onlineTracks = snapshot.onlineTracks;
     favoriteTracks = snapshot.favoriteTracks;
     customPlaylists = snapshot.customPlaylists

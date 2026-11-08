@@ -519,8 +519,18 @@ class _MusicHomePageState extends State<MusicHomePage>
               Expanded(
                 child: _OnlineSearchPanel(
                   candidates: controller.candidates,
+                  localTracks: controller.localSearchMatches,
                   isSearching: controller.isSearching,
                   isCandidateBusy: controller.isCandidateDownloading,
+                  isCandidateLocal: controller.isCandidateManuallyDownloaded,
+                  onPlayLocal: (track) => unawaited(
+                    controller.playTrack(
+                      track,
+                      index: _indexOrNull(
+                        controller.cachedTracks.indexOf(track),
+                      ),
+                    ),
+                  ),
                   isCandidatePreparing: (candidate) =>
                       _preparingCandidateKey == _candidatePlayKey(candidate),
                   error:
@@ -550,6 +560,7 @@ class _MusicHomePageState extends State<MusicHomePage>
     return _searchController.text.trim().isNotEmpty &&
         (controller.isSearching ||
             controller.candidates.isNotEmpty ||
+            controller.localSearchMatches.isNotEmpty ||
             controller.errorMessage != null ||
             controller.errorDetail != null);
   }
@@ -1088,11 +1099,53 @@ class _SearchHistoryPanel extends StatelessWidget {
   }
 }
 
+int? _indexOrNull(int index) => index < 0 ? null : index;
+
+/// Marks a song already downloaded on this device so it is not fetched twice.
+class _LocalSongTag extends StatelessWidget {
+  const _LocalSongTag();
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+    return Container(
+      key: const ValueKey('local-song-tag'),
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
+      decoration: BoxDecoration(
+        color: colors.primaryContainer,
+        borderRadius: BorderRadius.circular(4),
+      ),
+      child: Text(
+        AppStringsScope.of(context).localSong,
+        style: Theme.of(context).textTheme.labelSmall?.copyWith(
+          color: colors.onPrimaryContainer,
+          fontWeight: FontWeight.w600,
+        ),
+      ),
+    );
+  }
+}
+
+Widget _titleWithLocalTag(String title, {required bool local}) {
+  final text = Text(title, maxLines: 1, overflow: TextOverflow.ellipsis);
+  if (!local) return text;
+  return Row(
+    children: [
+      Flexible(child: text),
+      const SizedBox(width: 6),
+      const _LocalSongTag(),
+    ],
+  );
+}
+
 class _OnlineSearchPanel extends StatelessWidget {
   const _OnlineSearchPanel({
     required this.candidates,
+    required this.localTracks,
     required this.isSearching,
     required this.isCandidateBusy,
+    required this.isCandidateLocal,
+    required this.onPlayLocal,
     required this.isCandidatePreparing,
     required this.error,
     required this.onRetry,
@@ -1100,8 +1153,11 @@ class _OnlineSearchPanel extends StatelessWidget {
   });
 
   final List<MusicSearchCandidate> candidates;
+  final List<Track> localTracks;
   final bool isSearching;
   final bool Function(MusicSearchCandidate candidate) isCandidateBusy;
+  final bool Function(MusicSearchCandidate candidate) isCandidateLocal;
+  final ValueChanged<Track> onPlayLocal;
   final bool Function(MusicSearchCandidate candidate) isCandidatePreparing;
   final String? error;
   final VoidCallback onRetry;
@@ -1138,16 +1194,49 @@ class _OnlineSearchPanel extends StatelessWidget {
                   icon: const Icon(AppIcons.refresh),
                 ),
               ),
-            if (candidates.isNotEmpty)
+            if (candidates.isNotEmpty || localTracks.isNotEmpty)
               Expanded(
                 child: ListView.separated(
                   padding: EdgeInsets.only(
                     bottom: MediaQuery.paddingOf(context).bottom,
                   ),
-                  itemCount: candidates.length,
+                  itemCount: localTracks.length + candidates.length,
                   separatorBuilder: (_, _) => const Divider(height: 1),
                   itemBuilder: (context, index) {
-                    final candidate = candidates[index];
+                    if (index < localTracks.length) {
+                      final track = localTracks[index];
+                      return DesktopSongInteraction(
+                        id: 'search-local:${track.id}',
+                        onPlay: () => onPlayLocal(track),
+                        builder: (tap, selected) => ListTile(
+                          key: ValueKey('search-local-${track.id}'),
+                          selected: selected,
+                          trailing: DesktopMusicScope.maybeOf(context) == null
+                              ? null
+                              : IconButton(
+                                  tooltip: strings.play,
+                                  onPressed: () => onPlayLocal(track),
+                                  icon: const Icon(AppIcons.play),
+                                ),
+                          leading: CircleAvatar(
+                            backgroundColor: colors.primaryContainer,
+                            foregroundColor: colors.onPrimaryContainer,
+                            child: const Icon(AppIcons.downloaded, size: 20),
+                          ),
+                          title: _titleWithLocalTag(track.title, local: true),
+                          subtitle: Text(
+                            [
+                              if (track.artist.isNotEmpty) track.artist,
+                              if (track.album.isNotEmpty) track.album,
+                            ].join(' - '),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                          onTap: tap,
+                        ),
+                      );
+                    }
+                    final candidate = candidates[index - localTracks.length];
                     final isBusy = isCandidateBusy(candidate);
                     final isPreparing = isCandidatePreparing(candidate);
                     return DesktopSongInteraction(
@@ -1188,12 +1277,11 @@ class _OnlineSearchPanel extends StatelessWidget {
                                       ),
                                 ),
                         ),
-                        title: Text(
+                        title: _titleWithLocalTag(
                           candidate.name.isEmpty
                               ? candidate.keyword
                               : candidate.name,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
+                          local: isCandidateLocal(candidate),
                         ),
                         subtitle: Text(
                           _candidateSubtitle(candidate),

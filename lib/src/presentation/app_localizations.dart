@@ -217,6 +217,7 @@ class AppStrings {
   String get homeLibraryTitle => isZh ? '我的音乐' : 'My Music';
   String get libraryTitle => isZh ? '我的缓存列表' : 'My Library';
   String get localLibrary => isZh ? '本地' : 'Local';
+  String get localSong => isZh ? '本地歌曲' : 'Local song';
   String get favorite => isZh ? '收藏' : 'Favorites';
   String get customPlaylists => isZh ? '自建歌单' : 'Custom Playlists';
   String get noCustomPlaylists => isZh ? '还没有自建歌单' : 'No custom playlists yet';
