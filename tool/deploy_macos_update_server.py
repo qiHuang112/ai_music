@@ -55,7 +55,15 @@ def deploy(root: Path, port: int):
     temporary = agent.with_suffix('.plist.part')
     temporary.write_bytes(plistlib.dumps(configuration))
     temporary.replace(agent)
-    subprocess.run(['launchctl', 'bootstrap', domain, str(agent)], check=True)
+    # bootout returns before launchd has let go of the label; bootstrapping
+    # at once fails with an I/O error (5) and leaves the service stopped.
+    for attempt in range(20):
+        loaded = subprocess.run(['launchctl', 'bootstrap', domain, str(agent)], capture_output=True)
+        if loaded.returncode == 0:
+            break
+        time.sleep(0.5)
+    else:
+        raise RuntimeError(f'launchctl bootstrap failed: {loaded.stderr.decode().strip()}')
     last_error = None
     for _ in range(30):
         try:
