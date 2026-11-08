@@ -36,7 +36,8 @@ def github_api(endpoint, output, *, binary=False):
     args = [github_cli(), 'api', '--hostname', 'github.com', endpoint]
     if binary:
         args.extend(['-H', 'Accept: application/octet-stream'])
-    result = subprocess.run(args, stdout=output, stderr=subprocess.PIPE, timeout=60)
+    result = subprocess.run(args, stdout=output, stderr=subprocess.PIPE,
+                            timeout=600 if binary else 60)
     if result.returncode:
         raise RuntimeError(f'Authenticated GitHub download failed (gh exit {result.returncode})')
     output.seek(0)
@@ -97,14 +98,27 @@ class AssetRedirects(urllib.request.HTTPRedirectHandler):
 def open_asset(url):
     if not asset_url(url):
         raise ValueError('Expected an official GitHub HTTPS asset')
+    output = tempfile.TemporaryFile()
     try:
-        return urllib.request.build_opener(AssetRedirects()).open(
-            urllib.request.Request(url, headers={'User-Agent': 'ai-music-lan-mirror'}), timeout=30)
+        with urllib.request.build_opener(AssetRedirects()).open(
+                urllib.request.Request(url, headers={'User-Agent': 'ai-music-lan-mirror'}),
+                timeout=30) as response:
+            shutil.copyfileobj(response, output, 1024 * 1024)
+        output.seek(0)
+        return output
     except urllib.error.HTTPError as error:
-        if error.code not in (401, 404):
-            raise
+        output.close()
         error.close()
-        return open_private_asset(url)
+        if error.code not in (401, 404) and error.code < 500:
+            raise
+    except (urllib.error.URLError, TimeoutError, ConnectionError):
+        # github.com/.../releases/download can time out from this Mac while
+        # the GitHub API that gh uses still works; fall back to gh.
+        output.close()
+    except BaseException:
+        output.close()
+        raise
+    return open_private_asset(url)
 
 
 def read_manifest():
