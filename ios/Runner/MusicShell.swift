@@ -594,7 +594,9 @@ final class ShellPageController: UIViewController {
     // Shared now-playing actions sit after the page's own, skipping any the
     // page already offers.
     let own = Set(spec.actions.compactMap(\.symbol))
-    let shared = (shell?.sharedActions ?? []).filter { !own.contains($0.symbol ?? "") }
+    let shared = (shell?.sharedActions ?? []).filter {
+      !own.contains($0.symbol ?? "") && !spec.hiddenShared.contains($0.id)
+    }
     navigationItem.rightBarButtonItems = (spec.actions + shared).reversed().map { $0.barButton(shell: shell) }
     if isViewLoaded, let nav = navigationController, nav.topViewController === self {
       nav.setNavigationBarHidden(hidesBar, animated: false)
@@ -711,8 +713,11 @@ struct ShellPageSpec {
   let hidesBack: Bool
   let leading: ShellAction?
   let actions: [ShellAction]
+  /// Shared now-playing entries that would lead to this very page.
+  let hiddenShared: Set<String>
 
   init(_ raw: [String: Any]) {
+    hiddenShared = Set(raw["hideShared"] as? [String] ?? [])
     title = raw["title"] as? String
     immersive = raw["immersive"] as? Bool ?? false
     chromeless = raw["chromeless"] as? Bool ?? false

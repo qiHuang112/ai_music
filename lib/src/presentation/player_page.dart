@@ -4,7 +4,6 @@ import 'app_page_route.dart';
 import 'app_popup_menu.dart';
 import 'duo_scaffold.dart';
 import 'mobile_chrome.dart';
-import 'native_shell.dart';
 import 'dart:async';
 import 'dart:math' as math;
 import 'dart:ui' as ui;
@@ -362,7 +361,10 @@ class _PlayerPageState extends State<PlayerPage> {
     );
     Navigator.of(
       context,
-    ).push(AppPageRoute<void>(builder: (_) => SongCommentsPage(query: query)));
+    ).push(AppPageRoute<void>(
+      settings: const RouteSettings(name: 'comments'),
+      builder: (_) => SongCommentsPage(query: query),
+    ));
   }
 
   void _openLyrics(BuildContext context) => Navigator.of(context).push(
@@ -386,22 +388,8 @@ class _PlayerPageState extends State<PlayerPage> {
             closeOnSwipe: false,
             child: const SizedBox.expand(),
           ),
-          // Under the iOS shell the side rail already carries lyrics and
-          // the queue for every page, and the controls row has the queue.
-          extraActions: [
-            if (!NativeShell.active) ...[
-              DuoRailItem(
-                icon: AppIcons.lyrics,
-                label: strings.isZh ? '完整歌词' : 'Full lyrics',
-                onPressed: () => _openLyrics(context),
-              ),
-              DuoRailItem(
-                icon: CupertinoIcons.music_note_list,
-                label: strings.isZh ? '当前队列' : 'Play queue',
-                onPressed: () => showPlaybackQueue(context, controller),
-              ),
-            ],
-          ],
+          // No rail entries for lyrics or the queue: the player already
+          // shows its lyrics and has the queue in its controls row.
           appBar: AppBar(
             backgroundColor: Colors.transparent,
             // Immersive like the iOS shell's player: back and the menu only.
@@ -1153,7 +1141,10 @@ Future<void> openSongCommentsPage(
     lyrics: controller.currentLyrics,
   );
   return Navigator.of(context).push<void>(
-    AppPageRoute<void>(builder: (_) => SongCommentsPage(query: query)),
+    AppPageRoute<void>(
+      settings: const RouteSettings(name: 'comments'),
+      builder: (_) => SongCommentsPage(query: query),
+    ),
   );
 }
 

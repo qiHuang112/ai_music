@@ -299,7 +299,10 @@ void main() {
     },
   );
 
-  test('next and previous remain pending until play is requested', () async {
+  test('a skip from a restored, paused queue plays the chosen song', () async {
+    final original = JustAudioPlatform.instance;
+    final platform = _TestJustAudioPlatform();
+    JustAudioPlatform.instance = platform;
     final handler = MusicAudioHandler();
     try {
       await handler.restoreQueue(
@@ -315,23 +318,96 @@ void main() {
         initialIndex: 1,
         initialPosition: const Duration(seconds: 12),
       );
-      await handler.skipToNext();
-      expect(handler.mediaItem.value?.id, 'c');
-      expect(handler.currentPosition, Duration.zero);
       expect(handler.isAwaitingPlayback, isTrue);
-      expect(handler.playbackState.value.playing, isFalse);
-      await handler.skipToPrevious();
-      expect(handler.mediaItem.value?.id, 'b');
-      await handler.removeQueueItemsAt([0, 1]);
-      expect(handler.queue.value.map((m) => m.id), ['b', 'c']);
-      expect(handler.currentQueueIndex, 0);
-      await handler.clearQueue();
-      expect(handler.queue.value, isEmpty);
+      await handler.skipToNext();
+      await Future<void>.delayed(const Duration(milliseconds: 10));
+      expect(handler.mediaItem.value?.id, 'c');
       expect(handler.isAwaitingPlayback, isFalse);
+      final native = platform._players.values.single;
+      expect(native.loads.single.initialIndex, 2);
+      expect(native.loads.single.initialPosition, Duration.zero);
+      expect(native.playCalls, 1);
     } finally {
       await handler.dispose();
+      JustAudioPlatform.instance = original;
     }
   });
+
+  test('a previous from a restored, paused queue plays too', () async {
+    final original = JustAudioPlatform.instance;
+    final platform = _TestJustAudioPlatform();
+    JustAudioPlatform.instance = platform;
+    final handler = MusicAudioHandler();
+    try {
+      await handler.restoreQueue(
+        [
+          for (final id in ['a', 'b', 'c'])
+            PlayableAudio(
+              mediaItem: MediaItem(id: id, title: id),
+              source: AudioSource.uri(
+                Uri.parse('https://example.test/$id.mp3'),
+              ),
+            ),
+        ],
+        initialIndex: 1,
+        initialPosition: const Duration(seconds: 12),
+      );
+      await handler.skipToPrevious();
+      await Future<void>.delayed(const Duration(milliseconds: 10));
+      expect(handler.mediaItem.value?.id, 'a');
+      final native = platform._players.values.single;
+      expect(native.loads.single.initialIndex, 0);
+      expect(native.playCalls, 1);
+    } finally {
+      await handler.dispose();
+      JustAudioPlatform.instance = original;
+    }
+  });
+
+  test(
+    'shuffle previous walks back the songs heard, next replays them',
+    () async {
+      final original = JustAudioPlatform.instance;
+      JustAudioPlatform.instance = _TestJustAudioPlatform();
+      final handler = MusicAudioHandler(
+        shuffleSkipPlanner: ShuffleSkipPlanner(seed: 3),
+      );
+      try {
+        final ids = [for (var i = 0; i < 8; i++) 's$i'];
+        await handler.loadQueue([
+          for (final id in ids)
+            PlayableAudio(
+              mediaItem: MediaItem(id: id, title: id),
+              source: AudioSource.uri(Uri.parse('https://example.com/$id.mp3')),
+            ),
+        ], playWhenReady: false);
+        await handler.setShuffleMode(AudioServiceShuffleMode.all);
+        Future<String?> step(Future<void> Function() skip) async {
+          await skip();
+          await Future<void>.delayed(const Duration(milliseconds: 10));
+          return handler.mediaItem.value?.id;
+        }
+
+        final heard = [handler.mediaItem.value?.id];
+        for (var i = 0; i < 3; i++) {
+          heard.add(await step(handler.skipToNext));
+        }
+        // Back through the run, in the order heard.
+        expect(await step(handler.skipToPrevious), heard[2]);
+        expect(await step(handler.skipToPrevious), heard[1]);
+        // Forward again replays it rather than drawing new songs.
+        expect(await step(handler.skipToNext), heard[2]);
+        expect(await step(handler.skipToNext), heard[3]);
+        // Past its end, next draws a new song, and previous returns from it.
+        final fresh = await step(handler.skipToNext);
+        expect(fresh, isNot(heard[3]));
+        expect(await step(handler.skipToPrevious), heard[3]);
+      } finally {
+        await handler.dispose();
+        JustAudioPlatform.instance = original;
+      }
+    },
+  );
 
   test(
     'entering random restarts skipped choices, reapplying it preserves them',

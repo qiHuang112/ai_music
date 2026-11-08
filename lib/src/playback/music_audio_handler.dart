@@ -65,6 +65,12 @@ class MusicAudioHandler extends BaseAudioHandler
   int _queueRevision = 0;
   int _queueLoadRevision = 0;
   bool _shuffleModeEnabled = false;
+
+  /// Songs played while shuffling, oldest first; [_shuffleCursor] is the one
+  /// playing. Previous steps back through it and next replays it forward, so
+  /// a shuffled run is fixed once heard: next then previous returns.
+  final List<String> _shuffleHistory = [];
+  int _shuffleCursor = -1;
   bool _isCurrentFavorite = false;
   bool _awaitingPlayback = false;
   int? _preparingRestoreRevision;
@@ -199,6 +205,9 @@ class MusicAudioHandler extends BaseAudioHandler
       _indexTracker.reset();
       _shuffleSkipPlanner.reset(
         _items.map((item) => item.mediaItem.id).toList(),
+      );
+      _resetShuffleHistory(
+        _items.isEmpty ? null : _items[_pendingIndex].mediaItem.id,
       );
       queue.add(_items.map((item) => item.mediaItem).toList(growable: false));
 
@@ -568,8 +577,10 @@ class MusicAudioHandler extends BaseAudioHandler
     if (index < 0 || index >= _items.length) {
       return;
     }
+    if (_shuffleModeEnabled) _pushShuffleHistory(_items[index].mediaItem.id);
     if (_awaitingPlayback) {
       _selectPending(index);
+      await play();
       return;
     }
     _indexTracker.markManualTarget(
@@ -587,14 +598,27 @@ class MusicAudioHandler extends BaseAudioHandler
     if (_awaitingPlayback) {
       var next = _manualAdjacentIndex(1);
       if (_shuffleModeEnabled && _items.length > 1) {
-        final id = _shuffleSkipPlanner.nextAfter(
-          _items[_pendingIndex].mediaItem.id,
-          position: _pendingPosition,
-        );
-        final index = _items.indexWhere((item) => item.mediaItem.id == id);
-        if (index >= 0) next = index;
+        final currentId = _items[_pendingIndex].mediaItem.id;
+        final replay = _shuffleForwardIndex(currentId);
+        if (replay != null) {
+          next = replay;
+        } else {
+          final id = _shuffleSkipPlanner.nextAfter(
+            currentId,
+            position: _pendingPosition,
+          );
+          final index = _items.indexWhere((item) => item.mediaItem.id == id);
+          if (index >= 0) {
+            next = index;
+            _pushShuffleHistory(id!);
+          }
+        }
       }
-      if (next != null) _selectPending(next);
+      // A skip is a request to hear the song: paused or not, it plays.
+      if (next != null) {
+        _selectPending(next);
+        await play();
+      }
       return;
     }
     if (_shuffleModeEnabled && _items.length > 1) {
@@ -602,16 +626,20 @@ class MusicAudioHandler extends BaseAudioHandler
       final current = index == null || index < 0 || index >= _items.length
           ? null
           : _items[index].mediaItem;
-      final nextId = current == null
+      final replay = current == null ? null : _shuffleForwardIndex(current.id);
+      final nextId = current == null || replay != null
           ? null
           : _shuffleSkipPlanner.nextAfter(
               current.id,
               position: _player.position,
             );
-      final nextIndex = nextId == null
-          ? -1
-          : _items.indexWhere((item) => item.mediaItem.id == nextId);
+      final nextIndex =
+          replay ??
+          (nextId == null
+              ? -1
+              : _items.indexWhere((item) => item.mediaItem.id == nextId));
       if (nextIndex != -1) {
+        if (replay == null) _pushShuffleHistory(nextId!);
         _indexTracker.markManualTarget(
           currentIndex: _player.currentIndex,
           targetIndex: nextIndex,
@@ -636,11 +664,18 @@ class MusicAudioHandler extends BaseAudioHandler
     OperationLog.event('playback.previous', {'trackId': mediaItem.value?.id});
     recordPlaybackIntent();
     if (_awaitingPlayback) {
-      final previous = _manualAdjacentIndex(-1);
-      if (previous != null) _selectPending(previous);
+      final previous = _shuffleModeEnabled && _items.length > 1
+          ? _shufflePreviousIndex()
+          : _manualAdjacentIndex(-1);
+      if (previous != null) {
+        _selectPending(previous);
+        await play();
+      }
       return;
     }
-    final previousIndex = _manualAdjacentIndex(-1);
+    final previousIndex = _shuffleModeEnabled && _items.length > 1
+        ? _shufflePreviousIndex()
+        : _manualAdjacentIndex(-1);
     if (previousIndex == null) return;
     _indexTracker.markManualTarget(
       currentIndex: _player.currentIndex,
@@ -680,6 +715,7 @@ class MusicAudioHandler extends BaseAudioHandler
       final ids = _items.map((item) => item.mediaItem.id).toList();
       if (startingRandom) {
         _shuffleSkipPlanner.reset(ids);
+        _resetShuffleHistory(mediaItem.value?.id);
       } else {
         _shuffleSkipPlanner.updateQueue(ids);
       }
@@ -809,12 +845,24 @@ class MusicAudioHandler extends BaseAudioHandler
       _publishCurrentItem(fallbackIndex);
       return;
     }
-    final nextId = _shuffleSkipPlanner.nextAfterCompleted(
-      _items[previousIndex].mediaItem.id,
-    );
-    final shuffleIndex = nextId == null
-        ? -1
-        : _items.indexWhere((item) => item.mediaItem.id == nextId);
+    final finishedId = _items[previousIndex].mediaItem.id;
+    // After stepping back, a song that ends leads on through the history.
+    final replay = _shuffleForwardIndex(finishedId);
+    final nextId = replay != null
+        ? null
+        : _shuffleSkipPlanner.nextAfterCompleted(finishedId);
+    final shuffleIndex =
+        replay ??
+        (nextId == null
+            ? -1
+            : _items.indexWhere((item) => item.mediaItem.id == nextId));
+    if (replay == null) {
+      _pushShuffleHistory(
+        shuffleIndex == -1
+            ? _items[fallbackIndex].mediaItem.id
+            : _items[shuffleIndex].mediaItem.id,
+      );
+    }
     // The fallback is already the native current source. Publish it now,
     // then publish the random target only when native confirms that transition.
     _publishCurrentItem(fallbackIndex);
@@ -1095,6 +1143,65 @@ class MusicAudioHandler extends BaseAudioHandler
       return index + 1;
     }
     return _player.loopMode == LoopMode.all ? 0 : null;
+  }
+
+  void _resetShuffleHistory([String? current]) {
+    _shuffleHistory.clear();
+    if (current != null) _shuffleHistory.add(current);
+    _shuffleCursor = _shuffleHistory.length - 1;
+  }
+
+  /// A song reached other than by stepping through the history: steps ahead
+  /// of the cursor are dropped and the song goes on the end.
+  void _pushShuffleHistory(String id) {
+    if (_shuffleCursor >= 0 && _shuffleHistory[_shuffleCursor] == id) return;
+    _shuffleHistory.removeRange(_shuffleCursor + 1, _shuffleHistory.length);
+    _shuffleHistory.add(id);
+    if (_shuffleHistory.length > 1000) _shuffleHistory.removeAt(0);
+    _shuffleCursor = _shuffleHistory.length - 1;
+  }
+
+  /// The queued song [step] places from the cursor in the history, skipping
+  /// songs since removed from the queue.
+  ({int index, int cursor})? _shuffleHistoryStep(int step) {
+    var cursor = _shuffleCursor + step;
+    while (cursor >= 0 && cursor < _shuffleHistory.length) {
+      final id = _shuffleHistory[cursor];
+      final index = _items.indexWhere((item) => item.mediaItem.id == id);
+      if (index != -1) return (index: index, cursor: cursor);
+      cursor += step;
+    }
+    return null;
+  }
+
+  /// Where previous goes while shuffling: back through the history, or, at
+  /// its start, to the song before in the queue, put at the history's head.
+  int? _shufflePreviousIndex() {
+    final current = currentQueueIndex;
+    if (current == null || current < 0 || current >= _items.length) {
+      return null;
+    }
+    _pushShuffleHistory(_items[current].mediaItem.id);
+    final back = _shuffleHistoryStep(-1);
+    if (back != null) {
+      _shuffleCursor = back.cursor;
+      return back.index;
+    }
+    final previous = _manualAdjacentIndex(-1);
+    if (previous != null) {
+      _shuffleHistory.insert(0, _items[previous].mediaItem.id);
+      _shuffleCursor = 0;
+    }
+    return previous;
+  }
+
+  /// A song already heard after the current one, when previous was used.
+  int? _shuffleForwardIndex(String currentId) {
+    _pushShuffleHistory(currentId);
+    final forward = _shuffleHistoryStep(1);
+    if (forward == null) return null;
+    _shuffleCursor = forward.cursor;
+    return forward.index;
   }
 
   int? _manualAdjacentIndex(int offset) {

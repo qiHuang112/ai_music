@@ -515,6 +515,13 @@ class _ShellSpec {
           leading == null && !(controls?.automaticallyImplyLeading ?? true),
       'leading': leading,
       'actions': actions,
+      // The shell's shared now-playing entries that lead to this very page.
+      'hideShared': switch (ModalRoute.of(context)?.settings.name) {
+        'player' => const ['shell.player.lyrics', 'shell.player.queue'],
+        'lyrics' => const ['shell.player.lyrics'],
+        'comments' => const ['shell.player.comments'],
+        _ => const <String>[],
+      },
       if (tabs.isNotEmpty) ...{
         'tabs': [
           for (final tab in tabs)
