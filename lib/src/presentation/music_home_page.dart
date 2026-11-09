@@ -2124,6 +2124,20 @@ enum _LibraryListKind { local, favorite, custom }
 
 enum _LibrarySortMode { time, initial, custom }
 
+/// The playlist most likely opened next (the most used one, else the
+/// favorites), for [PlayerWarmUp] to draw once out of sight. It records no
+/// visit.
+Widget playlistPageForWarmUp(MusicController controller) {
+  final playlist = controller.frequentlyUsedPlaylists.firstOrNull;
+  return _PlaylistDetailPage(
+    controller: controller,
+    selection: playlist == null
+        ? _LibraryListSpec.favorite()
+        : _LibraryListSpec.custom(playlist),
+    warmUp: true,
+  );
+}
+
 class _LibraryListSpec {
   const _LibraryListSpec({
     required this.id,
@@ -2242,10 +2256,14 @@ class _PlaylistDetailPage extends StatefulWidget {
     this.refreshing = false,
     this.refreshError,
     this.chartUpdatedAt,
+    this.warmUp = false,
   });
 
   final MusicController controller;
   final _LibraryListSpec selection;
+
+  /// Drawn out of sight by [PlayerWarmUp]: not a visit.
+  final bool warmUp;
   final VoidCallback? onRefresh;
   final bool refreshing;
   final String? refreshError;
@@ -2410,7 +2428,7 @@ class _PlaylistDetailPageState extends State<_PlaylistDetailPage> {
   }
 
   void _recordUsageAfterEntrance() {
-    if (_usageRecorded) return;
+    if (_usageRecorded || widget.warmUp) return;
     _usageRecorded = true;
     // Recording notifies the whole app (the library reorders by use); doing
     // it mid-push redrew every page under the sliding list.

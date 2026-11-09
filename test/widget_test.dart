@@ -34,6 +34,7 @@ import 'package:ai_music/src/domain/music_models.dart';
 import 'package:ai_music/src/presentation/app_localizations.dart';
 import 'package:ai_music/src/presentation/music_home_page.dart';
 import 'package:ai_music/src/presentation/player_page.dart';
+import 'package:ai_music/src/presentation/player_warm_up.dart';
 import 'package:ai_music/src/playback/music_audio_handler.dart';
 import 'package:audio_service/audio_service.dart';
 import 'package:flutter/material.dart';
@@ -1065,6 +1066,45 @@ void main() {
       }
     },
   );
+
+  testWidgets('the warm-up draws player and playlist once without errors', (
+    tester,
+  ) async {
+    final handler = _WidgetAudioHandler();
+    final controller = _QueueUiController(handler);
+    try {
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: MusicAppTheme.create(Brightness.dark),
+          builder: (context, child) => AppStringsScope(
+            language: controller.language,
+            child: Stack(
+              children: [
+                PlayerWarmUp(controller: controller, delay: Duration.zero),
+                const Positioned.fill(child: ColoredBox(color: Colors.black)),
+                child!,
+              ],
+            ),
+          ),
+          home: const SizedBox.shrink(),
+        ),
+      );
+      handler.emit(
+        const MediaItem(id: 'one', title: 'First', artist: 'Artist'),
+      );
+      await tester.pump(const Duration(milliseconds: 1));
+      await tester.pump();
+      expect(find.byType(PlayerPage), findsOneWidget);
+      await tester.pump();
+      await tester.pump();
+      expect(find.byType(PlayerPage), findsNothing);
+      expect(tester.takeException(), isNull);
+    } finally {
+      await tester.pumpWidget(const SizedBox.shrink());
+      controller.dispose();
+      unawaited(handler.dispose());
+    }
+  });
 
   testWidgets('tapping the playing song in the queue opens the player', (
     tester,

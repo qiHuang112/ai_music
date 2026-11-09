@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'src/presentation/player_warm_up.dart';
 import 'src/presentation/app_page_route.dart';
 import 'src/presentation/native_shell.dart';
 import 'src/presentation/mobile_chrome.dart';
@@ -161,6 +162,9 @@ class AiMusicApp extends StatelessWidget {
               child: Stack(
                 fit: StackFit.expand,
                 children: [
+                  // Under the opaque backdrop: drawn, never seen.
+                  if (PlayerWarmUp.wanted && !_designGallery)
+                    PlayerWarmUp(controller: controller),
                   const PageBackdrop(),
                   DuoWindow(
                     child: Stack(
