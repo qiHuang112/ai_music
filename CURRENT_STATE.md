@@ -1,12 +1,12 @@
 # AI Music 当前状态
 
-更新于 2026-11-08（安卓对齐 iOS 悬浮栏并发布 1.0.5／10270；其后修复播控条按压抖动，未推送）。本文件只保留固定字段：改动时就地更新字段，“最近进展”只留 3 条；开发、自测、验收与 review 细节写在[工作日志](docs/worklog/README.md)，2026-10-26 之前的长条目见[历史条目](docs/worklog/state-history.md)。代码状态以 Git 为准。
+更新于 2026-11-09（CI 自动构建 IPA；Android／Mac／iOS 1.0.6／10273 已发布）。本文件只保留固定字段：改动时就地更新字段，“最近进展”只留 3 条；开发、自测、验收与 review 细节写在[工作日志](docs/worklog/README.md)，2026-10-26 之前的长条目见[历史条目](docs/worklog/state-history.md)。代码状态以 Git 为准。
 
 ## 正式版本
 
-- Android：1.0.6／10271，源码 `dc7a7bf`。[GitHub Release](https://github.com/qiHuang112/ai_music/releases/tag/v1.0.6-10271) 与局域网 latest 一致（18197908 字节，SHA256 `23987048…`，原签名）。
-- Mac：GitHub 1.0.6／10271 Universal（ad-hoc 签名，未公证，`b5b9619e…`）；局域网仍为 1.0.4／10268 桌面优化版。下载与核验见 [Mac 记录](docs/macos.md)。
-- iOS：未公开发布；个人体验版 1.0.5／8268（`115d609`，含数据／队列／原生壳修复、统一布局体系与折叠悬停）已装到用户 iPhone Duo，自动启动因锁屏被拒，签名有效至 2026-11-14。
+- Android：1.0.6／10273，源码 `a3bcdc4`，GitHub Release 已发布，原签名。
+- Mac：GitHub 1.0.6／10273 Universal（ad-hoc 签名，未公证）；局域网 Mac 指针未修改。
+- iOS：GitHub 1.0.6／10273 unsigned arm64 IPA，CI 构建、上传及完整下载哈希校验通过，需自行重签安装，未真机安装。[下载页](https://github.com/qiHuang112/ai_music/releases/tag/v1.0.6-10273)。
 
 ## 环境
 
