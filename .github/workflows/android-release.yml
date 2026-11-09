@@ -1,4 +1,4 @@
-name: Android and macOS release
+name: Android, macOS and iOS release
 
 # Releases are minted only on request ("推送／发GitHub": push main, then
 # `gh workflow run android-release.yml --ref main`). Every push is checked by
@@ -121,3 +121,36 @@ jobs:
       - name: Verify and attach macOS to the same GitHub Release
         if: steps.plan.outputs.skip != 'true'
         run: python3 tool/github_macos_release.py publish
+
+  ios:
+    name: iOS resignable IPA
+    needs: release
+    runs-on: xcode-27
+    timeout-minutes: 40
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - name: Reuse this commit's release version
+        id: plan
+        run: python3 tool/github_ios_release.py plan
+      - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2
+        if: steps.plan.outputs.skip != 'true'
+        with:
+          flutter-version: '3.44.2'
+          channel: stable
+          cache: true
+      - name: Build unsigned iOS release
+        if: steps.plan.outputs.skip != 'true'
+        run: |
+          xcodebuild -version
+          flutter pub get --enforce-lockfile
+          flutter build ios --release --no-pub --no-codesign \
+            --build-name "${{ steps.plan.outputs.name }}" --build-number "${{ steps.plan.outputs.code }}"
+      - name: Package, verify and attach resignable IPA
+        if: steps.plan.outputs.skip != 'true'
+        run: python3 tool/github_ios_release.py publish

@@ -83,3 +83,13 @@ If CocoaPods integration changes are committed later, include the project/worksp
 /Users/huangqi/ClaudeProject/tools/flutter/bin/flutter test
 /Users/huangqi/ClaudeProject/tools/flutter/bin/flutter build ios --release
 ```
+
+## CI IPA download
+
+The manually triggered `.github/workflows/android-release.yml` now also builds
+an arm64 iOS Release using the `xcode-27` runner. It reuses the Android release
+version and attaches `ai-music-ios-*-unsigned-*.ipa`, its SHA-256 and
+`ios-unsigned.json` to the same GitHub Release. No Apple credentials are uploaded.
+The IPA requires user-side signing with AltStore, SideStore or Sideloadly; it
+is not a TestFlight/App Store or directly installable development export.
+Push still runs checks only; the existing manual release trigger is unchanged.
