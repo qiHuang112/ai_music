@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:audio_service/audio_service.dart';
 import 'package:flutter/material.dart';
 import '../application/music_controller.dart';
@@ -256,15 +258,23 @@ class MiniPlayer extends StatelessWidget {
 /// other phones, it is an ordinary push like every other page; elsewhere it
 /// rises from the bar it was opened from.
 Future<void> openPlayerPage(BuildContext context, MusicController controller) {
+  final navigator = Navigator.of(context);
+  Route<dynamic>? top;
+  navigator.popUntil((route) {
+    top = route;
+    return true;
+  });
+  // Already there, e.g. the queue opened from the player and closed again.
+  if (top?.settings.name == 'player') return Future.value();
   if (NativeShell.active || MobileChrome.instance.floating) {
-    return Navigator.of(context).push<void>(
+    return navigator.push<void>(
       AppPageRoute(
         settings: const RouteSettings(name: 'player'),
         builder: (_) => PlayerPage(controller: controller),
       ),
     );
   }
-  return Navigator.of(context).push<void>(
+  return navigator.push<void>(
     PageRouteBuilder(
       settings: const RouteSettings(name: 'player'),
       transitionDuration: MusicMotion.slow,
@@ -282,6 +292,32 @@ Future<void> openPlayerPage(BuildContext context, MusicController controller) {
       ),
     ),
   );
+}
+
+/// A song row's tap: the song already playing opens the player, the way the
+/// now-playing bar does, instead of starting it over; any other song [play]s.
+void playOrOpenPlayer(
+  BuildContext context,
+  MusicController controller,
+  String trackId,
+  VoidCallback play,
+) {
+  if (!openPlayerIfCurrent(context, controller, trackId)) play();
+}
+
+/// Opens the player when [trackId] is the song playing now and says so. The
+/// Mac keeps its own list behaviour.
+bool openPlayerIfCurrent(
+  BuildContext context,
+  MusicController controller,
+  String trackId,
+) {
+  if (DesktopMusicScope.maybeOf(context) != null ||
+      controller.audioHandler.mediaItem.value?.id != trackId) {
+    return false;
+  }
+  unawaited(openPlayerPage(context, controller));
+  return true;
 }
 
 class _OutlinedPlayButton extends StatelessWidget {

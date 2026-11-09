@@ -30,6 +30,7 @@ import '../data/music_charts.dart';
 import '../data/music_resolver.dart';
 import '../data/music_settings.dart';
 import '../data/song_match_identity.dart';
+import '../data/song_comments.dart' show SongCommentQuery;
 import '../data/song_search_cache.dart';
 import '../data/cached_track_lookup.dart';
 import '../data/playlist_auto_download_store.dart';
@@ -3274,6 +3275,12 @@ class MusicController extends ChangeNotifier with WidgetsBindingObserver {
     target: target,
   )).playlist;
 
+  /// The queue identity of a song played from an online playlist's page.
+  static String onlinePlaylistTrackId(
+    OnlinePlaylist origin,
+    OnlinePlaylistSong song,
+  ) => 'preview-${origin.source.name}:${origin.id}:${song.id}';
+
   Future<void> playOnlinePlaylistSong(
     OnlinePlaylist origin,
     OnlinePlaylistSong song, {
@@ -3284,7 +3291,7 @@ class MusicController extends ChangeNotifier with WidgetsBindingObserver {
     if (index < 0) throw ArgumentError('Selected song is not in this playlist');
     final tracks = <Track>[];
     for (final item in songs) {
-      final id = 'preview-${origin.source.name}:${origin.id}:${item.id}';
+      final id = onlinePlaylistTrackId(origin, item);
       final previous = _queueSongEntries[id];
       // Queue original identities only. Resolve audio when a song is selected.
       // Pending requests retain the whole snapshot until their load completes.
@@ -4539,8 +4546,8 @@ class MusicController extends ChangeNotifier with WidgetsBindingObserver {
         'status': metadata.lyricsStatus.name,
         'lines': metadata.lyrics.length,
       });
-      if (cached.music.source == MusicDataSource.buguyy &&
-          metadata.hasLyrics &&
+      // Plain lyrics cannot follow the song: look for synchronized ones.
+      if (metadata.hasLyrics &&
           !metadata.lyrics.any((line) => line.time > Duration.zero) &&
           _timedLyricsUpgradeAttempted.add(track.id)) {
         unawaited(_upgradeTimedLyricsForTrack(track, cached));
@@ -4572,7 +4579,15 @@ class MusicController extends ChangeNotifier with WidgetsBindingObserver {
   ) async {
     var hasTimedLyrics = false;
     try {
-      final upgraded = await metadataUseCase.upgradeTimedLyrics(cached);
+      final upgraded = await metadataUseCase.upgradeTimedLyrics(
+        cached,
+        original: SongCommentQuery.fromTrack(
+          track,
+          original: originalSongForTrack(track),
+          candidate: selectedSongSource(track),
+          lyrics: currentMetadata.lyrics,
+        ),
+      );
       hasTimedLyrics = upgraded.lyrics.any((line) => line.time > Duration.zero);
       if (!_isDisposed &&
           _metadataTrackId == track.id &&

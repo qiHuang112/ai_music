@@ -323,12 +323,16 @@ class _PlayerPageState extends State<PlayerPage> {
     super.dispose();
   }
 
+  bool _metadataRequested = false;
+
   @override
-  void initState() {
-    super.initState();
-    // Loading can notify the app-level listener synchronously. Let the route
-    // finish mounting before updating metadata, and skip a route already closed.
-    WidgetsBinding.instance.addPostFrameCallback((_) {
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (_metadataRequested) return;
+    _metadataRequested = true;
+    // Loading notifies the whole app. Let the page finish sliding in first:
+    // a rebuild mid-push is what made opening the player stutter.
+    afterRouteEntrance(context, () {
       if (mounted) controller.loadMetadataForCurrentTrack();
     });
   }
@@ -360,12 +364,12 @@ class _PlayerPageState extends State<PlayerPage> {
       candidate: controller.selectedSongSource(track),
       lyrics: controller.currentLyrics,
     );
-    Navigator.of(
-      context,
-    ).push(AppPageRoute<void>(
-      settings: const RouteSettings(name: 'comments'),
-      builder: (_) => SongCommentsPage(query: query),
-    ));
+    Navigator.of(context).push(
+      AppPageRoute<void>(
+        settings: const RouteSettings(name: 'comments'),
+        builder: (_) => SongCommentsPage(query: query),
+      ),
+    );
   }
 
   // Named like openLyricsPage, so the shell hides its own lyrics entry there.
@@ -878,7 +882,9 @@ class _Artwork extends StatelessWidget {
     final artUri = uri;
     final placeholder = ColoredBox(
       color: colors.surfaceContainerHighest,
-      child: Center(child: Icon(AppIcons.record, size: 44, color: colors.primary)),
+      child: Center(
+        child: Icon(AppIcons.record, size: 44, color: colors.primary),
+      ),
     );
     final label = artUri == null
         ? placeholder
@@ -1649,9 +1655,7 @@ class _SongInfo extends StatelessWidget {
                 ? strings.removeFromFavorites
                 : strings.addToFavorites,
             onPressed: onFavorite,
-            icon: liked
-                ? AppIcons.heartFill
-                : AppIcons.heart,
+            icon: liked ? AppIcons.heartFill : AppIcons.heart,
             size: 28,
           ),
       ],

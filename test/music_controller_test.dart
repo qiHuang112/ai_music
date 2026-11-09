@@ -1,3 +1,4 @@
+import 'package:ai_music/src/data/song_comments.dart' show SongCommentQuery;
 import 'package:ai_music/src/data/playback_session_store.dart';
 import 'package:ai_music/src/data/music_charts.dart';
 import 'package:ai_music/src/data/operation_log.dart';
@@ -7671,7 +7672,10 @@ class _StaticMetadataRepository extends TrackMetadataRepository {
   }
 
   @override
-  Future<TrackMetadata> upgradeTimedLyrics(CachedTrack track) async => metadata;
+  Future<TrackMetadata> upgradeTimedLyrics(
+    CachedTrack track, {
+    SongCommentQuery? original,
+  }) async => metadata;
 
   @override
   Future<void> delete(String cacheId) async {
@@ -7707,7 +7711,10 @@ class _RetryingTimedMetadataRepository extends _StaticMetadataRepository {
   int upgradeCalls = 0;
 
   @override
-  Future<TrackMetadata> upgradeTimedLyrics(CachedTrack track) {
+  Future<TrackMetadata> upgradeTimedLyrics(
+    CachedTrack track, {
+    SongCommentQuery? original,
+  }) {
     upgradeCalls += 1;
     if (upgradeCalls == 1) return _firstAttempt.future;
     return Future.value(

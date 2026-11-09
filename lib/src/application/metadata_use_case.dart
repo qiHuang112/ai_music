@@ -1,5 +1,6 @@
 import '../data/lyrics_artwork.dart';
 import '../data/music_cache.dart';
+import '../data/song_comments.dart' show SongCommentQuery;
 import '../domain/music_models.dart';
 
 class MetadataUseCase {
@@ -19,8 +20,11 @@ class MetadataUseCase {
     return repository.prefetchLyrics(track);
   }
 
-  Future<TrackMetadata> upgradeTimedLyrics(CachedTrack track) {
-    return repository.upgradeTimedLyrics(track);
+  Future<TrackMetadata> upgradeTimedLyrics(
+    CachedTrack track, {
+    SongCommentQuery? original,
+  }) {
+    return repository.upgradeTimedLyrics(track, original: original);
   }
 
   Future<void> delete(String trackId) {

@@ -27,3 +27,26 @@ class AppPageRoute<T> extends MaterialPageRoute<T> {
   Duration get reverseTransitionDuration =>
       _paced ? _shellPace : super.reverseTransitionDuration;
 }
+
+/// Runs [action] once the page around [context] has finished sliding in, or
+/// after this frame when it is already in place. Work that notifies the whole
+/// app (loading lyrics, recording usage) waits for it, so the push itself
+/// only draws frames.
+void afterRouteEntrance(BuildContext context, VoidCallback action) {
+  final animation = ModalRoute.of(context)?.animation;
+  if (animation == null || animation.isCompleted) {
+    WidgetsBinding.instance.addPostFrameCallback((_) => action());
+    return;
+  }
+  void listener(AnimationStatus status) {
+    if (status == AnimationStatus.completed) {
+      animation.removeStatusListener(listener);
+      action();
+    } else if (status == AnimationStatus.reverse) {
+      // Closed before it opened: nothing to do.
+      animation.removeStatusListener(listener);
+    }
+  }
+
+  animation.addStatusListener(listener);
+}

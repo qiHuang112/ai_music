@@ -19,6 +19,7 @@ import 'music_thumbnail.dart';
 import 'playlist_download_progress.dart';
 import 'design/adaptive_layout.dart';
 import 'design/app_icons.dart';
+import 'mini_player.dart' show playOrOpenPlayer;
 
 enum _DownloadSortMode { initial, downloadedAt }
 
@@ -931,8 +932,12 @@ class _CachedTrackTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final strings = AppStringsScope.of(context);
-    void play() =>
-        controller.playTrack(track, index: index, queueTracks: queueTracks);
+    void play() => playOrOpenPlayer(
+      context,
+      controller,
+      track.id,
+      () => controller.playTrack(track, index: index, queueTracks: queueTracks),
+    );
     final menuKey = GlobalKey<PopupMenuButtonState<String>>();
     return DesktopSongInteraction(
       id: 'download:${track.id}',

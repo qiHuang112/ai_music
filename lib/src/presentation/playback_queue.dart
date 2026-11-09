@@ -15,6 +15,7 @@ import 'design/controls.dart';
 import 'music_thumbnail.dart';
 import 'playlist_actions.dart';
 import 'initial_song_scroll.dart';
+import 'mini_player.dart' show openPlayerPage;
 import 'desktop_scope.dart';
 import 'design/app_icons.dart';
 
@@ -89,6 +90,16 @@ class _PlaybackQueueState extends State<PlaybackQueue> {
 
   Future<void> _select(String id) async {
     if (_pending == id) return;
+    if (widget.controller.audioHandler.mediaItem.value?.id == id) {
+      // The song already playing: show it in the player, as the
+      // now-playing bar does, rather than starting it again.
+      final navigator = Navigator.of(context);
+      if (ModalRoute.of(context)?.settings.name == 'playback-queue') {
+        navigator.pop();
+      }
+      await openPlayerPage(navigator.context, widget.controller);
+      return;
+    }
     final request = ++_request;
     setState(() {
       _pending = id;

@@ -4,6 +4,8 @@ import 'dart:io';
 import 'package:ai_music/src/data/lyrics_artwork.dart';
 import 'package:ai_music/src/data/music_cache.dart';
 import 'package:ai_music/src/data/music_resolver.dart';
+import 'package:ai_music/src/data/original_lyrics.dart';
+import 'package:ai_music/src/data/song_comments.dart';
 import 'package:ai_music/src/domain/music_models.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -286,6 +288,72 @@ void main() {
     } finally {
       await root.delete(recursive: true);
     }
+  });
+
+  group('plain lyrics upgrade from the original platform', () {
+    const plain = [
+      LyricLine(time: Duration.zero, text: '作词 : 某人'),
+      LyricLine(time: Duration.zero, text: '还记得你说家是唯一的城堡'),
+      LyricLine(time: Duration.zero, text: '随着稻香河流继续奔跑'),
+      LyricLine(time: Duration.zero, text: '微微笑 小时候的梦我知道'),
+      LyricLine(time: Duration.zero, text: '不要哭让萤火虫带着你逃跑'),
+    ];
+    const query = SongCommentQuery(title: '稻香', artist: '周杰伦');
+
+    Future<(TrackMetadata, String)> upgrade(List<LyricLine> found) async {
+      final root = await Directory.systemTemp.createTemp('ai_music_original_');
+      try {
+        final cache = MetadataCacheStore(rootProvider: () async => root);
+        final track = _cachedTrack(
+          filePath: '${root.path}${Platform.pathSeparator}song.mp3',
+        );
+        await cache.write(track.cacheId, const TrackMetadata(lyrics: plain));
+        final lookup = _FakeOriginalLyrics(found);
+        final repository = TrackMetadataRepository(
+          cacheStore: cache,
+          providers: const [],
+          originalLyrics: lookup,
+        );
+        final result = await repository.upgradeTimedLyrics(
+          track,
+          original: query,
+        );
+        final sidecar = File(lyricsPathForAudioPath(track.filePath));
+        expect(lookup.queries, [query]);
+        return (
+          result,
+          await sidecar.exists() ? await sidecar.readAsString() : '',
+        );
+      } finally {
+        await root.delete(recursive: true);
+      }
+    }
+
+    test('adopts timed lyrics with the same words', () async {
+      final (result, sidecar) = await upgrade([
+        const LyricLine(time: Duration.zero, text: '作词 : 某人'),
+        for (final (i, line) in plain.skip(1).indexed)
+          LyricLine(
+            time: Duration(seconds: 10 + i * 4),
+            text: line.text,
+          ),
+      ]);
+      expect(result.source, 'netease:original');
+      expect(result.lyrics.last.time, const Duration(seconds: 22));
+      expect(sidecar, contains('[00:22.00]不要哭让萤火虫带着你逃跑'));
+    });
+
+    test('keeps plain lyrics when the words differ', () async {
+      final (result, sidecar) = await upgrade([
+        for (var i = 0; i < 5; i++)
+          LyricLine(
+            time: Duration(seconds: 10 + i * 4),
+            text: '另一首歌第$i句',
+          ),
+      ]);
+      expect(result.lyrics.every((l) => l.time == Duration.zero), isTrue);
+      expect(sidecar, isEmpty);
+    });
   });
 
   test('timed upgrade preserves a different existing lyrics sidecar', () async {
@@ -1057,5 +1125,21 @@ class _FakeResolverHttp implements MusicResolverHttp {
     Map<String, String> headers = const {},
   }) {
     fail('Unexpected JSON POST $uri');
+  }
+}
+
+class _FakeOriginalLyrics implements OriginalSongLyrics {
+  _FakeOriginalLyrics(this.lines);
+
+  final List<LyricLine> lines;
+  final queries = <SongCommentQuery>[];
+
+  @override
+  Duration get timeout => Duration.zero;
+
+  @override
+  Future<List<LyricLine>> find(SongCommentQuery query) async {
+    queries.add(query);
+    return lines;
   }
 }

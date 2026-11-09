@@ -20,6 +20,7 @@ import 'playlist_actions.dart';
 import 'song_source_page.dart';
 import 'design/adaptive_layout.dart';
 import 'design/app_icons.dart';
+import 'mini_player.dart' show openPlayerIfCurrent;
 
 String listeningDuration(int milliseconds, bool zh) {
   final seconds = milliseconds ~/ 1000;
@@ -777,6 +778,7 @@ Future<void> _playListeningSong(
   MusicController controller,
   Track track,
 ) async {
+  if (openPlayerIfCurrent(context, controller, track.id)) return;
   try {
     await controller.playTrack(track, queueTracks: [track]);
   } catch (e) {

@@ -132,6 +132,11 @@ class _DirectPlaylistPageState extends State<DirectPlaylistPage> {
   }
 
   Future<void> _play(int index) async {
+    final id = MusicController.onlinePlaylistTrackId(
+      widget.playlist,
+      _detail!.songs[index],
+    );
+    if (openPlayerIfCurrent(context, widget.controller, id)) return;
     final request = ++_playRequest;
     setState(() {
       _playingIndex = index;
@@ -348,9 +353,7 @@ class _DirectPlaylistPageState extends State<DirectPlaylistPage> {
                                                 strokeWidth: 2,
                                               ),
                                             )
-                                          : const Icon(
-                                              AppIcons.play,
-                                            ),
+                                          : const Icon(AppIcons.play),
                                     ),
                                     title: Text(
                                       song.title,

@@ -13,9 +13,11 @@ import '../platform/app_storage.dart';
 import 'json_file_store.dart';
 import 'lyrics_normalizer.dart';
 import 'music_cache.dart';
+import 'original_lyrics.dart';
 import 'resolver_http_client.dart';
 import 'resolver_models.dart';
 import 'resolver_utils.dart';
+import 'song_comments.dart' show SongCommentQuery;
 
 export 'lyrics_normalizer.dart'
     show extractLyricsText, normalizeLyricsText, parseLrcLines;
@@ -96,14 +98,19 @@ class TrackMetadataRepository {
     List<TrackMetadataProvider>? providers,
     MusicResolverHttp? httpClient,
     DateTime Function()? now,
+    OriginalSongLyrics? originalLyrics,
   }) : _cacheStore = cacheStore ?? MetadataCacheStore(),
        _providers =
            providers ??
            _defaultProviders(httpClient ?? HttpMusicResolverClient()),
+       // Custom providers (tests) stay offline unless a lookup is given.
+       _originalLyrics =
+           originalLyrics ?? (providers == null ? OriginalSongLyrics() : null),
        _now = now ?? DateTime.now;
 
   final MetadataCacheStore _cacheStore;
   final List<TrackMetadataProvider> _providers;
+  final OriginalSongLyrics? _originalLyrics;
   final DateTime Function() _now;
   final Map<String, DateTime> _lyricsMissUntil = {};
   final Map<String, Future<TrackMetadata>> _pendingLyricsPrefetch = {};
@@ -143,15 +150,24 @@ class TrackMetadataRepository {
     return work.whenComplete(() => _pendingLyricsPrefetch.remove(key));
   }
 
-  Future<TrackMetadata> upgradeTimedLyrics(CachedTrack track) {
+  /// Replaces plain cached lyrics with synchronized ones: a timed sidecar,
+  /// the same Kuwo audio's lyrics, or, given the song's [original] identity,
+  /// the original platform's lyrics when their words agree.
+  Future<TrackMetadata> upgradeTimedLyrics(
+    CachedTrack track, {
+    SongCommentQuery? original,
+  }) {
     final pending = _pendingTimedUpgrade[track.cacheId];
     if (pending != null) return pending;
-    final work = _upgradeTimedLyrics(track);
+    final work = _upgradeTimedLyrics(track, original);
     _pendingTimedUpgrade[track.cacheId] = work;
     return work.whenComplete(() => _pendingTimedUpgrade.remove(track.cacheId));
   }
 
-  Future<TrackMetadata> _upgradeTimedLyrics(CachedTrack track) async {
+  Future<TrackMetadata> _upgradeTimedLyrics(
+    CachedTrack track,
+    SongCommentQuery? original,
+  ) async {
     final current = await _cacheStore.read(track.cacheId);
     if (current == null ||
         !current.hasLyrics ||
@@ -171,8 +187,20 @@ class TrackMetadataRepository {
     final provider = _providers
         .whereType<BuguyyKuwoLyricsProvider>()
         .firstOrNull;
-    if (provider == null) return current;
-    final found = await provider.find(track);
+    var found = provider == null
+        ? const TrackMetadata()
+        : await provider.find(track);
+    final lookup = _originalLyrics;
+    if (!_hasTimedLyrics(found.lyrics) && lookup != null && original != null) {
+      try {
+        final lines = await lookup.find(original);
+        if (timedLyricsMatchPlain(lines, current.lyrics)) {
+          found = TrackMetadata(lyrics: lines, source: 'netease:original');
+        }
+      } catch (_) {
+        // Optional: the plain lyrics stay when the original is unreachable.
+      }
+    }
     if (!_hasTimedLyrics(found.lyrics)) return current;
     final upgraded = TrackMetadata(
       artworkUri: current.artworkUri ?? found.artworkUri,

@@ -440,6 +440,13 @@ class SongCommentsRepository {
     nextCursor: entry.nextCursor,
   );
 
+  /// The platform's own copy of this recording, verified by title, artists
+  /// and duration the same way comments are; null when none matches.
+  Future<CommentSong?> findSong(
+    SongCommentQuery query,
+    SongCommentPlatform platform,
+  ) => _findSong(query, platform);
+
   Future<CommentSong?> _findSong(
     SongCommentQuery query,
     SongCommentPlatform platform,

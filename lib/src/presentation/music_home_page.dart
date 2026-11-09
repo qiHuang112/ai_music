@@ -527,11 +527,16 @@ class _MusicHomePageState extends State<MusicHomePage>
                   isSearching: controller.isSearching,
                   isCandidateBusy: controller.isCandidateDownloading,
                   isCandidateLocal: controller.isCandidateManuallyDownloaded,
-                  onPlayLocal: (track) => unawaited(
-                    controller.playTrack(
-                      track,
-                      index: _indexOrNull(
-                        controller.cachedTracks.indexOf(track),
+                  onPlayLocal: (track) => playOrOpenPlayer(
+                    _contentNavigator.context,
+                    controller,
+                    track.id,
+                    () => unawaited(
+                      controller.playTrack(
+                        track,
+                        index: _indexOrNull(
+                          controller.cachedTracks.indexOf(track),
+                        ),
                       ),
                     ),
                   ),
@@ -2378,6 +2383,7 @@ class _PlaylistDetailPageState extends State<_PlaylistDetailPage> {
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
+    _recordUsageAfterEntrance();
     final location = DesktopMusicScope.maybeOf(context)?.locate;
     if (identical(location, _desktopLocation)) return;
     _desktopLocation?.removeListener(_locateFromDesktop);
@@ -2395,15 +2401,22 @@ class _PlaylistDetailPageState extends State<_PlaylistDetailPage> {
     });
   }
 
+  bool _usageRecorded = false;
+
   @override
   void initState() {
     super.initState();
     _searchFocusNode.addListener(_onSearchFocusChanged);
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) {
-        if (widget.selection.kind == _LibraryListKind.custom) {
-          unawaited(controller.recordPlaylistUsage(widget.selection.id));
-        }
+  }
+
+  void _recordUsageAfterEntrance() {
+    if (_usageRecorded) return;
+    _usageRecorded = true;
+    // Recording notifies the whole app (the library reorders by use); doing
+    // it mid-push redrew every page under the sliding list.
+    afterRouteEntrance(context, () {
+      if (mounted && widget.selection.kind == _LibraryListKind.custom) {
+        unawaited(controller.recordPlaylistUsage(widget.selection.id));
       }
     });
   }
@@ -3545,29 +3558,28 @@ class _TrackList extends StatelessWidget {
         },
       );
     }
-    Widget tile(BuildContext context, int index) {
+    Widget row(int index) {
       final track = tracks[index];
-      return anchor(
-        index,
-        track.id,
-        _TrackTile(
-          active: track.id == activeId,
-          playing: playing && track.id == activeId,
-          controller: controller,
-          list: list,
-          track: track,
-          tracks: tracks,
-          index: index,
-          isSelecting: isSelecting,
-          isReorderEditing: isReorderEditing,
-          selected: selectedTrackIds.contains(track.id),
-          isPreparing: preparingTrackId == track.id,
-          onPlayTrack: onPlayTrack,
-          onStartSelection: onStartSelection,
-          onToggleSelection: onToggleSelection,
-        ),
+      return _TrackTile(
+        active: track.id == activeId,
+        playing: playing && track.id == activeId,
+        controller: controller,
+        list: list,
+        track: track,
+        tracks: tracks,
+        index: index,
+        isSelecting: isSelecting,
+        isReorderEditing: isReorderEditing,
+        selected: selectedTrackIds.contains(track.id),
+        isPreparing: preparingTrackId == track.id,
+        onPlayTrack: onPlayTrack,
+        onStartSelection: onStartSelection,
+        onToggleSelection: onToggleSelection,
       );
     }
+
+    Widget tile(BuildContext context, int index) =>
+        anchor(index, tracks[index].id, row(index));
 
     final desktop = DesktopMusicScope.maybeOf(context) != null;
     if (headerSlivers != null) {
@@ -3595,13 +3607,23 @@ class _TrackList extends StatelessWidget {
                   ? const EdgeInsets.fromLTRB(20, 2, 20, 24)
                   : const EdgeInsets.fromLTRB(12, 8, 12, 16),
             ),
-            sliver: SliverList.separated(
-              itemCount: tracks.length,
-              itemBuilder: tile,
-              separatorBuilder: (_, _) => desktop
-                  ? const SizedBox(height: 1)
-                  : const Divider(height: 1),
-            ),
+            sliver: desktop
+                ? SliverList.separated(
+                    itemCount: tracks.length,
+                    itemBuilder: tile,
+                    separatorBuilder: (_, _) => const SizedBox(height: 1),
+                  )
+                // Phone rows are one height (single-line title and subtitle),
+                // so opening at the playing song lays out only the rows on
+                // screen; a plain list built every row above it in one frame.
+                : SliverPrototypeExtentList.builder(
+                    prototypeItem: _DividedRow(divider: true, child: row(0)),
+                    itemCount: tracks.length,
+                    itemBuilder: (context, index) => _DividedRow(
+                      divider: index < tracks.length - 1,
+                      child: tile(context, index),
+                    ),
+                  ),
           ),
         ],
       );
@@ -3739,7 +3761,12 @@ class _TrackTileState extends State<_TrackTile> {
                 ? () => onToggleSelection(track)
                 : isPreparing
                 ? null
-                : () => onPlayTrack(track, index, tracks),
+                : () => playOrOpenPlayer(
+                    context,
+                    controller,
+                    track.id,
+                    () => onPlayTrack(track, index, tracks),
+                  ),
             onContextMenu: () => menuKey.currentState?.showButtonMenu(),
             builder: (tap, desktopSelected) =>
                 !isSelecting &&
@@ -3760,7 +3787,12 @@ class _TrackTileState extends State<_TrackTile> {
                     onTap: tap,
                     onPlay: isPreparing
                         ? null
-                        : () => onPlayTrack(track, index, tracks),
+                        : () => playOrOpenPlayer(
+                            context,
+                            controller,
+                            track.id,
+                            () => onPlayTrack(track, index, tracks),
+                          ),
                     onLongPress: () => onStartSelection(track),
                   )
                 : ListTile(
@@ -3789,7 +3821,12 @@ class _TrackTileState extends State<_TrackTile> {
                                 : strings.play,
                             onPressed: isPreparing
                                 ? null
-                                : () => onPlayTrack(track, index, tracks),
+                                : () => playOrOpenPlayer(
+                                    context,
+                                    controller,
+                                    track.id,
+                                    () => onPlayTrack(track, index, tracks),
+                                  ),
                           ),
                     title: Text(
                       track.title,
@@ -3804,17 +3841,19 @@ class _TrackTileState extends State<_TrackTile> {
                             : faded,
                       ),
                     ),
-                    subtitle: Wrap(
-                      spacing: 6,
-                      crossAxisAlignment: WrapCrossAlignment.center,
+                    // One line, so every row is the same height.
+                    subtitle: Row(
                       children: [
-                        Text(
-                          _trackSubtitle(track),
-                          style: cached ? null : TextStyle(color: faded),
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
+                        Flexible(
+                          child: Text(
+                            _trackSubtitle(track),
+                            style: cached ? null : TextStyle(color: faded),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
                         ),
-                        if (needsSourceReview)
+                        if (needsSourceReview) ...[
+                          const SizedBox(width: 6),
                           Tooltip(
                             message: strings.isZh
                                 ? '切换来源核对歌曲'
@@ -3843,6 +3882,7 @@ class _TrackTileState extends State<_TrackTile> {
                               child: Text(strings.isZh ? '需核对' : 'Check match'),
                             ),
                           ),
+                        ],
                       ],
                     ),
                     trailing: isReorderEditing
@@ -3869,6 +3909,20 @@ class _TrackTileState extends State<_TrackTile> {
       },
     );
   }
+}
+
+/// A phone song row with the hairline under it.
+class _DividedRow extends StatelessWidget {
+  const _DividedRow({required this.divider, required this.child});
+
+  final bool divider;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) => Column(
+    mainAxisSize: MainAxisSize.min,
+    children: [child, if (divider) const Divider(height: 1)],
+  );
 }
 
 /// The playlist as a record in its sleeve, with the one lit action: play it.

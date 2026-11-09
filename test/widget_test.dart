@@ -69,6 +69,37 @@ void main() {
     }
   });
 
+  testWidgets('tapping the playing song in a playlist opens the player', (
+    tester,
+  ) async {
+    final f = _homeLibraryFixture();
+    final controller = _ControlledPlaybackController(
+      f.playlistStore,
+      cacheStore: f.cacheStore,
+    );
+    try {
+      await tester.pumpWidget(_app(playbackController: controller));
+      await tester.pumpAndSettle();
+      final alpha = f.cacheStore.cached.first;
+      controller.audioHandler.mediaItem.add(
+        MediaItem(id: alpha.cacheId, title: 'Alpha', artist: 'A'),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('home-favorites-entry')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Alpha').last);
+      await tester.pumpAndSettle();
+      expect(controller.pending, isEmpty);
+      expect(find.byType(PlayerPage), findsOneWidget);
+    } finally {
+      for (final pending in controller.pending) {
+        if (!pending.isCompleted) pending.complete();
+      }
+      await tester.pumpWidget(const SizedBox.shrink());
+      controller.dispose();
+    }
+  });
+
   testWidgets(
     'create playlist stays centered and avoids overlapping entrance and keyboard motion',
     (tester) async {
@@ -971,13 +1002,14 @@ void main() {
     (tester) async {
       final handler = _WidgetAudioHandler();
       final controller = _QueueUiController(handler);
+      const zero = MediaItem(id: 'zero', title: 'Zero', artist: 'Artist');
       const first = MediaItem(id: 'one', title: 'First', artist: 'Artist');
       const second = MediaItem(id: 'two', title: 'Second', artist: 'Artist');
       try {
         await tester.pumpWidget(_app(playbackController: controller));
         await tester.pumpAndSettle();
-        handler.queue.add([first]);
-        handler.emit(first);
+        handler.queue.add([zero]);
+        handler.emit(zero);
         await tester.pumpAndSettle();
         // The queue opens by swiping the mini player up.
         await tester.fling(
@@ -987,10 +1019,10 @@ void main() {
         );
         await tester.pumpAndSettle();
         expect(find.text('当前队列 · 1'), findsOneWidget);
-        handler.queue.add([first, second]);
+        handler.queue.add([zero, first, second]);
         await tester.pump();
         await tester.pump();
-        expect(find.text('当前队列 · 2'), findsOneWidget);
+        expect(find.text('当前队列 · 3'), findsOneWidget);
         await tester.tap(find.byKey(const ValueKey('queue-item-one')));
         await tester.pump();
         await tester.pump();
@@ -1017,7 +1049,7 @@ void main() {
         controller.requests[2].completeError(StateError('source unavailable'));
         await tester.pumpAndSettle();
         expect(find.textContaining('source unavailable'), findsOneWidget);
-        await tester.tap(find.byKey(const ValueKey('queue-item-two')));
+        await tester.tap(find.byKey(const ValueKey('queue-item-zero')));
         await tester.pump();
         await tester.pump();
         await tester.tap(find.byTooltip('Close'));
@@ -1033,6 +1065,38 @@ void main() {
       }
     },
   );
+
+  testWidgets('tapping the playing song in the queue opens the player', (
+    tester,
+  ) async {
+    final handler = _WidgetAudioHandler();
+    final controller = _QueueUiController(handler);
+    const first = MediaItem(id: 'one', title: 'First', artist: 'Artist');
+    const second = MediaItem(id: 'two', title: 'Second', artist: 'Artist');
+    try {
+      await tester.pumpWidget(_app(playbackController: controller));
+      await tester.pumpAndSettle();
+      handler.queue.add([first, second]);
+      handler.emit(first);
+      await tester.pumpAndSettle();
+      await tester.fling(
+        find.byKey(const ValueKey('mini-player-card')),
+        const Offset(0, -80),
+        800,
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('queue-item-one')));
+      await tester.pumpAndSettle();
+      expect(controller.requests, isEmpty);
+      expect(find.byType(PlaybackQueue), findsNothing);
+      expect(find.byType(PlayerPage), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    } finally {
+      await tester.pumpWidget(const SizedBox.shrink());
+      controller.dispose();
+      unawaited(handler.dispose());
+    }
+  });
 
   testWidgets(
     'mini progress clamps real time and cached state; unknown duration stays empty',
@@ -3180,25 +3244,24 @@ void main() {
     },
   );
 
-  testWidgets(
-    'download manager fits narrow large text with keyboard',
-    (tester) async {
-      await tester.binding.setSurfaceSize(const Size(320, 640));
-      addTearDown(() => tester.binding.setSurfaceSize(null));
-      await tester.pumpWidget(_app(textScaler: TextScaler.linear(2)));
+  testWidgets('download manager fits narrow large text with keyboard', (
+    tester,
+  ) async {
+    await tester.binding.setSurfaceSize(const Size(320, 640));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    await tester.pumpWidget(_app(textScaler: TextScaler.linear(2)));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byTooltip('下载'));
+    await tester.pumpAndSettle();
+    await tester.showKeyboard(find.byType(TextField).last);
+    await tester.enterText(find.byType(TextField).last, 'missing');
+    await tester.pumpAndSettle();
+    for (final section in ['tasks', 'playlists', 'cached']) {
+      await tester.tap(find.byKey(ValueKey('manager-tab-$section')));
       await tester.pumpAndSettle();
-      await tester.tap(find.byTooltip('下载'));
-      await tester.pumpAndSettle();
-      await tester.showKeyboard(find.byType(TextField).last);
-      await tester.enterText(find.byType(TextField).last, 'missing');
-      await tester.pumpAndSettle();
-      for (final section in ['tasks', 'playlists', 'cached']) {
-        await tester.tap(find.byKey(ValueKey('manager-tab-$section')));
-        await tester.pumpAndSettle();
-        expect(tester.takeException(), isNull);
-      }
-    },
-  );
+      expect(tester.takeException(), isNull);
+    }
+  });
 
   testWidgets('settings pages persist language theme and music source', (
     tester,
@@ -4293,7 +4356,9 @@ void main() {
       });
       await tester.pumpWidget(_app());
       await tester.pump();
-      for (final scaffold in tester.widgetList<Scaffold>(find.byType(Scaffold))) {
+      for (final scaffold in tester.widgetList<Scaffold>(
+        find.byType(Scaffold),
+      )) {
         expect(scaffold.bottomNavigationBar, isNull);
       }
     },

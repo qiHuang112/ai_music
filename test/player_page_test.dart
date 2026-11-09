@@ -1,3 +1,4 @@
+import 'package:ai_music/src/data/song_comments.dart' show SongCommentQuery;
 import 'package:ai_music/src/presentation/desktop_music_shell.dart';
 import 'package:ai_music/src/presentation/desktop_mini_player.dart';
 import 'package:ai_music/src/presentation/desktop_scope.dart';
@@ -1712,7 +1713,10 @@ class _StaticMetadataRepository extends TrackMetadataRepository {
   }
 
   @override
-  Future<TrackMetadata> upgradeTimedLyrics(CachedTrack track) async => metadata;
+  Future<TrackMetadata> upgradeTimedLyrics(
+    CachedTrack track, {
+    SongCommentQuery? original,
+  }) async => metadata;
 }
 
 class _DeferredMetadataRepository extends TrackMetadataRepository {
@@ -1743,7 +1747,10 @@ class _UpgradingMetadataRepository extends TrackMetadataRepository {
   );
 
   @override
-  Future<TrackMetadata> upgradeTimedLyrics(CachedTrack track) {
+  Future<TrackMetadata> upgradeTimedLyrics(
+    CachedTrack track, {
+    SongCommentQuery? original,
+  }) {
     upgradeCalls += 1;
     return _upgrade.future;
   }

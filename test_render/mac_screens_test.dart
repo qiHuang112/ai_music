@@ -13,6 +13,7 @@ import 'dart:io';
 import 'dart:math' as math;
 import 'dart:ui' as ui;
 
+import 'package:ai_music/src/data/song_comments.dart' show SongCommentQuery;
 import 'package:ai_music/src/application/music_controller.dart';
 import 'package:ai_music/src/application/music_mappers.dart';
 import 'package:ai_music/src/data/lyrics_artwork.dart';
@@ -527,7 +528,10 @@ class _Metadata extends TrackMetadataRepository {
   );
 
   @override
-  Future<TrackMetadata> upgradeTimedLyrics(CachedTrack track) => load(track);
+  Future<TrackMetadata> upgradeTimedLyrics(
+    CachedTrack track, {
+    SongCommentQuery? original,
+  }) => load(track);
 }
 
 class _CacheStore extends CachedTrackStore {
