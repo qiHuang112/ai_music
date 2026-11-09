@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:math' as math;
+import 'dart:ui' show ImageFilter;
 
 import 'package:audio_service/audio_service.dart';
 import 'package:flutter/cupertino.dart'
@@ -441,13 +442,13 @@ class _FloatingTabBarState extends State<_FloatingTabBar>
   void dispose() {
     _position.dispose();
     _lift.dispose();
-    _stretch.dispose();
+    _motion.dispose();
     super.dispose();
   }
 
-  /// How hard the finger pulls the capsule, -1 (left) to 1 (right): its
-  /// speed while sliding, or how far past the last tab it is dragged.
-  late final AnimationController _stretch = AnimationController.unbounded(
+  /// How fast the lens is sliding, 0 still to 1 quick: it smears what its
+  /// rim passes over, and settles back to 0 when the finger rests.
+  late final AnimationController _motion = AnimationController.unbounded(
     vsync: this,
   );
   Duration? _lastMove;
@@ -462,9 +463,6 @@ class _FloatingTabBarState extends State<_FloatingTabBar>
     stiffness: 380,
     damping: 26,
   );
-
-  // The capsule wobbles back like jelly.
-  static const _jelly = SpringDescription(mass: 1, stiffness: 300, damping: 14);
 
   void _setLift(double target) => _lift.animateWith(
     SpringSimulation(MusicMotion.snappy, _lift.value, target, 0),
@@ -485,19 +483,15 @@ class _FloatingTabBarState extends State<_FloatingTabBar>
 
   void _follow(DragUpdateDetails details, double width) {
     _position.value = _tabAt(details.localPosition.dx, width);
-    // Pulled past the end: the capsule stretches that way.
-    final raw = _rawTabAt(details.localPosition.dx, width);
-    final past = raw < 0 ? raw : (raw > _count - 1 ? raw - (_count - 1) : 0.0);
-    // Otherwise it leans with the finger's speed, smoothed.
     final time = details.sourceTimeStamp;
-    var speed = 0.0;
     if (time != null && _lastMove != null && time > _lastMove!) {
       final seconds = (time - _lastMove!).inMicroseconds / 1e6;
-      speed = details.delta.dx / seconds / 2400;
+      final speed = (details.delta.dx.abs() / seconds / 1600).clamp(0.0, 1.0);
+      final value = _motion.value + (speed - _motion.value) * .4;
+      // Fades on its own between moves, so a resting finger is sharp.
+      _motion.animateWith(SpringSimulation(MusicMotion.snappy, value, 0, 0));
     }
     _lastMove = time;
-    final target = (past != 0 ? past * 1.4 : speed).clamp(-1.0, 1.0);
-    _stretch.value += (target - _stretch.value) * .35;
     final over = _position.value.round().clamp(0, _count - 1);
     if (over != _hovered) {
       _hovered = over;
@@ -526,7 +520,9 @@ class _FloatingTabBarState extends State<_FloatingTabBar>
     _dragging = false;
     _lastMove = null;
     _setLift(0);
-    _stretch.animateWith(SpringSimulation(_jelly, _stretch.value, 0, 0));
+    _motion.animateWith(
+      SpringSimulation(MusicMotion.snappy, _motion.value, 0, 0),
+    );
     final velocity = velocityPx / width;
     // A flick carries a little further, never past a neighbor.
     final target = (_position.value + (velocity * .12).clamp(-.6, .6))
@@ -552,12 +548,12 @@ class _FloatingTabBarState extends State<_FloatingTabBar>
           onHorizontalDragEnd: (d) => _end(d.primaryVelocity ?? 0, width),
           onHorizontalDragCancel: () => _end(0, width),
           child: AnimatedBuilder(
-            animation: Listenable.merge([_position, _lift, _stretch]),
+            animation: Listenable.merge([_position, _lift, _motion]),
             builder: (context, _) {
               final at = _position.value;
               final lift = _lift.value;
               final held = lift.clamp(0.0, 1.0);
-              final pull = _stretch.value.clamp(-1.0, 1.0);
+              final motion = _motion.value.clamp(0.0, 1.0);
               final pill = Rect.fromLTWH(
                 _inset + width * at,
                 _inset,
@@ -570,6 +566,10 @@ class _FloatingTabBarState extends State<_FloatingTabBar>
                 width: pill.width * (1 + .16 * lift),
                 height: pill.height * (1 + .30 * lift),
               );
+              // 0 with the lens in the middle, 1 on an end tab, a little
+              // more when pulled past it.
+              final middle = (_count - 1) / 2;
+              final edge = middle == 0 ? 0.0 : (at - middle).abs() / middle;
               final bar = Material(
                 key: const ValueKey('floating-tab-bar'),
                 type: MaterialType.transparency,
@@ -602,20 +602,19 @@ class _FloatingTabBarState extends State<_FloatingTabBar>
                               ),
                             ),
                           ),
-                          _row(colors, at, keyed: true),
+                          _row(colors, at),
                         ],
                       );
                     },
                   ),
                 ),
               );
-              // The capsule swells a touch while held and leans the way it
-              // is pulled, anchored on the far side, then wobbles back.
-              final sx = 1 + .03 * lift + .035 * pull.abs();
-              final sy = 1 + .02 * lift - .03 * pull.abs();
+              // Held, the capsule widens a touch, more as the lens nears
+              // either end.
+              final sx = 1 + held * (.012 + .022 * edge);
               return Transform(
-                alignment: Alignment(-pull.sign * .8, 0),
-                transform: Matrix4.diagonal3Values(sx, sy, 1),
+                alignment: Alignment.center,
+                transform: Matrix4.diagonal3Values(sx, 1, 1),
                 child: Stack(
                   clipBehavior: Clip.none,
                   children: [
@@ -625,19 +624,13 @@ class _FloatingTabBarState extends State<_FloatingTabBar>
                         rect: lens,
                         child: IgnorePointer(
                           child: ExcludeSemantics(
-                            // Text styles come from a Material, as in the bar.
-                            child: Material(
-                              type: MaterialType.transparency,
-                              child: _lens(
-                                lens,
-                                size,
-                                at,
-                                lift,
-                                held,
-                                outer,
-                                glass,
-                                dark,
-                              ),
+                            child: _lens(
+                              lens,
+                              held,
+                              motion,
+                              outer,
+                              glass,
+                              dark,
                             ),
                           ),
                         ),
@@ -652,54 +645,41 @@ class _FloatingTabBarState extends State<_FloatingTabBar>
     );
   }
 
-  /// The held pill as a glass lens: a magnified copy of the tabs under it,
-  /// a bright rim and top sheen, and a shadow that grows as it lifts.
+  /// The held pill as a glass lens: clear in the middle, so the tabs show
+  /// through unchanged, with a rim that blurs what it passes over (smeared
+  /// sideways while it slides), a top sheen, a bright edge and a shadow that
+  /// grows as it lifts. The blur reads only the thin rim, so it stays cheap.
   Widget _lens(
     Rect lens,
-    Size bar,
-    double at,
-    double lift,
     double held,
+    double motion,
     ColorScheme colors,
     Color glass,
     bool dark,
   ) {
     final radius = BorderRadius.circular(lens.height / 2);
-    final zoom = 1 + .22 * lift;
-    final center = lens.center;
-    return Opacity(
+    return KeyedSubtree(
       key: const ValueKey('floating-tab-lens'),
-      opacity: held,
-      child: DecoratedBox(
-        decoration: BoxDecoration(
-          borderRadius: radius,
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withValues(alpha: dark ? .38 : .20),
-              blurRadius: 10 + 14 * held,
-              spreadRadius: 1.5 * held,
-              offset: Offset(0, 3 + 5 * held),
-            ),
-          ],
+      child: CustomPaint(
+        painter: _LensShadow(
+          radius: lens.height / 2,
+          color: Colors.black.withValues(alpha: (dark ? .40 : .22) * held),
+          blur: 8 + 10 * held,
+          drop: 3 + 4 * held,
         ),
         child: ClipRRect(
           borderRadius: radius,
           child: Stack(
             fit: StackFit.expand,
             children: [
-              // Clear glass over the capsule: hides the flat tabs below.
-              ColoredBox(color: glass.withValues(alpha: .94)),
-              Positioned(
-                left: -lens.left,
-                top: -lens.top,
-                width: bar.width,
-                height: bar.height,
-                child: Transform(
-                  transform: Matrix4.identity()
-                    ..translateByDouble(center.dx, center.dy, 0, 1)
-                    ..scaleByDouble(zoom, zoom, 1, 1)
-                    ..translateByDouble(-center.dx, -center.dy, 0, 1),
-                  child: _row(colors, at, keyed: false),
+              ClipPath(
+                clipper: _LensRim(width: 7),
+                child: BackdropFilter(
+                  filter: ImageFilter.blur(
+                    sigmaX: (1.2 + 4.5 * motion) * held,
+                    sigmaY: 1.1 * held,
+                  ),
+                  child: const SizedBox.expand(),
                 ),
               ),
               DecoratedBox(
@@ -709,15 +689,16 @@ class _FloatingTabBarState extends State<_FloatingTabBar>
                     begin: Alignment.topCenter,
                     end: Alignment.bottomCenter,
                     colors: [
-                      Colors.white.withValues(alpha: dark ? .20 : .45),
-                      Colors.white.withValues(alpha: 0),
-                      colors.primary.withValues(alpha: .06),
+                      Colors.white.withValues(alpha: (dark ? .16 : .38) * held),
+                      glass.withValues(alpha: .10 * held),
+                      colors.primary.withValues(alpha: .05 * held),
                     ],
-                    stops: const [0, .5, 1],
+                    stops: const [0, .45, 1],
                   ),
                   border: Border.all(
-                    color: Colors.white.withValues(alpha: dark ? .34 : .7),
-                    width: 1,
+                    color: Colors.white.withValues(
+                      alpha: (dark ? .34 : .7) * held,
+                    ),
                   ),
                 ),
               ),
@@ -728,24 +709,23 @@ class _FloatingTabBarState extends State<_FloatingTabBar>
     );
   }
 
-  Widget _row(ColorScheme colors, double at, {required bool keyed}) => Padding(
+  Widget _row(ColorScheme colors, double at) => Padding(
     padding: const EdgeInsets.symmetric(horizontal: _inset),
     child: Row(
       children: [
-        for (var i = 0; i < _count; i++)
-          Expanded(child: _tab(colors, i, at, keyed: keyed)),
+        for (var i = 0; i < _count; i++) Expanded(child: _tab(colors, i, at)),
       ],
     ),
   );
 
-  Widget _tab(ColorScheme colors, int i, double at, {required bool keyed}) {
+  Widget _tab(ColorScheme colors, int i, double at) {
     final tabs = widget.tabs;
     // The accent follows the pill: full on the tab it covers, fading as it
     // slides off, so the light travels with it.
     final lit = (1 - (at - i).abs()).clamp(0.0, 1.0);
     final selected = i == tabs.index;
     return _TabButton(
-      key: keyed ? ValueKey('floating-tab-$i') : null,
+      key: ValueKey('floating-tab-$i'),
       label: tabs.labels[i],
       icon: lit > .5
           ? _FloatingTabBar._selectedIcons[i %
@@ -774,6 +754,74 @@ class _FloatingTabBarState extends State<_FloatingTabBar>
       onTap: () => widget.onSelected(i),
     );
   }
+}
+
+/// The band just inside the lens edge.
+class _LensRim extends CustomClipper<Path> {
+  const _LensRim({required this.width});
+
+  final double width;
+
+  @override
+  Path getClip(Size size) {
+    final outer = RRect.fromRectAndRadius(
+      Offset.zero & size,
+      Radius.circular(size.height / 2),
+    );
+    return Path()
+      ..fillType = PathFillType.evenOdd
+      ..addRRect(outer)
+      ..addRRect(outer.deflate(width));
+  }
+
+  @override
+  bool shouldReclip(_LensRim old) => old.width != width;
+}
+
+/// A soft shadow round the lens but not under it, where the clear glass
+/// would show it as a smudge.
+class _LensShadow extends CustomPainter {
+  const _LensShadow({
+    required this.radius,
+    required this.color,
+    required this.blur,
+    required this.drop,
+  });
+
+  final double radius, blur, drop;
+  final Color color;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    if (color.a == 0) return;
+    final lens = RRect.fromRectAndRadius(
+      Offset.zero & size,
+      Radius.circular(radius),
+    );
+    canvas
+      ..save()
+      ..clipPath(
+        Path.combine(
+          PathOperation.difference,
+          Path()..addRect((Offset.zero & size).inflate(blur * 3 + drop)),
+          Path()..addRRect(lens),
+        ),
+      )
+      ..drawRRect(
+        lens.shift(Offset(0, drop)),
+        Paint()
+          ..color = color
+          ..maskFilter = MaskFilter.blur(BlurStyle.normal, blur / 2),
+      )
+      ..restore();
+  }
+
+  @override
+  bool shouldRepaint(_LensShadow old) =>
+      old.radius != radius ||
+      old.color != color ||
+      old.blur != blur ||
+      old.drop != drop;
 }
 
 class _TabButton extends StatelessWidget {

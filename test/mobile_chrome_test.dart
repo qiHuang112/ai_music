@@ -165,15 +165,15 @@ void main() {
       await tester.pump(const Duration(milliseconds: 16));
     }
     await tester.pump(const Duration(milliseconds: 300));
-    // Held, a glass lens magnifies the tabs under it and overhangs the bar.
+    // Held, a glass lens overhangs the bar and blurs what its rim crosses.
     final lens = find.byKey(const ValueKey('floating-tab-lens'));
     expect(tester.getRect(lens).height, greaterThan(62));
     expect(tester.getCenter(lens).dx, closeTo(third.dx, 8));
-    // The whole capsule swells a little while the lens is held.
-    expect(
-      tester.getRect(find.byKey(const ValueKey('floating-tab-bar'))).width,
-      greaterThan(530),
-    );
+    expect(find.byType(BackdropFilter), findsWidgets);
+    // The capsule widens a little, not taller, more near the ends.
+    final held = tester.getRect(find.byKey(const ValueKey('floating-tab-bar')));
+    expect(held.width, inInclusiveRange(524, 535));
+    expect(held.height, closeTo(62, .5));
     expect(selected, isEmpty);
 
     // Let go: the tab is chosen and the pill settles on it at rest size.
