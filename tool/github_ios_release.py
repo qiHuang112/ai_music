@@ -52,7 +52,7 @@ def publish():
     version = json.loads(PLAN.read_text())
     app = PROJECT / 'build/ios/iphoneos/Runner.app'
     info = plistlib.loads((app / 'Info.plist').read_bytes())
-    if (info.get('CFBundleIdentifier') != 'com.qi.ai.music'
+    if (info.get('CFBundleIdentifier') != 'com.tjs.aimusic'
             or info.get('CFBundleShortVersionString') != version['name']
             or str(info.get('CFBundleVersion')) != str(version['code'])):
         raise ValueError('iOS bundle identity/version mismatch')
@@ -83,7 +83,7 @@ def publish():
     metadata = root / 'ios-unsigned.json'
     metadata.write_text(json.dumps({
         'platform': 'ios', 'signing': 'unsigned', 'requiresResigning': True,
-        'packageName': 'com.qi.ai.music', 'versionName': version['name'],
+        'packageName': 'com.tjs.aimusic', 'versionName': version['name'],
         'versionCode': version['code'], 'sourceCommit': commit,
         'sha256': digest, 'sizeBytes': archive.stat().st_size,
         'url': f"https://github.com/{repo}/releases/download/{version['tag']}/{filename}",

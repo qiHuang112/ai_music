@@ -24,7 +24,7 @@ Those are shared Flutter concerns and should be changed in `lib/src/` by the cro
 
 ## Current iOS Capabilities
 
-- Bundle ID: `com.qi.ai.music`.
+- Bundle ID: `com.tjs.aimusic`.
 - Minimum deployment target: iOS 13.
 - Background audio: `UIBackgroundModes` includes `audio`.
 - Local network prompt: `NSLocalNetworkUsageDescription` explains music-source access.
