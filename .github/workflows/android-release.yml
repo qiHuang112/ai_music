@@ -188,10 +188,15 @@ jobs:
 
   publish:
     needs: [plan, android, macos, ios]
-    # Platforms not chosen are skipped, not failed; any failure stops here.
+    # Android must succeed when chosen. A Mac or iOS job that failed, timed
+    # out or never got a runner does not hold the release back: publish
+    # carries that platform's previous package forward (RESULT_* below).
     if: >-
-      !cancelled() && needs.plan.outputs.skip != 'true' &&
-      !contains(needs.*.result, 'failure') && !contains(needs.*.result, 'cancelled')
+      !cancelled() && needs.plan.result == 'success' &&
+      needs.plan.outputs.skip != 'true' &&
+      contains(fromJSON('["success", "skipped"]'), needs.android.result) &&
+      (needs.android.result == 'success' || needs.macos.result == 'success' ||
+      needs.ios.result == 'success')
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     permissions:
@@ -204,6 +209,9 @@ jobs:
       BUILD_ANDROID: ${{ needs.plan.outputs.android }}
       BUILD_MACOS: ${{ needs.plan.outputs.macos }}
       BUILD_IOS: ${{ needs.plan.outputs.ios }}
+      RESULT_ANDROID: ${{ needs.android.result }}
+      RESULT_MACOS: ${{ needs.macos.result }}
+      RESULT_IOS: ${{ needs.ios.result }}
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:

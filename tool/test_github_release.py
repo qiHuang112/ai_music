@@ -125,7 +125,7 @@ class PublishTest(unittest.TestCase):
                     'url': f'https://github.com/qiHuang112/ai_music/releases/download/{TAG}/{filename}'}
         (root / release.MANIFESTS[platform]).write_text(json.dumps(manifest))
 
-    def publish(self, corrupt=False, previous_assets=('latest.json', 'macos-latest.json')):
+    def publish(self, corrupt=False, previous_assets=('latest.json', 'macos-latest.json'), env=None):
         calls = []
         with tempfile.TemporaryDirectory() as temporary:
             project = Path(temporary)
@@ -156,7 +156,8 @@ class PublishTest(unittest.TestCase):
             with patch.object(release, 'PROJECT', project), \
                  patch.object(release, 'STAGE', project / 'build/release-stage'), \
                  patch.dict(os.environ, {**ENV, 'RELEASE_TAG': TAG, 'RELEASE_NAME': '1.0.6',
-                                         'RELEASE_CODE': '10275', 'BUILD_IOS': 'true'}), \
+                                         'RELEASE_CODE': '10275', 'BUILD_IOS': 'true',
+                                         **(env or {})}), \
                  patch.object(release, 'gh', side_effect=github), \
                  patch.object(release, 'current_main', return_value=True), \
                  patch.object(release, 'git', return_value='subject'):
@@ -172,6 +173,33 @@ class PublishTest(unittest.TestCase):
         self.assertIn('--draft', create)
         self.assertIn('来听 1.0.6（10275）· iOS', create)
         self.assertEqual([call for call in calls if call[:2] == ('release', 'edit')][0][-1], '--latest')
+
+    def test_mac_that_never_ran_keeps_its_previous_package(self):
+        calls, uploaded = self.publish(env={'BUILD_MACOS': 'true', 'RESULT_MACOS': 'cancelled',
+                                            'RESULT_IOS': 'success'})
+        # Built iOS goes out; the Mac manifest is the previous release's.
+        self.assertEqual(set(uploaded), {'app.ipa', 'app.ipa.sha256', 'ios-unsigned.json',
+                                         'latest.json', 'macos-latest.json'})
+        self.assertEqual(json.loads(uploaded['macos-latest.json'])['versionCode'], 10274)
+        create = next(call for call in calls if call[:2] == ('release', 'create'))
+        self.assertIn('来听 1.0.6（10275）· iOS', create)
+        self.assertEqual(calls[-1][:2], ('release', 'edit'))
+
+    def test_notes_say_why_a_platform_was_carried(self):
+        kept = {'macos': {'versionName': '1.0.6', 'versionCode': 10274, 'url': 'u'},
+                'android': {'versionName': '1.0.6', 'versionCode': 10274, 'url': 'v'}}
+        with patch.object(release, 'git', return_value='subject'):
+            text = release.notes_for('1.0.6', 10275, 'c' * 40, {}, kept, ['macos'])
+        self.assertIn('- Mac：本次构建未完成，沿用 1.0.6 / 10274', text)
+        self.assertIn('- Android：本次无改动，沿用 1.0.6 / 10274', text)
+
+    def test_failed_android_publishes_nothing(self):
+        with self.assertRaisesRegex(RuntimeError, 'Android build did not succeed'):
+            self.publish(env={'BUILD_ANDROID': 'true', 'RESULT_ANDROID': 'failure'})
+
+    def test_nothing_built_publishes_nothing(self):
+        with self.assertRaisesRegex(RuntimeError, 'No platform was built'):
+            self.publish(env={'RESULT_IOS': 'failure'})
 
     def test_corrupt_upload_stays_a_draft(self):
         with self.assertRaisesRegex(RuntimeError, 'stays a draft'):

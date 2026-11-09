@@ -4,7 +4,9 @@
 plan:    gate on this commit's passing Check, pick the version, choose the
          platforms to build (only those the change can affect, unless asked).
 publish: gather the verified packages the platform jobs staged, carry the
-         previous release's update manifests forward for platforms not built,
+         previous release's update manifests forward for platforms not built
+         (including a Mac or iOS job that failed or never got a runner, so
+         one slow platform cannot hold the others back; Android is required),
          upload everything to a draft, read it all back, then make it latest.
 """
 import argparse
@@ -198,7 +200,7 @@ def carried(repo, previous, platform, directory):
     return json.loads((target / name).read_text()), target / name
 
 
-def notes_for(name, code, commit, built, kept):
+def notes_for(name, code, commit, built, kept, missed=()):
     lines = [f'来听 {name}（{code}）。', '']
     for platform in PLATFORMS:
         label = LABELS[platform]
@@ -213,7 +215,8 @@ def notes_for(name, code, commit, built, kept):
                       f"SHA-256 `{manifest['sha256']}`"]
         elif platform in kept:
             manifest = kept[platform]
-            lines += [f"- {label}：本次无改动，沿用 {manifest['versionName']} / "
+            why = '本次构建未完成' if platform in missed else '本次无改动'
+            lines += [f"- {label}：{why}，沿用 {manifest['versionName']} / "
                       f"{manifest['versionCode']}（[下载]({manifest['url']})）"]
     subject = git('log', '-1', '--format=%s', commit)
     lines += ['', subject, '', f'源码提交：{commit}', '']
@@ -227,6 +230,18 @@ def publish():
         return
     tag, name, code = os.environ['RELEASE_TAG'], os.environ['RELEASE_NAME'], int(os.environ['RELEASE_CODE'])
     chosen = [platform for platform in PLATFORMS if os.environ.get(f'BUILD_{platform.upper()}') == 'true']
+    # The workflow passes each platform job's result. Android is required: the
+    # app and the LAN mirror read its manifest. Mac or iOS that did not finish
+    # (failed, timed out, or never got a runner) keeps its previous package.
+    missed = [platform for platform in chosen
+              if os.environ.get(f'RESULT_{platform.upper()}', 'success') != 'success']
+    if 'android' in missed:
+        raise RuntimeError('The Android build did not succeed; nothing published')
+    for platform in missed:
+        print(f'{LABELS[platform]} build did not finish; carrying its previous package forward')
+    chosen = [platform for platform in chosen if platform not in missed]
+    if not chosen:
+        raise RuntimeError('No platform was built; nothing published')
     built, files = {}, []
     for platform in chosen:
         manifest, paths = staged(platform, tag, commit, code)
@@ -247,7 +262,7 @@ def publish():
         if 'android' not in built and 'android' not in kept:
             raise RuntimeError('No Android update manifest to publish or carry forward')
         notes = Path(temporary) / 'notes.md'
-        notes.write_text(notes_for(name, code, commit, built, kept))
+        notes.write_text(notes_for(name, code, commit, built, kept, missed))
         # A failed earlier attempt at this tag leaves a draft; start it over.
         for item in releases:
             if item['tag_name'] == tag:
@@ -274,7 +289,9 @@ def publish():
     if summary:
         with Path(summary).open('a') as output:
             output.write(f"[Release {tag}]({url})：构建 {', '.join(LABELS[p] for p in chosen)}"
-                         + (f"；沿用 {', '.join(LABELS[p] for p in kept)}" if kept else '') + '\n')
+                         + (f"；沿用 {', '.join(LABELS[p] for p in kept)}" if kept else '')
+                         + (f"（{', '.join(LABELS[p] for p in missed)} 构建未完成）" if missed else '')
+                         + '\n')
 
 
 if __name__ == '__main__':

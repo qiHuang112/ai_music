@@ -13,7 +13,7 @@ description: Develop and self-test AI Music on phone 77; review only current cha
 | ② 走流程 | 用户说“走流程” | 增量review → 复用已有正式包 → 局域网发布 → 一次完整下载核验 | 不push、不触发CI、不重新构建 |
 | ③ 推送发版 | 用户明确说“推送／发GitHub” | push main → 推送后即可手动启动 `gh workflow run android-release.yml --ref main`（发版先等同提交 Check 通过、不重跑测试）→ 默认只并行构建本次改动影响的平台（Android／Mac Universal／iOS IPA），未构建平台沿用上一版 → 同一个公开GitHub Release（APP联网更新可见）；局域网服务约60秒内自动镜像Android包 → 核对run与产物 | Mac局域网包不自动镜像，需要时再按②发布 |
 
-push 只触发 `.github/workflows/ci.yml`（分析＋全部测试，纯文档改动不跑），**不再铸版本**，提交信息无需、也不要出现跳过 CI 的标记字样（GitHub 看到就会跳过检查，2026-11-08 已踩过一次）；正式版本只在手动启动 `android-release.yml` 时生成（同一提交已发布、或自上次发版只改了文档／测试／工具则跳过）。CI 未通过的提交不发版：发版的 plan 任务会等同提交 Check 结束并复用其结果。平台选择（用户 2026-11-09）：默认 `auto` 按自上次发版的改动判断——只动 `ios/`、`macos/`、`android/` 时只打对应平台，动到 `lib/`、资源、依赖等共享部分则三端全打；需要时 `-f platforms=all` 或 `-f platforms=ios,macos` 指定。（用户 2026-11-08 批准，取代 2026-10-26 “每次 push main 即发版”。）
+push 只触发 `.github/workflows/ci.yml`（分析＋全部测试，纯文档改动不跑），**不再铸版本**，提交信息无需、也不要出现跳过 CI 的标记字样（GitHub 看到就会跳过检查，2026-11-08 已踩过一次）；正式版本只在手动启动 `android-release.yml` 时生成（同一提交已发布、或自上次发版只改了文档／测试／工具则跳过）。CI 未通过的提交不发版：发版的 plan 任务会等同提交 Check 结束并复用其结果。平台选择（用户 2026-11-09）：默认 `auto` 按自上次发版的改动判断——只动 `ios/`、`macos/`、`android/` 时只打对应平台，动到 `lib/`、资源、依赖等共享部分则三端全打；需要时 `-f platforms=all` 或 `-f platforms=ios,macos` 指定。Mac／iOS 构建失败、超时或排不上 GitHub 机器时不拖住发版：publish 照常发出已构建的平台，该平台沿用上一版包并在说明里写“本次构建未完成”；Android 必须成功（用户 2026-11-10）。（用户 2026-11-08 批准，取代 2026-10-26 “每次 push main 即发版”。）
 
 **版本号**：正式版本号只由 `android-release.yml` 按 GitHub Release 取号（当前 102xx）。77 等开发手机的自测包统一用 `python3 tool/build_android_selftest.py --device <adb地址>` 构建安装：独立号段 60000 起、开发证书签名、安装前核对序列号，记录在 `build/device-check/selftest/builds.json`。不再手动挑构建号（构建号＝版本号−2000），自测包不进任何发布通道。
 
