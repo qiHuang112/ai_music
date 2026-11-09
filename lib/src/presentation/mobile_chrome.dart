@@ -441,8 +441,16 @@ class _FloatingTabBarState extends State<_FloatingTabBar>
   void dispose() {
     _position.dispose();
     _lift.dispose();
+    _stretch.dispose();
     super.dispose();
   }
+
+  /// How hard the finger pulls the capsule, -1 (left) to 1 (right): its
+  /// speed while sliding, or how far past the last tab it is dragged.
+  late final AnimationController _stretch = AnimationController.unbounded(
+    vsync: this,
+  );
+  Duration? _lastMove;
 
   void _glideTo(int index, double velocity) => _position.animateWith(
     SpringSimulation(_pillSpring, _position.value, index.toDouble(), velocity),
@@ -455,16 +463,42 @@ class _FloatingTabBarState extends State<_FloatingTabBar>
     damping: 26,
   );
 
+  // The capsule wobbles back like jelly.
+  static const _jelly = SpringDescription(mass: 1, stiffness: 300, damping: 14);
+
   void _setLift(double target) => _lift.animateWith(
     SpringSimulation(MusicMotion.snappy, _lift.value, target, 0),
   );
 
-  double _tabAt(double dx, double width) =>
-      ((dx - _inset) / width - .5).clamp(0, _count - 1).toDouble();
+  double _rawTabAt(double dx, double width) => (dx - _inset) / width - .5;
 
-  void _follow(double dx, double width) {
-    _position.value = _tabAt(dx, width);
-    final over = _position.value.round();
+  /// Past either end the pill gives only a little, like a rubber band.
+  double _tabAt(double dx, double width) {
+    final raw = _rawTabAt(dx, width);
+    final last = (_count - 1).toDouble();
+    if (raw < 0) return -_rubber(-raw);
+    if (raw > last) return last + _rubber(raw - last);
+    return raw;
+  }
+
+  static double _rubber(double over) => .35 * (1 - 1 / (1 + over));
+
+  void _follow(DragUpdateDetails details, double width) {
+    _position.value = _tabAt(details.localPosition.dx, width);
+    // Pulled past the end: the capsule stretches that way.
+    final raw = _rawTabAt(details.localPosition.dx, width);
+    final past = raw < 0 ? raw : (raw > _count - 1 ? raw - (_count - 1) : 0.0);
+    // Otherwise it leans with the finger's speed, smoothed.
+    final time = details.sourceTimeStamp;
+    var speed = 0.0;
+    if (time != null && _lastMove != null && time > _lastMove!) {
+      final seconds = (time - _lastMove!).inMicroseconds / 1e6;
+      speed = details.delta.dx / seconds / 2400;
+    }
+    _lastMove = time;
+    final target = (past != 0 ? past * 1.4 : speed).clamp(-1.0, 1.0);
+    _stretch.value += (target - _stretch.value) * .35;
+    final over = _position.value.round().clamp(0, _count - 1);
     if (over != _hovered) {
       _hovered = over;
       unawaited(HapticFeedback.selectionClick());
@@ -473,6 +507,7 @@ class _FloatingTabBarState extends State<_FloatingTabBar>
 
   void _start(DragStartDetails details, double width) {
     _dragging = true;
+    _lastMove = details.sourceTimeStamp;
     _hovered = _position.value.round();
     _setLift(1);
     // The pill comes to the finger rather than jumping there.
@@ -489,7 +524,9 @@ class _FloatingTabBarState extends State<_FloatingTabBar>
   void _end(double velocityPx, double width) {
     if (!_dragging) return;
     _dragging = false;
+    _lastMove = null;
     _setLift(0);
+    _stretch.animateWith(SpringSimulation(_jelly, _stretch.value, 0, 0));
     final velocity = velocityPx / width;
     // A flick carries a little further, never past a neighbor.
     final target = (_position.value + (velocity * .12).clamp(-.6, .6))
@@ -502,111 +539,213 @@ class _FloatingTabBarState extends State<_FloatingTabBar>
   @override
   Widget build(BuildContext context) {
     final dark = Theme.of(context).brightness == Brightness.dark;
-    return Material(
-      key: const ValueKey('floating-tab-bar'),
-      type: MaterialType.transparency,
-      child: GlassSurface(
-        borderRadius: BorderRadius.circular(ChromeMetrics.tabHeight / 2),
-        child: Builder(
-          builder: (context) {
-            // Inside the surface: the metal skin relights its display.
-            final colors = Theme.of(context).colorScheme;
-            return LayoutBuilder(
-              builder: (context, box) {
-                final width = (box.maxWidth - _inset * 2) / _count;
-                return GestureDetector(
-                  behavior: HitTestBehavior.translucent,
-                  onHorizontalDragStart: (d) => _start(d, width),
-                  onHorizontalDragUpdate: (d) =>
-                      _follow(d.localPosition.dx, width),
-                  onHorizontalDragEnd: (d) =>
-                      _end(d.primaryVelocity ?? 0, width),
-                  onHorizontalDragCancel: () => _end(0, width),
-                  child: AnimatedBuilder(
-                    animation: Listenable.merge([_position, _lift]),
-                    builder: (context, _) {
-                      final at = _position.value;
-                      final lift = _lift.value;
+    final outer = Theme.of(context).colorScheme;
+    final glass = MusicTokens.of(context).glass;
+    return LayoutBuilder(
+      builder: (context, box) {
+        final size = box.biggest;
+        final width = (size.width - _inset * 2) / _count;
+        return GestureDetector(
+          behavior: HitTestBehavior.translucent,
+          onHorizontalDragStart: (d) => _start(d, width),
+          onHorizontalDragUpdate: (d) => _follow(d, width),
+          onHorizontalDragEnd: (d) => _end(d.primaryVelocity ?? 0, width),
+          onHorizontalDragCancel: () => _end(0, width),
+          child: AnimatedBuilder(
+            animation: Listenable.merge([_position, _lift, _stretch]),
+            builder: (context, _) {
+              final at = _position.value;
+              final lift = _lift.value;
+              final held = lift.clamp(0.0, 1.0);
+              final pull = _stretch.value.clamp(-1.0, 1.0);
+              final pill = Rect.fromLTWH(
+                _inset + width * at,
+                _inset,
+                width,
+                size.height - _inset * 2,
+              );
+              // Held, the lens swells past the capsule.
+              final lens = Rect.fromCenter(
+                center: pill.center,
+                width: pill.width * (1 + .16 * lift),
+                height: pill.height * (1 + .30 * lift),
+              );
+              final bar = Material(
+                key: const ValueKey('floating-tab-bar'),
+                type: MaterialType.transparency,
+                child: GlassSurface(
+                  borderRadius: BorderRadius.circular(
+                    ChromeMetrics.tabHeight / 2,
+                  ),
+                  child: Builder(
+                    builder: (context) {
+                      // Inside the surface: the metal skin relights its
+                      // display.
+                      final colors = Theme.of(context).colorScheme;
                       return Stack(
-                        clipBehavior: Clip.none,
                         children: [
-                          Positioned(
-                            left: _inset + width * at,
-                            top: _inset,
-                            bottom: _inset,
-                            width: width,
-                            child: Transform.scale(
-                              // Held, it swells past the capsule a little.
-                              scaleX: 1 + .14 * lift,
-                              scaleY: 1 + .22 * lift,
+                          Positioned.fromRect(
+                            rect: pill,
+                            child: Opacity(
+                              // The resting pill gives way to the lens.
+                              opacity: 1 - held,
                               child: DecoratedBox(
                                 key: const ValueKey('floating-tab-pill'),
                                 decoration: BoxDecoration(
-                                  color: Color.lerp(
-                                    dark
-                                        ? Colors.black.withValues(alpha: .26)
-                                        : colors.onSurface.withValues(
-                                            alpha: .08,
-                                          ),
-                                    colors.surface.withValues(
-                                      alpha: dark ? .30 : .55,
-                                    ),
-                                    lift.clamp(0, 1),
-                                  ),
+                                  color: dark
+                                      ? Colors.black.withValues(alpha: .26)
+                                      : colors.onSurface.withValues(alpha: .08),
                                   borderRadius: BorderRadius.circular(
-                                    ChromeMetrics.tabHeight / 2 - _inset,
+                                    pill.height / 2,
                                   ),
-                                  border: Border.all(
-                                    color: colors.onSurface.withValues(
-                                      alpha: .10 * lift.clamp(0, 1),
-                                    ),
-                                  ),
-                                  boxShadow: [
-                                    if (lift > .01)
-                                      BoxShadow(
-                                        color: Colors.black.withValues(
-                                          alpha: .18 * lift.clamp(0, 1),
-                                        ),
-                                        blurRadius: 14,
-                                        offset: const Offset(0, 4),
-                                      ),
-                                  ],
                                 ),
                               ),
                             ),
                           ),
-                          Padding(
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: _inset,
-                            ),
-                            child: Row(
-                              children: [
-                                for (var i = 0; i < _count; i++)
-                                  Expanded(child: _tab(context, colors, i, at)),
-                              ],
-                            ),
-                          ),
+                          _row(colors, at, keyed: true),
                         ],
                       );
                     },
                   ),
-                );
-              },
-            );
-          },
+                ),
+              );
+              // The capsule swells a touch while held and leans the way it
+              // is pulled, anchored on the far side, then wobbles back.
+              final sx = 1 + .03 * lift + .035 * pull.abs();
+              final sy = 1 + .02 * lift - .03 * pull.abs();
+              return Transform(
+                alignment: Alignment(-pull.sign * .8, 0),
+                transform: Matrix4.diagonal3Values(sx, sy, 1),
+                child: Stack(
+                  clipBehavior: Clip.none,
+                  children: [
+                    Positioned.fill(child: bar),
+                    if (held > .01)
+                      Positioned.fromRect(
+                        rect: lens,
+                        child: IgnorePointer(
+                          child: ExcludeSemantics(
+                            // Text styles come from a Material, as in the bar.
+                            child: Material(
+                              type: MaterialType.transparency,
+                              child: _lens(
+                                lens,
+                                size,
+                                at,
+                                lift,
+                                held,
+                                outer,
+                                glass,
+                                dark,
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                  ],
+                ),
+              );
+            },
+          ),
+        );
+      },
+    );
+  }
+
+  /// The held pill as a glass lens: a magnified copy of the tabs under it,
+  /// a bright rim and top sheen, and a shadow that grows as it lifts.
+  Widget _lens(
+    Rect lens,
+    Size bar,
+    double at,
+    double lift,
+    double held,
+    ColorScheme colors,
+    Color glass,
+    bool dark,
+  ) {
+    final radius = BorderRadius.circular(lens.height / 2);
+    final zoom = 1 + .22 * lift;
+    final center = lens.center;
+    return Opacity(
+      key: const ValueKey('floating-tab-lens'),
+      opacity: held,
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          borderRadius: radius,
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withValues(alpha: dark ? .38 : .20),
+              blurRadius: 10 + 14 * held,
+              spreadRadius: 1.5 * held,
+              offset: Offset(0, 3 + 5 * held),
+            ),
+          ],
+        ),
+        child: ClipRRect(
+          borderRadius: radius,
+          child: Stack(
+            fit: StackFit.expand,
+            children: [
+              // Clear glass over the capsule: hides the flat tabs below.
+              ColoredBox(color: glass.withValues(alpha: .94)),
+              Positioned(
+                left: -lens.left,
+                top: -lens.top,
+                width: bar.width,
+                height: bar.height,
+                child: Transform(
+                  transform: Matrix4.identity()
+                    ..translateByDouble(center.dx, center.dy, 0, 1)
+                    ..scaleByDouble(zoom, zoom, 1, 1)
+                    ..translateByDouble(-center.dx, -center.dy, 0, 1),
+                  child: _row(colors, at, keyed: false),
+                ),
+              ),
+              DecoratedBox(
+                decoration: BoxDecoration(
+                  borderRadius: radius,
+                  gradient: LinearGradient(
+                    begin: Alignment.topCenter,
+                    end: Alignment.bottomCenter,
+                    colors: [
+                      Colors.white.withValues(alpha: dark ? .20 : .45),
+                      Colors.white.withValues(alpha: 0),
+                      colors.primary.withValues(alpha: .06),
+                    ],
+                    stops: const [0, .5, 1],
+                  ),
+                  border: Border.all(
+                    color: Colors.white.withValues(alpha: dark ? .34 : .7),
+                    width: 1,
+                  ),
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );
   }
 
-  Widget _tab(BuildContext context, ColorScheme colors, int i, double at) {
+  Widget _row(ColorScheme colors, double at, {required bool keyed}) => Padding(
+    padding: const EdgeInsets.symmetric(horizontal: _inset),
+    child: Row(
+      children: [
+        for (var i = 0; i < _count; i++)
+          Expanded(child: _tab(colors, i, at, keyed: keyed)),
+      ],
+    ),
+  );
+
+  Widget _tab(ColorScheme colors, int i, double at, {required bool keyed}) {
     final tabs = widget.tabs;
     // The accent follows the pill: full on the tab it covers, fading as it
     // slides off, so the light travels with it.
     final lit = (1 - (at - i).abs()).clamp(0.0, 1.0);
     final selected = i == tabs.index;
     return _TabButton(
-      key: ValueKey('floating-tab-$i'),
+      key: keyed ? ValueKey('floating-tab-$i') : null,
       label: tabs.labels[i],
       icon: lit > .5
           ? _FloatingTabBar._selectedIcons[i %

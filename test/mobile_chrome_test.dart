@@ -165,8 +165,15 @@ void main() {
       await tester.pump(const Duration(milliseconds: 16));
     }
     await tester.pump(const Duration(milliseconds: 300));
-    expect(centerOf(pill()), closeTo(third.dx, 6));
-    expect(tester.getRect(pill()).height, greaterThan(54));
+    // Held, a glass lens magnifies the tabs under it and overhangs the bar.
+    final lens = find.byKey(const ValueKey('floating-tab-lens'));
+    expect(tester.getRect(lens).height, greaterThan(62));
+    expect(tester.getCenter(lens).dx, closeTo(third.dx, 8));
+    // The whole capsule swells a little while the lens is held.
+    expect(
+      tester.getRect(find.byKey(const ValueKey('floating-tab-bar'))).width,
+      greaterThan(530),
+    );
     expect(selected, isEmpty);
 
     // Let go: the tab is chosen and the pill settles on it at rest size.
@@ -174,6 +181,11 @@ void main() {
     await tester.pumpAndSettle();
     expect(selected, [2]);
     expect(centerOf(pill()), closeTo(third.dx, 1));
+    expect(lens, findsNothing);
+    // The capsule has wobbled back to its own shape.
+    final bar = tester.getRect(find.byKey(const ValueKey('floating-tab-bar')));
+    expect(bar.width, closeTo(520, .5));
+    expect(bar.height, closeTo(62, .5));
     expect(tester.takeException(), isNull);
   });
 }
