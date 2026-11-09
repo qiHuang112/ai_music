@@ -419,22 +419,38 @@ class _PlayerPageState extends State<PlayerPage> {
                   itemBuilder: (context) => [
                     PopupMenuItem(
                       value: 'playlist',
-                      child: Text(strings.addToPlaylist),
+                      child: ListTile(
+                        contentPadding: EdgeInsets.zero,
+                        leading: const Icon(AppIcons.playlistAdd),
+                        title: Text(strings.addToPlaylist),
+                      ),
                     ),
                     if (controller.canSwitchSongSource(currentTrack))
                       PopupMenuItem(
                         key: const Key('player-switch-source'),
                         value: 'source',
-                        child: Text(strings.isZh ? '切换来源' : 'Choose source'),
+                        child: ListTile(
+                          contentPadding: EdgeInsets.zero,
+                          leading: const Icon(AppIcons.source),
+                          title: Text(strings.isZh ? '切换来源' : 'Choose source'),
+                        ),
                       ),
                     PopupMenuItem(
                       key: const ValueKey('player-comments'),
                       value: 'comments',
-                      child: Text(strings.isZh ? '歌曲热评' : 'Song comments'),
+                      child: ListTile(
+                        contentPadding: EdgeInsets.zero,
+                        leading: const Icon(AppIcons.comment),
+                        title: Text(strings.isZh ? '歌曲热评' : 'Song comments'),
+                      ),
                     ),
                     PopupMenuItem(
                       value: 'lyrics',
-                      child: Text(strings.isZh ? '完整歌词' : 'Full lyrics'),
+                      child: ListTile(
+                        contentPadding: EdgeInsets.zero,
+                        leading: const Icon(AppIcons.lyrics),
+                        title: Text(strings.isZh ? '完整歌词' : 'Full lyrics'),
+                      ),
                     ),
                   ],
                 ),

@@ -149,3 +149,4 @@
 - 功能细节分别见 [截图导入](../screenshot-playlist-import.md)、[播放模式](../playback-modes.md)、[发现榜单](../discover-charts.md)；开发按 [开发专用 skill](../../.agents/skills/ai-music-developer/SKILL.md) 和 [工作流](../development-workflow.md) 执行，默认在当前工程的 `main` 工作，用户明确要求时可切换分支，但不创建 worktree。最终手机体验由用户验收。
 
 按日记录：[2026-09-25](2026-09-25.md) · [2026-09-26](2026-09-26.md) · [2026-09-27](2026-09-27.md)。拆分前的逐次原文保留在 Git 提交 `67f6e85` 的 `CURRENT_STATE.md` 中，需要追溯具体中间 APK 或测试结果时可查阅该版本。
+- 2026-11-08 安卓对齐 iOS：Flutter 悬浮玻璃 Tab 栏（二级页常驻、沉浸页让开）、一级页播控条、底部安全区沉浸、横推过场，77 实机自测通过 → [日志](docs/worklog/2026-11-08.md)

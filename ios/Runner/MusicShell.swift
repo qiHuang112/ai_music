@@ -25,6 +25,7 @@ final class MusicShellController: UIViewController, UITabBarControllerDelegate,
   private let nowPlayingBar = ShellNowPlayingBar()
   private var barShown = false
   private var lastInsets = UIEdgeInsets(top: -1, left: -1, bottom: -1, right: -1)
+  private var lastMastheadTop: CGFloat?
 
   init(flutter: FlutterViewController) {
     self.flutter = flutter
@@ -77,7 +78,9 @@ final class MusicShellController: UIViewController, UITabBarControllerDelegate,
 
     if #available(iOS 27.1, *) {
       registerForTraitChanges(UITraitCollection.systemTraitsAffectingVerticalBarEdge) {
-        (shell: MusicShellController, _: UITraitCollection) in shell.refreshBar()
+        (shell: MusicShellController, _: UITraitCollection) in
+        shell.reapplyPages()
+        shell.refreshBar()
       }
     }
 
@@ -267,6 +270,29 @@ final class MusicShellController: UIViewController, UITabBarControllerDelegate,
     return false
   }
 
+  /// How many buttons the vertical strip holds for this page beside its back
+  /// button and the tabs; nil without a strip. Measured on iPhone Duo: a
+  /// button takes 50pt, the camera (and, upright, the clock) the top, the
+  /// tab group with its margins 252pt at the bottom.
+  func verticalSlots(for page: ShellPageController) -> Int? {
+    guard verticalBarActive else { return nil }
+    let size = view.bounds.size
+    let top: CGFloat = size.height > size.width ? 175 : 82
+    // UIKit keeps the tabs hidden above any page in the stack that hid them
+    // (pages pushed from the player).
+    var stack = page.navigationController?.viewControllers ?? currentNavigation?.viewControllers ?? []
+    if let index = stack.firstIndex(of: page) { stack = Array(stack[...index]) }
+    let tabsHidden = page.spec.immersive || stack.contains { $0.hidesBottomBarWhenPushed }
+    let tabs: CGFloat = tabsHidden ? 24 : 252
+    let back: CGFloat = page.isRoot || page.spec.hidesBack ? 0 : 64
+    return max(0, Int((size.height - top - tabs - back) / 50))
+  }
+
+  override func viewWillTransition(to size: CGSize, with coordinator: UIViewControllerTransitionCoordinator) {
+    super.viewWillTransition(to: size, with: coordinator)
+    coordinator.animate(alongsideTransition: nil) { [weak self] _ in self?.reapplyPages() }
+  }
+
   /// Re-applies every page so shared actions follow the bar's edge and the
   /// playing state.
   private func reapplyPages() {
@@ -337,11 +363,16 @@ final class MusicShellController: UIViewController, UITabBarControllerDelegate,
   }
 
   private func layoutBar() {
-    // Sides come from the window's own safe area (the vertical strip); the
-    // bottom from the page, which knows about a horizontal tab bar.
+    // The window's own safe area, widened by the page's: in split view the
+    // vertical strip sits inside the app's half and only the page's safe
+    // area knows about it, as it does about a horizontal tab bar below.
     var insets = view.safeAreaInsets
+    // Insets, not the page's frame: that slides during a push or pop.
     if let page = visiblePage, page.isViewLoaded {
-      insets.bottom = max(insets.bottom, page.view.safeAreaInsets.bottom)
+      let safe = page.view.safeAreaInsets
+      insets.left = max(insets.left, safe.left)
+      insets.right = max(insets.right, safe.right)
+      insets.bottom = max(insets.bottom, safe.bottom)
     }
     var tabBar: CGRect?
     if let top = horizontalTabBarTop {
@@ -359,6 +390,13 @@ final class MusicShellController: UIViewController, UITabBarControllerDelegate,
     } else {
       width = wide ? min(640, max(360, content.width * 0.6)) : content.width - 24
       x = content.midX - width / 2
+    }
+    // Never under a vertical strip, whichever way the width was found.
+    let lane = content.insetBy(dx: 12, dy: 0)
+    if lane.width > 0 {
+      let minX = max(x, lane.minX)
+      width = max(0, min(x + width, lane.maxX) - minX)
+      x = minX
     }
     let frame = CGRect(
       x: x,
@@ -464,12 +502,25 @@ final class MusicShellController: UIViewController, UITabBarControllerDelegate,
       bottom: max(0, want.bottom - have.bottom) + bar,
       right: max(0, want.right - have.right)
     )
-    guard extra != lastInsets else { return }
+    // A horizontal navigation bar across the top: the root's masthead takes
+    // its row. On an open Duo held upright it sits beside the clock, inside
+    // the window's own top inset, so "below the safe area" left a gap.
+    var mastheadTop: CGFloat?
+    if let nav = page.navigationController, !nav.isNavigationBarHidden {
+      let bar = view.convert(nav.navigationBar.bounds, from: nav.navigationBar)
+      if bar.width > view.bounds.width / 2, bar.width > bar.height, bar.minY < view.bounds.midY {
+        mastheadTop = max(0, bar.minY)
+      }
+    }
+    guard extra != lastInsets || mastheadTop != lastMastheadTop else { return }
     lastInsets = extra
+    lastMastheadTop = mastheadTop
     flutter.additionalSafeAreaInsets = extra
     // Root pages lay their masthead under the transparent bar; tell Flutter
-    // how much of the inset is bar.
-    channel?.invokeMethod("chrome", arguments: ["top": extra.top, "bottom": extra.bottom])
+    // how much of the inset is bar, and where the bar's row starts.
+    var chrome: [String: Any] = ["top": extra.top, "bottom": extra.bottom]
+    if let mastheadTop { chrome["mastheadTop"] = mastheadTop }
+    channel?.invokeMethod("chrome", arguments: chrome)
   }
 
   // MARK: - Appearance
@@ -593,11 +644,28 @@ final class ShellPageController: UIViewController {
     navigationItem.leftBarButtonItems = spec.leading.map { [$0.barButton(shell: shell)] }
     // Shared now-playing actions sit after the page's own, skipping any the
     // page already offers.
-    let own = Set(spec.actions.compactMap(\.symbol))
-    let shared = (shell?.sharedActions ?? []).filter {
+    var actions = spec.actions
+    // In the vertical strip a menu of plain commands spreads into buttons of
+    // its own when they all fit, instead of hiding behind "…".
+    if let slots = shell?.verticalSlots(for: self), actions.contains(where: \.expandable) {
+      let expanded = actions.flatMap { $0.expandable ? $0.menu.map(ShellAction.init(entry:)) : [$0] }
+      let symbols = Set(expanded.compactMap(\.symbol))
+      let extra = (shell?.sharedActions ?? []).filter {
+        !symbols.contains($0.symbol ?? "") && !spec.hiddenShared.contains($0.id)
+      }
+      if expanded.count + extra.count + (spec.leading == nil ? 0 : 1) <= slots { actions = expanded }
+    }
+    let own = Set(actions.compactMap(\.symbol))
+    var shared = (shell?.sharedActions ?? []).filter {
       !own.contains($0.symbol ?? "") && !spec.hiddenShared.contains($0.id)
     }
-    navigationItem.rightBarButtonItems = (spec.actions + shared).reversed().map { $0.barButton(shell: shell) }
+    // The shared entries only fill free slots: past that the strip would fold
+    // the page's own buttons into "…" for shortcuts the bar also offers.
+    if let slots = shell?.verticalSlots(for: self) {
+      let room = max(0, slots - actions.count - (spec.leading == nil ? 0 : 1))
+      shared = Array(shared.prefix(room))
+    }
+    navigationItem.rightBarButtonItems = (actions + shared).reversed().map { $0.barButton(shell: shell) }
     if isViewLoaded, let nav = navigationController, nav.topViewController === self {
       nav.setNavigationBarHidden(hidesBar, animated: false)
     }
@@ -655,6 +723,24 @@ struct ShellAction {
     menu = []
   }
 
+  /// One entry of a menu, standing on its own.
+  init(entry: ShellMenuEntry) {
+    id = entry.id
+    title = entry.title
+    symbol = entry.symbol
+    glyph = entry.glyph
+    enabled = entry.enabled
+    prominent = false
+    menu = []
+  }
+
+  /// A menu of plain commands, each with an icon: no choice marks to keep.
+  var expandable: Bool {
+    !menu.isEmpty && menu.allSatisfy {
+      !$0.checked && ShellPageSpec.image(symbol: $0.symbol, glyph: $0.glyph) != nil
+    }
+  }
+
   func barButton(shell: MusicShellController?) -> UIBarButtonItem {
     let image = ShellPageSpec.image(symbol: symbol, glyph: glyph)
     let item: UIBarButtonItem
@@ -662,7 +748,7 @@ struct ShellAction {
       let actions = menu.map { entry -> UIMenuElement in
         let action = UIAction(
           title: entry.title,
-          image: ShellPageSpec.image(symbol: entry.symbol, glyph: nil),
+          image: ShellPageSpec.image(symbol: entry.symbol, glyph: entry.glyph),
           attributes: entry.enabled ? [] : .disabled,
           state: entry.checked ? .on : .off
         ) { [weak shell] _ in shell?.perform(action: entry.id) }
@@ -693,6 +779,7 @@ struct ShellMenuEntry {
   let id: String
   let title: String
   let symbol: String?
+  let glyph: FlutterStandardTypedData?
   let enabled: Bool
   let checked: Bool
 
@@ -700,6 +787,7 @@ struct ShellMenuEntry {
     id = raw["id"] as? String ?? ""
     title = raw["title"] as? String ?? ""
     symbol = raw["symbol"] as? String
+    glyph = raw["glyph"] as? FlutterStandardTypedData
     enabled = raw["enabled"] as? Bool ?? true
     checked = raw["checked"] as? Bool ?? false
   }

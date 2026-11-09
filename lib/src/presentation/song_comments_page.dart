@@ -255,8 +255,9 @@ class _SongCommentsPageState extends State<SongCommentsPage> {
           ),
           MusicPopupMenuButton<String>(
             key: const Key('comments-more'),
-            tooltip: zh ? '更多' : 'More',
-            icon: const Icon(AppIcons.moreVertical),
+            // A choice of platform, not an overflow: a filter, not "…".
+            tooltip: zh ? '筛选平台' : 'Filter platform',
+            icon: const Icon(AppIcons.filterList),
             initialValue: _platform?.name ?? 'all',
             onSelected: (value) => _selectPlatform(
               value == 'all' ? null : SongCommentPlatform.values.byName(value),

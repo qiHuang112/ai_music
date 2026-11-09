@@ -172,6 +172,11 @@ class NativeShell extends NavigatorObserver {
     EdgeInsets.zero,
   );
 
+  /// Where the system navigation bar starts, from the window's top, when it
+  /// runs across the top. A tab root's masthead shares that row: on an open
+  /// Duo held upright the bar sits beside the clock, above the safe area.
+  final ValueNotifier<double?> mastheadTop = ValueNotifier<double?>(null);
+
   void updatePage(
     int id,
     Map<String, Object?> spec, {
@@ -308,6 +313,7 @@ class NativeShell extends NavigatorObserver {
           top: (args['top'] as num?)?.toDouble() ?? 0,
           bottom: (args['bottom'] as num?)?.toDouble() ?? 0,
         );
+        mastheadTop.value = (args['mastheadTop'] as num?)?.toDouble();
     }
     return null;
   }
@@ -644,6 +650,29 @@ class ShellGlyphs {
 }
 
 /// The text a menu entry or text button shows, found inside common wrappers.
+/// The icon a menu entry leads with, so the vertical strip can show the entry
+/// as a button of its own when it has room.
+IconData? shellIconOf(Widget? widget) {
+  switch (widget) {
+    case Icon(:final icon):
+      return icon;
+    case ListTile(:final leading):
+      return shellIconOf(leading);
+    case Row(:final children):
+      for (final child in children) {
+        final icon = shellIconOf(child);
+        if (icon != null) return icon;
+      }
+      return null;
+    case SingleChildRenderObjectWidget(:final child):
+      return shellIconOf(child);
+    case ProxyWidget(:final child):
+      return shellIconOf(child);
+    default:
+      return null;
+  }
+}
+
 String? shellLabelOf(Widget? widget) {
   switch (widget) {
     case null:

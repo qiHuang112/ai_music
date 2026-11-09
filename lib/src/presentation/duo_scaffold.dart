@@ -273,6 +273,7 @@ extension on DuoScaffold {
           shell.accessoryActive,
           shell.nowPlaying,
           shell.chromeInsets,
+          shell.mastheadTop,
         ]),
         builder: (context, _) {
           // A Flutter strip that would be empty (system accessory showing, or
@@ -312,14 +313,17 @@ extension on DuoScaffold {
           // the inset stays the same on both sides of every push.
           final data = MediaQuery.of(context);
           final bar = shell.chromeInsets.value.top;
+          // Level with the system bar's row when it runs across the top;
+          // otherwise right below whatever the window keeps clear.
+          final top =
+              shell.mastheadTop.value ?? math.max(0.0, data.padding.top - bar);
+          final viewTop =
+              shell.mastheadTop.value ??
+              math.max(0.0, data.viewPadding.top - bar);
           return MediaQuery(
             data: data.copyWith(
-              padding: data.padding.copyWith(
-                top: math.max(0, data.padding.top - bar),
-              ),
-              viewPadding: data.viewPadding.copyWith(
-                top: math.max(0, data.viewPadding.top - bar),
-              ),
+              padding: data.padding.copyWith(top: top),
+              viewPadding: data.viewPadding.copyWith(top: viewTop),
             ),
             child: scaffold,
           );
@@ -464,7 +468,9 @@ class _ShellSpec {
             if (entry is! PopupMenuItem) continue;
             final itemId = '$id-m$j';
             callbacks[itemId] = shellMenuCallback(widget, entry);
+            final entryIcon = shellIconOf(entry.child);
             menu.add({
+              if (entryIcon != null) ...icon(entryIcon),
               'id': itemId,
               'title': shellLabelOf(entry.child) ?? '',
               'enabled': entry.enabled,
