@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Build metadata and publish an unsigned IPA for user-side signing."""
+"""Verify the device app and stage an unsigned IPA for user-side signing."""
 import argparse
 import hashlib
 import json
@@ -10,46 +10,15 @@ import subprocess
 import tempfile
 from pathlib import Path
 
-from github_android_release import current_main, gh, repository
-from github_macos_release import select_release
+from github_android_release import planned_version, repository, stage_dir
 
 PROJECT = Path(__file__).resolve().parent.parent
-PLAN = PROJECT / 'build/github-ios-plan.json'
 
 
-def plan():
+def stage():
+    """Verify the device app and stage the unsigned IPA for publication."""
     repo, commit = repository(), os.environ['GITHUB_SHA']
-    version = {'skip': 'true'}
-    if current_main(repo, commit):
-        pages = json.loads(gh('api', f'repos/{repo}/releases?per_page=100',
-                              '--paginate', '--slurp'))
-        releases = [item for page in pages for item in page]
-        version = select_release(releases, commit)
-        with tempfile.TemporaryDirectory() as temporary:
-            gh('release', 'download', version['tag'], '--repo', repo,
-               '--pattern', 'latest.json', '--dir', temporary)
-            android = json.loads((Path(temporary) / 'latest.json').read_text())
-        if (android.get('sourceCommit') != commit
-                or android.get('versionName') != version['name']
-                or android.get('versionCode') != version['code']):
-            raise ValueError('Android release does not match source/version')
-        release = next(item for item in releases if item['tag_name'] == version['tag'])
-        # Never use the Mac completion flag to skip the iOS build.
-        version['skip'] = 'true' if any(
-            asset['name'] == 'ios-unsigned.json'
-            for asset in release.get('assets', [])) else 'false'
-    PLAN.parent.mkdir(exist_ok=True)
-    PLAN.write_text(json.dumps(version))
-    with Path(os.environ['GITHUB_OUTPUT']).open('a') as output:
-        for key, value in version.items():
-            output.write(f'{key}={value}\n')
-
-
-def publish():
-    repo, commit = repository(), os.environ['GITHUB_SHA']
-    if not current_main(repo, commit):
-        return
-    version = json.loads(PLAN.read_text())
+    version = planned_version()
     app = PROJECT / 'build/ios/iphoneos/Runner.app'
     info = plistlib.loads((app / 'Info.plist').read_bytes())
     if (info.get('CFBundleIdentifier') != 'com.tjs.aimusic'
@@ -88,26 +57,15 @@ def publish():
         'sha256': digest, 'sizeBytes': archive.stat().st_size,
         'url': f"https://github.com/{repo}/releases/download/{version['tag']}/{filename}",
     }, indent=2) + '\n')
-    existing = json.loads(gh('release', 'view', version['tag'], '--repo', repo,
-                            '--json', 'assets'))
-    names = {asset['name'] for asset in existing['assets']}
-    pending = [str(path) for path in (archive, checksum) if path.name not in names]
-    if pending:
-        gh('release', 'upload', version['tag'], *pending, '--repo', repo)
-    with tempfile.TemporaryDirectory() as temporary:
-        gh('release', 'download', version['tag'], '--repo', repo, '--dir', temporary,
-           '--pattern', filename, '--pattern', checksum.name)
-        if (hashlib.sha256((Path(temporary) / filename).read_bytes()).hexdigest() != digest
-                or (Path(temporary) / checksum.name).read_text() != checksum.read_text()):
-            raise ValueError('Uploaded IPA/checksum mismatch')
-    # Completion marker is published only after full package download verification.
-    gh('release', 'upload', version['tag'], str(metadata), '--repo', repo, '--clobber')
-    if os.environ.get('GITHUB_STEP_SUMMARY'):
-        with Path(os.environ['GITHUB_STEP_SUMMARY']).open('a') as output:
-            output.write(f'IPA (unsigned; requires AltStore/SideStore/Sideloadly signing): {filename}\n')
+    out = stage_dir('ios')
+    for path in (archive, checksum, metadata):
+        shutil.copy2(path, out / path.name)
+    if hashlib.sha256((out / filename).read_bytes()).hexdigest() != digest:
+        raise ValueError('Staged IPA differs from the package')
+    print(f"Staged iOS {version['name']} ({version['code']}) {digest}")
 
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('command', choices=['plan', 'publish'])
-    {'plan': plan, 'publish': publish}[parser.parse_args().command]()
+    parser.add_argument('command', choices=['stage'])
+    {'stage': stage}[parser.parse_args().command]()

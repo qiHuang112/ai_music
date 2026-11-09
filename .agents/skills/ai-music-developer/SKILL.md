@@ -11,9 +11,9 @@ description: Develop and self-test AI Music on phone 77; review only current cha
 |---|---|---|---|
 | ① 日常开发 | 默认 | 改代码，77或本机Mac自测，可本地提交 | 不push、不发布 |
 | ② 走流程 | 用户说“走流程” | 增量review → 复用已有正式包 → 局域网发布 → 一次完整下载核验 | 不push、不触发CI、不重新构建 |
-| ③ 推送发版 | 用户明确说“推送／发GitHub” | push main → 手动启动 `gh workflow run android-release.yml --ref main` → 构建Android＋Mac Universal → 同一个公开GitHub Release（APP联网更新可见）；Mac局域网服务约60秒内自动镜像Android包 → 核对run与产物 | Mac局域网包不自动镜像，需要时再按②发布 |
+| ③ 推送发版 | 用户明确说“推送／发GitHub” | push main → 推送后即可手动启动 `gh workflow run android-release.yml --ref main`（发版先等同提交 Check 通过、不重跑测试）→ 默认只并行构建本次改动影响的平台（Android／Mac Universal／iOS IPA），未构建平台沿用上一版 → 同一个公开GitHub Release（APP联网更新可见）；局域网服务约60秒内自动镜像Android包 → 核对run与产物 | Mac局域网包不自动镜像，需要时再按②发布 |
 
-push 只触发 `.github/workflows/ci.yml`（分析＋全部测试，纯文档改动不跑），**不再铸版本**，提交信息无需、也不要出现跳过 CI 的标记字样（GitHub 看到就会跳过检查，2026-11-08 已踩过一次）；正式版本只在手动启动 `android-release.yml` 时生成（同一提交已发布则跳过）。CI 未通过的提交不发版。（用户 2026-11-08 批准，取代 2026-10-26 “每次 push main 即发版”。）
+push 只触发 `.github/workflows/ci.yml`（分析＋全部测试，纯文档改动不跑），**不再铸版本**，提交信息无需、也不要出现跳过 CI 的标记字样（GitHub 看到就会跳过检查，2026-11-08 已踩过一次）；正式版本只在手动启动 `android-release.yml` 时生成（同一提交已发布、或自上次发版只改了文档／测试／工具则跳过）。CI 未通过的提交不发版：发版的 plan 任务会等同提交 Check 结束并复用其结果。平台选择（用户 2026-11-09）：默认 `auto` 按自上次发版的改动判断——只动 `ios/`、`macos/`、`android/` 时只打对应平台，动到 `lib/`、资源、依赖等共享部分则三端全打；需要时 `-f platforms=all` 或 `-f platforms=ios,macos` 指定。（用户 2026-11-08 批准，取代 2026-10-26 “每次 push main 即发版”。）
 
 **版本号**：正式版本号只由 `android-release.yml` 按 GitHub Release 取号（当前 102xx）。77 等开发手机的自测包统一用 `python3 tool/build_android_selftest.py --device <adb地址>` 构建安装：独立号段 60000 起、开发证书签名、安装前核对序列号，记录在 `build/device-check/selftest/builds.json`。不再手动挑构建号（构建号＝版本号−2000），自测包不进任何发布通道。
 
@@ -64,8 +64,8 @@ push 只触发 `.github/workflows/ci.yml`（分析＋全部测试，纯文档改
 
 ## 例外与节奏
 
-- Mac任务在当前Mac自测，不套用77安装或APK步骤。各平台对外版本名／构建号统一，Mac不另起版本系列；当前版本号见 `CURRENT_STATE.md`。复用对应Mac release `.app`，用ditto保留签名／符号链接打ZIP，归档在 `releases/ai_music/macos/`，通过现有8788服务的 `/api/v1/update/macos` 和 `/releases/macos/文件.zip` 发布，Android指针保持。首版缺release成品时仅补必要本机构建；如仅有ad-hoc本地签名，明确未做Developer ID签名／Apple公证，不宣称已公证。
-- 档位③仅在用户明确要求推送／GitHub发布时执行：push 并确认同提交的 `ci.yml` 通过后，手动启动 `.github/workflows/android-release.yml` 并跟进该 run，核对Release中Android APK与Mac ZIP的版本、大小、SHA256和sourceCommit，并读一次局域网Android接口确认已镜像。只要求review就到审查结束。
+- Mac任务在当前Mac自测，不套用77安装或APK步骤。各平台共用一个版本序列，Mac不另起版本系列；某平台本次未构建时沿用其上一版版本号（Release 里沿用其更新清单）；当前版本号见 `CURRENT_STATE.md`。复用对应Mac release `.app`，用ditto保留签名／符号链接打ZIP，归档在 `releases/ai_music/macos/`，通过现有8788服务的 `/api/v1/update/macos` 和 `/releases/macos/文件.zip` 发布，Android指针保持。首版缺release成品时仅补必要本机构建；如仅有ad-hoc本地签名，明确未做Developer ID签名／Apple公证，不宣称已公证。
+- 档位③仅在用户明确要求推送／GitHub发布时执行：push 并确认同提交的 `ci.yml` 通过后，手动启动 `.github/workflows/android-release.yml` 并跟进该 run，核对Release中本次构建平台的版本、大小、SHA256和sourceCommit、未构建平台沿用的清单，并读一次局域网Android接口确认已镜像。只要求review就到审查结束。
 - Claude执行“走流程”时，用一个全新的只读子agent代替 `collaboration.spawn_agent` 做增量review，要求相同。
 - 发布工具、签名或更新链路**本身被改动**时，才对相应改动补专项检查。普通业务修复不重复审计未改的基础设施。
 - 开始时说明实际下一步，有结果或阻碍时简短更新。无真实风险时不新增审批、仪式性快照、轮询或检查清单。已验收修改的收尾不能变成再次完整开发一轮。

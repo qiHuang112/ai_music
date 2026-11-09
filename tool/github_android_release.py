@@ -1,13 +1,12 @@
 #!/usr/bin/env python3
-"""Build planning and verified, atomic GitHub Release delivery for Actions."""
+"""Release version choice, signing setup and the verified, staged APK."""
 import argparse
 import base64
-import hashlib
 import json
 import os
 import re
+import shutil
 import subprocess
-import tempfile
 from pathlib import Path
 
 from publish_android_release import publish
@@ -46,25 +45,19 @@ def choose_version(source, releases):
     return {'name': name, 'number': code - 2000, 'code': code, 'tag': f'v{name}-{code}'}
 
 
-def plan():
-    repo, commit = repository(), os.environ['GITHUB_SHA']
-    if not current_main(repo, commit):
-        result = {'skip': 'true'}
-    else:
-        pages = json.loads(gh('api', f'repos/{repo}/releases?per_page=100', '--paginate', '--slurp'))
-        releases = [release for page in pages for release in page]
-        # A rerun of a completed delivery must not mint another APK version.
-        published = [release for release in releases if not release['draft'] and not release['prerelease']]
-        latest = max(published, key=lambda release: release.get('published_at') or '', default={})
-        delivered = f'源码提交：{commit}' in (latest.get('body') or '')
-        result = {'skip': 'true'} if delivered else {
-            'skip': 'false', **choose_version((PROJECT / 'pubspec.yaml').read_text(), releases)}
-    (PROJECT / 'build').mkdir(exist_ok=True)
-    (PROJECT / 'build/github-release-plan.json').write_text(json.dumps(result))
-    with Path(os.environ['GITHUB_OUTPUT']).open('a') as output:
-        for key, value in result.items():
-            output.write(f'{key}={value}\n')
-    print('Skip completed/superseded commit' if result['skip'] == 'true' else f"Planned {result['tag']}")
+def planned_version():
+    """The version the plan job chose, handed to each platform job."""
+    return {'name': os.environ['RELEASE_NAME'], 'code': int(os.environ['RELEASE_CODE']),
+            'tag': os.environ['RELEASE_TAG']}
+
+
+def stage_dir(platform):
+    root = PROJECT / f'build/release-stage/stage-{platform}'
+    if root.exists():
+        for path in root.iterdir():
+            path.unlink()
+    root.mkdir(parents=True, exist_ok=True)
+    return root
 
 
 def signing():
@@ -79,12 +72,10 @@ def signing():
         output.write(data)
 
 
-def publish_release():
+def stage():
+    """Verify the signed APK and stage it with its manifest for publication."""
     repo, commit = repository(), os.environ['GITHUB_SHA']
-    if not current_main(repo, commit):
-        print('Main changed during build; leave latest release untouched')
-        return
-    version = json.loads((PROJECT / 'build/github-release-plan.json').read_text())
+    version = planned_version()
     tools = Path(os.environ['ANDROID_HOME']) / 'build-tools/35.0.0'
     root = PROJECT / 'build/github-release'
     notes = subprocess.check_output(['git', 'log', '-1', '--format=%s'], text=True).strip()
@@ -95,38 +86,15 @@ def publish_release():
         raise RuntimeError('Built APK version differs from planned release')
     apk = root / Path(manifest['url']).name
     manifest['url'] = f"https://github.com/{repo}/releases/download/{version['tag']}/{apk.name}"
-    (root / 'latest.json').write_text(json.dumps(manifest, ensure_ascii=False))
-    checksum = root / (apk.name + '.sha256')
-    checksum.write_text(f"{manifest['sha256']}  {apk.name}\n")
-    description = root / 'release-notes.md'
-    description.write_text(
-        f"Android arm64-v8a 正式签名包，版本 {manifest['versionName']} / {manifest['versionCode']}。\n\n"
-        f"{notes}\n\n源码提交：{commit}\n\nAPK SHA-256：{manifest['sha256']}\n")
-    # Keep the release invisible to latest until every asset has been uploaded and read back.
-    gh('release', 'create', version['tag'], str(apk), str(root / 'latest.json'), str(checksum),
-       '--repo', repo, '--draft', '--target', commit, '--title',
-       f"来听 Android {manifest['versionName']}（{manifest['versionCode']}）", '--notes-file', str(description))
-    with tempfile.TemporaryDirectory() as temporary:
-        gh('release', 'download', version['tag'], '--repo', repo, '--dir', temporary)
-        downloaded = Path(temporary) / apk.name
-        if downloaded.stat().st_size != manifest['sizeBytes'] or hashlib.sha256(downloaded.read_bytes()).hexdigest() != manifest['sha256']:
-            raise RuntimeError('Uploaded APK size/hash mismatch; release remains a draft')
-        if json.loads((Path(temporary) / 'latest.json').read_text()) != manifest:
-            raise RuntimeError('Uploaded update manifest mismatch; release remains a draft')
-    if not current_main(repo, commit):
-        print('Main changed during upload; keep draft and leave latest release untouched')
-        return
-    gh('release', 'edit', version['tag'], '--repo', repo, '--draft=false', '--latest')
-    url = f"https://github.com/{repo}/releases/tag/{version['tag']}"
-    print(f'Published {url}')
-    summary = os.environ.get('GITHUB_STEP_SUMMARY')
-    if summary:
-        with Path(summary).open('a') as output:
-            output.write(f"[下载签名 APK]({manifest['url']}) · [Release]({url})\n")
+    out = stage_dir('android')
+    shutil.copy2(apk, out / apk.name)
+    (out / 'latest.json').write_text(json.dumps(manifest, ensure_ascii=False))
+    (out / (apk.name + '.sha256')).write_text(f"{manifest['sha256']}  {apk.name}\n")
+    print(f"Staged Android {manifest['versionName']} ({manifest['versionCode']}) {manifest['sha256']}")
 
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('command', choices=['plan', 'signing', 'publish'])
+    parser.add_argument('command', choices=['signing', 'stage'])
     command = parser.parse_args().command
-    {'plan': plan, 'signing': signing, 'publish': publish_release}[command]()
+    {'signing': signing, 'stage': stage}[command]()

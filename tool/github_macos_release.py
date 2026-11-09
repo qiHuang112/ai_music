@@ -1,64 +1,18 @@
 #!/usr/bin/env python3
-"""Attach a verified Universal Mac app to the same commit's Android release."""
+"""Verify the Universal Mac app and stage it for the shared GitHub Release."""
 import argparse
 import hashlib
 import json
 import os
 import plistlib
-import re
+import shutil
 import subprocess
-import tempfile
 from pathlib import Path
 
-from github_android_release import current_main, gh, repository
+from github_android_release import planned_version, repository, stage_dir
 
 PROJECT = Path(__file__).resolve().parent.parent
 BUNDLE = 'com.qi.ai.music.mac'
-
-
-def select_release(releases, commit):
-    matches = [item for item in releases
-               if not item['draft'] and not item['prerelease']
-               and f'源码提交：{commit}' in (item.get('body') or '')]
-    if not matches:
-        raise ValueError('No published Android release for this source commit')
-    item = max(matches, key=lambda item: item.get('published_at') or '')
-    match = re.fullmatch(r'v([\w.\-]+)-(\d+)', item['tag_name'])
-    if not match:
-        raise ValueError('Unexpected shared release tag')
-    names = {asset['name'] for asset in item.get('assets', [])}
-    complete = (f'Mac 源码提交：{commit}' in (item.get('body') or '')
-                and 'macos-latest.json' in names
-                and any(name.startswith('ai-music-macos-') and name.endswith('.zip')
-                        and name + '.sha256' in names for name in names))
-    return {'skip': 'true' if complete else 'false', 'name': match[1],
-            'code': int(match[2]), 'tag': item['tag_name']}
-
-
-def plan():
-    repo, commit = repository(), os.environ['GITHUB_SHA']
-    if not current_main(repo, commit):
-        version = {'skip': 'true'}
-    else:
-        pages = json.loads(gh('api', f'repos/{repo}/releases?per_page=100',
-                              '--paginate', '--slurp'))
-        version = select_release([item for page in pages for item in page], commit)
-        # Android adds an ABI offset to Flutter's build number. The Mac uses
-        # the final displayed Android versionCode, not that pre-offset number.
-        with tempfile.TemporaryDirectory() as temporary:
-            gh('release', 'download', version['tag'], '--repo', repo,
-               '--pattern', 'latest.json', '--dir', temporary)
-            android = json.loads((Path(temporary) / 'latest.json').read_text())
-        if (android.get('sourceCommit') != commit
-                or android.get('versionName') != version['name']
-                or android.get('versionCode') != version['code']):
-            raise ValueError('Android manifest does not match this commit/version')
-    (PROJECT / 'build').mkdir(exist_ok=True)
-    (PROJECT / 'build/github-macos-plan.json').write_text(json.dumps(version))
-    with Path(os.environ['GITHUB_OUTPUT']).open('a') as output:
-        for key, value in version.items():
-            output.write(f'{key}={value}\n')
-    print(f'Mac plan: {version}')
 
 
 def validate_info(info, version):
@@ -87,12 +41,10 @@ def verify_download(directory, manifest, filename):
         raise ValueError('Uploaded Mac checksum mismatch')
 
 
-def publish_release():
+def stage():
+    """Verify the Universal app and stage its ZIP and manifest for publication."""
     repo, commit = repository(), os.environ['GITHUB_SHA']
-    if not current_main(repo, commit):
-        print('Main changed; leave published assets untouched')
-        return
-    version = json.loads((PROJECT / 'build/github-macos-plan.json').read_text())
+    version = planned_version()
     app = PROJECT / 'build/macos/Build/Products/Release/来听.app'
     validate_info(plistlib.loads((app / 'Contents/Info.plist').read_bytes()), version)
     subprocess.run(['codesign', '--verify', '--deep', '--strict', str(app)], check=True)
@@ -129,36 +81,14 @@ def publish_release():
     metadata.write_text(json.dumps(manifest, ensure_ascii=False, indent=2) + '\n')
     checksum = root / (filename + '.sha256')
     checksum.write_text(f'{digest}  {filename}\n')
-    # Hash-named archives are retained on retries. Only the Mac metadata
-    # pointer is replaced; Android latest.json and older packages stay intact.
-    existing = json.loads(gh('release', 'view', version['tag'], '--repo', repo,
-                            '--json', 'assets,body'))
-    names = {item['name'] for item in existing['assets']}
-    new_files = [str(path) for path in (archive, checksum) if path.name not in names]
-    if new_files:
-        gh('release', 'upload', version['tag'], *new_files, '--repo', repo)
-    gh('release', 'upload', version['tag'], str(metadata), '--repo', repo, '--clobber')
-    with tempfile.TemporaryDirectory() as temporary:
-        gh('release', 'download', version['tag'], '--repo', repo, '--dir', temporary,
-           '--pattern', filename, '--pattern', checksum.name, '--pattern', metadata.name)
-        verify_download(Path(temporary), manifest, filename)
-    body = existing['body'].split('\n<!-- macos-release -->')[0]
-    body += (f"\n<!-- macos-release -->\n\n### Mac {version['name']}（{version['code']}）\n\n"
-             f"Universal：支持 Apple Silicon 和 Intel。\n\n[下载 Mac ZIP]({manifest['url']})\n\n"
-             '解压后将来听.app拖入应用程序；沿用原有歌单和设置。\n\n'
-             '采用 ad-hoc 本地签名，尚未进行 Developer ID 签名／Apple 公证。\n\n'
-             f'Mac 源码提交：{commit}\n\nMac ZIP SHA-256：{digest}\n')
-    notes = root / 'release-notes.md'
-    notes.write_text(body)
-    gh('release', 'edit', version['tag'], '--repo', repo, '--title',
-       f"来听 {version['name']}（{version['code']}）· Android / Mac", '--notes-file', str(notes))
-    print(f"Published Mac: {manifest['url']}")
-    if os.environ.get('GITHUB_STEP_SUMMARY'):
-        with Path(os.environ['GITHUB_STEP_SUMMARY']).open('a') as output:
-            output.write(f"[下载 Mac Universal ZIP]({manifest['url']})\n")
+    out = stage_dir('macos')
+    for path in (archive, checksum, metadata):
+        shutil.copy2(path, out / path.name)
+    verify_download(out, manifest, filename)
+    print(f"Staged Mac {version['name']} ({version['code']}) {digest}")
 
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('command', choices=['plan', 'publish'])
-    {'plan': plan, 'publish': publish_release}[parser.parse_args().command]()
+    parser.add_argument('command', choices=['stage'])
+    {'stage': stage}[parser.parse_args().command]()

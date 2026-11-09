@@ -2,9 +2,19 @@ name: Android, macOS and iOS release
 
 # Releases are minted only on request ("推送／发GitHub": push main, then
 # `gh workflow run android-release.yml --ref main`). Every push is checked by
-# ci.yml without producing a release, so commits no longer need [skip ci].
+# ci.yml; this workflow reuses that result instead of testing again.
+#
+# plan picks the version and the platforms (by default only those the change
+# since the last release can affect), the platform jobs build and verify in
+# parallel, and publish makes one release of them. A platform not built keeps
+# the previous release's package: its update manifest is carried forward.
 on:
   workflow_dispatch:
+    inputs:
+      platforms:
+        description: 'auto (only what changed), all, or a list such as ios or android,macos'
+        required: false
+        default: auto
 
 permissions:
   contents: read
@@ -14,45 +24,59 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  release:
+  plan:
     runs-on: ubuntu-24.04
-    timeout-minutes: 45
+    timeout-minutes: 30
     permissions:
-      contents: write
+      contents: read
+      actions: read
     env:
       GH_TOKEN: ${{ github.token }}
+    outputs:
+      skip: ${{ steps.plan.outputs.skip }}
+      name: ${{ steps.plan.outputs.name }}
+      number: ${{ steps.plan.outputs.number }}
+      code: ${{ steps.plan.outputs.code }}
+      tag: ${{ steps.plan.outputs.tag }}
+      android: ${{ steps.plan.outputs.android }}
+      macos: ${{ steps.plan.outputs.macos }}
+      ios: ${{ steps.plan.outputs.ios }}
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           persist-credentials: false
-      - name: Plan version and skip already published or superseded commits
+          fetch-depth: 0
+      - name: Wait for Check, choose version and platforms
         id: plan
-        run: python3 tool/github_android_release.py plan
+        env:
+          RELEASE_PLATFORMS: ${{ inputs.platforms }}
+        run: python3 tool/github_release.py plan
+
+  android:
+    needs: plan
+    if: needs.plan.outputs.skip != 'true' && needs.plan.outputs.android == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    env:
+      RELEASE_NAME: ${{ needs.plan.outputs.name }}
+      RELEASE_CODE: ${{ needs.plan.outputs.code }}
+      RELEASE_TAG: ${{ needs.plan.outputs.tag }}
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
       - uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5
-        if: steps.plan.outputs.skip != 'true'
         with:
           distribution: temurin
           java-version: '17'
-          cache: gradle
-          cache-dependency-path: |
-            android/**/*.gradle.kts
-            android/gradle/wrapper/gradle-wrapper.properties
-            pubspec.lock
+      # Caches dependencies and Gradle's build cache between releases.
+      - uses: gradle/actions/setup-gradle@3f5f9adaf7d9fecd50b5935e54106014257a94e6 # v6.4.0
       - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2
-        if: steps.plan.outputs.skip != 'true'
         with:
           flutter-version: '3.44.2'
           channel: stable
           cache: true
-      - name: Check code
-        if: steps.plan.outputs.skip != 'true'
-        run: |
-          flutter pub get --enforce-lockfile
-          flutter analyze
-          flutter test
-          python3 -m unittest discover -s tool -p 'test_*.py'
       - name: Configure Android signing
-        if: steps.plan.outputs.skip != 'true'
         env:
           KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
           AI_MUSIC_KEYALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
@@ -74,83 +98,119 @@ jobs:
             'platforms;android-36' 'build-tools;35.0.0' 'ndk;27.0.11718014'
           set -o pipefail
       - name: Build signed arm64 APK
-        if: steps.plan.outputs.skip != 'true'
         env:
           AI_MUSIC_STOREFILE: ${{ runner.temp }}/ai-music-release.jks
           AI_MUSIC_KEYALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
           AI_MUSIC_KEYPASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
           AI_MUSIC_STOREPASSWORD: ${{ secrets.ANDROID_STORE_PASSWORD }}
         run: |
+          flutter pub get --enforce-lockfile
           flutter build apk --release --no-pub --target-platform android-arm64 --split-per-abi \
-            --build-name "${{ steps.plan.outputs.name }}" --build-number "${{ steps.plan.outputs.number }}"
-      - name: Verify and publish to GitHub Releases
-        if: steps.plan.outputs.skip != 'true'
-        run: python3 tool/github_android_release.py publish
+            --build-name "${{ needs.plan.outputs.name }}" --build-number "${{ needs.plan.outputs.number }}"
+      - name: Verify signature and stage the APK
+        run: python3 tool/github_android_release.py stage
       - name: Remove temporary signing material
         if: always()
         run: rm -f "$RUNNER_TEMP/ai-music-release.jks"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: stage-android
+          path: build/release-stage/stage-android/
+          retention-days: 7
+          if-no-files-found: error
 
   macos:
-    name: macOS Universal release
-    needs: release
+    name: macOS Universal
+    needs: plan
+    if: needs.plan.outputs.skip != 'true' && needs.plan.outputs.macos == 'true'
     runs-on: macos-15
     timeout-minutes: 30
-    permissions:
-      contents: write
     env:
-      GH_TOKEN: ${{ github.token }}
+      RELEASE_NAME: ${{ needs.plan.outputs.name }}
+      RELEASE_CODE: ${{ needs.plan.outputs.code }}
+      RELEASE_TAG: ${{ needs.plan.outputs.tag }}
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           persist-credentials: false
-      - name: Reuse this commit's Android release version
-        id: plan
-        run: python3 tool/github_macos_release.py plan
       - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2
-        if: steps.plan.outputs.skip != 'true'
         with:
           flutter-version: '3.44.2'
           channel: stable
           cache: true
       - name: Build macOS Universal release
-        if: steps.plan.outputs.skip != 'true'
         run: |
           flutter pub get --enforce-lockfile
           flutter build macos --release --no-pub \
-            --build-name "${{ steps.plan.outputs.name }}" --build-number "${{ steps.plan.outputs.code }}"
-      - name: Verify and attach macOS to the same GitHub Release
-        if: steps.plan.outputs.skip != 'true'
-        run: python3 tool/github_macos_release.py publish
+            --build-name "${{ needs.plan.outputs.name }}" --build-number "${{ needs.plan.outputs.code }}"
+      - name: Verify and stage the Mac ZIP
+        run: python3 tool/github_macos_release.py stage
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: stage-macos
+          path: build/release-stage/stage-macos/
+          retention-days: 7
+          if-no-files-found: error
 
   ios:
     name: iOS resignable IPA
-    needs: release
+    needs: plan
+    if: needs.plan.outputs.skip != 'true' && needs.plan.outputs.ios == 'true'
     runs-on: xcode-27
     timeout-minutes: 40
-    permissions:
-      contents: write
     env:
-      GH_TOKEN: ${{ github.token }}
+      RELEASE_NAME: ${{ needs.plan.outputs.name }}
+      RELEASE_CODE: ${{ needs.plan.outputs.code }}
+      RELEASE_TAG: ${{ needs.plan.outputs.tag }}
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           persist-credentials: false
-      - name: Reuse this commit's release version
-        id: plan
-        run: python3 tool/github_ios_release.py plan
       - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2
-        if: steps.plan.outputs.skip != 'true'
         with:
           flutter-version: '3.44.2'
           channel: stable
           cache: true
       - name: Build unsigned iOS release
-        if: steps.plan.outputs.skip != 'true'
         run: |
           xcodebuild -version
           flutter pub get --enforce-lockfile
           flutter build ios --release --no-pub --no-codesign \
-            --build-name "${{ steps.plan.outputs.name }}" --build-number "${{ steps.plan.outputs.code }}"
-      - name: Package, verify and attach resignable IPA
-        if: steps.plan.outputs.skip != 'true'
-        run: python3 tool/github_ios_release.py publish
+            --build-name "${{ needs.plan.outputs.name }}" --build-number "${{ needs.plan.outputs.code }}"
+      - name: Verify and stage the IPA
+        run: python3 tool/github_ios_release.py stage
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: stage-ios
+          path: build/release-stage/stage-ios/
+          retention-days: 7
+          if-no-files-found: error
+
+  publish:
+    needs: [plan, android, macos, ios]
+    # Platforms not chosen are skipped, not failed; any failure stops here.
+    if: >-
+      !cancelled() && needs.plan.outputs.skip != 'true' &&
+      !contains(needs.*.result, 'failure') && !contains(needs.*.result, 'cancelled')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      RELEASE_NAME: ${{ needs.plan.outputs.name }}
+      RELEASE_CODE: ${{ needs.plan.outputs.code }}
+      RELEASE_TAG: ${{ needs.plan.outputs.tag }}
+      BUILD_ANDROID: ${{ needs.plan.outputs.android }}
+      BUILD_MACOS: ${{ needs.plan.outputs.macos }}
+      BUILD_IOS: ${{ needs.plan.outputs.ios }}
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: stage-*
+          path: build/release-stage
+      - name: Publish one verified release
+        run: python3 tool/github_release.py publish
