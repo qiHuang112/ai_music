@@ -8,6 +8,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/physics.dart';
 import 'package:flutter/scheduler.dart';
+import 'package:flutter/services.dart';
 
 import '../application/music_controller.dart';
 import 'app_localizations.dart';
@@ -380,9 +381,12 @@ class _ChromeSlot extends StatelessWidget {
   }
 }
 
-/// A glass capsule of four tabs, icon over label; the current one is lit in
-/// the accent and sits on a darker pill that glides between tabs.
-class _FloatingTabBar extends StatelessWidget {
+/// A glass capsule of four tabs, icon over label. The current one sits on a
+/// darker pill lit in the accent. Like the iOS tab bar, the pill can be
+/// picked up and slid: it lifts under the finger, follows it, lights each tab
+/// it crosses, and springs onto the nearest tab when let go. A tap glides it
+/// there on the same spring.
+class _FloatingTabBar extends StatefulWidget {
   const _FloatingTabBar({required this.tabs, required this.onSelected});
 
   final MobileTabs tabs;
@@ -402,8 +406,101 @@ class _FloatingTabBar extends StatelessWidget {
   ];
 
   @override
+  State<_FloatingTabBar> createState() => _FloatingTabBarState();
+}
+
+class _FloatingTabBarState extends State<_FloatingTabBar>
+    with TickerProviderStateMixin {
+  static const _inset = 4.0;
+
+  /// Where the pill is, in tabs: 0 is the first, 1.5 halfway to the third.
+  late final AnimationController _position = AnimationController.unbounded(
+    vsync: this,
+    value: widget.tabs.index.toDouble(),
+  );
+
+  /// 0 resting, 1 held under the finger.
+  late final AnimationController _lift = AnimationController.unbounded(
+    vsync: this,
+  );
+
+  bool _dragging = false;
+  int _hovered = -1;
+
+  int get _count => widget.tabs.labels.length;
+
+  @override
+  void didUpdateWidget(_FloatingTabBar oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (!_dragging && oldWidget.tabs.index != widget.tabs.index) {
+      _glideTo(widget.tabs.index, 0);
+    }
+  }
+
+  @override
+  void dispose() {
+    _position.dispose();
+    _lift.dispose();
+    super.dispose();
+  }
+
+  void _glideTo(int index, double velocity) => _position.animateWith(
+    SpringSimulation(_pillSpring, _position.value, index.toDouble(), velocity),
+  );
+
+  // A little give, so the pill lands rather than stops.
+  static const _pillSpring = SpringDescription(
+    mass: 1,
+    stiffness: 380,
+    damping: 26,
+  );
+
+  void _setLift(double target) => _lift.animateWith(
+    SpringSimulation(MusicMotion.snappy, _lift.value, target, 0),
+  );
+
+  double _tabAt(double dx, double width) =>
+      ((dx - _inset) / width - .5).clamp(0, _count - 1).toDouble();
+
+  void _follow(double dx, double width) {
+    _position.value = _tabAt(dx, width);
+    final over = _position.value.round();
+    if (over != _hovered) {
+      _hovered = over;
+      unawaited(HapticFeedback.selectionClick());
+    }
+  }
+
+  void _start(DragStartDetails details, double width) {
+    _dragging = true;
+    _hovered = _position.value.round();
+    _setLift(1);
+    // The pill comes to the finger rather than jumping there.
+    _position.animateWith(
+      SpringSimulation(
+        MusicMotion.snappy,
+        _position.value,
+        _tabAt(details.localPosition.dx, width),
+        0,
+      ),
+    );
+  }
+
+  void _end(double velocityPx, double width) {
+    if (!_dragging) return;
+    _dragging = false;
+    _setLift(0);
+    final velocity = velocityPx / width;
+    // A flick carries a little further, never past a neighbor.
+    final target = (_position.value + (velocity * .12).clamp(-.6, .6))
+        .round()
+        .clamp(0, _count - 1);
+    _glideTo(target, velocity);
+    if (target != widget.tabs.index) widget.onSelected(target);
+  }
+
+  @override
   Widget build(BuildContext context) {
-    const inset = 4.0;
     final dark = Theme.of(context).brightness == Brightness.dark;
     return Material(
       key: const ValueKey('floating-tab-bar'),
@@ -416,75 +513,126 @@ class _FloatingTabBar extends StatelessWidget {
             final colors = Theme.of(context).colorScheme;
             return LayoutBuilder(
               builder: (context, box) {
-                final count = tabs.labels.length;
-                final width = (box.maxWidth - inset * 2) / count;
-                return Stack(
-                  children: [
-                    AnimatedPositioned(
-                      duration: const Duration(milliseconds: 320),
-                      curve: MusicMotion.emphasized,
-                      left: inset + width * tabs.index,
-                      top: inset,
-                      bottom: inset,
-                      width: width,
-                      child: DecoratedBox(
-                        decoration: BoxDecoration(
-                          color: dark
-                              ? Colors.black.withValues(alpha: .26)
-                              : colors.onSurface.withValues(alpha: .08),
-                          borderRadius: BorderRadius.circular(
-                            ChromeMetrics.tabHeight / 2 - inset,
-                          ),
-                        ),
-                      ),
-                    ),
-                    Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: inset),
-                      child: Row(
+                final width = (box.maxWidth - _inset * 2) / _count;
+                return GestureDetector(
+                  behavior: HitTestBehavior.translucent,
+                  onHorizontalDragStart: (d) => _start(d, width),
+                  onHorizontalDragUpdate: (d) =>
+                      _follow(d.localPosition.dx, width),
+                  onHorizontalDragEnd: (d) =>
+                      _end(d.primaryVelocity ?? 0, width),
+                  onHorizontalDragCancel: () => _end(0, width),
+                  child: AnimatedBuilder(
+                    animation: Listenable.merge([_position, _lift]),
+                    builder: (context, _) {
+                      final at = _position.value;
+                      final lift = _lift.value;
+                      return Stack(
+                        clipBehavior: Clip.none,
                         children: [
-                          for (var i = 0; i < count; i++)
-                            Expanded(
-                              child: _TabButton(
-                                key: ValueKey('floating-tab-$i'),
-                                label: tabs.labels[i],
-                                icon: i == tabs.index
-                                    ? _selectedIcons[i % _selectedIcons.length]
-                                    : _icons[i % _icons.length],
-                                selected: i == tabs.index,
-                                color: i == tabs.index
-                                    ? colors.primary
-                                    : colors.onSurface,
-                                marker: switch (i) {
-                                  2 when tabs.downloading => SizedBox.square(
-                                    dimension: 11,
-                                    child: CircularProgressIndicator(
-                                      strokeWidth: 1.6,
-                                      color: colors.primary,
+                          Positioned(
+                            left: _inset + width * at,
+                            top: _inset,
+                            bottom: _inset,
+                            width: width,
+                            child: Transform.scale(
+                              // Held, it swells past the capsule a little.
+                              scaleX: 1 + .14 * lift,
+                              scaleY: 1 + .22 * lift,
+                              child: DecoratedBox(
+                                key: const ValueKey('floating-tab-pill'),
+                                decoration: BoxDecoration(
+                                  color: Color.lerp(
+                                    dark
+                                        ? Colors.black.withValues(alpha: .26)
+                                        : colors.onSurface.withValues(
+                                            alpha: .08,
+                                          ),
+                                    colors.surface.withValues(
+                                      alpha: dark ? .30 : .55,
+                                    ),
+                                    lift.clamp(0, 1),
+                                  ),
+                                  borderRadius: BorderRadius.circular(
+                                    ChromeMetrics.tabHeight / 2 - _inset,
+                                  ),
+                                  border: Border.all(
+                                    color: colors.onSurface.withValues(
+                                      alpha: .10 * lift.clamp(0, 1),
                                     ),
                                   ),
-                                  3 when tabs.updateBadge => Container(
-                                    width: 8,
-                                    height: 8,
-                                    decoration: BoxDecoration(
-                                      color: colors.error,
-                                      shape: BoxShape.circle,
-                                    ),
-                                  ),
-                                  _ => null,
-                                },
-                                onTap: () => onSelected(i),
+                                  boxShadow: [
+                                    if (lift > .01)
+                                      BoxShadow(
+                                        color: Colors.black.withValues(
+                                          alpha: .18 * lift.clamp(0, 1),
+                                        ),
+                                        blurRadius: 14,
+                                        offset: const Offset(0, 4),
+                                      ),
+                                  ],
+                                ),
                               ),
                             ),
+                          ),
+                          Padding(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: _inset,
+                            ),
+                            child: Row(
+                              children: [
+                                for (var i = 0; i < _count; i++)
+                                  Expanded(child: _tab(context, colors, i, at)),
+                              ],
+                            ),
+                          ),
                         ],
-                      ),
-                    ),
-                  ],
+                      );
+                    },
+                  ),
                 );
               },
             );
           },
         ),
       ),
+    );
+  }
+
+  Widget _tab(BuildContext context, ColorScheme colors, int i, double at) {
+    final tabs = widget.tabs;
+    // The accent follows the pill: full on the tab it covers, fading as it
+    // slides off, so the light travels with it.
+    final lit = (1 - (at - i).abs()).clamp(0.0, 1.0);
+    final selected = i == tabs.index;
+    return _TabButton(
+      key: ValueKey('floating-tab-$i'),
+      label: tabs.labels[i],
+      icon: lit > .5
+          ? _FloatingTabBar._selectedIcons[i %
+                _FloatingTabBar._selectedIcons.length]
+          : _FloatingTabBar._icons[i % _FloatingTabBar._icons.length],
+      selected: selected,
+      color: Color.lerp(colors.onSurface, colors.primary, lit)!,
+      marker: switch (i) {
+        2 when tabs.downloading => SizedBox.square(
+          dimension: 11,
+          child: CircularProgressIndicator(
+            strokeWidth: 1.6,
+            color: colors.primary,
+          ),
+        ),
+        3 when tabs.updateBadge => Container(
+          width: 8,
+          height: 8,
+          decoration: BoxDecoration(
+            color: colors.error,
+            shape: BoxShape.circle,
+          ),
+        ),
+        _ => null,
+      },
+      onTap: () => widget.onSelected(i),
     );
   }
 }
@@ -733,9 +881,7 @@ class _NowPlayingBarState extends State<_NowPlayingBar>
                                 key: const ValueKey(
                                   'floating-now-playing-toggle',
                                 ),
-                                icon: playing
-                                    ? AppIcons.pause
-                                    : AppIcons.play,
+                                icon: playing ? AppIcons.pause : AppIcons.play,
                                 size: 32,
                                 label: playing ? strings.pause : strings.play,
                                 onTap: () =>

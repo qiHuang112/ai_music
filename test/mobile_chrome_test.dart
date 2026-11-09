@@ -102,4 +102,78 @@ void main() {
       expect(tester.widget<AnimatedOpacity>(slotOpacity()).opacity, 0);
     },
   );
+
+  testWidgets('the tab pill follows a drag and springs onto the nearest tab', (
+    tester,
+  ) async {
+    final chrome = MobileChrome.instance..enabled = true;
+    final selected = <int>[];
+    chrome.onTabSelected = selected.add;
+    addTearDown(() {
+      chrome
+        ..enabled = false
+        ..onTabSelected = null;
+      chrome.tabs.value = null;
+    });
+    // The chrome is shared: forget what an earlier test published.
+    chrome.publishTabs(const MobileTabs(labels: [], index: 0, floating: false));
+    var index = 0;
+    late StateSetter rebuild;
+    chrome.onTabSelected = (i) {
+      selected.add(i);
+      rebuild(() => index = i);
+    };
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: MusicAppTheme.create(Brightness.light),
+        navigatorObservers: [chrome],
+        builder: (context, child) => Stack(
+          fit: StackFit.expand,
+          children: [child!, const MobileChromeOverlay()],
+        ),
+        home: StatefulBuilder(
+          builder: (context, setState) {
+            rebuild = setState;
+            chrome.publishTabs(
+              MobileTabs(labels: labels, index: index, floating: true),
+            );
+            return page('root');
+          },
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    Finder pill() => find.byKey(const ValueKey('floating-tab-pill'));
+    double centerOf(Finder f) => tester.getCenter(f).dx;
+    expect(
+      centerOf(pill()),
+      closeTo(centerOf(find.byKey(const ValueKey('floating-tab-0'))), 1),
+    );
+
+    // Picked up and carried: it lifts and follows the finger.
+    final start = tester.getCenter(
+      find.byKey(const ValueKey('floating-tab-0')),
+    );
+    final third = tester.getCenter(
+      find.byKey(const ValueKey('floating-tab-2')),
+    );
+    final gesture = await tester.startGesture(start);
+    await gesture.moveBy(const Offset(30, 0));
+    await tester.pump();
+    for (var step = 0; step < 10; step++) {
+      await gesture.moveBy(Offset((third.dx - start.dx - 30) / 10, 0));
+      await tester.pump(const Duration(milliseconds: 16));
+    }
+    await tester.pump(const Duration(milliseconds: 300));
+    expect(centerOf(pill()), closeTo(third.dx, 6));
+    expect(tester.getRect(pill()).height, greaterThan(54));
+    expect(selected, isEmpty);
+
+    // Let go: the tab is chosen and the pill settles on it at rest size.
+    await gesture.up();
+    await tester.pumpAndSettle();
+    expect(selected, [2]);
+    expect(centerOf(pill()), closeTo(third.dx, 1));
+    expect(tester.takeException(), isNull);
+  });
 }
