@@ -830,9 +830,22 @@ class _AmbientPainter extends CustomPainter {
   }
 }
 
-/// Seconds on the clock that moves the aurora, shared so that a bar painting
-/// its own piece of the sky stays in step with the sky behind it.
-final _skyClock = ValueNotifier<double>(0);
+/// The one clock that moves the aurora, shared so that every sky (behind
+/// the pages, in the player) and every bar painting its own piece of it show
+/// the same moment.
+///
+/// Each sky used to run a clock of its own and copy it here. With two skies
+/// up at once (the player arriving over a list) the copies alternated on
+/// every heartbeat between two times far apart, and the list's pinned header
+/// flickered through the player for as long as both were up.
+final _skyClock = AmbientClock(fps: 15, backdrop: true);
+final _skyWatchers = <Object>{};
+
+/// Runs the sky while anyone showing it wants motion.
+void _watchSky(Object watcher, bool watching) {
+  watching ? _skyWatchers.add(watcher) : _skyWatchers.remove(watcher);
+  _skyClock.run(_skyWatchers.isNotEmpty);
+}
 
 /// Draws the aurora's moving parts across [size]: stars that twinkle each at
 /// their own pace, and two sets of light curtains swaying slowly past each
@@ -908,32 +921,29 @@ class AuroraLights extends StatefulWidget {
 }
 
 class _AuroraLightsState extends State<AuroraLights> {
-  // The sky moves slowly; fifteen frames a second is plenty.
-  final _clock = AmbientClock(fps: 15, backdrop: true);
-
-  @override
-  void initState() {
-    super.initState();
-    _clock.addListener(() => _skyClock.value = _clock.value);
-  }
-
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
-    _clock.run(AmbientClock.wanted(context));
+    _watchSky(this, AmbientClock.wanted(context));
   }
 
   @override
   void dispose() {
-    _clock.dispose();
+    _watchSky(this, false);
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) => RepaintBoundary(
     child: CustomPaint(
-      painter: _AuroraPainter(_clock, widget.k),
+      painter: _AuroraPainter(_skyClock, widget.k),
       size: Size.infinite,
+      // The curtains add light (BlendMode.plus) to whatever lies under them.
+      // Once still for three frames the raster cache would draw them into a
+      // clear texture of their own and lay that on top, a darker result; at
+      // 90 Hz between steps of the sky the two alternated, a visible flicker
+      // (the player's first open, while its colours eased in). Never cache.
+      willChange: true,
     ),
   );
 }
@@ -983,7 +993,13 @@ class _NeonRainState extends State<NeonRain> {
 
   @override
   Widget build(BuildContext context) => RepaintBoundary(
-    child: CustomPaint(painter: _RainPainter(_clock), size: Size.infinite),
+    // Light added to what lies under it: never cached apart (see
+    // AuroraLights).
+    child: CustomPaint(
+      painter: _RainPainter(_clock),
+      size: Size.infinite,
+      willChange: true,
+    ),
   );
 }
 

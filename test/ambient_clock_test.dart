@@ -1,4 +1,6 @@
+import 'package:ai_music/src/presentation/design/ambient_backdrop.dart';
 import 'package:ai_music/src/presentation/design/ambient_clock.dart';
+import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
@@ -29,5 +31,25 @@ void main() {
     expect(sky.value, closeTo(skyBefore + 1 / 15, 1e-9));
     sky.dispose();
     record.dispose();
+  });
+
+  testWidgets('the aurora is never cached apart from what it lights', (
+    tester,
+  ) async {
+    // It adds light to what lies under it; cached into a clear texture of
+    // its own it came out darker, and alternated with the direct drawing.
+    await tester.pumpWidget(
+      const Directionality(
+        textDirection: TextDirection.ltr,
+        child: TickerMode(enabled: false, child: AuroraLights()),
+      ),
+    );
+    final paint = tester.widget<CustomPaint>(
+      find.descendant(
+        of: find.byType(AuroraLights),
+        matching: find.byType(CustomPaint),
+      ),
+    );
+    expect(paint.willChange, isTrue);
   });
 }
