@@ -28,6 +28,7 @@ import '../application/online_playlist_tasks.dart';
 import '../data/online_playlists.dart';
 import 'online_playlist_page.dart';
 import '../application/music_controller.dart';
+import '../application/transition_profiler.dart';
 import '../application/music_ui_message.dart';
 import '../data/music_playlists.dart';
 import '../data/playlist_usage_store.dart';
@@ -438,6 +439,8 @@ class _MusicHomePageState extends State<MusicHomePage>
       return;
     }
     if (tab == _tab) return;
+    const names = ['home', 'library', 'downloads', 'settings'];
+    TransitionProfiler.noteSwitch(names[_tab], names[tab], kind: 'tab');
     controller.performanceMonitor.setTab(
       const ['home', 'library', 'downloads', 'settings'][tab],
     );

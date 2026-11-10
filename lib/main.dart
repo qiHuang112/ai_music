@@ -13,6 +13,7 @@ import 'src/data/operation_log.dart';
 import 'src/data/playback_session_store.dart';
 
 import 'src/application/music_controller.dart';
+import 'src/application/transition_profiler.dart';
 import 'src/domain/app_brand.dart';
 import 'src/platform/platform_detection.dart';
 import 'src/presentation/app_localizations.dart';
@@ -79,6 +80,13 @@ Future<void> main() async {
   // Elsewhere on phones Flutter draws the same floating bars itself.
   MobileChrome.instance.enabled = MobileChrome.supported;
   MobileChrome.instance.attachPlayback(controller);
+  // Always on: a stutter someone felt must be findable in their logs.
+  TransitionProfiler(
+    context: () => {
+      'skin': controller.themePreference.storageValue,
+      'playing': audioHandler.playbackState.value.playing,
+    },
+  ).install();
   runApp(AiMusicApp(controller: controller));
 }
 
@@ -120,6 +128,7 @@ class AiMusicApp extends StatelessWidget {
           debugShowCheckedModeBanner: false,
           navigatorObservers: [
             controller.performanceMonitor.routes,
+            ?TransitionProfiler.instance,
             NativeShell.instance,
             MobileChrome.instance,
           ],

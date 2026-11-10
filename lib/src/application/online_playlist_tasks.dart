@@ -3,6 +3,7 @@ import 'package:flutter/foundation.dart';
 
 import '../data/music_playlists.dart';
 import '../data/music_resolver.dart';
+import 'transition_profiler.dart';
 import '../data/online_playlists.dart';
 import '../data/saved_online_track.dart';
 import 'library_use_case.dart';
@@ -19,6 +20,13 @@ typedef ImportPlaylistRows =
 
 /// Lives with the controller, so leaving a route does not cancel its work.
 class OnlinePlaylistTasks extends ChangeNotifier {
+  // App-wide: a notification mid-transition rebuilds the pages sliding.
+  @override
+  void notifyListeners() {
+    TransitionProfiler.noteNotify(this);
+    super.notifyListeners();
+  }
+
   OnlinePlaylistTasks({
     required this.matcher,
     required this.concurrency,

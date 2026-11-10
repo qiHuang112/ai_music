@@ -3,6 +3,7 @@ import 'package:flutter/foundation.dart'
 import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart' show Ticker, TickerCallback;
 
+import '../application/transition_profiler.dart';
 import 'mobile_chrome.dart';
 import 'native_shell.dart';
 
@@ -10,7 +11,7 @@ import 'native_shell.dart';
 /// same push, so the content slide runs at UIKit's pace (0.35 s) to stay in
 /// step; phones with the Flutter floating bars keep the same pace.
 /// Elsewhere it is an ordinary Material page route.
-class AppPageRoute<T> extends MaterialPageRoute<T> {
+class AppPageRoute<T> extends MaterialPageRoute<T> implements NamedPageRoute {
   AppPageRoute({
     required super.builder,
     super.settings,
@@ -80,6 +81,18 @@ class AppPageRoute<T> extends MaterialPageRoute<T> {
 
   static bool get _paced => NativeShell.active || MobileChrome.instance.enabled;
 
+  /// The page's widget type, for the transition log when the route has no
+  /// name.
+  @override
+  String? pageName;
+
+  @override
+  Widget buildContent(BuildContext context) {
+    final page = super.buildContent(context);
+    pageName ??= page.runtimeType.toString();
+    return page;
+  }
+
   /// On Android the slide's clock starts with the first frame that shows the
   /// page. A push lays the new page out in its first frame (offstage, for
   /// heroes) and that frame can take 30–45 ms on 77; counted from it, the
@@ -87,15 +100,21 @@ class AppPageRoute<T> extends MaterialPageRoute<T> {
   /// page jumped.
   @override
   AnimationController createAnimationController() {
-    if (defaultTargetPlatform != TargetPlatform.android) {
-      return super.createAnimationController();
-    }
-    return AnimationController(
-      duration: transitionDuration,
-      reverseDuration: reverseTransitionDuration,
-      debugLabel: debugLabel,
-      vsync: SlowFirstFrameVsync(navigator!),
-    );
+    final controller = defaultTargetPlatform != TargetPlatform.android
+        ? super.createAnimationController()
+        : AnimationController(
+            duration: transitionDuration,
+            reverseDuration: reverseTransitionDuration,
+            debugLabel: debugLabel,
+            vsync: SlowFirstFrameVsync(navigator!),
+          );
+    // Tells the transition log in which frame the slide ended, so what
+    // happens just after it is not counted as part of it.
+    return controller..addStatusListener((status) {
+      if (status.isCompleted || status.isDismissed) {
+        TransitionProfiler.noteSettled();
+      }
+    });
   }
 
   @override

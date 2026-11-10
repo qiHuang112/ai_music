@@ -1,5 +1,6 @@
 // ignore_for_file: experimental_member_use
 
+import 'transition_profiler.dart';
 import '../data/download_history_store.dart';
 import '../data/playlist_usage_store.dart';
 import '../data/provider_request_scheduler.dart';
@@ -104,6 +105,13 @@ class PlaylistDownloadProgress {
 /// 搜索、下载、播放、歌单和元数据的核心流程分别下沉到 use case。
 /// 这里保留 ChangeNotifier 状态，是为了让页面只依赖一个稳定入口。
 class MusicController extends ChangeNotifier with WidgetsBindingObserver {
+  // App-wide: a notification mid-transition rebuilds the pages sliding.
+  @override
+  void notifyListeners() {
+    TransitionProfiler.noteNotify(this);
+    super.notifyListeners();
+  }
+
   MusicController({
     required this.audioHandler,
     MusicResolver? resolver,

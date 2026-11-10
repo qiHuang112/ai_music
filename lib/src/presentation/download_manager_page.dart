@@ -1,3 +1,4 @@
+import '../application/transition_profiler.dart';
 import 'duo_scaffold.dart';
 import 'app_popup_menu.dart';
 import 'desktop_scope.dart';
@@ -190,6 +191,10 @@ class _DownloadManagerPageState extends State<DownloadManagerPage> {
                   AdaptiveBody(
                     child: TabBar(
                       onTap: (index) => setState(() {
+                        TransitionProfiler.noteSwitch(
+                          'downloads/${_section.name}',
+                          'downloads/${_DownloadSection.values[index].name}',
+                        );
                         _section = _DownloadSection.values[index];
                         FocusScope.of(context).unfocus();
                         if (_resetOffsets.contains(_section)) {

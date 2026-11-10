@@ -7,6 +7,7 @@ import 'package:crypto/crypto.dart';
 import '../data/listening_stats_store.dart';
 import '../data/operation_log.dart';
 import 'app_update_controller.dart';
+import 'transition_profiler.dart';
 
 class DiagnosticsClient {
   DiagnosticsClient({Uri? base, HttpClient Function()? clientFactory})
@@ -117,6 +118,7 @@ class DiagnosticsUploadController extends ChangeNotifier {
         throw StateError('局域网日志服务不可用');
       }
       captureListening();
+      TransitionProfiler.flushSummary();
       final statsJson = await stats.exportJsonFiles();
       final app = await version();
       final id = List.generate(
