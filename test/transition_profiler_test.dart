@@ -188,6 +188,33 @@ void main() {
     expect(janky().single['hints'], ['notify_after_slide']);
   });
 
+  test('coming back from the background is watched like a page change', () {
+    // The order Android goes away and comes back in.
+    for (final state in [
+      AppLifecycleState.inactive,
+      AppLifecycleState.hidden,
+      AppLifecycleState.paused,
+      AppLifecycleState.hidden,
+      AppLifecycleState.inactive,
+      AppLifecycleState.resumed,
+    ]) {
+      profiler.didChangeAppLifecycleState(state);
+    }
+    final timings = <FrameTiming>[];
+    for (var i = 0; i < 20; i++) {
+      frameNumber++;
+      profiler.recordFrame();
+      timings.add(_frame(frameNumber, i * 11.1, 4, i == 0 ? 78 : 6));
+    }
+    profiler
+      ..finish()
+      ..addTimings(timings);
+    final entry = janky().single;
+    expect(entry['kind'], 'resume');
+    expect(entry['from'], 'background');
+    expect(entry['firstRasterMs'], '78.0');
+  });
+
   test('every few changes a summary per page goes to the log', () {
     for (var i = 0; i < 3; i++) {
       transition('settings', [for (var i = 0; i < 30; i++) (4.0, 6.0)]);

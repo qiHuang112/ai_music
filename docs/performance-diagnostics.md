@@ -44,6 +44,17 @@
    `--tap` 用 adb 点击触发跳转，`--back` 按返回键（都不带则录 `--seconds` 秒手动操作）；注入前会确认前台是“来听”，否则不按任何键直接退出（别人正在用手机时不会误点到其他应用）；`--widgets` 打开控件级构建与布局计时（有额外开销，只看相对比例）。输出触摸后 450 ms（`--window`）内逐帧 UI／光栅（`*` 为超预算）、掉帧、着色器编译数，以及 UI 线程按名称汇总的自身耗时；完整时间线存 `build/frame_probe/`，可拖进 ui.perfetto.dev。冷启动后首次与再次各测一次，区分着色器编译与稳定开销。
 4. 修复后用同一方法对比数字，并看 ① 的日志是否不再出现该页面。
 
+## 回到前台
+
+`kind` 为 `resume` 的条目记录从后台回来后的头几帧。安卓 SurfaceView 的绘图表面在退后台时被系统销毁，引擎随之释放 GPU 资源；`toImageSync` 生成的图只存在于 GPU，回来时会按原绘制指令全部重画（时间线里是回前台首帧前的若干 `Rasterizer::MakeGpuImage`）。2026-11-10 背景纹理（极光帘幕等，带大面积模糊）因此让回前台首帧光栅约 75 ms；改为先 `toImageSync` 立即可用、再用 `Picture.toImage` 换成内存位图（`_AmbientPainter._keep`）后为 13–17 ms。新增大纹理照此处理。
+
+## 渲染引擎与表面（2026-11-10 在 77 上实测，勿重复试）
+
+- Impeller：Mi 10 Pro（Adreno 650，2021 年驱动）上 Vulkan 不可用（强制 `ImpellerBackend=vulkan` 启动即 `Check failed: android_context_->IsValid()` 中止），自动回退 OpenGL ES 后冷启动首开光栅超预算 11–15 帧（Skia 1–4）、返回首页 5–9 帧（Skia 0–3），整体更差；保持 `EnableImpeller=false`。有 Vulkan 可用的手机再评估，可考虑按设备选择。
+- TextureView（`RenderMode.texture`）：回前台首帧 75→15 ms，但每帧多一次安卓合成，SurfaceFlinger 实际上屏晚到帧在打开页面时 10–34（SurfaceView 1–6），不采用。
+- 退后台时 `onTrimMemory(UI_HIDDEN)` 会被 Flutter 当成内存不足而清图片缓存，但拦截它对回前台没有改善，未采用。
+- Flutter 时间线看不到安卓侧合成；比较表面或引擎时用 `adb shell dumpsys SurfaceFlinger --latency '<图层>'` 看实际上屏间隔（SurfaceView 模式的图层是 `SurfaceView[…](BLAST)`）。
+
 ## 不是掉帧而是“闪”
 
 跳转日志只看帧耗时，画面闪烁不会被它记下。闪烁用录屏定位：`adb shell screenrecord` 录下操作，`ffmpeg -vf signalstats` 逐帧取平均亮度，找到来回跳变的时段后，取跳变前后两帧做差分（`blend=all_mode=difference`）看是哪块区域。2026-11-10 已知两例：

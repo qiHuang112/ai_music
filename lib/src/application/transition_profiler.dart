@@ -331,7 +331,19 @@ class TransitionProfiler extends NavigatorObserver with WidgetsBindingObserver {
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.paused) _summarize('background');
+    // Coming back is a change too: the first frames redraw the whole page.
+    // On the way back the states run hidden, inactive, resumed.
+    if (state == AppLifecycleState.paused ||
+        state == AppLifecycleState.hidden) {
+      _wasHidden = true;
+    } else if (state == AppLifecycleState.resumed) {
+      if (_wasHidden) begin('resume', from: 'background', to: _top ?? 'app');
+      _wasHidden = false;
+    }
   }
+
+  bool _wasHidden = false;
+  String? _top;
 
   // Route changes.
 
@@ -356,6 +368,7 @@ class TransitionProfiler extends NavigatorObserver with WidgetsBindingObserver {
 
   @override
   void didPush(Route<dynamic> route, Route<dynamic>? previousRoute) {
+    _top = nameOf(route);
     // The first route is the app starting, not a change someone makes.
     if (previousRoute == null) return;
     begin(
@@ -368,6 +381,7 @@ class TransitionProfiler extends NavigatorObserver with WidgetsBindingObserver {
 
   @override
   void didPop(Route<dynamic> route, Route<dynamic>? previousRoute) {
+    _top = nameOf(previousRoute);
     if (_gesture) return;
     begin(
       route is PopupRoute ? 'popup_close' : 'pop',

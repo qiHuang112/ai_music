@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:math' as math;
 import 'dart:ui' as ui;
 
@@ -526,12 +527,37 @@ class _AmbientPainter extends CustomPainter {
   static const _textureScale = 2.0;
   static final _textures = <String, ui.Image>{};
 
+  /// Caches [picture] as [key]'s texture: drawn at once, then swapped for a
+  /// copy kept in memory.
+  ///
+  /// An image from `toImageSync` lives on the GPU only. Each time the app
+  /// went to the background Flutter freed it with the window's surface, and
+  /// coming back it redrew every one, blurs and all (four of them, 16 ms
+  /// each, then a 71 ms frame on 77) before the first frame could show. The
+  /// copy from `toImage` keeps its pixels, so coming back only uploads it.
+  static ui.Image _keep(String key, ui.Picture picture, int width, int height) {
+    if (_textures.length > 8) _textures.clear();
+    final image = _textures[key] = picture.toImageSync(width, height);
+    unawaited(
+      picture
+          .toImage(width, height)
+          .then((kept) {
+            if (identical(_textures[key], image)) {
+              _textures[key] = kept;
+            } else {
+              kept.dispose();
+            }
+          })
+          .whenComplete(picture.dispose),
+    );
+    return image;
+  }
+
   /// A skin's still texture, drawn once per size and strength.
   static ui.Image _texture(Size size, double k, MusicPalette palette) {
     final key = '${palette.skin.name} ${size.width}x${size.height} $k';
     final cached = _textures[key];
     if (cached != null) return cached;
-    if (_textures.length > 8) _textures.clear();
     final recorder = ui.PictureRecorder();
     final canvas = Canvas(recorder)..scale(_textureScale);
     switch (palette.skin) {
@@ -548,7 +574,9 @@ class _AmbientPainter extends CustomPainter {
       case MusicSkin.day || MusicSkin.night:
         break;
     }
-    return _textures[key] = recorder.endRecording().toImageSync(
+    return _keep(
+      key,
+      recorder.endRecording(),
       (size.width * _textureScale).ceil(),
       (size.height * _textureScale).ceil(),
     );
@@ -708,10 +736,11 @@ class _AmbientPainter extends CustomPainter {
     final key = 'curtains$variant ${size.width}x${size.height} $k';
     final cached = _textures[key];
     if (cached != null) return cached;
-    if (_textures.length > 8) _textures.clear();
     final recorder = ui.PictureRecorder();
     _curtains(Canvas(recorder)..scale(_textureScale), size, k, variant);
-    return _textures[key] = recorder.endRecording().toImageSync(
+    return _keep(
+      key,
+      recorder.endRecording(),
       (size.width * _textureScale).ceil(),
       (size.height * _textureScale).ceil(),
     );
