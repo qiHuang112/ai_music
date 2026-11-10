@@ -114,9 +114,9 @@ class PlanTest(unittest.TestCase):
 
 
 class PublishTest(unittest.TestCase):
-    def stage(self, project, platform, filename, data):
-        root = project / f'build/release-stage/stage-{platform}'
-        root.mkdir(parents=True)
+    def stage(self, project, platform, filename, data, lone=False):
+        root = project / ('build/release-stage' if lone else f'build/release-stage/stage-{platform}')
+        root.mkdir(parents=True, exist_ok=True)
         digest = hashlib.sha256(data).hexdigest()
         (root / filename).write_bytes(data)
         (root / (filename + '.sha256')).write_text(f'{digest}  {filename}\n')
@@ -208,6 +208,16 @@ class PublishTest(unittest.TestCase):
     def test_release_without_android_manifest_is_refused(self):
         with self.assertRaisesRegex(RuntimeError, 'No Android update manifest'):
             self.publish(previous_assets=())
+
+    def test_a_lone_artifact_unpacked_without_its_folder_is_found(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            project = Path(temporary)
+            self.stage(project, 'android', 'app.apk', b'apk bytes', lone=True)
+            with patch.object(release, 'STAGE', project / 'build/release-stage'):
+                manifest, paths = release.staged('android', TAG, 'c' * 40, 10275)
+            self.assertEqual(manifest['versionCode'], 10275)
+            self.assertEqual([path.name for path in paths],
+                             ['app.apk', 'app.apk.sha256', 'latest.json'])
 
     def test_tampered_stage_is_refused(self):
         with tempfile.TemporaryDirectory() as temporary:

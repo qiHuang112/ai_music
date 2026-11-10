@@ -176,6 +176,10 @@ def sha256(path):
 def staged(platform, tag, commit, code):
     """A platform job's verified package, re-checked after the artifact hop."""
     root = STAGE / f'stage-{platform}'
+    # download-artifact unpacks each match into its own folder, except a lone
+    # match, which lands in the target itself: a release of one platform.
+    if not root.is_dir() and (STAGE / MANIFESTS[platform]).is_file():
+        root = STAGE
     manifest = json.loads((root / MANIFESTS[platform]).read_text())
     package = root / Path(manifest['url']).name
     if (manifest.get('sourceCommit') != commit or manifest.get('versionCode') != code
