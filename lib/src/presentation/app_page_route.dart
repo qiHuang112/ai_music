@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart' show Ticker, TickerCallback;
 
 import '../application/transition_profiler.dart';
+import 'design/ambient_clock.dart';
 import 'mobile_chrome.dart';
 import 'native_shell.dart';
 
@@ -111,7 +112,15 @@ class AppPageRoute<T> extends MaterialPageRoute<T> implements NamedPageRoute {
     // Tells the transition log in which frame the slide ended, so what
     // happens just after it is not counted as part of it.
     return controller..addStatusListener((status) {
-      if (status.isCompleted || status.isDismissed) {
+      if (status.isAnimating) {
+        // The sky and lights behind the pages wait for the slide.
+        AmbientClock.quietBackdrops(
+          (status == AnimationStatus.forward
+                  ? transitionDuration
+                  : reverseTransitionDuration) +
+              const Duration(milliseconds: 100),
+        );
+      } else {
         TransitionProfiler.noteSettled();
       }
     });

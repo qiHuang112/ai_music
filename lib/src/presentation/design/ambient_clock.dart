@@ -15,7 +15,36 @@ import '../app_theme.dart';
 /// is in the background and when no clock is running.
 class AmbientClock extends ChangeNotifier implements ValueListenable<double> {
   /// [fps] is rounded to a whole division of [beat]: 30, 15, 10…
-  AmbientClock({int fps = beat}) : _every = (beat / fps).round().clamp(1, beat);
+  ///
+  /// A [backdrop] clock moves what lies behind the pages (sky, lights,
+  /// rain) and holds still while a page change animates; see
+  /// [quietBackdrops].
+  AmbientClock({int fps = beat, this.backdrop = false})
+    : _every = (beat / fps).round().clamp(1, beat);
+
+  final bool backdrop;
+
+  static final _uptime = Stopwatch()..start();
+  static Duration _quietUntil = Duration.zero;
+
+  /// Monotonic time, replaceable in tests.
+  @visibleForTesting
+  static Duration Function() now = () => _uptime.elapsed;
+
+  /// Holds the backdrop clocks for [length], from now.
+  ///
+  /// A step of the aurora repaints the whole sky and makes the glass bars
+  /// blur it again: about 14 ms of raster on 77. At rest that is fifteen
+  /// frames a second nobody misses, but during a page change at 90 Hz it
+  /// landed on every fifth or sixth frame, and each one came late. The sky
+  /// moves slowly, so a third of a second still is not seen; it resumes
+  /// where it stopped.
+  static void quietBackdrops(Duration length) {
+    final until = now() + length;
+    if (until > _quietUntil) _quietUntil = until;
+  }
+
+  static bool get _quiet => now() < _quietUntil;
 
   /// Heartbeats per second, and so the most the screen redraws for ambient
   /// motion.
@@ -95,8 +124,9 @@ class _Heart with WidgetsBindingObserver {
         Duration(microseconds: (1e6 / AmbientClock.beat).round()),
         (_) {
           // A clock may stop itself, or another, while being stepped.
+          final quiet = AmbientClock._quiet;
           for (final clock in _clocks.toList()) {
-            if (clock._running) clock._beat();
+            if (clock._running && !(quiet && clock.backdrop)) clock._beat();
           }
         },
       );

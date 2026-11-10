@@ -29,7 +29,7 @@
 | `notify_after_slide` | 滑入刚结束时一次通知让整应用重建一大帧 | 同上的 `recordPlaylistUsage`（41 ms）。不在过场内，但用户立刻滑动会顿；缩小通知范围（只通知用到的监听者） |
 | `ui_mid_slide` | 过场中 UI 超预算但无全应用通知 | 页面自己重复重建：如 `StreamBuilder` 每次 build 新建流＋subject 重放（已用 `DistinctStreamBuilder`）；Tab 切换时正文尺寸变化导致 `IndexedStack` 全部重排、根 `setState` 重建全部 Tab（已修）；图片解码 |
 | `raster_first_open` | 本进程首次打开且光栅很重 | Skia 现场编译着色器（77 因 Adreno 驱动关闭了 Impeller）。常用页面可在启动空闲时预画（`PlayerWarmUp`）；注意过场本身的效果（滑入边缘阴影、半透明图层）静态预画覆盖不到 |
-| `raster_heavy` | 非首次，光栅持续超预算 | 整页半透明（`FadeTransition` 触发 saveLayer）叠在复杂背景/模糊上。自带不透明背景的页面（播放页、歌词）已不淡入、下层不淡出（`AppPageRoute.coversBackdrop`）。返回首页仍有此类（2026-11-10 日志：`pop … → home` 光栅 14–19 ms，待处理） |
+| `raster_heavy` | 非首次，光栅持续超预算 | ① 整页半透明（`FadeTransition` 触发 saveLayer）叠在复杂背景/模糊上：自带不透明背景的页面（播放页、歌词）已不淡入、下层不淡出（`AppPageRoute.coversBackdrop`）。② 超时帧每隔约 66 ms 出现一次＝撞上背景 15 fps 刷新（极光一步要重画整片天空并让玻璃栏重新模糊，约 14 ms）：背景类 `AmbientClock(backdrop: true)` 在页面过场和 Tab 切换期间暂停（`AmbientClock.quietBackdrops`），2026-11-10 返回首页因此每次掉 3–6 帧。新增背景动画用 `backdrop: true` |
 
 ## 操作
 
@@ -41,7 +41,7 @@
    dart run tool/frame_probe.dart --device 192.168.31.78:38015 --tap 586,1180 --widgets
    ```
 
-   `--tap` 用 adb 点击触发跳转（不带则录 `--seconds` 秒手动操作）；`--widgets` 打开控件级构建与布局计时（有额外开销，只看相对比例）。输出触摸后 450 ms（`--window`）内逐帧 UI／光栅（`*` 为超预算）、掉帧、着色器编译数，以及 UI 线程按名称汇总的自身耗时；完整时间线存 `build/frame_probe/`，可拖进 ui.perfetto.dev。冷启动后首次与再次各测一次，区分着色器编译与稳定开销。
+   `--tap` 用 adb 点击触发跳转，`--back` 按返回键（都不带则录 `--seconds` 秒手动操作）；注入前会确认前台是“来听”，否则不按任何键直接退出（别人正在用手机时不会误点到其他应用）；`--widgets` 打开控件级构建与布局计时（有额外开销，只看相对比例）。输出触摸后 450 ms（`--window`）内逐帧 UI／光栅（`*` 为超预算）、掉帧、着色器编译数，以及 UI 线程按名称汇总的自身耗时；完整时间线存 `build/frame_probe/`，可拖进 ui.perfetto.dev。冷启动后首次与再次各测一次，区分着色器编译与稳定开销。
 4. 修复后用同一方法对比数字，并看 ① 的日志是否不再出现该页面。
 
 ## 约定

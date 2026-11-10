@@ -58,6 +58,7 @@ import 'file_sharing.dart';
 import 'song_actions.dart';
 import 'design/adaptive_layout.dart';
 import 'design/app_icons.dart';
+import 'design/ambient_clock.dart';
 
 class MusicHomePage extends StatefulWidget {
   const MusicHomePage({
@@ -441,6 +442,8 @@ class _MusicHomePageState extends State<MusicHomePage>
     if (tab == _tab) return;
     const names = ['home', 'library', 'downloads', 'settings'];
     TransitionProfiler.noteSwitch(names[_tab], names[tab], kind: 'tab');
+    // The pill slides and the new tab draws: the sky behind waits.
+    AmbientClock.quietBackdrops(const Duration(milliseconds: 400));
     controller.performanceMonitor.setTab(
       const ['home', 'library', 'downloads', 'settings'][tab],
     );

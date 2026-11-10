@@ -286,7 +286,7 @@ class _Drift extends StatefulWidget {
 
 class _DriftState extends State<_Drift> {
   // The light wanders slowly; fifteen frames a second is plenty.
-  final _clock = AmbientClock(fps: 15);
+  final _clock = AmbientClock(fps: 15, backdrop: true);
   late final _phase = _Loop(_clock, 32);
 
   Animation<double>? _arrival;
@@ -909,7 +909,7 @@ class AuroraLights extends StatefulWidget {
 
 class _AuroraLightsState extends State<AuroraLights> {
   // The sky moves slowly; fifteen frames a second is plenty.
-  final _clock = AmbientClock(fps: 15);
+  final _clock = AmbientClock(fps: 15, backdrop: true);
 
   @override
   void initState() {
@@ -967,7 +967,7 @@ class NeonRain extends StatefulWidget {
 }
 
 class _NeonRainState extends State<NeonRain> {
-  final _clock = AmbientClock(fps: 30);
+  final _clock = AmbientClock(fps: 30, backdrop: true);
 
   @override
   void didChangeDependencies() {

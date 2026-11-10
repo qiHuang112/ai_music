@@ -4,6 +4,7 @@
 //
 //   dart run tool/frame_probe.dart --device 192.168.31.78:38015 \
 //       --tap 500,1165 [--widgets] [--seconds 1.5]
+//   dart run tool/frame_probe.dart --device ... --back   # the back key
 //
 // The app must be a profile build (flutter build apk --profile) already
 // running on the device. Without --tap it records for --seconds while you
@@ -44,7 +45,20 @@ Future<void> main(List<String> args) async {
     if (options.widgets) await detail(true);
     await service.setVMTimelineFlags(['Embedder', 'Dart', 'GC']);
     await service.clearVMTimeline();
-    if (options.tap != null) {
+    if (options.back || options.tap != null) {
+      // Never press keys or tap in whatever else is in front.
+      final focus = await _adb(options.device, ['shell', 'dumpsys', 'window']);
+      final front = RegExp(r'mCurrentFocus=\S+ \S+ (\S+)').firstMatch(focus);
+      if (!(front?.group(1) ?? '').startsWith('com.qi.ai.music')) {
+        throw StateError(
+          'The app is not in front (${front?.group(1) ?? 'unknown'}); '
+          'nothing was pressed.',
+        );
+      }
+    }
+    if (options.back) {
+      await _adb(options.device, ['shell', 'input', 'keyevent', '4']);
+    } else if (options.tap != null) {
       await _adb(options.device, ['shell', 'input', 'tap', ...options.tap!]);
     } else {
       stdout.writeln('Recording ${options.seconds} s: make the change now.');
@@ -73,13 +87,14 @@ Future<void> main(List<String> args) async {
 
 const _usage = '''
 dart run tool/frame_probe.dart --device <adb serial or host:port>
-    [--tap x,y] [--seconds 1.5] [--widgets] [--hz 90] [--window 450]
+    [--tap x,y | --back] [--seconds 1.5] [--widgets] [--hz 90] [--window 450]
     [--out build/frame_probe]''';
 
 class _Options {
   _Options(
     this.device,
     this.tap,
+    this.back,
     this.seconds,
     this.widgets,
     this.hz,
@@ -89,6 +104,7 @@ class _Options {
 
   final String device;
   final List<String>? tap;
+  final bool back;
   final double seconds, hz;
   final bool widgets;
   final String out;
@@ -97,6 +113,7 @@ class _Options {
   static _Options? parse(List<String> args) {
     String? device, out;
     List<String>? tap;
+    var back = false;
     var seconds = 1.5, hz = 90.0;
     var window = 450;
     var widgets = false;
@@ -107,6 +124,8 @@ class _Options {
           device = next();
         case '--tap':
           tap = next().split(',');
+        case '--back':
+          back = true;
         case '--seconds':
           seconds = double.tryParse(next()) ?? seconds;
         case '--hz':
@@ -125,6 +144,7 @@ class _Options {
     return _Options(
       device,
       tap,
+      back,
       seconds,
       widgets,
       hz,
@@ -212,14 +232,21 @@ String _report(List<Map<String, dynamic>> events, double hz, Duration window) {
   final threads = _spans(events);
   final all = [for (final list in threads.values) ...list]
     ..sort((a, b) => a.start.compareTo(b.start));
-  // The change starts at the last touch (a tap's lift); the frames that
+  // The change starts at the last touch (a tap's lift) or key; the frames that
   // count are the ones in the window after it.
   final touches = all.where(
     (s) => s.name == 'Engine::DispatchPointerDataPacket',
   );
   final frames = all.where((s) => s.name == 'Animator::BeginFrame').toList();
   if (frames.isEmpty) return 'No frames drawn while recording.';
-  final t0 = touches.lastOrNull?.start ?? frames.first.start;
+  // A key (back) has no touch; it arrives as a platform message.
+  final keys = all.where(
+    (s) => s.name == 'RuntimeController::DispatchPlatformMessage',
+  );
+  final t0 =
+      touches.lastOrNull?.start ??
+      keys.firstOrNull?.start ??
+      frames.first.start;
   final end = t0 + window.inMicroseconds;
   bool inside(_Span s) => s.start >= t0 && s.start <= end;
   final ui = frames.where(inside).toList();
