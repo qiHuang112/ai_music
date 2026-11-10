@@ -59,7 +59,9 @@ class _InitialSongScrollState extends State<InitialSongScroll> {
     if (_destination == null ||
         _cancelled ||
         _animationQueued ||
-        (_entrance != null && !_entrance!.isCompleted)) {
+        (_entrance != null && !_entrance!.isCompleted) ||
+        // Offstage (the push's first frame) the entrance reads as complete.
+        ModalRoute.of(context)?.offstage == true) {
       return;
     }
     _animationQueued = true;

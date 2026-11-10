@@ -15,6 +15,7 @@ import 'mobile_chrome.dart';
 import 'playback_queue.dart';
 import 'player_page.dart';
 import 'date_groups.dart';
+import 'distinct_stream_builder.dart';
 import 'dart:async';
 
 import 'package:audio_service/audio_service.dart';
@@ -89,6 +90,16 @@ class _MusicHomePageState extends State<MusicHomePage>
   // Tabs are built on first visit: opening the app must not start the
   // download and settings pages' own loading.
   final _visitedTabs = {0};
+
+  // These tabs listen for what they show themselves. Kept as the same
+  // widgets, they are left alone when switching tabs rebuilds this page;
+  // rebuilding all of them made every switch a 30–45 ms frame on 77.
+  late final Widget _libraryTab = _LibraryPage(controller: controller);
+  late final Widget _downloadsTab = DownloadManagerPage(
+    controller: controller,
+    onOpenPlaylist: _openMatchedPlaylist,
+  );
+  late final Widget _settingsTab = SettingsPage(controller: controller);
   bool _playlistMode = false;
   bool _showPlaylistResults = false;
   bool _historyEditMode = false;
@@ -297,6 +308,10 @@ class _MusicHomePageState extends State<MusicHomePage>
             // navigator and stay put across pushes, so the page draws none.
             final chrome = MobileChrome.instance;
             final floatingChrome = chrome.enabled && !sideNavigation;
+            final homeBar = AppBar(
+              title: Text(strings.homeLibraryTitle),
+              titleTextStyle: MusicType.masthead(context, size: 30),
+            );
             if (chrome.enabled) {
               chrome.publishTabs(
                 MobileTabs(
@@ -343,28 +358,40 @@ class _MusicHomePageState extends State<MusicHomePage>
                     ),
                 ],
                 extendBody: true,
-                appBar: _tab != 0
-                    ? null
-                    : AppBar(
-                        title: Text(strings.homeLibraryTitle),
-                        titleTextStyle: MusicType.masthead(context, size: 30),
-                      ),
+                // Under the floating bars the home title sits in the home tab
+                // itself, so every tab gets the same body: a bar that comes
+                // and goes resizes the body, and the stack then lays out
+                // every visited tab again on each switch.
+                appBar: _tab != 0 || floatingChrome ? null : homeBar,
                 body: IndexedStack(
                   index: _tab,
                   children: [
                     for (final (i, tab) in [
-                      _homeTab(strings),
+                      if (floatingChrome)
+                        Column(
+                          children: [
+                            homeBar,
+                            Expanded(
+                              child: MediaQuery.removePadding(
+                                context: context,
+                                removeTop: true,
+                                child: _homeTab(strings),
+                              ),
+                            ),
+                          ],
+                        )
+                      else
+                        _homeTab(strings),
                       _visitedTabs.contains(1)
-                          ? _LibraryPage(controller: controller)
+                          ? _libraryTab
                           : const SizedBox.shrink(),
                       _visitedTabs.contains(2)
-                          ? DownloadManagerPage(
-                              controller: controller,
-                              onOpenPlaylist: _openMatchedPlaylist,
-                            )
+                          ? _downloadsTab
                           : const SizedBox.shrink(),
-                      _tab == 3
-                          ? SettingsPage(controller: controller)
+                      // Android keeps settings alive like the other tabs;
+                      // elsewhere it is still made anew on each visit.
+                      _tab == 3 || (chrome.enabled && _visitedTabs.contains(3))
+                          ? _settingsTab
                           : const SizedBox.shrink(),
                     ].indexed)
                       TickerMode(enabled: i == _tab, child: tab),
@@ -3460,16 +3487,13 @@ class _TrackList extends StatelessWidget {
   final void Function(int oldIndex, int newIndex) onReorder;
 
   @override
-  Widget build(BuildContext context) => StreamBuilder<MediaItem?>(
-    stream: controller.mediaItemStream,
-    initialData: controller.audioHandler.mediaItem.valueOrNull,
-    builder: (context, snapshot) => StreamBuilder<bool>(
-      stream: controller.playbackStateStream
-          .map((state) => state.playing)
-          .distinct(),
+  Widget build(BuildContext context) => DistinctStreamBuilder<String?>(
+    stream: controller.mediaItemStream.map((item) => item?.id),
+    initialData: controller.audioHandler.mediaItem.valueOrNull?.id,
+    builder: (context, activeId) => DistinctStreamBuilder<bool>(
+      stream: controller.playbackStateStream.map((state) => state.playing),
       initialData: controller.audioHandler.playbackState.value.playing,
-      builder: (context, playback) =>
-          _buildList(context, snapshot.data?.id, playback.data == true),
+      builder: (context, playing) => _buildList(context, activeId, playing),
     ),
   );
 

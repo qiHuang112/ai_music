@@ -90,10 +90,15 @@ class DiagnosticsUploadController extends ChangeNotifier {
   bool available = false, uploading = false, _disposed = false;
   String? error, reportId;
   int _probeRevision = 0;
-  Future<void> probe() async {
+
+  /// Looks for the LAN log service. [keep] leaves the current answer showing
+  /// until the new one is in, for a page that is already on screen.
+  Future<void> probe({bool keep = false}) async {
     final revision = ++_probeRevision;
-    available = false;
-    if (!_disposed) notifyListeners();
+    if (!keep) {
+      available = false;
+      if (!_disposed) notifyListeners();
+    }
     final found = await client.probe();
     if (_disposed || revision != _probeRevision) return;
     available = found;

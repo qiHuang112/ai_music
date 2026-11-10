@@ -91,6 +91,37 @@ void main() {
       await dir.delete(recursive: true);
     }
   });
+  test('probing again on screen keeps the row until the answer', () async {
+    final dir = await Directory.systemTemp.createTemp('music-report');
+    final stats = ListeningStatsStore.memory();
+    final client = _Client()..found = true;
+    final operations = OperationLog(rootProvider: () async => dir);
+    final upload = DiagnosticsUploadController(
+      stats: stats,
+      captureListening: () {},
+      version: () async => null,
+      client: client,
+      operations: operations,
+    );
+    try {
+      await upload.probe();
+      expect(upload.available, true);
+      final seen = <bool>[];
+      upload.addListener(() => seen.add(upload.available));
+      client.found = false;
+      final again = upload.probe(keep: true);
+      // Still shown while the service is looked for again.
+      expect(upload.available, true);
+      await again;
+      expect(upload.available, false);
+      expect(seen, [false]);
+    } finally {
+      upload.dispose();
+      stats.dispose();
+      await operations.flush();
+      await dir.delete(recursive: true);
+    }
+  });
   test(
     'real client requires correct service and persisted payload hash',
     () async {

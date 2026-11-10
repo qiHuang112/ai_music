@@ -1174,6 +1174,7 @@ Future<void> openLyricsPage(BuildContext context, MusicController controller) =>
     Navigator.of(context).push<void>(
       AppPageRoute(
         settings: const RouteSettings(name: 'lyrics'),
+        coversBackdrop: true,
         builder: (_) => _LyricsDetailPage(controller: controller),
       ),
     );
@@ -1675,6 +1676,7 @@ class _LyricsPreview extends StatelessWidget {
       borderRadius: BorderRadius.circular(MusicUi.radius),
       onTap: () => Navigator.of(context).push<void>(
         AppPageRoute(
+          coversBackdrop: true,
           builder: (context) => _LyricsDetailPage(controller: controller),
         ),
       ),

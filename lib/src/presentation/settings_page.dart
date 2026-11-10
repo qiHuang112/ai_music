@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'duo_scaffold.dart';
 import 'app_page_route.dart';
 import 'app_theme.dart';
@@ -922,6 +924,25 @@ class _DiagnosticsUploadSettingState extends State<DiagnosticsUploadSetting> {
   void initState() {
     super.initState();
     widget.controller.probe();
+  }
+
+  // The settings tab stays alive behind the others; look for the service
+  // again each time it comes back to the front.
+  bool _front = true;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    // flutter_ohos does not have TickerMode.valuesOf yet.
+    // ignore: deprecated_member_use
+    final front = TickerMode.of(context);
+    if (front && !_front) {
+      // Probing notifies, and this runs while the tab is being built.
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) unawaited(widget.controller.probe(keep: true));
+      });
+    }
+    _front = front;
   }
 
   @override

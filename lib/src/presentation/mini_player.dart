@@ -270,6 +270,7 @@ Future<void> openPlayerPage(BuildContext context, MusicController controller) {
     return navigator.push<void>(
       AppPageRoute(
         settings: const RouteSettings(name: 'player'),
+        coversBackdrop: true,
         builder: (_) => PlayerPage(controller: controller),
       ),
     );

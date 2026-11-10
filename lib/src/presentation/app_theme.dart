@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../data/music_settings.dart';
+import 'app_page_route.dart';
 import 'design/ambient_backdrop.dart';
 import 'design/app_icons.dart';
 
@@ -404,17 +405,17 @@ class _BackdropTransitions extends PageTransitionsBuilder {
     Animation<double> animation,
     Animation<double> secondaryAnimation,
     Widget child,
-  ) => FadeTransition(
-    // Animate opacity outside the platform's snapshot. Capturing the fades
-    // inside Zoom freezes a partially visible page until the route settles.
-    opacity: animation.drive(CurveTween(curve: const Interval(.15, .75))),
-    child: FadeTransition(
-      opacity: secondaryAnimation.drive(
-        Tween<double>(
-          begin: 1,
-          end: 0,
-        ).chain(CurveTween(curve: const Interval(0, .45))),
-      ),
+  ) {
+    final page = FadeTransition(
+      // Kept in the tree either way, so the page below keeps its state.
+      opacity: switch (route) {
+        // The page arriving over this one is opaque: no need to fade.
+        final AppPageRoute<T> paged when !paged.fadesOut =>
+          paged.opacityUnderOpaque(secondaryAnimation),
+        _ => secondaryAnimation.drive(
+          Tween<double>(begin: 1, end: 0).chain(CurveTween(curve: pageFadeOut)),
+        ),
+      },
       child: platform.buildTransitions(
         route,
         context,
@@ -422,8 +423,18 @@ class _BackdropTransitions extends PageTransitionsBuilder {
         secondaryAnimation,
         BackdropScope(child: child),
       ),
-    ),
-  );
+    );
+    return FadeTransition(
+      // Animate opacity outside the platform's snapshot. Capturing the fades
+      // inside Zoom freezes a partially visible page until the route settles.
+      opacity: switch (route) {
+        final AppPageRoute<T> paged when !paged.fadesIn =>
+          paged.opacityWithoutFadeIn(animation),
+        _ => animation.drive(CurveTween(curve: pageFadeIn)),
+      },
+      child: page,
+    );
+  }
 }
 
 class _DesktopBackdropTransitions extends PageTransitionsBuilder {

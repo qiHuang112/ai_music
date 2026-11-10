@@ -1141,6 +1141,58 @@ void main() {
     }
   });
 
+  testWidgets('switching tabs under the floating bars keeps the body size '
+      'and the visited tabs', (tester) async {
+    tester.view.physicalSize = const Size(400, 860);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    final handler = _WidgetAudioHandler();
+    final controller = _QueueUiController(handler);
+    final chrome = MobileChrome.instance..enabled = true;
+    addTearDown(() {
+      chrome.enabled = false;
+      chrome.tabs.value = null;
+    });
+    try {
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: MusicAppTheme.create(Brightness.dark),
+          navigatorObservers: [chrome],
+          builder: (context, child) => AppStringsScope(
+            language: controller.language,
+            child: Stack(
+              fit: StackFit.expand,
+              children: [child!, const MobileChromeOverlay()],
+            ),
+          ),
+          home: MusicHomePage(
+            controller: controller,
+            searchHistoryStore: _MemorySearchHistoryStore(),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      Size body() => tester.getSize(find.byType(IndexedStack).first);
+      final home = body();
+      final sizes = <Size>[];
+      for (final tab in [1, 2, 3, 0]) {
+        chrome.onTabSelected!(tab);
+        await tester.pumpAndSettle();
+        sizes.add(body());
+      }
+      // The home title lives inside the home tab, so no tab change resizes
+      // the stack (which would lay out every visited tab again).
+      expect(sizes, everyElement(home));
+      // Settings stays alive behind the others, like the other tabs.
+      expect(find.byType(SettingsPage, skipOffstage: false), findsOneWidget);
+    } finally {
+      await tester.pumpWidget(const SizedBox.shrink());
+      controller.dispose();
+      unawaited(handler.dispose());
+    }
+  });
+
   testWidgets('the warm-up draws player and playlist once without errors', (
     tester,
   ) async {
