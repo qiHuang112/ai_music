@@ -72,26 +72,33 @@ class DuoScaffold extends StatelessWidget {
     return ListenableBuilder(
       listenable: chrome.layout,
       builder: (context, _) {
-        if (!chrome.floating) return _buildPage(context);
+        final floating = chrome.floating;
         final data = MediaQuery.of(context);
-        if (extendBodyBehindAppBar || data.viewInsets.bottom > 0) {
-          return _buildPage(context, floating: true);
-        }
-        final root = route == null || route.isFirst;
-        final bottom = ChromeMetrics.inset(
-          data.viewPadding,
-          bar:
-              root &&
-              chrome.nowPlaying.value != null &&
-              (chrome.tabs.value?.visible ?? true),
-        );
-        return MediaQuery(
-          data: data.copyWith(
+        var adjusted = data;
+        // With the keyboard up the bars step aside and the system inset
+        // stands. Only the inset changes here, never the widgets: rebuilding
+        // the page as the keyboard rose dropped the focused text field, and
+        // the keyboard went straight back down.
+        if (floating &&
+            !extendBodyBehindAppBar &&
+            data.viewInsets.bottom == 0) {
+          final root = route == null || route.isFirst;
+          final bottom = ChromeMetrics.inset(
+            data.viewPadding,
+            bar:
+                root &&
+                chrome.nowPlaying.value != null &&
+                (chrome.tabs.value?.visible ?? true),
+          );
+          adjusted = data.copyWith(
             padding: data.padding.copyWith(bottom: bottom),
             viewPadding: data.viewPadding.copyWith(bottom: bottom),
-          ),
+          );
+        }
+        return MediaQuery(
+          data: adjusted,
           child: Builder(
-            builder: (context) => _buildPage(context, floating: true),
+            builder: (context) => _buildPage(context, floating: floating),
           ),
         );
       },

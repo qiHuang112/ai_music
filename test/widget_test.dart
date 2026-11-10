@@ -33,6 +33,7 @@ import 'package:ai_music/src/presentation/settings_page.dart';
 import 'package:ai_music/src/domain/music_models.dart';
 import 'package:ai_music/src/presentation/app_localizations.dart';
 import 'package:ai_music/src/presentation/music_home_page.dart';
+import 'package:ai_music/src/presentation/mobile_chrome.dart';
 import 'package:ai_music/src/presentation/player_page.dart';
 import 'package:ai_music/src/presentation/player_warm_up.dart';
 import 'package:ai_music/src/playback/music_audio_handler.dart';
@@ -1066,6 +1067,79 @@ void main() {
       }
     },
   );
+
+  testWidgets('home search field survives the keyboard opening', (
+    tester,
+  ) async {
+    // A phone, where the floating bars are drawn over the pages.
+    tester.view.physicalSize = const Size(400, 860);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    final handler = _WidgetAudioHandler();
+    final controller = _QueueUiController(handler);
+    final chrome = MobileChrome.instance..enabled = true;
+    addTearDown(() {
+      chrome.enabled = false;
+      chrome.tabs.value = null;
+    });
+    try {
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: MusicAppTheme.create(Brightness.dark),
+          navigatorObservers: [chrome],
+          builder: (context, child) => AppStringsScope(
+            language: controller.language,
+            child: Stack(
+              fit: StackFit.expand,
+              children: [
+                PlayerWarmUp(controller: controller, delay: Duration.zero),
+                const ColoredBox(color: Colors.black),
+                child!,
+                const MobileChromeOverlay(),
+              ],
+            ),
+          ),
+          home: MusicHomePage(
+            controller: controller,
+            searchHistoryStore: _MemorySearchHistoryStore(),
+          ),
+        ),
+      );
+      handler.emit(
+        const MediaItem(id: 'one', title: 'First', artist: 'Artist'),
+      );
+      await tester.pump(const Duration(milliseconds: 1));
+      await tester.pumpAndSettle();
+      expect(chrome.floating, isTrue);
+      await tester.tap(find.byType(TextField).first);
+      await tester.pump();
+      expect(tester.testTextInput.isVisible, isTrue);
+      final field = tester.state(find.byType(EditableText).first);
+      // The keyboard slides up over a few frames.
+      for (final inset in [80.0, 200.0, 320.0]) {
+        tester.view.viewInsets = FakeViewPadding(bottom: inset);
+        await tester.pump(const Duration(milliseconds: 16));
+      }
+      await tester.pumpAndSettle();
+      // The same field, not a rebuilt one: on Android a new input connection
+      // as the keyboard rose sent the keyboard straight back down.
+      expect(tester.state(find.byType(EditableText).first), same(field));
+      expect(tester.testTextInput.isVisible, isTrue);
+      expect(
+        tester
+            .widget<TextField>(find.byType(TextField).first)
+            .focusNode
+            ?.hasFocus,
+        isTrue,
+      );
+    } finally {
+      tester.view.resetViewInsets();
+      await tester.pumpWidget(const SizedBox.shrink());
+      controller.dispose();
+      unawaited(handler.dispose());
+    }
+  });
 
   testWidgets('the warm-up draws player and playlist once without errors', (
     tester,
